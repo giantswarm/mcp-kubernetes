@@ -280,4 +280,4 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 	})
 
 	return nil
-} 
+}

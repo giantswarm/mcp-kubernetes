@@ -15,19 +15,19 @@ import (
 // handleGetResource handles kubectl get operations
 func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	resourceType, ok := args["resourceType"].(string)
 	if !ok || resourceType == "" {
 		return mcp.NewToolResultError("resourceType is required"), nil
 	}
-	
+
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return mcp.NewToolResultError("name is required"), nil
@@ -51,14 +51,14 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 // handleListResources handles kubectl list operations
 func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	resourceType, ok := args["resourceType"].(string)
 	if !ok || resourceType == "" {
 		return mcp.NewToolResultError("resourceType is required"), nil
@@ -96,19 +96,19 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 // handleDescribeResource handles kubectl describe operations
 func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	resourceType, ok := args["resourceType"].(string)
 	if !ok || resourceType == "" {
 		return mcp.NewToolResultError("resourceType is required"), nil
 	}
-	
+
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return mcp.NewToolResultError("name is required"), nil
@@ -151,7 +151,7 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	manifestData, ok := request.GetArguments()["manifest"]
 	if !ok || manifestData == nil {
 		return mcp.NewToolResultError("manifest is required"), nil
@@ -205,7 +205,7 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	manifestData, ok := request.GetArguments()["manifest"]
 	if !ok || manifestData == nil {
 		return mcp.NewToolResultError("manifest is required"), nil
@@ -259,12 +259,12 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	resourceType, err := request.RequireString("resourceType")
 	if err != nil {
 		return mcp.NewToolResultError("resourceType is required"), nil
 	}
-	
+
 	name, err := request.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
@@ -301,12 +301,12 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	resourceType, err := request.RequireString("resourceType")
 	if err != nil {
 		return mcp.NewToolResultError("resourceType is required"), nil
 	}
-	
+
 	name, err := request.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
@@ -378,12 +378,12 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	resourceType, err := request.RequireString("resourceType")
 	if err != nil {
 		return mcp.NewToolResultError("resourceType is required"), nil
 	}
-	
+
 	name, err := request.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
@@ -400,4 +400,4 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s scaled to %d replicas successfully", resourceType, name, int32(replicas))), nil
-} 
+}

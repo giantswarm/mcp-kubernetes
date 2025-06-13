@@ -44,4 +44,4 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	})
 
 	return nil
-} 
+}

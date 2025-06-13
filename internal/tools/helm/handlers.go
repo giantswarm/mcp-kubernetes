@@ -30,19 +30,19 @@ func handleHelmInstall(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	}
 
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	releaseName, ok := args["releaseName"].(string)
 	if !ok || releaseName == "" {
 		return mcp.NewToolResultError("releaseName is required"), nil
 	}
-	
+
 	chart, ok := args["chart"].(string)
 	if !ok || chart == "" {
 		return mcp.NewToolResultError("chart is required"), nil
@@ -52,12 +52,12 @@ func handleHelmInstall(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	version, _ := args["version"].(string)
 	wait, _ := args["wait"].(bool)
 	createNamespace, _ := args["createNamespace"].(bool)
-	
+
 	var values map[string]interface{}
 	if valuesInterface, ok := args["values"]; ok && valuesInterface != nil {
 		values, _ = valuesInterface.(map[string]interface{})
 	}
-	
+
 	var timeout time.Duration = 300 * time.Second
 	if timeoutFloat, ok := args["timeout"].(float64); ok {
 		timeout = time.Duration(timeoutFloat) * time.Second
@@ -105,19 +105,19 @@ func handleHelmUpgrade(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	}
 
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	releaseName, ok := args["releaseName"].(string)
 	if !ok || releaseName == "" {
 		return mcp.NewToolResultError("releaseName is required"), nil
 	}
-	
+
 	chart, ok := args["chart"].(string)
 	if !ok || chart == "" {
 		return mcp.NewToolResultError("chart is required"), nil
@@ -127,12 +127,12 @@ func handleHelmUpgrade(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	version, _ := args["version"].(string)
 	wait, _ := args["wait"].(bool)
 	resetValues, _ := args["resetValues"].(bool)
-	
+
 	var values map[string]interface{}
 	if valuesInterface, ok := args["values"]; ok && valuesInterface != nil {
 		values, _ = valuesInterface.(map[string]interface{})
 	}
-	
+
 	var timeout time.Duration = 300 * time.Second
 	if timeoutFloat, ok := args["timeout"].(float64); ok {
 		timeout = time.Duration(timeoutFloat) * time.Second
@@ -180,21 +180,21 @@ func handleHelmUninstall(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	releaseName, ok := args["releaseName"].(string)
 	if !ok || releaseName == "" {
 		return mcp.NewToolResultError("releaseName is required"), nil
 	}
 
 	wait, _ := args["wait"].(bool)
-	
+
 	var timeout time.Duration = 300 * time.Second
 	if timeoutFloat, ok := args["timeout"].(float64); ok {
 		timeout = time.Duration(timeoutFloat) * time.Second
@@ -216,9 +216,9 @@ func handleHelmUninstall(ctx context.Context, request mcp.CallToolRequest, sc *s
 // handleHelmList handles helm list operations
 func handleHelmList(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
@@ -255,4 +255,4 @@ func handleHelmList(ctx context.Context, request mcp.CallToolRequest, sc *server
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
-} 
+}

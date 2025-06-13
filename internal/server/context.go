@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/security"
 )
 
 // ServerContext encapsulates all dependencies needed by the MCP server
@@ -14,6 +15,11 @@ type ServerContext struct {
 	k8sClient k8s.Client
 	logger    Logger
 	config    *Config
+
+	// Security components
+	authorizer    security.Authorizer
+	credentialMgr *security.CredentialManager
+	validator     *security.Validator
 
 	// Context management
 	ctx    context.Context
@@ -52,6 +58,15 @@ func NewServerContext(ctx context.Context, opts ...Option) (*ServerContext, erro
 		return nil, err
 	}
 
+	// Initialize security validator if security is enabled
+	if sc.config.EnableAuth && sc.authorizer != nil {
+		sc.validator = security.NewValidator(
+			sc.authorizer,
+			sc.credentialMgr,
+			security.DefaultValidationRules(),
+		)
+	}
+
 	return sc, nil
 }
 
@@ -81,6 +96,46 @@ func (sc *ServerContext) Config() *Config {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.config
+}
+
+// Authorizer returns the security authorizer if security is enabled.
+func (sc *ServerContext) Authorizer() security.Authorizer {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.authorizer
+}
+
+// CredentialManager returns the credential manager if security is enabled.
+func (sc *ServerContext) CredentialManager() *security.CredentialManager {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.credentialMgr
+}
+
+// Validator returns the security validator if security is enabled.
+func (sc *ServerContext) Validator() *security.Validator {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.validator
+}
+
+// IsSecurityEnabled returns true if security features are enabled.
+func (sc *ServerContext) IsSecurityEnabled() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.config != nil && sc.config.EnableAuth && sc.authorizer != nil
+}
+
+// SecurityMiddleware returns a middleware function for securing tool handlers.
+func (sc *ServerContext) SecurityMiddleware() func(security.ToolHandler) security.ToolHandler {
+	if !sc.IsSecurityEnabled() {
+		// Return a pass-through middleware if security is disabled
+		return func(next security.ToolHandler) security.ToolHandler {
+			return next
+		}
+	}
+
+	return security.SecurityMiddleware(sc.authorizer)
 }
 
 // Shutdown gracefully shuts down the server context.

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/security"
 )
 
 // Option is a functional option for configuring ServerContext.
@@ -41,6 +42,57 @@ func WithConfig(config *Config) Option {
 			return ErrMissingConfig
 		}
 		sc.config = config.Clone()
+		return nil
+	}
+}
+
+// WithSecurity enables security with the specified authorizer and credential manager.
+func WithSecurity(authorizer security.Authorizer, credentialMgr *security.CredentialManager) Option {
+	return func(sc *ServerContext) error {
+		if authorizer == nil {
+			return errors.New("authorizer is required when enabling security")
+		}
+		sc.authorizer = authorizer
+		sc.credentialMgr = credentialMgr
+
+		// Enable security in configuration
+		if sc.config != nil {
+			sc.config.EnableAuth = true
+		}
+
+		return nil
+	}
+}
+
+// WithPolicyBasedSecurity creates and configures policy-based security from server config.
+func WithPolicyBasedSecurity() Option {
+	return func(sc *ServerContext) error {
+		if sc.config == nil {
+			return errors.New("configuration is required for policy-based security")
+		}
+
+		// Create policy configuration from server config
+		policyConfig := security.PolicyConfig{
+			AllowedOperations:    sc.config.AllowedOperations,
+			RestrictedNamespaces: sc.config.RestrictedNamespaces,
+			NonDestructiveMode:   sc.config.NonDestructiveMode,
+			DryRunMode:           sc.config.DryRun,
+		}
+
+		// Create policy authorizer
+		authorizer := security.NewPolicyAuthorizer(policyConfig)
+
+		// Create credential manager with default config
+		credentialConfig := security.CredentialConfig{
+			RestrictSensitiveData: true, // Always enable sensitive data protection
+		}
+		credentialMgr := security.NewCredentialManager(credentialConfig)
+
+		// Set security components
+		sc.authorizer = authorizer
+		sc.credentialMgr = credentialMgr
+		sc.config.EnableAuth = true
+
 		return nil
 	}
 }

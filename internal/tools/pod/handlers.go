@@ -15,25 +15,25 @@ import (
 // handleGetLogs handles kubectl logs operations
 func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	podName, ok := args["podName"].(string)
 	if !ok || podName == "" {
 		return mcp.NewToolResultError("podName is required"), nil
 	}
-	
+
 	containerName, _ := args["containerName"].(string)
-	
+
 	follow, _ := args["follow"].(bool)
 	previous, _ := args["previous"].(bool)
 	timestamps, _ := args["timestamps"].(bool)
-	
+
 	var tailLines *int64
 	if tailLinesFloat, ok := args["tailLines"].(float64); ok {
 		tailLinesInt := int64(tailLinesFloat)
@@ -65,26 +65,26 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 // handleExec handles kubectl exec operations
 func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	podName, ok := args["podName"].(string)
 	if !ok || podName == "" {
 		return mcp.NewToolResultError("podName is required"), nil
 	}
-	
+
 	containerName, _ := args["containerName"].(string)
-	
+
 	commandInterface, ok := args["command"]
 	if !ok || commandInterface == nil {
 		return mcp.NewToolResultError("command is required"), nil
 	}
-	
+
 	// Convert command interface to []string
 	var command []string
 	if commandSlice, ok := commandInterface.([]interface{}); ok {
@@ -96,11 +96,11 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 	} else {
 		return mcp.NewToolResultError("command must be an array of strings"), nil
 	}
-	
+
 	if len(command) == 0 {
 		return mcp.NewToolResultError("command cannot be empty"), nil
 	}
-	
+
 	tty, _ := args["tty"].(bool)
 
 	opts := k8s.ExecOptions{
@@ -128,24 +128,24 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 // handlePortForward handles kubectl port-forward operations
 func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
-	
+
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
 		return mcp.NewToolResultError("namespace is required"), nil
 	}
-	
+
 	podName, ok := args["podName"].(string)
 	if !ok || podName == "" {
 		return mcp.NewToolResultError("podName is required"), nil
 	}
-	
+
 	portsInterface, ok := args["ports"]
 	if !ok || portsInterface == nil {
 		return mcp.NewToolResultError("ports is required"), nil
 	}
-	
+
 	// Convert ports interface to []string
 	var ports []string
 	if portsSlice, ok := portsInterface.([]interface{}); ok {
@@ -157,7 +157,7 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	} else {
 		return mcp.NewToolResultError("ports must be an array of strings"), nil
 	}
-	
+
 	if len(ports) == 0 {
 		return mcp.NewToolResultError("ports cannot be empty"), nil
 	}
@@ -188,4 +188,4 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	output.WriteString("\nNote: This is a long-running session. Use Ctrl+C or close the connection to stop port forwarding.")
 
 	return mcp.NewToolResultText(output.String()), nil
-} 
+}
