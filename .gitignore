@@ -1,5 +1,5 @@
 # Binary output
-mcp-kubernetes
+/mcp-kubernetes
 dist/
 
 # Configuration files
