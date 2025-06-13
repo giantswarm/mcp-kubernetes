@@ -10,8 +10,8 @@ import (
 
 // RegisterContextTools registers all context management tools with the MCP server
 func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
-	// kubectl_context_list tool
-	listContextsTool := mcp.NewTool("kubectl_context_list",
+	// kubernetes_context_list tool
+	listContextsTool := mcp.NewTool("kubernetes_context_list",
 		mcp.WithDescription("List all available Kubernetes contexts"),
 	)
 
@@ -19,8 +19,8 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		return handleListContexts(ctx, request, sc)
 	})
 
-	// kubectl_context_get_current tool
-	getCurrentContextTool := mcp.NewTool("kubectl_context_get_current",
+	// kubernetes_context_get_current tool
+	getCurrentContextTool := mcp.NewTool("kubernetes_context_get_current",
 		mcp.WithDescription("Get the current Kubernetes context"),
 	)
 
@@ -28,8 +28,8 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		return handleGetCurrentContext(ctx, request, sc)
 	})
 
-	// kubectl_context_use tool
-	useContextTool := mcp.NewTool("kubectl_context_use",
+	// kubernetes_context_use tool
+	useContextTool := mcp.NewTool("kubernetes_context_use",
 		mcp.WithDescription("Switch to a different Kubernetes context"),
 		mcp.WithString("contextName",
 			mcp.Required(),
@@ -42,4 +42,4 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	})
 
 	return nil
-} 
+}

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -29,6 +30,9 @@ type kubernetesClient struct {
 	// Kubeconfig management
 	kubeconfigData *clientcmdapi.Config
 	currentContext string
+
+	// Resource type mappings
+	builtinResources map[string]schema.GroupVersionResource
 
 	// Safety and performance settings
 	nonDestructiveMode   bool
@@ -58,6 +62,9 @@ type ClientConfig struct {
 	QPSLimit   float32
 	BurstLimit int
 	Timeout    time.Duration
+
+	// Debug settings
+	DebugMode bool
 
 	// Logging
 	Logger Logger
@@ -101,6 +108,72 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 		qpsLimit:             config.QPSLimit,
 		burstLimit:           config.BurstLimit,
 		timeout:              config.Timeout,
+		builtinResources:     make(map[string]schema.GroupVersionResource),
+	}
+
+	// Initialize builtin resources
+	client.builtinResources = map[string]schema.GroupVersionResource{
+		// Core/v1 resources
+		"pods":                   {Group: "", Version: "v1", Resource: "pods"},
+		"pod":                    {Group: "", Version: "v1", Resource: "pods"},
+		"services":               {Group: "", Version: "v1", Resource: "services"},
+		"service":                {Group: "", Version: "v1", Resource: "services"},
+		"svc":                    {Group: "", Version: "v1", Resource: "services"},
+		"nodes":                  {Group: "", Version: "v1", Resource: "nodes"},
+		"node":                   {Group: "", Version: "v1", Resource: "nodes"},
+		"namespaces":             {Group: "", Version: "v1", Resource: "namespaces"},
+		"namespace":              {Group: "", Version: "v1", Resource: "namespaces"},
+		"ns":                     {Group: "", Version: "v1", Resource: "namespaces"},
+		"configmaps":             {Group: "", Version: "v1", Resource: "configmaps"},
+		"configmap":              {Group: "", Version: "v1", Resource: "configmaps"},
+		"cm":                     {Group: "", Version: "v1", Resource: "configmaps"},
+		"secrets":                {Group: "", Version: "v1", Resource: "secrets"},
+		"secret":                 {Group: "", Version: "v1", Resource: "secrets"},
+		"persistentvolumes":      {Group: "", Version: "v1", Resource: "persistentvolumes"},
+		"persistentvolume":       {Group: "", Version: "v1", Resource: "persistentvolumes"},
+		"pv":                     {Group: "", Version: "v1", Resource: "persistentvolumes"},
+		"persistentvolumeclaims": {Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
+		"persistentvolumeclaim":  {Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
+		"pvc":                    {Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
+
+		// Apps/v1 resources
+		"deployments":  {Group: "apps", Version: "v1", Resource: "deployments"},
+		"deployment":   {Group: "apps", Version: "v1", Resource: "deployments"},
+		"deploy":       {Group: "apps", Version: "v1", Resource: "deployments"},
+		"replicasets":  {Group: "apps", Version: "v1", Resource: "replicasets"},
+		"replicaset":   {Group: "apps", Version: "v1", Resource: "replicasets"},
+		"rs":           {Group: "apps", Version: "v1", Resource: "replicasets"},
+		"daemonsets":   {Group: "apps", Version: "v1", Resource: "daemonsets"},
+		"daemonset":    {Group: "apps", Version: "v1", Resource: "daemonsets"},
+		"ds":           {Group: "apps", Version: "v1", Resource: "daemonsets"},
+		"statefulsets": {Group: "apps", Version: "v1", Resource: "statefulsets"},
+		"statefulset":  {Group: "apps", Version: "v1", Resource: "statefulsets"},
+		"sts":          {Group: "apps", Version: "v1", Resource: "statefulsets"},
+
+		// Batch resources
+		"jobs":     {Group: "batch", Version: "v1", Resource: "jobs"},
+		"job":      {Group: "batch", Version: "v1", Resource: "jobs"},
+		"cronjobs": {Group: "batch", Version: "v1", Resource: "cronjobs"},
+		"cronjob":  {Group: "batch", Version: "v1", Resource: "cronjobs"},
+		"cj":       {Group: "batch", Version: "v1", Resource: "cronjobs"},
+
+		// Networking resources
+		"ingresses": {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
+		"ingress":   {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
+		"ing":       {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
+
+		// RBAC resources
+		"roles":               {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
+		"role":                {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
+		"rolebindings":        {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
+		"rolebinding":         {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
+		"clusterroles":        {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"},
+		"clusterrole":         {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"},
+		"clusterrolebindings": {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"},
+		"clusterrolebinding":  {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"},
+		"serviceaccounts":     {Group: "", Version: "v1", Resource: "serviceaccounts"},
+		"serviceaccount":      {Group: "", Version: "v1", Resource: "serviceaccounts"},
+		"sa":                  {Group: "", Version: "v1", Resource: "serviceaccounts"},
 	}
 
 	// Load kubeconfig
@@ -149,27 +222,122 @@ func (c *kubernetesClient) loadKubeconfig() error {
 
 // getRestConfig returns a rest.Config for the specified context.
 func (c *kubernetesClient) getRestConfig(contextName string) (*rest.Config, error) {
+	// Use current context if none specified
+	if contextName == "" {
+		contextName = c.currentContext
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: starting", "contextName", contextName)
+	}
+
 	c.mu.RLock()
 	if restConfig, exists := c.restConfigs[contextName]; exists {
 		c.mu.RUnlock()
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getRestConfig: found cached config", "contextName", contextName)
+		}
 		return restConfig, nil
 	}
 	c.mu.RUnlock()
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: acquiring write lock")
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Double-check after acquiring write lock
 	if restConfig, exists := c.restConfigs[contextName]; exists {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getRestConfig: found cached config after write lock", "contextName", contextName)
+		}
+		return restConfig, nil
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: creating loading rules")
+	}
+
+	// Create rest config for the specified context
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if c.config.KubeconfigPath != "" {
+		loadingRules.ExplicitPath = c.config.KubeconfigPath
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: creating context config", "kubeconfigPath", c.config.KubeconfigPath)
+	}
+
+	contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loadingRules,
+		&clientcmd.ConfigOverrides{
+			CurrentContext: contextName,
+		},
+	)
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: calling ClientConfig()")
+	}
+
+	restConfig, err := contextConfig.ClientConfig()
+	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("getRestConfig: ClientConfig() failed", "error", err)
+		}
+		return nil, fmt.Errorf("failed to create rest config for context %q: %w", contextName, err)
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: got REST config", "host", restConfig.Host, "serverName", restConfig.ServerName)
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: applying performance settings", "qps", c.qpsLimit, "burst", c.burstLimit, "timeout", c.timeout)
+	}
+
+	// Apply performance settings
+	restConfig.QPS = c.qpsLimit
+	restConfig.Burst = c.burstLimit
+	restConfig.Timeout = c.timeout
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: caching config", "contextName", contextName)
+	}
+
+	// Cache the config
+	c.restConfigs[contextName] = restConfig
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getRestConfig: completed successfully", "contextName", contextName)
+	}
+
+	return restConfig, nil
+}
+
+// getRestConfigUnsafe returns a rest.Config for the specified context without using locks.
+func (c *kubernetesClient) getRestConfigUnsafe(contextName string) (*rest.Config, error) {
+	// Use current context if none specified
+	if contextName == "" {
+		contextName = c.currentContext
+	}
+
+	// Check cache first (caller must hold write lock)
+	if restConfig, exists := c.restConfigs[contextName]; exists {
 		return restConfig, nil
 	}
 
 	// Create rest config for the specified context
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if c.config.KubeconfigPath != "" {
+		loadingRules.ExplicitPath = c.config.KubeconfigPath
+	}
+
 	contextConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{},
+		loadingRules,
 		&clientcmd.ConfigOverrides{
 			CurrentContext: contextName,
-			Context:        clientcmdapi.Context{},
 		},
 	)
 
@@ -183,107 +351,233 @@ func (c *kubernetesClient) getRestConfig(contextName string) (*rest.Config, erro
 	restConfig.Burst = c.burstLimit
 	restConfig.Timeout = c.timeout
 
-	// Cache the config
+	// Cache the config (caller must hold write lock)
 	c.restConfigs[contextName] = restConfig
 
 	return restConfig, nil
 }
 
-// getClientset returns a typed clientset for the specified context.
+// getClientset returns a Kubernetes clientset for the specified context.
 func (c *kubernetesClient) getClientset(contextName string) (kubernetes.Interface, error) {
+	// Use current context if none specified
+	if contextName == "" {
+		contextName = c.currentContext
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getClientset: starting", "contextName", contextName)
+	}
+
 	c.mu.RLock()
 	if clientset, exists := c.clientsets[contextName]; exists {
 		c.mu.RUnlock()
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getClientset: found cached clientset", "contextName", contextName)
+		}
 		return clientset, nil
 	}
 	c.mu.RUnlock()
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getClientset: acquiring write lock")
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Double-check after acquiring write lock
 	if clientset, exists := c.clientsets[contextName]; exists {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getClientset: found cached clientset after write lock", "contextName", contextName)
+		}
 		return clientset, nil
 	}
 
-	restConfig, err := c.getRestConfig(contextName)
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getClientset: getting REST config", "contextName", contextName)
+	}
+
+	// Call unsafe version since we already hold the write lock
+	restConfig, err := c.getRestConfigUnsafe(contextName)
 	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("getClientset: failed to get REST config", "error", err)
+		}
 		return nil, err
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getClientset: creating clientset from REST config")
 	}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("getClientset: failed to create clientset", "error", err)
+		}
 		return nil, fmt.Errorf("failed to create clientset for context %q: %w", contextName, err)
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getClientset: caching clientset", "contextName", contextName)
 	}
 
 	// Cache the clientset
 	c.clientsets[contextName] = clientset
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getClientset: completed successfully", "contextName", contextName)
+	}
 
 	return clientset, nil
 }
 
 // getDynamicClient returns a dynamic client for the specified context.
 func (c *kubernetesClient) getDynamicClient(contextName string) (dynamic.Interface, error) {
+	// Use current context if none specified
+	if contextName == "" {
+		contextName = c.currentContext
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDynamicClient: starting", "contextName", contextName, "currentContext", c.currentContext)
+	}
+
 	c.mu.RLock()
 	if dynamicClient, exists := c.dynamicClients[contextName]; exists {
 		c.mu.RUnlock()
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getDynamicClient: found cached client", "contextName", contextName)
+		}
 		return dynamicClient, nil
 	}
 	c.mu.RUnlock()
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDynamicClient: acquiring write lock")
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Double-check after acquiring write lock
 	if dynamicClient, exists := c.dynamicClients[contextName]; exists {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getDynamicClient: found cached client after write lock", "contextName", contextName)
+		}
 		return dynamicClient, nil
 	}
 
-	restConfig, err := c.getRestConfig(contextName)
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDynamicClient: getting REST config", "contextName", contextName)
+	}
+
+	// Call unsafe version since we already hold the write lock
+	restConfig, err := c.getRestConfigUnsafe(contextName)
 	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("getDynamicClient: failed to get REST config", "error", err)
+		}
 		return nil, err
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDynamicClient: creating dynamic client from REST config")
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("getDynamicClient: failed to create dynamic client", "error", err)
+		}
 		return nil, fmt.Errorf("failed to create dynamic client for context %q: %w", contextName, err)
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDynamicClient: caching dynamic client", "contextName", contextName)
 	}
 
 	// Cache the client
 	c.dynamicClients[contextName] = dynamicClient
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDynamicClient: completed successfully", "contextName", contextName)
+	}
 
 	return dynamicClient, nil
 }
 
 // getDiscoveryClient returns a discovery client for the specified context.
 func (c *kubernetesClient) getDiscoveryClient(contextName string) (discovery.DiscoveryInterface, error) {
+	// Use current context if none specified
+	if contextName == "" {
+		contextName = c.currentContext
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDiscoveryClient: starting", "contextName", contextName)
+	}
+
 	c.mu.RLock()
 	if discoveryClient, exists := c.discoveryClients[contextName]; exists {
 		c.mu.RUnlock()
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getDiscoveryClient: found cached discovery client", "contextName", contextName)
+		}
 		return discoveryClient, nil
 	}
 	c.mu.RUnlock()
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDiscoveryClient: acquiring write lock")
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Double-check after acquiring write lock
 	if discoveryClient, exists := c.discoveryClients[contextName]; exists {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("getDiscoveryClient: found cached discovery client after write lock", "contextName", contextName)
+		}
 		return discoveryClient, nil
 	}
 
-	restConfig, err := c.getRestConfig(contextName)
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDiscoveryClient: getting REST config", "contextName", contextName)
+	}
+
+	// Call unsafe version since we already hold the write lock
+	restConfig, err := c.getRestConfigUnsafe(contextName)
 	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("getDiscoveryClient: failed to get REST config", "error", err)
+		}
 		return nil, err
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDiscoveryClient: creating discovery client from REST config")
 	}
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
 	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("getDiscoveryClient: failed to create discovery client", "error", err)
+		}
 		return nil, fmt.Errorf("failed to create discovery client for context %q: %w", contextName, err)
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDiscoveryClient: caching discovery client", "contextName", contextName)
 	}
 
 	// Cache the client
 	c.discoveryClients[contextName] = discoveryClient
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("getDiscoveryClient: completed successfully", "contextName", contextName)
+	}
 
 	return discoveryClient, nil
 }

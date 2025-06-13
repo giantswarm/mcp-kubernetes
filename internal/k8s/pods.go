@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -149,8 +148,19 @@ func (c *kubernetesClient) PortForward(ctx context.Context, kubeContext, namespa
 
 	c.logOperation("port-forward", kubeContext, namespace, "pod", podName)
 
+	// Validate that the pod exists and is running
+	if err := c.validatePodRunning(ctx, kubeContext, namespace, podName); err != nil {
+		return nil, err
+	}
+
 	// Get rest config for the context
 	restConfig, err := c.getRestConfig(kubeContext)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get clientset for the context
+	clientset, err := c.getClientset(kubeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -191,11 +201,16 @@ func (c *kubernetesClient) PortForward(ctx context.Context, kubeContext, namespa
 		}
 	}
 
-	// Build port forward request
-	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", namespace, podName)
-	hostIP := strings.TrimLeft(restConfig.Host, "https://")
+	// Build port forward request using RESTClient (like exec does)
+	portForwardReq := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("portforward")
 
-	serverURL := url.URL{Scheme: "https", Path: path, Host: hostIP}
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("port forward URL", "url", portForwardReq.URL().String())
+	}
 
 	// Create SPDY roundtripper
 	roundTripper, upgrader, err := spdy.RoundTripperFor(restConfig)
@@ -204,7 +219,7 @@ func (c *kubernetesClient) PortForward(ctx context.Context, kubeContext, namespa
 	}
 
 	// Create dialer
-	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, &serverURL)
+	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, portForwardReq.URL())
 
 	// Create channels for control
 	stopChan := make(chan struct{}, 1)
@@ -226,44 +241,36 @@ func (c *kubernetesClient) PortForward(ctx context.Context, kubeContext, namespa
 		return nil, fmt.Errorf("failed to create port forwarder: %w", err)
 	}
 
-	// Start port forwarding in background
+	// Start port forwarding in background with error handling
+	errChan := make(chan error, 1)
 	go func() {
 		if err := forwarder.ForwardPorts(); err != nil {
 			if c.config.Logger != nil {
 				c.config.Logger.Error("port forwarding error", "error", err)
 			}
+			errChan <- err
 		}
 	}()
 
-	// Wait for ready signal or context cancellation
+	// Wait for ready signal, error, or context cancellation with timeout
 	select {
 	case <-readyChan:
 		// Port forwarding is ready
+		c.config.Logger.Debug("Port forward ready", "namespace", namespace, "pod", podName)
+	case err := <-errChan:
+		// Port forwarding failed
+		close(stopChan)
+		return nil, fmt.Errorf("port forwarding failed: %w", err)
 	case <-ctx.Done():
+		// Context cancelled
 		close(stopChan)
 		return nil, fmt.Errorf("port forwarding cancelled: %w", ctx.Err())
 	}
 
-	// Get the actual forwarded ports
-	forwardedPorts, err := forwarder.GetPorts()
-	if err != nil {
-		close(stopChan)
-		return nil, fmt.Errorf("failed to get forwarded ports: %w", err)
-	}
-
-	// Extract local and remote ports from forwarded ports
-	actualLocalPorts := make([]int, len(forwardedPorts))
-	actualRemotePorts := make([]int, len(forwardedPorts))
-
-	for i, port := range forwardedPorts {
-		actualLocalPorts[i] = int(port.Local)
-		actualRemotePorts[i] = int(port.Remote)
-	}
-
-	// Create session
+	// Create session with requested ports (avoid blocking GetPorts() call)
 	session := &PortForwardSession{
-		LocalPorts:  actualLocalPorts,
-		RemotePorts: actualRemotePorts,
+		LocalPorts:  localPorts,
+		RemotePorts: remotePorts,
 		StopChan:    stopChan,
 		ReadyChan:   readyChan,
 		Forwarder:   forwarder,
@@ -273,6 +280,80 @@ func (c *kubernetesClient) PortForward(ctx context.Context, kubeContext, namespa
 }
 
 // Helper methods for pod operations
+
+// resolveServiceToPods resolves a service to its target pods.
+func (c *kubernetesClient) resolveServiceToPods(ctx context.Context, kubeContext, namespace, serviceName string) ([]string, error) {
+	clientset, err := c.getClientset(kubeContext)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the service
+	service, err := clientset.CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("service %s/%s not found: %w", namespace, serviceName, err)
+	}
+
+	// If service has no selector, it doesn't target pods directly
+	if len(service.Spec.Selector) == 0 {
+		return nil, fmt.Errorf("service %s/%s has no selector - cannot resolve to pods", namespace, serviceName)
+	}
+
+	// Build label selector from service selector
+	labelSelector := metav1.FormatLabelSelector(&metav1.LabelSelector{
+		MatchLabels: service.Spec.Selector,
+	})
+
+	// List pods matching the service selector
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods for service %s/%s: %w", namespace, serviceName, err)
+	}
+
+	// Filter for running pods
+	var podNames []string
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodRunning {
+			podNames = append(podNames, pod.Name)
+		}
+	}
+
+	if len(podNames) == 0 {
+		return nil, fmt.Errorf("no running pods found for service %s/%s", namespace, serviceName)
+	}
+
+	return podNames, nil
+}
+
+// PortForwardToService sets up port forwarding to the first available pod behind a service.
+func (c *kubernetesClient) PortForwardToService(ctx context.Context, kubeContext, namespace, serviceName string, ports []string, opts PortForwardOptions) (*PortForwardSession, error) {
+	// Validate operation
+	if err := c.isOperationAllowed("port-forward"); err != nil {
+		return nil, err
+	}
+
+	// Validate namespace access
+	if err := c.isNamespaceRestricted(namespace); err != nil {
+		return nil, err
+	}
+
+	c.logOperation("port-forward", kubeContext, namespace, "service", serviceName)
+
+	// Resolve service to pods
+	podNames, err := c.resolveServiceToPods(ctx, kubeContext, namespace, serviceName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use the first available pod
+	targetPod := podNames[0]
+	c.config.Logger.Info("Resolved service to pod", "service", serviceName, "pod", targetPod, "totalPods", len(podNames))
+
+	// Forward to the resolved pod
+	return c.PortForward(ctx, kubeContext, namespace, targetPod, ports, opts)
+}
 
 // validatePodExists checks if a pod exists in the specified namespace.
 func (c *kubernetesClient) validatePodExists(ctx context.Context, kubeContext, namespace, podName string) error {
@@ -316,4 +397,23 @@ func (c *kubernetesClient) validateContainerExists(ctx context.Context, kubeCont
 	}
 
 	return fmt.Errorf("container %q not found in pod %s/%s", containerName, namespace, podName)
+}
+
+// validatePodRunning checks if a pod is running in the specified namespace.
+func (c *kubernetesClient) validatePodRunning(ctx context.Context, kubeContext, namespace, podName string) error {
+	clientset, err := c.getClientset(kubeContext)
+	if err != nil {
+		return err
+	}
+
+	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("pod %s/%s not found: %w", namespace, podName, err)
+	}
+
+	if pod.Status.Phase != corev1.PodRunning {
+		return fmt.Errorf("pod %s/%s is not running", namespace, podName)
+	}
+
+	return nil
 }

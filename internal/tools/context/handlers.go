@@ -44,7 +44,7 @@ func handleGetCurrentContext(ctx context.Context, request mcp.CallToolRequest, s
 // handleUseContext handles kubectl context use operations
 func handleUseContext(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	contextName, ok := args["contextName"].(string)
 	if !ok || contextName == "" {
 		return mcp.NewToolResultError("contextName is required"), nil
@@ -56,4 +56,4 @@ func handleUseContext(ctx context.Context, request mcp.CallToolRequest, sc *serv
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully switched to context: %s", contextName)), nil
-} 
+}

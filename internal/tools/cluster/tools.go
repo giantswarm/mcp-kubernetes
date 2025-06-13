@@ -10,8 +10,8 @@ import (
 
 // RegisterClusterTools registers all cluster management tools with the MCP server
 func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
-	// kubectl_api_resources tool
-	apiResourcesTool := mcp.NewTool("kubectl_api_resources",
+	// kubernetes_api_resources tool
+	apiResourcesTool := mcp.NewTool("kubernetes_api_resources",
 		mcp.WithDescription("List available API resources in the cluster"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -31,8 +31,8 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		return handleGetAPIResources(ctx, request, sc)
 	})
 
-	// kubectl_cluster_health tool
-	clusterHealthTool := mcp.NewTool("kubectl_cluster_health",
+	// kubernetes_cluster_health tool
+	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health",
 		mcp.WithDescription("Check the health status of cluster components"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -44,4 +44,4 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	})
 
 	return nil
-} 
+}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
@@ -22,6 +23,10 @@ type ServerContext struct {
 	// Lifecycle management
 	mu       sync.RWMutex
 	shutdown bool
+
+	// Active session tracking for cleanup during shutdown
+	activeSessions map[string]*k8s.PortForwardSession
+	sessionsMu     sync.RWMutex
 }
 
 // NewServerContext creates a new ServerContext with default values.
@@ -32,10 +37,11 @@ func NewServerContext(ctx context.Context, opts ...Option) (*ServerContext, erro
 
 	// Initialize with defaults
 	sc := &ServerContext{
-		ctx:    serverCtx,
-		cancel: cancel,
-		config: NewDefaultConfig(),
-		logger: NewDefaultLogger(),
+		ctx:            serverCtx,
+		cancel:         cancel,
+		config:         NewDefaultConfig(),
+		logger:         NewDefaultLogger(),
+		activeSessions: make(map[string]*k8s.PortForwardSession),
 	}
 
 	// Apply functional options
@@ -83,6 +89,104 @@ func (sc *ServerContext) Config() *Config {
 	return sc.config
 }
 
+// RegisterPortForwardSession registers an active port forwarding session for cleanup tracking.
+func (sc *ServerContext) RegisterPortForwardSession(sessionID string, session *k8s.PortForwardSession) {
+	sc.sessionsMu.Lock()
+	defer sc.sessionsMu.Unlock()
+
+	if sc.activeSessions != nil {
+		sc.activeSessions[sessionID] = session
+		sc.logger.Debug("Registered port forward session", "sessionID", sessionID)
+	}
+}
+
+// UnregisterPortForwardSession removes a port forwarding session from tracking.
+func (sc *ServerContext) UnregisterPortForwardSession(sessionID string) {
+	sc.sessionsMu.Lock()
+	defer sc.sessionsMu.Unlock()
+
+	if sc.activeSessions != nil {
+		delete(sc.activeSessions, sessionID)
+		sc.logger.Debug("Unregistered port forward session", "sessionID", sessionID)
+	}
+}
+
+// GetActiveSessionCount returns the number of active port forwarding sessions.
+func (sc *ServerContext) GetActiveSessionCount() int {
+	sc.sessionsMu.RLock()
+	defer sc.sessionsMu.RUnlock()
+	return len(sc.activeSessions)
+}
+
+// GetActiveSessions returns a copy of all active port forwarding sessions.
+func (sc *ServerContext) GetActiveSessions() map[string]*k8s.PortForwardSession {
+	sc.sessionsMu.RLock()
+	defer sc.sessionsMu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	sessions := make(map[string]*k8s.PortForwardSession)
+	for id, session := range sc.activeSessions {
+		sessions[id] = session
+	}
+	return sessions
+}
+
+// StopPortForwardSession stops a specific port forwarding session by ID.
+func (sc *ServerContext) StopPortForwardSession(sessionID string) error {
+	sc.sessionsMu.Lock()
+	defer sc.sessionsMu.Unlock()
+
+	session, exists := sc.activeSessions[sessionID]
+	if !exists {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+
+	if session != nil && session.StopChan != nil {
+		sc.logger.Debug("Stopping port forward session", "sessionID", sessionID)
+		select {
+		case session.StopChan <- struct{}{}:
+			// Signal sent successfully
+		default:
+			// Channel was already closed or full, that's ok
+		}
+	}
+
+	// Remove from active sessions
+	delete(sc.activeSessions, sessionID)
+	sc.logger.Info("Port forward session stopped", "sessionID", sessionID)
+	return nil
+}
+
+// StopAllPortForwardSessions stops all active port forwarding sessions.
+func (sc *ServerContext) StopAllPortForwardSessions() int {
+	sc.sessionsMu.Lock()
+	defer sc.sessionsMu.Unlock()
+
+	count := len(sc.activeSessions)
+	if count == 0 {
+		return 0
+	}
+
+	sc.logger.Info("Stopping all port forwarding sessions", "count", count)
+
+	for sessionID, session := range sc.activeSessions {
+		if session != nil && session.StopChan != nil {
+			sc.logger.Debug("Stopping port forward session", "sessionID", sessionID)
+			select {
+			case session.StopChan <- struct{}{}:
+				// Signal sent successfully
+			default:
+				// Channel was already closed or full, that's ok
+			}
+		}
+	}
+
+	// Clear all sessions
+	sc.activeSessions = make(map[string]*k8s.PortForwardSession)
+	sc.logger.Info("All port forwarding sessions stopped", "count", count)
+	return count
+}
+
 // Shutdown gracefully shuts down the server context.
 // This cancels the context and releases any resources.
 func (sc *ServerContext) Shutdown() error {
@@ -95,6 +199,9 @@ func (sc *ServerContext) Shutdown() error {
 
 	sc.logger.Info("Shutting down server context")
 
+	// Clean up active port forwarding sessions
+	sc.cleanupPortForwardSessions()
+
 	// Cancel the context
 	if sc.cancel != nil {
 		sc.cancel()
@@ -105,6 +212,33 @@ func (sc *ServerContext) Shutdown() error {
 
 	sc.logger.Info("Server context shutdown complete")
 	return nil
+}
+
+// cleanupPortForwardSessions stops all active port forwarding sessions.
+func (sc *ServerContext) cleanupPortForwardSessions() {
+	sc.sessionsMu.Lock()
+	defer sc.sessionsMu.Unlock()
+
+	if len(sc.activeSessions) == 0 {
+		return
+	}
+
+	sc.logger.Info("Cleaning up active port forwarding sessions", "count", len(sc.activeSessions))
+
+	for sessionID, session := range sc.activeSessions {
+		if session != nil && session.StopChan != nil {
+			sc.logger.Debug("Stopping port forward session", "sessionID", sessionID)
+			select {
+			case session.StopChan <- struct{}{}:
+				// Signal sent successfully
+			default:
+				// Channel was already closed or full, that's ok
+			}
+		}
+	}
+
+	// Clear the sessions map
+	sc.activeSessions = make(map[string]*k8s.PortForwardSession)
 }
 
 // IsShutdown returns true if the server context has been shutdown.
