@@ -18,8 +18,7 @@ internal/tools/               # MCP tool implementations
 ├── context/                  # Context management tools
 ├── resource/                 # Resource management tools
 ├── pod/                      # Pod operations tools
-├── cluster/                  # Cluster management tools
-└── helm/                     # Helm chart management tools
+└── cluster/                  # Cluster management tools
 internal/security/            # Security enhancements
 internal/util/                # Utility functions
 pkg/                          # Public packages
@@ -31,7 +30,7 @@ docs/                         # Tool documentation
 
 - **Multi-cluster Support**: Manage multiple Kubernetes clusters seamlessly
 - **Non-destructive Mode**: Safe operations with validation and confirmation
-- **Comprehensive Tool Set**: Full range of kubectl and helm operations
+- **Comprehensive Tool Set**: Full range of kubectl operations
 - **ServerContext Pattern**: Decoupled, testable architecture
 - **Security First**: Authentication, authorization, and secure credential handling
 
@@ -56,17 +55,12 @@ docs/                         # Tool documentation
 - API resource discovery
 - Cluster health monitoring
 
-#### Helm Operations
-- Install, upgrade, and uninstall charts
-- List Helm releases
-
 ## Development
 
 ### Prerequisites
 
 - Go 1.21+
 - Access to Kubernetes clusters
-- Helm (for Helm operations)
 
 ### Building
 

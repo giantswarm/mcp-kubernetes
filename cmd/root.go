@@ -13,8 +13,8 @@ var rootCmd = &cobra.Command{
 	Short: "MCP server for Kubernetes operations",
 	Long: `mcp-kubernetes is a Model Context Protocol (MCP) server that provides
 tools for interacting with Kubernetes clusters. It offers various capabilities
-including resource management, pod operations, context switching, cluster
-information, and Helm operations.
+including resource management, pod operations, context switching, and cluster
+information.
 
 When run without subcommands, it starts the MCP server (equivalent to 'mcp-kubernetes serve').`,
 	// SilenceUsage prevents Cobra from printing the usage message on errors that are handled by the application.

@@ -26,9 +26,6 @@ type Client interface {
 
 	// Cluster Operations
 	ClusterManager
-
-	// Helm Operations
-	HelmManager
 }
 
 // ContextManager handles Kubernetes context operations.
@@ -92,21 +89,6 @@ type ClusterManager interface {
 
 	// GetClusterHealth returns the health status of the cluster.
 	GetClusterHealth(ctx context.Context, kubeContext string) (*ClusterHealth, error)
-}
-
-// HelmManager handles Helm chart operations.
-type HelmManager interface {
-	// HelmInstall installs a Helm chart.
-	HelmInstall(ctx context.Context, kubeContext, namespace, releaseName, chart string, opts HelmInstallOptions) (*HelmRelease, error)
-
-	// HelmUpgrade upgrades an existing Helm release.
-	HelmUpgrade(ctx context.Context, kubeContext, namespace, releaseName, chart string, opts HelmUpgradeOptions) (*HelmRelease, error)
-
-	// HelmUninstall removes a Helm release.
-	HelmUninstall(ctx context.Context, kubeContext, namespace, releaseName string, opts HelmUninstallOptions) error
-
-	// HelmList lists all Helm releases in a namespace.
-	HelmList(ctx context.Context, kubeContext, namespace string, opts HelmListOptions) ([]HelmRelease, error)
 }
 
 // ContextInfo represents information about a Kubernetes context.
@@ -201,53 +183,4 @@ type NodeHealth struct {
 	Name       string                 `json:"name"`
 	Ready      bool                   `json:"ready"`
 	Conditions []corev1.NodeCondition `json:"conditions"`
-}
-
-// HelmInstallOptions configures Helm installation.
-type HelmInstallOptions struct {
-	Values          map[string]interface{} `json:"values,omitempty"`
-	ValuesFiles     []string               `json:"valuesFiles,omitempty"`
-	Wait            bool                   `json:"wait,omitempty"`
-	Timeout         time.Duration          `json:"timeout,omitempty"`
-	CreateNamespace bool                   `json:"createNamespace,omitempty"`
-	Version         string                 `json:"version,omitempty"`
-	Repository      string                 `json:"repository,omitempty"`
-}
-
-// HelmUpgradeOptions configures Helm upgrades.
-type HelmUpgradeOptions struct {
-	Values      map[string]interface{} `json:"values,omitempty"`
-	ValuesFiles []string               `json:"valuesFiles,omitempty"`
-	Wait        bool                   `json:"wait,omitempty"`
-	Timeout     time.Duration          `json:"timeout,omitempty"`
-	Version     string                 `json:"version,omitempty"`
-	Repository  string                 `json:"repository,omitempty"`
-	ResetValues bool                   `json:"resetValues,omitempty"`
-}
-
-// HelmUninstallOptions configures Helm uninstallation.
-type HelmUninstallOptions struct {
-	Wait    bool          `json:"wait,omitempty"`
-	Timeout time.Duration `json:"timeout,omitempty"`
-}
-
-// HelmListOptions configures Helm release listing.
-type HelmListOptions struct {
-	AllNamespaces bool   `json:"allNamespaces,omitempty"`
-	Filter        string `json:"filter,omitempty"`
-	Deployed      bool   `json:"deployed,omitempty"`
-	Failed        bool   `json:"failed,omitempty"`
-	Pending       bool   `json:"pending,omitempty"`
-}
-
-// HelmRelease represents a Helm release.
-type HelmRelease struct {
-	Name       string                 `json:"name"`
-	Namespace  string                 `json:"namespace"`
-	Revision   int                    `json:"revision"`
-	Status     string                 `json:"status"`
-	Chart      string                 `json:"chart"`
-	AppVersion string                 `json:"appVersion"`
-	Updated    time.Time              `json:"updated"`
-	Values     map[string]interface{} `json:"values,omitempty"`
 }
