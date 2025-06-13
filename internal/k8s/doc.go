@@ -7,7 +7,6 @@
 //   - All kubectl operations (get, list, describe, create, apply, delete, patch, scale)
 //   - Pod-specific operations (logs, exec, port-forward)
 //   - Cluster management (API resources, health checks)
-//   - Helm chart management (install, upgrade, uninstall, list)
 //
 // The interfaces are broken down into focused concerns:
 //
@@ -15,7 +14,6 @@
 //   - ResourceManager: General resource CRUD operations
 //   - PodManager: Pod-specific operations
 //   - ClusterManager: Cluster-level operations
-//   - HelmManager: Helm chart operations
 //
 // All operations support multi-cluster scenarios by accepting kubeContext
 // parameters, enabling the MCP server to work with multiple Kubernetes

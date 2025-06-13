@@ -15,7 +15,6 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
 	contexttools "github.com/giantswarm/mcp-kubernetes/internal/tools/context"
-	"github.com/giantswarm/mcp-kubernetes/internal/tools/helm"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/pod"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -147,10 +146,6 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 
 	if err := cluster.RegisterClusterTools(mcpSrv, serverContext); err != nil {
 		return fmt.Errorf("failed to register cluster tools: %w", err)
-	}
-
-	if err := helm.RegisterHelmTools(mcpSrv, serverContext); err != nil {
-		return fmt.Errorf("failed to register helm tools: %w", err)
 	}
 
 	fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", transport)
