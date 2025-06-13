@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +40,7 @@ func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, reso
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(kubeContext, resourceType)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +85,7 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(kubeContext, resourceType)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +114,10 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 	var objects []runtime.Object
 	for _, item := range list.Items {
 		objects = append(objects, &item)
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("listed resources", "resourceType", resourceType, "namespace", namespace, "count", len(objects))
 	}
 
 	return objects, nil
@@ -334,7 +339,7 @@ func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, r
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(kubeContext, resourceType)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
 	if err != nil {
 		return err
 	}
@@ -385,7 +390,7 @@ func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, re
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(kubeContext, resourceType)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -485,42 +490,185 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 
 // Helper methods
 
-// resolveResourceType resolves a resource type string to GroupVersionResource.
-func (c *kubernetesClient) resolveResourceType(kubeContext, resourceType string) (schema.GroupVersionResource, bool, error) {
-	discoveryClient, err := c.getDiscoveryClient(kubeContext)
-	if err != nil {
-		return schema.GroupVersionResource{}, false, err
+// resolveResourceType determines the GroupVersionResource for a given resource type
+func (c *kubernetesClient) resolveResourceType(resourceType, contextName string) (schema.GroupVersionResource, bool, error) {
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("resolveResourceType: starting", "resourceType", resourceType, "contextName", contextName)
 	}
 
-	// Get API resources
-	apiResourceLists, err := discoveryClient.ServerPreferredResources()
-	if err != nil {
-		return schema.GroupVersionResource{}, false, fmt.Errorf("failed to get API resources: %w", err)
+	// Normalize to lower case for comparison
+	resourceType = strings.ToLower(resourceType)
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("resolveResourceType: normalized resource", "normalizedType", resourceType)
 	}
 
-	// Search for the resource type
-	resourceTypeLower := strings.ToLower(resourceType)
-	for _, apiResourceList := range apiResourceLists {
-		gv, err := schema.ParseGroupVersion(apiResourceList.GroupVersion)
-		if err != nil {
+	// Check built-in resources first
+	if gvr, exists := c.builtinResources[resourceType]; exists {
+		namespaced := c.isResourceNamespaced(gvr)
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("resolveResourceType: found in builtin resources",
+				"resourceType", resourceType,
+				"group", gvr.Group,
+				"version", gvr.Version,
+				"resource", gvr.Resource,
+				"namespaced", namespaced)
+		}
+		return gvr, namespaced, nil
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("resolveResourceType: not found in builtin, discovering from API")
+	}
+
+	// Get discovery client for the context
+	discoveryClient, err := c.getDiscoveryClient(contextName)
+	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("resolveResourceType: failed to get discovery client", "error", err)
+		}
+		return schema.GroupVersionResource{}, false, fmt.Errorf("failed to get discovery client: %w", err)
+	}
+
+	// Set up timeout for discovery API call to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("resolveResourceType: calling ServerPreferredResources with timeout")
+	}
+
+	type discoveryResult struct {
+		resourceLists []*metav1.APIResourceList
+		err           error
+	}
+
+	// Use goroutine with channel to implement timeout
+	resultChan := make(chan discoveryResult, 1)
+	go func() {
+		resourceLists, err := discoveryClient.ServerPreferredResources()
+		resultChan <- discoveryResult{resourceLists: resourceLists, err: err}
+	}()
+
+	var resourceLists []*metav1.APIResourceList
+	select {
+	case result := <-resultChan:
+		resourceLists = result.resourceLists
+		err = result.err
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("resolveResourceType: ServerPreferredResources completed", "listsCount", len(resourceLists), "error", err)
+		}
+	case <-ctx.Done():
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Error("resolveResourceType: ServerPreferredResources timed out")
+		}
+		return schema.GroupVersionResource{}, false, fmt.Errorf("API discovery timed out after 30 seconds")
+	}
+
+	if err != nil {
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Warn("resolveResourceType: ServerPreferredResources returned error, continuing with partial results", "error", err)
+		}
+		// Continue with partial results - this is common and expected
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("resolveResourceType: searching through API resources", "targetResource", resourceType)
+	}
+
+	// Search through all API resources
+	for _, resourceList := range resourceLists {
+		if resourceList == nil {
 			continue
 		}
 
-		for _, apiResource := range apiResourceList.APIResources {
-			if strings.ToLower(apiResource.Name) == resourceTypeLower ||
-				strings.ToLower(apiResource.SingularName) == resourceTypeLower ||
-				strings.ToLower(apiResource.Kind) == resourceTypeLower {
+		gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
+		if err != nil {
+			if c.config.DebugMode && c.config.Logger != nil {
+				c.config.Logger.Warn("resolveResourceType: failed to parse group version",
+					"groupVersion", resourceList.GroupVersion, "error", err)
+			}
+			continue
+		}
 
-				return schema.GroupVersionResource{
-					Group:    gv.Group,
-					Version:  gv.Version,
-					Resource: apiResource.Name,
-				}, apiResource.Namespaced, nil
+		if c.config.DebugMode && c.config.Logger != nil {
+			c.config.Logger.Debug("resolveResourceType: checking resource list",
+				"groupVersion", resourceList.GroupVersion,
+				"resourceCount", len(resourceList.APIResources))
+		}
+
+		for _, resource := range resourceList.APIResources {
+			// Check if this resource matches what we're looking for
+			matches := []string{
+				strings.ToLower(resource.Name),         // e.g., "pods"
+				strings.ToLower(resource.Kind),         // e.g., "Pod"
+				strings.ToLower(resource.SingularName), // e.g., "pod"
+			}
+
+			// Also check short names
+			for _, shortName := range resource.ShortNames {
+				matches = append(matches, strings.ToLower(shortName))
+			}
+
+			if c.config.DebugMode && c.config.Logger != nil {
+				c.config.Logger.Debug("resolveResourceType: checking resource",
+					"resourceName", resource.Name,
+					"kind", resource.Kind,
+					"singular", resource.SingularName,
+					"shortNames", resource.ShortNames,
+					"matches", matches)
+			}
+
+			for _, match := range matches {
+				if match == resourceType {
+					gvr := gv.WithResource(resource.Name)
+					if c.config.DebugMode && c.config.Logger != nil {
+						c.config.Logger.Debug("resolveResourceType: found match!",
+							"resourceType", resourceType,
+							"matched", match,
+							"group", gvr.Group,
+							"version", gvr.Version,
+							"resource", gvr.Resource,
+							"namespaced", resource.Namespaced)
+					}
+					return gvr, resource.Namespaced, nil
+				}
 			}
 		}
 	}
 
-	return schema.GroupVersionResource{}, false, fmt.Errorf("resource type %q not found", resourceType)
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Error("resolveResourceType: no matching resource found", "resourceType", resourceType)
+	}
+
+	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", resourceType)
+}
+
+// isResourceNamespaced determines if a resource is namespaced based on its GroupVersionResource
+func (c *kubernetesClient) isResourceNamespaced(gvr schema.GroupVersionResource) bool {
+	// Cluster-scoped resources
+	clusterScopedResources := map[string]bool{
+		"nodes":                           true,
+		"persistentvolumes":               true,
+		"clusterroles":                    true,
+		"clusterrolebindings":             true,
+		"namespaces":                      true,
+		"storageclasses":                  true,
+		"ingressclasses":                  true,
+		"priorityclasses":                 true,
+		"runtimeclasses":                  true,
+		"podsecuritypolicies":             true,
+		"volumeattachments":               true,
+		"csidrivers":                      true,
+		"csinodes":                        true,
+		"csistoragecapacities":            true,
+		"mutatingwebhookconfigurations":   true,
+		"validatingwebhookconfigurations": true,
+		"customresourcedefinitions":       true,
+		"apiservices":                     true,
+	}
+
+	return !clusterScopedResources[gvr.Resource]
 }
 
 // resolveGVRFromObject resolves GroupVersionResource from an unstructured object.
@@ -530,7 +678,7 @@ func (c *kubernetesClient) resolveGVRFromObject(kubeContext string, obj *unstruc
 		return schema.GroupVersionResource{}, false, fmt.Errorf("failed to parse API version: %w", err)
 	}
 
-	return c.resolveResourceType(kubeContext, obj.GetKind())
+	return c.resolveResourceType(obj.GetKind(), kubeContext)
 }
 
 // getResourceEvents retrieves events related to a specific resource.

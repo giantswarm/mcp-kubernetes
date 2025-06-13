@@ -77,8 +77,8 @@ type ScaleResourceArgs struct {
 
 // RegisterResourceTools registers all resource management tools with the MCP server
 func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
-	// kubectl_get tool
-	getResourceTool := mcp.NewTool("kubectl_get",
+	// kubernetes_get tool
+	getResourceTool := mcp.NewTool("kubernetes_get",
 		mcp.WithDescription("Get a specific Kubernetes resource by name and namespace"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -101,8 +101,8 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		return handleGetResource(ctx, request, sc)
 	})
 
-	// kubectl_list tool
-	listResourceTool := mcp.NewTool("kubectl_list",
+	// kubernetes_list tool
+	listResourceTool := mcp.NewTool("kubernetes_list",
 		mcp.WithDescription("List Kubernetes resources of a specific type"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -130,8 +130,8 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		return handleListResources(ctx, request, sc)
 	})
 
-	// kubectl_describe tool
-	describeResourceTool := mcp.NewTool("kubectl_describe",
+	// kubernetes_describe tool
+	describeResourceTool := mcp.NewTool("kubernetes_describe",
 		mcp.WithDescription("Get detailed information about a Kubernetes resource including events"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -154,8 +154,8 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		return handleDescribeResource(ctx, request, sc)
 	})
 
-	// kubectl_create tool
-	createResourceTool := mcp.NewTool("kubectl_create",
+	// kubernetes_create tool
+	createResourceTool := mcp.NewTool("kubernetes_create",
 		mcp.WithDescription("Create a new Kubernetes resource from a manifest"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -174,8 +174,8 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		return handleCreateResource(ctx, request, sc)
 	})
 
-	// kubectl_apply tool
-	applyResourceTool := mcp.NewTool("kubectl_apply",
+	// kubernetes_apply tool
+	applyResourceTool := mcp.NewTool("kubernetes_apply",
 		mcp.WithDescription("Apply a Kubernetes manifest (create or update)"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -194,8 +194,8 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		return handleApplyResource(ctx, request, sc)
 	})
 
-	// kubectl_delete tool
-	deleteResourceTool := mcp.NewTool("kubectl_delete",
+	// kubernetes_delete tool
+	deleteResourceTool := mcp.NewTool("kubernetes_delete",
 		mcp.WithDescription("Delete a Kubernetes resource"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -218,8 +218,8 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		return handleDeleteResource(ctx, request, sc)
 	})
 
-	// kubectl_patch tool
-	patchResourceTool := mcp.NewTool("kubectl_patch",
+	// kubernetes_patch tool
+	patchResourceTool := mcp.NewTool("kubernetes_patch",
 		mcp.WithDescription("Patch a Kubernetes resource with specific changes"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -251,8 +251,8 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		return handlePatchResource(ctx, request, sc)
 	})
 
-	// kubectl_scale tool
-	scaleResourceTool := mcp.NewTool("kubectl_scale",
+	// kubernetes_scale tool
+	scaleResourceTool := mcp.NewTool("kubernetes_scale",
 		mcp.WithDescription("Scale a Kubernetes resource (deployment, replicaset, etc.)"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -280,4 +280,4 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 	})
 
 	return nil
-} 
+}

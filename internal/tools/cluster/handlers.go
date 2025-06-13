@@ -12,7 +12,7 @@ import (
 // handleGetAPIResources handles kubectl api-resources operations
 func handleGetAPIResources(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
 
 	resources, err := sc.K8sClient().GetAPIResources(ctx, kubeContext)
@@ -32,7 +32,7 @@ func handleGetAPIResources(ctx context.Context, request mcp.CallToolRequest, sc 
 // handleGetClusterHealth handles kubectl cluster health operations
 func handleGetClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
-	
+
 	kubeContext, _ := args["kubeContext"].(string)
 
 	health, err := sc.K8sClient().GetClusterHealth(ctx, kubeContext)
@@ -47,4 +47,4 @@ func handleGetClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
-} 
+}

@@ -80,6 +80,9 @@ type PodManager interface {
 
 	// PortForward sets up port forwarding to a pod.
 	PortForward(ctx context.Context, kubeContext, namespace, podName string, ports []string, opts PortForwardOptions) (*PortForwardSession, error)
+
+	// PortForwardToService sets up port forwarding to the first available pod behind a service.
+	PortForwardToService(ctx context.Context, kubeContext, namespace, serviceName string, ports []string, opts PortForwardOptions) (*PortForwardSession, error)
 }
 
 // ClusterManager handles cluster-level operations.

@@ -10,8 +10,8 @@ import (
 
 // RegisterPodTools registers all pod management tools with the MCP server
 func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
-	// kubectl_logs tool
-	logsTool := mcp.NewTool("kubectl_logs",
+	// kubernetes_logs tool
+	logsTool := mcp.NewTool("kubernetes_logs",
 		mcp.WithDescription("Get logs from a pod container"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -45,8 +45,8 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		return handleGetLogs(ctx, request, sc)
 	})
 
-	// kubectl_exec tool
-	execTool := mcp.NewTool("kubectl_exec",
+	// kubernetes_exec tool
+	execTool := mcp.NewTool("kubernetes_exec",
 		mcp.WithDescription("Execute a command inside a pod container"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
@@ -75,19 +75,23 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		return handleExec(ctx, request, sc)
 	})
 
-	// kubectl_port_forward tool
-	portForwardTool := mcp.NewTool("kubectl_port_forward",
-		mcp.WithDescription("Port-forward to a pod"),
+	// port_forward tool
+	portForwardTool := mcp.NewTool("port_forward",
+		mcp.WithDescription("Port-forward to a pod or service"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
 		),
 		mcp.WithString("namespace",
 			mcp.Required(),
-			mcp.Description("Namespace where the pod is located"),
+			mcp.Description("Namespace where the resource is located"),
 		),
-		mcp.WithString("podName",
+		mcp.WithString("resourceType",
+			mcp.Description("Type of resource to port-forward to: 'pod' or 'service' (default: 'pod')"),
+			mcp.Enum("pod", "service"),
+		),
+		mcp.WithString("resourceName",
 			mcp.Required(),
-			mcp.Description("Name of the pod to port-forward to"),
+			mcp.Description("Name of the pod or service to port-forward to"),
 		),
 		mcp.WithArray("ports",
 			mcp.Required(),
@@ -99,5 +103,36 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		return handlePortForward(ctx, request, sc)
 	})
 
+	// list_port_forward_sessions tool
+	listSessionsTool := mcp.NewTool("list_port_forward_sessions",
+		mcp.WithDescription("List all active port forwarding sessions"),
+	)
+
+	s.AddTool(listSessionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return handleListPortForwardSessions(ctx, request, sc)
+	})
+
+	// stop_port_forward_session tool
+	stopSessionTool := mcp.NewTool("stop_port_forward_session",
+		mcp.WithDescription("Stop a specific port forwarding session by ID"),
+		mcp.WithString("sessionID",
+			mcp.Required(),
+			mcp.Description("ID of the port forwarding session to stop"),
+		),
+	)
+
+	s.AddTool(stopSessionTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return handleStopPortForwardSession(ctx, request, sc)
+	})
+
+	// stop_all_port_forward_sessions tool
+	stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
+		mcp.WithDescription("Stop all active port forwarding sessions"),
+	)
+
+	s.AddTool(stopAllSessionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return handleStopAllPortForwardSessions(ctx, request, sc)
+	})
+
 	return nil
-} 
+}
