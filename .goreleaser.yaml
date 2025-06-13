@@ -14,7 +14,7 @@ before:
 builds:
   - id: mcp-kubernetes
     # Path to main.go file or main package.
-    main: ./cmd/mcp-kubernetes/main.go
+    main: .
     # Binary name.
     # Defaults to the project name.
     binary: mcp-kubernetes

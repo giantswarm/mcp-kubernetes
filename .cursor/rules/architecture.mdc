@@ -12,9 +12,6 @@ This document outlines the fundamental architectural principles and patterns for
 ## 1. Testing Standards
 
 -   **Minimum Coverage:** All new code **MUST** achieve at least **80% unit test coverage**.
--   **TUI Golden Files:** All TUI view changes **MUST** be verified with golden file snapshots.
-    -   Run `NO_COLOR=true go test ./internal/tui/view/... -update` to update snapshots.
-    -   Manually review the `.golden` file changes in `internal/tui/view/testdata/` to ensure they are intentional.
 -   **No Flaky Tests:** Tests **MUST** be deterministic. Do not use `time.Sleep` or other mechanisms that can lead to race conditions. Use dependency injection for things like clocks or timers to make code testable.
 
 ---
