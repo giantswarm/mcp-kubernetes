@@ -345,8 +345,8 @@ func TestCreateResourceSummary(t *testing.T) {
 					"apiVersion": "apps/v1",
 					"kind":       "Deployment",
 					"metadata": map[string]interface{}{
-						"name":      "test-deployment",
-						"namespace": "default",
+						"name":              "test-deployment",
+						"namespace":         "default",
 						"creationTimestamp": "2023-01-01T10:00:00Z",
 					},
 					"spec": map[string]interface{}{
@@ -381,8 +381,8 @@ func TestCreateResourceSummary(t *testing.T) {
 					"apiVersion": "v1",
 					"kind":       "Service",
 					"metadata": map[string]interface{}{
-						"name":      "test-service",
-						"namespace": "default",
+						"name":              "test-service",
+						"namespace":         "default",
 						"creationTimestamp": "2023-01-01T10:00:00Z",
 					},
 					"spec": map[string]interface{}{

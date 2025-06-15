@@ -176,10 +176,12 @@ func createTestServerContext(k8sClient k8s.Client, logger server.Logger) *server
 
 // Helper function to create a CallToolRequest with proper structure
 func createCallToolRequest(args map[string]interface{}) mcp.CallToolRequest {
-	// Create request with arguments directly, as that's how the handlers access them
-	request := mcp.CallToolRequest{}
-	// Mock GetArguments to return our test args
-	return request
+	return mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "test_tool",
+			Arguments: args,
+		},
+	}
 }
 
 // Helper function to get text content from CallToolResult
@@ -190,15 +192,6 @@ func getTextContent(result *mcp.CallToolResult) string {
 		}
 	}
 	return ""
-}
-
-// mockCallToolRequest is a simple mock that implements the interface needed by handlers
-type mockCallToolRequest struct {
-	args map[string]interface{}
-}
-
-func (m mockCallToolRequest) GetArguments() map[string]interface{} {
-	return m.args
 }
 
 // Test handleGetLogs function
@@ -212,7 +205,7 @@ func TestHandleGetLogs(t *testing.T) {
 		errorContains  string
 	}{
 		{
-			name: "successful log retrieval",
+			name: "successful log retrieval with default tail lines",
 			args: map[string]interface{}{
 				"namespace": "default",
 				"podName":   "test-pod",
@@ -220,13 +213,17 @@ func TestHandleGetLogs(t *testing.T) {
 			setupMock: func(m *MockK8sClient) {
 				logContent := "log line 1\nlog line 2\n"
 				mockReader := NewMockReadCloser(logContent)
-				m.On("GetLogs", mock.Anything, "", "default", "test-pod", "", k8s.LogOptions{}).Return(mockReader, nil)
+				defaultTailLines := int64(50)
+				expectedOpts := k8s.LogOptions{
+					TailLines: &defaultTailLines,
+				}
+				m.On("GetLogs", mock.Anything, "", "default", "test-pod", "", expectedOpts).Return(mockReader, nil)
 			},
 			expectedError:  false,
 			expectedResult: "log line 1\nlog line 2\n",
 		},
 		{
-			name: "successful log retrieval with all options",
+			name: "successful log retrieval with explicit tail lines",
 			args: map[string]interface{}{
 				"kubeContext":   "test-context",
 				"namespace":     "kube-system",
@@ -297,7 +294,10 @@ func TestHandleGetLogs(t *testing.T) {
 				"podName":   "test-pod",
 			},
 			setupMock: func(m *MockK8sClient) {
-				m.On("GetLogs", mock.Anything, "", "default", "test-pod", "", k8s.LogOptions{}).Return((*MockReadCloser)(nil), errors.New("pod not found"))
+				// Handler sets default TailLines to 50 when not specified
+				defaultTailLines := int64(50)
+				expectedOpts := k8s.LogOptions{TailLines: &defaultTailLines}
+				m.On("GetLogs", mock.Anything, "", "default", "test-pod", "", expectedOpts).Return((*MockReadCloser)(nil), errors.New("pod not found"))
 			},
 			expectedError: true,
 			errorContains: "Failed to get logs: pod not found",
@@ -320,8 +320,7 @@ func TestHandleGetLogs(t *testing.T) {
 			defer sc.Shutdown()
 
 			// Create a simple request that mimics how real requests work
-			// We need to create a mock that returns our test arguments when GetArguments() is called
-			request := mockCallToolRequest{args: tt.args}
+			request := createCallToolRequest(tt.args)
 
 			// Call the handler
 			result, err := handleGetLogs(context.Background(), request, sc)
@@ -498,7 +497,7 @@ func TestHandleExec(t *testing.T) {
 			defer sc.Shutdown()
 
 			// Create request
-			request := mockCallToolRequest{args: tt.args}
+			request := createCallToolRequest(tt.args)
 
 			// Call the handler
 			result, err := handleExec(context.Background(), request, sc)
@@ -701,7 +700,7 @@ func TestHandlePortForward(t *testing.T) {
 			defer sc.Shutdown()
 
 			// Create request
-			request := mockCallToolRequest{args: tt.args}
+			request := createCallToolRequest(tt.args)
 
 			// Call the handler
 			result, err := handlePortForward(context.Background(), request, sc)
@@ -790,7 +789,7 @@ func TestHandleListPortForwardSessions(t *testing.T) {
 			tt.setupSessions(sc)
 
 			// Create request
-			request := mockCallToolRequest{args: map[string]interface{}{}}
+			request := createCallToolRequest(map[string]interface{}{})
 
 			// Call the handler
 			result, err := handleListPortForwardSessions(context.Background(), request, sc)
@@ -881,7 +880,7 @@ func TestHandleStopPortForwardSession(t *testing.T) {
 			tt.setupSessions(sc)
 
 			// Create request
-			request := mockCallToolRequest{args: tt.args}
+			request := createCallToolRequest(tt.args)
 
 			// Call the handler
 			result, err := handleStopPortForwardSession(context.Background(), request, sc)
@@ -973,7 +972,7 @@ func TestHandleStopAllPortForwardSessions(t *testing.T) {
 			tt.setupSessions(sc)
 
 			// Create request
-			request := mockCallToolRequest{args: map[string]interface{}{}}
+			request := createCallToolRequest(map[string]interface{}{})
 
 			// Call the handler
 			result, err := handleStopAllPortForwardSessions(context.Background(), request, sc)

@@ -37,7 +37,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.Description("Include timestamps in log output (default: false)"),
 		),
 		mcp.WithNumber("tailLines",
-			mcp.Description("Number of lines from the end of logs to show (optional)"),
+			mcp.Description("Number of lines from the end of logs to show (default: 50)"),
 		),
 	)
 

@@ -38,6 +38,10 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	if tailLinesFloat, ok := args["tailLines"].(float64); ok {
 		tailLinesInt := int64(tailLinesFloat)
 		tailLines = &tailLinesInt
+	} else {
+		// Default to 50 lines when tailLines is not specified
+		defaultTailLines := int64(50)
+		tailLines = &defaultTailLines
 	}
 
 	opts := k8s.LogOptions{
