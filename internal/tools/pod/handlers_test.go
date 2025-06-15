@@ -47,6 +47,11 @@ func (m *MockK8sClient) List(ctx context.Context, kubeContext, namespace, resour
 	return args.Get(0).([]runtime.Object), args.Error(1)
 }
 
+func (m *MockK8sClient) ListSummary(ctx context.Context, kubeContext, namespace, resourceType string, opts k8s.ListOptions) ([]k8s.ResourceSummary, error) {
+	args := m.Called(ctx, kubeContext, namespace, resourceType, opts)
+	return args.Get(0).([]k8s.ResourceSummary), args.Error(1)
+}
+
 func (m *MockK8sClient) Describe(ctx context.Context, kubeContext, namespace, resourceType, name string) (*k8s.ResourceDescription, error) {
 	args := m.Called(ctx, kubeContext, namespace, resourceType, name)
 	return args.Get(0).(*k8s.ResourceDescription), args.Error(1)

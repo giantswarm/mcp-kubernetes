@@ -103,7 +103,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// kubernetes_list tool
 	listResourceTool := mcp.NewTool("kubernetes_list",
-		mcp.WithDescription("List Kubernetes resources of a specific type"),
+		mcp.WithDescription("List Kubernetes resources of a specific type with minimal summary information"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
 		),

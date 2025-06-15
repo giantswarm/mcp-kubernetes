@@ -48,6 +48,9 @@ type ResourceManager interface {
 	// List retrieves all resources of a specific type in a namespace.
 	List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) ([]runtime.Object, error)
 
+	// ListSummary retrieves minimal summary information about resources of a specific type in a namespace.
+	ListSummary(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) ([]ResourceSummary, error)
+
 	// Describe provides detailed information about a resource.
 	Describe(ctx context.Context, kubeContext, namespace, resourceType, name string) (*ResourceDescription, error)
 

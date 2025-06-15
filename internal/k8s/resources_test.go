@@ -2,9 +2,11 @@ package k8s
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -279,4 +281,241 @@ func TestKubernetesClient_LogResourceOperations(t *testing.T) {
 	client.logOperation("scale", "test-context", "default", "deployment", "test-deployment")
 
 	mockLogger.AssertExpectations(t)
+}
+
+func TestCreateResourceSummary(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource *unstructured.Unstructured
+		expected ResourceSummary
+	}{
+		{
+			name: "Pod summary",
+			resource: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "Pod",
+					"metadata": map[string]interface{}{
+						"name":      "test-pod",
+						"namespace": "default",
+						"labels": map[string]interface{}{
+							"app": "test",
+						},
+						"creationTimestamp": "2023-01-01T10:00:00Z",
+					},
+					"spec": map[string]interface{}{
+						"nodeName": "worker-1",
+					},
+					"status": map[string]interface{}{
+						"phase": "Running",
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"type":   "Ready",
+								"status": "True",
+							},
+						},
+						"containerStatuses": []interface{}{
+							map[string]interface{}{
+								"restartCount": int64(0),
+							},
+						},
+					},
+				},
+			},
+			expected: ResourceSummary{
+				Name:       "test-pod",
+				Namespace:  "default",
+				Kind:       "Pod",
+				APIVersion: "v1",
+				Status:     "Running",
+				Ready:      "1/1",
+				Labels: map[string]string{
+					"app": "test",
+				},
+				AdditionalInfo: map[string]string{
+					"node":     "worker-1",
+					"restarts": "0",
+				},
+			},
+		},
+		{
+			name: "Deployment summary",
+			resource: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "apps/v1",
+					"kind":       "Deployment",
+					"metadata": map[string]interface{}{
+						"name":      "test-deployment",
+						"namespace": "default",
+						"creationTimestamp": "2023-01-01T10:00:00Z",
+					},
+					"spec": map[string]interface{}{
+						"replicas": int64(3),
+						"strategy": map[string]interface{}{
+							"type": "RollingUpdate",
+						},
+					},
+					"status": map[string]interface{}{
+						"readyReplicas":     int64(3),
+						"availableReplicas": int64(3),
+					},
+				},
+			},
+			expected: ResourceSummary{
+				Name:       "test-deployment",
+				Namespace:  "default",
+				Kind:       "Deployment",
+				APIVersion: "apps/v1",
+				Status:     "Ready",
+				Ready:      "3/3",
+				AdditionalInfo: map[string]string{
+					"replicas": "3",
+					"strategy": "RollingUpdate",
+				},
+			},
+		},
+		{
+			name: "Service summary",
+			resource: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "Service",
+					"metadata": map[string]interface{}{
+						"name":      "test-service",
+						"namespace": "default",
+						"creationTimestamp": "2023-01-01T10:00:00Z",
+					},
+					"spec": map[string]interface{}{
+						"type":      "ClusterIP",
+						"clusterIP": "10.96.1.1",
+						"ports": []interface{}{
+							map[string]interface{}{
+								"port":     int64(80),
+								"protocol": "TCP",
+							},
+							map[string]interface{}{
+								"port":     int64(443),
+								"protocol": "TCP",
+							},
+						},
+					},
+				},
+			},
+			expected: ResourceSummary{
+				Name:       "test-service",
+				Namespace:  "default",
+				Kind:       "Service",
+				APIVersion: "v1",
+				Status:     "ClusterIP",
+				AdditionalInfo: map[string]string{
+					"clusterIP": "10.96.1.1",
+					"ports":     "80,443",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &kubernetesClient{} // We don't need a fully configured client for this test
+			summary := client.createResourceSummary(tt.resource)
+
+			assert.Equal(t, tt.expected.Name, summary.Name)
+			assert.Equal(t, tt.expected.Namespace, summary.Namespace)
+			assert.Equal(t, tt.expected.Kind, summary.Kind)
+			assert.Equal(t, tt.expected.APIVersion, summary.APIVersion)
+			assert.Equal(t, tt.expected.Status, summary.Status)
+			assert.Equal(t, tt.expected.Ready, summary.Ready)
+			assert.Equal(t, tt.expected.Labels, summary.Labels)
+			assert.Equal(t, tt.expected.AdditionalInfo, summary.AdditionalInfo)
+
+			// Verify that Age is populated
+			assert.NotEmpty(t, summary.Age)
+			assert.False(t, summary.CreationTimestamp.IsZero())
+		})
+	}
+}
+
+func TestFormatAge(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name         string
+		creationTime time.Time
+		expected     string
+	}{
+		{
+			name:         "seconds",
+			creationTime: now.Add(-30 * time.Second),
+			expected:     "30s",
+		},
+		{
+			name:         "minutes",
+			creationTime: now.Add(-5 * time.Minute),
+			expected:     "5m",
+		},
+		{
+			name:         "hours",
+			creationTime: now.Add(-2 * time.Hour),
+			expected:     "2h",
+		},
+		{
+			name:         "days",
+			creationTime: now.Add(-3 * 24 * time.Hour),
+			expected:     "3d",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatAge(tt.creationTime)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestResourceSummary_Structure(t *testing.T) {
+	t.Run("complete resource summary", func(t *testing.T) {
+		summary := ResourceSummary{
+			Name:              "test-resource",
+			Namespace:         "default",
+			Kind:              "Pod",
+			APIVersion:        "v1",
+			Status:            "Running",
+			Age:               "5m",
+			CreationTimestamp: time.Now(),
+			Labels: map[string]string{
+				"app": "test",
+			},
+			Ready: "1/1",
+			AdditionalInfo: map[string]string{
+				"node": "worker-1",
+			},
+		}
+
+		assert.Equal(t, "test-resource", summary.Name)
+		assert.Equal(t, "default", summary.Namespace)
+		assert.Equal(t, "Pod", summary.Kind)
+		assert.Equal(t, "v1", summary.APIVersion)
+		assert.Equal(t, "Running", summary.Status)
+		assert.Equal(t, "5m", summary.Age)
+		assert.Equal(t, "1/1", summary.Ready)
+		assert.Equal(t, "test", summary.Labels["app"])
+		assert.Equal(t, "worker-1", summary.AdditionalInfo["node"])
+	})
+
+	t.Run("minimal resource summary", func(t *testing.T) {
+		summary := ResourceSummary{
+			Name:              "minimal-resource",
+			Kind:              "ConfigMap",
+			APIVersion:        "v1",
+			CreationTimestamp: time.Now(),
+			AdditionalInfo:    make(map[string]string),
+		}
+
+		assert.Equal(t, "minimal-resource", summary.Name)
+		assert.Equal(t, "", summary.Namespace) // Cluster-scoped resource
+		assert.Equal(t, "ConfigMap", summary.Kind)
+		assert.Equal(t, "v1", summary.APIVersion)
+		assert.NotNil(t, summary.AdditionalInfo)
+	})
 }

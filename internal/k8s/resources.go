@@ -15,6 +15,20 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
+// ResourceSummary represents minimal information about a Kubernetes resource
+type ResourceSummary struct {
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace,omitempty"`
+	Kind              string            `json:"kind"`
+	APIVersion        string            `json:"apiVersion"`
+	Status            string            `json:"status,omitempty"`
+	Age               string            `json:"age"`
+	CreationTimestamp time.Time         `json:"creationTimestamp"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	Ready             string            `json:"ready,omitempty"`
+	AdditionalInfo    map[string]string `json:"additionalInfo,omitempty"`
+}
+
 // ResourceManager implementation
 
 // Get retrieves a specific resource by name and namespace.
@@ -121,6 +135,349 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 	}
 
 	return objects, nil
+}
+
+// ListSummary retrieves minimal summary information about resources of a specific type in a namespace.
+func (c *kubernetesClient) ListSummary(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) ([]ResourceSummary, error) {
+	// Validate operation
+	if err := c.isOperationAllowed("list"); err != nil {
+		return nil, err
+	}
+
+	// Validate namespace access
+	if !opts.AllNamespaces && namespace != "" {
+		if err := c.isNamespaceRestricted(namespace); err != nil {
+			return nil, err
+		}
+	}
+
+	c.logOperation("list-summary", kubeContext, namespace, resourceType, "")
+
+	// Get dynamic client for the context
+	dynamicClient, err := c.getDynamicClient(kubeContext)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve resource type to GVR
+	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prepare list options
+	listOpts := metav1.ListOptions{
+		LabelSelector: opts.LabelSelector,
+		FieldSelector: opts.FieldSelector,
+	}
+
+	// Prepare resource interface
+	var resourceInterface dynamic.ResourceInterface
+	if namespaced && !opts.AllNamespaces && namespace != "" {
+		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
+	} else {
+		resourceInterface = dynamicClient.Resource(gvr)
+	}
+
+	// List the resources
+	list, err := resourceInterface.List(ctx, listOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list %s: %w", resourceType, err)
+	}
+
+	// Convert to ResourceSummary
+	var summaries []ResourceSummary
+	for _, item := range list.Items {
+		summary := c.createResourceSummary(&item)
+		summaries = append(summaries, summary)
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("listed resource summaries", "resourceType", resourceType, "namespace", namespace, "count", len(summaries))
+	}
+
+	return summaries, nil
+}
+
+// createResourceSummary creates a minimal summary from a full Kubernetes resource
+func (c *kubernetesClient) createResourceSummary(obj *unstructured.Unstructured) ResourceSummary {
+	summary := ResourceSummary{
+		Name:              obj.GetName(),
+		Namespace:         obj.GetNamespace(),
+		Kind:              obj.GetKind(),
+		APIVersion:        obj.GetAPIVersion(),
+		Labels:            obj.GetLabels(),
+		CreationTimestamp: obj.GetCreationTimestamp().Time,
+		Age:               formatAge(obj.GetCreationTimestamp().Time),
+		AdditionalInfo:    make(map[string]string),
+	}
+
+	// Extract status and additional info based on resource type
+	switch strings.ToLower(obj.GetKind()) {
+	case "pod":
+		c.extractPodSummary(obj, &summary)
+	case "deployment":
+		c.extractDeploymentSummary(obj, &summary)
+	case "service":
+		c.extractServiceSummary(obj, &summary)
+	case "node":
+		c.extractNodeSummary(obj, &summary)
+	case "namespace":
+		c.extractNamespaceSummary(obj, &summary)
+	case "replicaset":
+		c.extractReplicaSetSummary(obj, &summary)
+	case "statefulset":
+		c.extractStatefulSetSummary(obj, &summary)
+	case "daemonset":
+		c.extractDaemonSetSummary(obj, &summary)
+	case "configmap", "secret":
+		c.extractGenericSummary(obj, &summary)
+	default:
+		c.extractGenericSummary(obj, &summary)
+	}
+
+	return summary
+}
+
+// extractPodSummary extracts pod-specific summary information
+func (c *kubernetesClient) extractPodSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	// Pod status
+	if status, found, _ := unstructured.NestedString(obj.Object, "status", "phase"); found {
+		summary.Status = status
+	}
+
+	// Pod ready status
+	if conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions"); found {
+		readyCount := 0
+		totalCount := 0
+		for _, condition := range conditions {
+			if condMap, ok := condition.(map[string]interface{}); ok {
+				if condType, found := condMap["type"].(string); found && condType == "Ready" {
+					if status, found := condMap["status"].(string); found && status == "True" {
+						readyCount = 1
+					}
+					totalCount = 1
+					break
+				}
+			}
+		}
+		summary.Ready = fmt.Sprintf("%d/%d", readyCount, totalCount)
+	}
+
+	// Node information
+	if nodeName, found, _ := unstructured.NestedString(obj.Object, "spec", "nodeName"); found {
+		summary.AdditionalInfo["node"] = nodeName
+	}
+
+	// Restart count
+	if containerStatuses, found, _ := unstructured.NestedSlice(obj.Object, "status", "containerStatuses"); found {
+		totalRestarts := int64(0)
+		for _, status := range containerStatuses {
+			if statusMap, ok := status.(map[string]interface{}); ok {
+				if restartCount, found, _ := unstructured.NestedInt64(statusMap, "restartCount"); found {
+					totalRestarts += restartCount
+				}
+			}
+		}
+		summary.AdditionalInfo["restarts"] = fmt.Sprintf("%d", totalRestarts)
+	}
+}
+
+// extractDeploymentSummary extracts deployment-specific summary information
+func (c *kubernetesClient) extractDeploymentSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	// Replicas information
+	if replicas, found, _ := unstructured.NestedInt64(obj.Object, "spec", "replicas"); found {
+		summary.AdditionalInfo["replicas"] = fmt.Sprintf("%d", replicas)
+	}
+
+	readyReplicas, readyFound, _ := unstructured.NestedInt64(obj.Object, "status", "readyReplicas")
+	availableReplicas, availableFound, _ := unstructured.NestedInt64(obj.Object, "status", "availableReplicas")
+
+	if readyFound && availableFound {
+		summary.Ready = fmt.Sprintf("%d/%d", readyReplicas, availableReplicas)
+		if readyReplicas == availableReplicas {
+			summary.Status = "Ready"
+		} else {
+			summary.Status = "Updating"
+		}
+	}
+
+	// Deployment strategy
+	if strategy, found, _ := unstructured.NestedString(obj.Object, "spec", "strategy", "type"); found {
+		summary.AdditionalInfo["strategy"] = strategy
+	}
+}
+
+// extractServiceSummary extracts service-specific summary information
+func (c *kubernetesClient) extractServiceSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	// Service type
+	if serviceType, found, _ := unstructured.NestedString(obj.Object, "spec", "type"); found {
+		summary.Status = serviceType
+	}
+
+	// Cluster IP
+	if clusterIP, found, _ := unstructured.NestedString(obj.Object, "spec", "clusterIP"); found {
+		summary.AdditionalInfo["clusterIP"] = clusterIP
+	}
+
+	// External IP for LoadBalancer services
+	if externalIPs, found, _ := unstructured.NestedSlice(obj.Object, "status", "loadBalancer", "ingress"); found && len(externalIPs) > 0 {
+		if ingress, ok := externalIPs[0].(map[string]interface{}); ok {
+			if ip, found := ingress["ip"].(string); found {
+				summary.AdditionalInfo["externalIP"] = ip
+			}
+		}
+	}
+
+	// Ports
+	if ports, found, _ := unstructured.NestedSlice(obj.Object, "spec", "ports"); found {
+		var portStrings []string
+		for _, port := range ports {
+			if portMap, ok := port.(map[string]interface{}); ok {
+				if portNum, found := portMap["port"].(int64); found {
+					portStr := fmt.Sprintf("%d", portNum)
+					if protocol, found := portMap["protocol"].(string); found && protocol != "TCP" {
+						portStr += "/" + protocol
+					}
+					portStrings = append(portStrings, portStr)
+				}
+			}
+		}
+		if len(portStrings) > 0 {
+			summary.AdditionalInfo["ports"] = strings.Join(portStrings, ",")
+		}
+	}
+}
+
+// extractNodeSummary extracts node-specific summary information
+func (c *kubernetesClient) extractNodeSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	// Node ready status
+	if conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions"); found {
+		for _, condition := range conditions {
+			if condMap, ok := condition.(map[string]interface{}); ok {
+				if condType, found := condMap["type"].(string); found && condType == "Ready" {
+					if status, found := condMap["status"].(string); found {
+						if status == "True" {
+							summary.Status = "Ready"
+						} else {
+							summary.Status = "NotReady"
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Node role
+	if labels, found := summary.Labels, summary.Labels != nil; found {
+		for key := range labels {
+			if strings.HasPrefix(key, "node-role.kubernetes.io/") {
+				role := strings.TrimPrefix(key, "node-role.kubernetes.io/")
+				if role == "" {
+					role = "worker"
+				}
+				summary.AdditionalInfo["role"] = role
+				break
+			}
+		}
+	}
+
+	// Kubernetes version
+	if version, found, _ := unstructured.NestedString(obj.Object, "status", "nodeInfo", "kubeletVersion"); found {
+		summary.AdditionalInfo["version"] = version
+	}
+}
+
+// extractNamespaceSummary extracts namespace-specific summary information
+func (c *kubernetesClient) extractNamespaceSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	if phase, found, _ := unstructured.NestedString(obj.Object, "status", "phase"); found {
+		summary.Status = phase
+	}
+}
+
+// extractReplicaSetSummary extracts replicaset-specific summary information
+func (c *kubernetesClient) extractReplicaSetSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	if replicas, found, _ := unstructured.NestedInt64(obj.Object, "spec", "replicas"); found {
+		summary.AdditionalInfo["replicas"] = fmt.Sprintf("%d", replicas)
+	}
+
+	readyReplicas, readyFound, _ := unstructured.NestedInt64(obj.Object, "status", "readyReplicas")
+	if readyFound {
+		summary.Ready = fmt.Sprintf("%d/%d", readyReplicas, readyReplicas)
+		if readyReplicas > 0 {
+			summary.Status = "Ready"
+		} else {
+			summary.Status = "NotReady"
+		}
+	}
+}
+
+// extractStatefulSetSummary extracts statefulset-specific summary information
+func (c *kubernetesClient) extractStatefulSetSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	if replicas, found, _ := unstructured.NestedInt64(obj.Object, "spec", "replicas"); found {
+		summary.AdditionalInfo["replicas"] = fmt.Sprintf("%d", replicas)
+	}
+
+	readyReplicas, readyFound, _ := unstructured.NestedInt64(obj.Object, "status", "readyReplicas")
+	if readyFound {
+		summary.Ready = fmt.Sprintf("%d/%d", readyReplicas, readyReplicas)
+		if readyReplicas > 0 {
+			summary.Status = "Ready"
+		} else {
+			summary.Status = "NotReady"
+		}
+	}
+}
+
+// extractDaemonSetSummary extracts daemonset-specific summary information
+func (c *kubernetesClient) extractDaemonSetSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	desiredReplicas, desiredFound, _ := unstructured.NestedInt64(obj.Object, "status", "desiredNumberScheduled")
+	readyReplicas, readyFound, _ := unstructured.NestedInt64(obj.Object, "status", "numberReady")
+
+	if desiredFound && readyFound {
+		summary.Ready = fmt.Sprintf("%d/%d", readyReplicas, desiredReplicas)
+		if readyReplicas == desiredReplicas {
+			summary.Status = "Ready"
+		} else {
+			summary.Status = "Updating"
+		}
+	}
+}
+
+// extractGenericSummary extracts generic summary information for unknown resource types
+func (c *kubernetesClient) extractGenericSummary(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	// Try to extract common status fields
+	if status, found, _ := unstructured.NestedString(obj.Object, "status", "phase"); found {
+		summary.Status = status
+	} else if conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions"); found {
+		// Look for a Ready condition
+		for _, condition := range conditions {
+			if condMap, ok := condition.(map[string]interface{}); ok {
+				if condType, found := condMap["type"].(string); found && condType == "Ready" {
+					if status, found := condMap["status"].(string); found {
+						summary.Status = status
+					}
+					break
+				}
+			}
+		}
+	}
+}
+
+// formatAge formats a time duration as a human-readable age string
+func formatAge(creationTime time.Time) string {
+	duration := time.Since(creationTime)
+
+	if duration < time.Minute {
+		return fmt.Sprintf("%ds", int(duration.Seconds()))
+	} else if duration < time.Hour {
+		return fmt.Sprintf("%dm", int(duration.Minutes()))
+	} else if duration < 24*time.Hour {
+		return fmt.Sprintf("%dh", int(duration.Hours()))
+	} else {
+		return fmt.Sprintf("%dd", int(duration.Hours()/24))
+	}
 }
 
 // Describe provides detailed information about a resource.

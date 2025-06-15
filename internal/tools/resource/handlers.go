@@ -79,15 +79,15 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		namespace = ""
 	}
 
-	objects, err := sc.K8sClient().List(ctx, kubeContext, namespace, resourceType, opts)
+	summaries, err := sc.K8sClient().ListSummary(ctx, kubeContext, namespace, resourceType, opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
 
-	// Convert the resources to JSON for output
-	jsonData, err := json.MarshalIndent(objects, "", "  ")
+	// Convert the resource summaries to JSON for output
+	jsonData, err := json.MarshalIndent(summaries, "", "  ")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resources: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resource summaries: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
