@@ -18,12 +18,15 @@ type GetResourceArgs struct {
 
 // ListResourceArgs defines the arguments for kubectl list operations
 type ListResourceArgs struct {
-	KubeContext   string `json:"kubeContext,omitempty"`
-	Namespace     string `json:"namespace"`
-	ResourceType  string `json:"resourceType"`
-	LabelSelector string `json:"labelSelector,omitempty"`
-	FieldSelector string `json:"fieldSelector,omitempty"`
-	AllNamespaces bool   `json:"allNamespaces,omitempty"`
+	KubeContext        string `json:"kubeContext,omitempty"`
+	Namespace          string `json:"namespace"`
+	ResourceType       string `json:"resourceType"`
+	LabelSelector      string `json:"labelSelector,omitempty"`
+	FieldSelector      string `json:"fieldSelector,omitempty"`
+	AllNamespaces      bool   `json:"allNamespaces,omitempty"`
+	FullOutput         bool   `json:"fullOutput,omitempty"`
+	IncludeLabels      bool   `json:"includeLabels,omitempty"`
+	IncludeAnnotations bool   `json:"includeAnnotations,omitempty"`
 }
 
 // DescribeResourceArgs defines the arguments for kubectl describe operations
@@ -123,6 +126,15 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		),
 		mcp.WithBoolean("allNamespaces",
 			mcp.Description("List resources from all namespaces (default: false)"),
+		),
+		mcp.WithBoolean("fullOutput",
+			mcp.Description("Return full resource manifests instead of summary (default: false, returns compact summary)"),
+		),
+		mcp.WithBoolean("includeLabels",
+			mcp.Description("Include resource labels in summary output (default: false)"),
+		),
+		mcp.WithBoolean("includeAnnotations",
+			mcp.Description("Include resource annotations in summary output (default: false)"),
 		),
 	)
 

@@ -68,6 +68,11 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	fieldSelector, _ := args["fieldSelector"].(string)
 	allNamespaces, _ := args["allNamespaces"].(bool)
 
+	// New parameters for controlling output format
+	fullOutput, _ := args["fullOutput"].(bool)
+	includeLabels, _ := args["includeLabels"].(bool)
+	includeAnnotations, _ := args["includeAnnotations"].(bool)
+
 	opts := k8s.ListOptions{
 		LabelSelector: labelSelector,
 		FieldSelector: fieldSelector,
@@ -84,10 +89,20 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
 
-	// Convert the resources to JSON for output
-	jsonData, err := json.MarshalIndent(objects, "", "  ")
+	// Return full output if requested (backward compatibility)
+	if fullOutput {
+		jsonData, err := json.MarshalIndent(objects, "", "  ")
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resources: %v", err)), nil
+		}
+		return mcp.NewToolResultText(string(jsonData)), nil
+	}
+
+	// Use summarized output by default
+	summary := SummarizeResources(objects, includeLabels, includeAnnotations)
+	jsonData, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resources: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resource summary: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
