@@ -2,6 +2,7 @@ package pod
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -11,6 +12,24 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// PortForwardResponse represents the structured response for port forwarding operations
+type PortForwardResponse struct {
+	Success      bool          `json:"success"`
+	Message      string        `json:"message"`
+	SessionID    string        `json:"sessionId"`
+	ResourceType string        `json:"resourceType"`
+	ResourceName string        `json:"resourceName"`
+	Namespace    string        `json:"namespace"`
+	PortMappings []PortMapping `json:"portMappings"`
+	Instructions string        `json:"instructions"`
+}
+
+// PortMapping represents a single port mapping
+type PortMapping struct {
+	LocalPort  int `json:"localPort"`
+	RemotePort int `json:"remotePort"`
+}
 
 // handleGetLogs handles kubectl logs operations
 func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
@@ -208,18 +227,36 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	// Register the session for cleanup during shutdown
 	sc.RegisterPortForwardSession(sessionID, session)
 
-	// Format the result
-	var output strings.Builder
-	output.WriteString(fmt.Sprintf("Port forwarding session established to %s %s:\n", resourceType, resourceName))
+	// Create port mappings
+	var portMappings []PortMapping
 	for i, localPort := range session.LocalPorts {
 		if i < len(session.RemotePorts) {
-			output.WriteString(fmt.Sprintf("Local port %d -> Remote port %d\n", localPort, session.RemotePorts[i]))
+			portMappings = append(portMappings, PortMapping{
+				LocalPort:  localPort,
+				RemotePort: session.RemotePorts[i],
+			})
 		}
 	}
-	output.WriteString(fmt.Sprintf("\nSession ID: %s\n", sessionID))
-	output.WriteString("Note: This is a long-running session. Use 'list_port_forward_sessions' to view active sessions and 'stop_port_forward_session' to stop this session.")
 
-	return mcp.NewToolResultText(output.String()), nil
+	// Create structured response
+	response := PortForwardResponse{
+		Success:      true,
+		Message:      fmt.Sprintf("Port forwarding session established to %s %s", resourceType, resourceName),
+		SessionID:    sessionID,
+		ResourceType: resourceType,
+		ResourceName: resourceName,
+		Namespace:    namespace,
+		PortMappings: portMappings,
+		Instructions: "This is a long-running session. Use 'list_port_forward_sessions' to view active sessions and 'stop_port_forward_session' to stop this session.",
+	}
+
+	// Marshal response to JSON
+	jsonResponse, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonResponse)), nil
 }
 
 // handleListPortForwardSessions handles listing all active port forwarding sessions
