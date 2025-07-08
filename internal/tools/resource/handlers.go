@@ -54,19 +54,21 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	kubeContext, _ := args["kubeContext"].(string)
 
-	namespace, ok := args["namespace"].(string)
-	if !ok || namespace == "" {
-		return mcp.NewToolResultError("namespace is required"), nil
-	}
-
 	resourceType, ok := args["resourceType"].(string)
 	if !ok || resourceType == "" {
 		return mcp.NewToolResultError("resourceType is required"), nil
 	}
 
+	namespace, _ := args["namespace"].(string)
+	allNamespaces, _ := args["allNamespaces"].(bool)
+
+	// Namespace is not required when listing namespaces or all resources across namespaces
+	if resourceType != "namespace" && !allNamespaces && namespace == "" {
+		return mcp.NewToolResultError("namespace is required unless listing namespaces or using --all-namespaces"), nil
+	}
+
 	labelSelector, _ := args["labelSelector"].(string)
 	fieldSelector, _ := args["fieldSelector"].(string)
-	allNamespaces, _ := args["allNamespaces"].(bool)
 
 	// New parameters for controlling output format
 	fullOutput, _ := args["fullOutput"].(bool)
@@ -79,8 +81,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		AllNamespaces: allNamespaces,
 	}
 
-	// If allNamespaces is true, use empty namespace
-	if allNamespaces {
+	if allNamespaces || resourceType == "namespace" {
 		namespace = ""
 	}
 
