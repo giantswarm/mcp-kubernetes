@@ -12,8 +12,8 @@ import (
 
 // ClusterManager implementation
 
-// GetAPIResources returns available API resources in the cluster.
-func (c *kubernetesClient) GetAPIResources(ctx context.Context, kubeContext string) ([]APIResourceInfo, error) {
+// getAllAPIResources returns all available API resources in the cluster (helper method).
+func (c *kubernetesClient) getAllAPIResources(ctx context.Context, kubeContext string) ([]APIResourceInfo, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("api-resources"); err != nil {
 		return nil, err
@@ -69,6 +69,81 @@ func (c *kubernetesClient) GetAPIResources(ctx context.Context, kubeContext stri
 	}
 
 	return apiResources, nil
+}
+
+// GetAPIResources returns available API resources with pagination support.
+func (c *kubernetesClient) GetAPIResources(ctx context.Context, kubeContext string, limit, offset int, apiGroup string, namespacedOnly bool, verbs []string) (*PaginatedAPIResourceResponse, error) {
+	// First get all API resources using the helper method
+	allResources, err := c.getAllAPIResources(ctx, kubeContext)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply filters
+	var filteredResources []APIResourceInfo
+	for _, resource := range allResources {
+		// Filter by API group if specified
+		if apiGroup != "" && resource.Group != apiGroup {
+			continue
+		}
+
+		// Filter by namespaced if specified
+		if namespacedOnly && !resource.Namespaced {
+			continue
+		}
+
+		// Filter by verbs if specified
+		if len(verbs) > 0 {
+			hasAllVerbs := true
+			for _, verb := range verbs {
+				found := false
+				for _, resourceVerb := range resource.Verbs {
+					if resourceVerb == verb {
+						found = true
+						break
+					}
+				}
+				if !found {
+					hasAllVerbs = false
+					break
+				}
+			}
+			if !hasAllVerbs {
+				continue
+			}
+		}
+
+		filteredResources = append(filteredResources, resource)
+	}
+
+	totalCount := len(filteredResources)
+
+	// Apply pagination
+	if offset < 0 {
+		offset = 0
+	}
+
+	var paginatedItems []APIResourceInfo
+	hasMore := false
+	nextOffset := 0
+
+	if offset < totalCount {
+		end := totalCount
+		if limit > 0 && offset+limit < totalCount {
+			end = offset + limit
+			hasMore = true
+			nextOffset = end
+		}
+		paginatedItems = filteredResources[offset:end]
+	}
+
+	return &PaginatedAPIResourceResponse{
+		Items:      paginatedItems,
+		TotalItems: len(paginatedItems),
+		TotalCount: totalCount,
+		HasMore:    hasMore,
+		NextOffset: nextOffset,
+	}, nil
 }
 
 // GetClusterHealth returns the health status of the cluster.

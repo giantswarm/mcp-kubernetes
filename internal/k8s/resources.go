@@ -62,8 +62,10 @@ func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, reso
 	return obj, nil
 }
 
-// List retrieves all resources of a specific type in a namespace.
-func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) ([]runtime.Object, error) {
+
+
+// List retrieves resources with pagination support.
+func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("list"); err != nil {
 		return nil, err
@@ -90,10 +92,18 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 		return nil, err
 	}
 
-	// Prepare list options
+	// Prepare list options with pagination
 	listOpts := metav1.ListOptions{
 		LabelSelector: opts.LabelSelector,
 		FieldSelector: opts.FieldSelector,
+	}
+
+	// Add pagination parameters
+	if opts.Limit > 0 {
+		listOpts.Limit = opts.Limit
+	}
+	if opts.Continue != "" {
+		listOpts.Continue = opts.Continue
 	}
 
 	// Prepare resource interface
@@ -116,11 +126,32 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 		objects = append(objects, &item)
 	}
 
-	if c.config.DebugMode && c.config.Logger != nil {
-		c.config.Logger.Debug("listed resources", "resourceType", resourceType, "namespace", namespace, "count", len(objects))
+	// Build paginated response
+	response := &PaginatedListResponse{
+		Items:           objects,
+		Continue:        list.GetContinue(),
+		ResourceVersion: list.GetResourceVersion(),
+		TotalItems:      len(objects),
 	}
 
-	return objects, nil
+	// Calculate remaining items if continue token is present
+	if list.GetContinue() != "" {
+		// Note: Kubernetes doesn't provide exact remaining count,
+		// but we can indicate there are more items available
+		remaining := int64(-1) // -1 indicates "more available but count unknown"
+		response.RemainingItems = &remaining
+	}
+
+	if c.config.DebugMode && c.config.Logger != nil {
+		c.config.Logger.Debug("listed resources", 
+			"resourceType", resourceType, 
+			"namespace", namespace, 
+			"count", len(objects),
+			"continue", list.GetContinue(),
+			"limit", opts.Limit)
+	}
+
+	return response, nil
 }
 
 // Describe provides detailed information about a resource.

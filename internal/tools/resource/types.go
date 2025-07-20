@@ -33,6 +33,17 @@ type ListSummaryResponse struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
+// PaginatedSummaryResponse contains a paginated list of summarized resources with metadata
+type PaginatedSummaryResponse struct {
+	Kind            string                 `json:"kind"`
+	Items           []ResourceSummary      `json:"items"`
+	Continue        string                 `json:"continue,omitempty"`        // Token for next page
+	RemainingItems  *int64                 `json:"remainingItems,omitempty"`  // Estimated remaining items (if available)
+	ResourceVersion string                 `json:"resourceVersion,omitempty"` // Resource version for consistency
+	TotalItems      int                    `json:"totalItems"`                // Number of items in this response
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // SummarizeResources converts a list of runtime.Objects to compact ResourceSummary objects
 func SummarizeResources(objects []runtime.Object, includeLabels, includeAnnotations bool) *ListSummaryResponse {
 	if len(objects) == 0 {
@@ -62,6 +73,44 @@ func SummarizeResources(objects []runtime.Object, includeLabels, includeAnnotati
 		Kind:  fmt.Sprintf("%sList", resourceKind),
 		Items: summaries,
 		Total: len(summaries),
+	}
+}
+
+// SummarizePaginatedResources converts a paginated list of runtime.Objects to compact ResourceSummary objects
+func SummarizePaginatedResources(objects []runtime.Object, includeLabels, includeAnnotations bool, continue_ string, resourceVersion string, remainingItems *int64) *PaginatedSummaryResponse {
+	if len(objects) == 0 {
+		return &PaginatedSummaryResponse{
+			Kind:            "List",
+			Items:           []ResourceSummary{},
+			TotalItems:      0,
+			Continue:        continue_,
+			ResourceVersion: resourceVersion,
+			RemainingItems:  remainingItems,
+		}
+	}
+
+	summaries := make([]ResourceSummary, 0, len(objects))
+	var resourceKind string
+
+	for _, obj := range objects {
+		if unstructuredObj, ok := obj.(*unstructured.Unstructured); ok {
+			summary := summarizeResource(unstructuredObj, includeLabels, includeAnnotations)
+			summaries = append(summaries, summary)
+
+			// Set resource kind from first object
+			if resourceKind == "" {
+				resourceKind = unstructuredObj.GetKind()
+			}
+		}
+	}
+
+	return &PaginatedSummaryResponse{
+		Kind:            fmt.Sprintf("%sList", resourceKind),
+		Items:           summaries,
+		TotalItems:      len(summaries),
+		Continue:        continue_,
+		ResourceVersion: resourceVersion,
+		RemainingItems:  remainingItems,
 	}
 }
 

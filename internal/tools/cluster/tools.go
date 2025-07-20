@@ -25,6 +25,12 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithString("verbs",
 			mcp.Description("Filter by supported verbs (e.g., 'get,list,create') (optional)"),
 		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of items to return per page (optional, default: 20, 0 = no limit)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of items to skip (optional, for simple offset-based pagination)"),
+		),
 	)
 
 	s.AddTool(apiResourcesTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

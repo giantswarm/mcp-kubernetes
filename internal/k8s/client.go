@@ -45,8 +45,8 @@ type ResourceManager interface {
 	// Get retrieves a specific resource by name and namespace.
 	Get(ctx context.Context, kubeContext, namespace, resourceType, name string) (runtime.Object, error)
 
-	// List retrieves all resources of a specific type in a namespace.
-	List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) ([]runtime.Object, error)
+	// List retrieves resources with pagination support.
+	List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error)
 
 	// Describe provides detailed information about a resource.
 	Describe(ctx context.Context, kubeContext, namespace, resourceType, name string) (*ResourceDescription, error)
@@ -84,8 +84,8 @@ type PodManager interface {
 
 // ClusterManager handles cluster-level operations.
 type ClusterManager interface {
-	// GetAPIResources returns available API resources in the cluster.
-	GetAPIResources(ctx context.Context, kubeContext string) ([]APIResourceInfo, error)
+	// GetAPIResources returns available API resources with pagination support.
+	GetAPIResources(ctx context.Context, kubeContext string, limit, offset int, apiGroup string, namespacedOnly bool, verbs []string) (*PaginatedAPIResourceResponse, error)
 
 	// GetClusterHealth returns the health status of the cluster.
 	GetClusterHealth(ctx context.Context, kubeContext string) (*ClusterHealth, error)
@@ -105,6 +105,19 @@ type ListOptions struct {
 	LabelSelector string `json:"labelSelector,omitempty"`
 	FieldSelector string `json:"fieldSelector,omitempty"`
 	AllNamespaces bool   `json:"allNamespaces,omitempty"`
+	
+	// Pagination options
+	Limit    int64  `json:"limit,omitempty"`           // Maximum number of items to return (0 = no limit)
+	Continue string `json:"continue,omitempty"`        // Continue token from previous request
+}
+
+// PaginatedListResponse contains a paginated list of resources with metadata
+type PaginatedListResponse struct {
+	Items           []runtime.Object `json:"items"`
+	Continue        string           `json:"continue,omitempty"`        // Token for next page
+	RemainingItems  *int64           `json:"remainingItems,omitempty"`  // Estimated remaining items (if available)
+	ResourceVersion string           `json:"resourceVersion,omitempty"` // Resource version for consistency
+	TotalItems      int              `json:"totalItems"`                // Number of items in this response
 }
 
 // ResourceDescription contains detailed information about a resource.
@@ -121,6 +134,10 @@ type LogOptions struct {
 	Timestamps bool       `json:"timestamps,omitempty"`
 	SinceTime  *time.Time `json:"sinceTime,omitempty"`
 	TailLines  *int64     `json:"tailLines,omitempty"`
+	
+	// Pagination options for log output
+	SinceLines *int64 `json:"sinceLines,omitempty"` // Skip this many lines from the beginning
+	MaxLines   *int64 `json:"maxLines,omitempty"`   // Maximum number of lines to return
 }
 
 // ExecOptions configures command execution in pods.
@@ -162,6 +179,15 @@ type APIResourceInfo struct {
 	Verbs        []string `json:"verbs"`
 	Group        string   `json:"group"`
 	Version      string   `json:"version"`
+}
+
+// PaginatedAPIResourceResponse contains a paginated list of API resources
+type PaginatedAPIResourceResponse struct {
+	Items       []APIResourceInfo `json:"items"`
+	TotalItems  int               `json:"totalItems"`  // Number of items in this response
+	TotalCount  int               `json:"totalCount"`  // Total number of items available
+	HasMore     bool              `json:"hasMore"`     // Whether there are more items available
+	NextOffset  int               `json:"nextOffset"`  // Offset for next page (if hasMore is true)
 }
 
 // ClusterHealth represents the health status of a Kubernetes cluster.
