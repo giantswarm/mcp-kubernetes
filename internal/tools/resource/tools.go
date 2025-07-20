@@ -27,6 +27,8 @@ type ListResourceArgs struct {
 	FullOutput         bool   `json:"fullOutput,omitempty"`
 	IncludeLabels      bool   `json:"includeLabels,omitempty"`
 	IncludeAnnotations bool   `json:"includeAnnotations,omitempty"`
+	Limit              int64  `json:"limit,omitempty"`
+	Continue           string `json:"continue,omitempty"`
 }
 
 // DescribeResourceArgs defines the arguments for kubectl describe operations
@@ -135,6 +137,12 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		),
 		mcp.WithBoolean("includeAnnotations",
 			mcp.Description("Include resource annotations in summary output (default: false)"),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of items to return per page (optional, default: 20, 0 = no limit)"),
+		),
+		mcp.WithString("continue",
+			mcp.Description("Continue token from previous paginated request (optional)"),
 		),
 	)
 

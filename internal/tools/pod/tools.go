@@ -39,6 +39,12 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithNumber("tailLines",
 			mcp.Description("Number of lines from the end of logs to show (optional)"),
 		),
+		mcp.WithNumber("sinceLines",
+			mcp.Description("Skip this many lines from the beginning (useful for pagination, optional)"),
+		),
+		mcp.WithNumber("maxLines",
+			mcp.Description("Maximum number of lines to return (useful for pagination, optional)"),
+		),
 	)
 
 	s.AddTool(logsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

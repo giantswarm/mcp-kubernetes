@@ -75,35 +75,54 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	includeLabels, _ := args["includeLabels"].(bool)
 	includeAnnotations, _ := args["includeAnnotations"].(bool)
 
+	// Pagination parameters with sensible defaults
+	var limit int64 = 20 // Default page size
+	if limitVal, ok := args["limit"]; ok {
+		if limitFloat, ok := limitVal.(float64); ok {
+			limit = int64(limitFloat)
+		}
+	}
+	continueToken, _ := args["continue"].(string)
+
 	opts := k8s.ListOptions{
 		LabelSelector: labelSelector,
 		FieldSelector: fieldSelector,
 		AllNamespaces: allNamespaces,
+		Limit:         limit,
+		Continue:      continueToken,
 	}
 
 	if allNamespaces || resourceType == "namespace" {
 		namespace = ""
 	}
 
-	objects, err := sc.K8sClient().List(ctx, kubeContext, namespace, resourceType, opts)
+	// Use paginated API (now the only API)
+	paginatedResponse, err := sc.K8sClient().List(ctx, kubeContext, namespace, resourceType, opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
 
-	// Return full output if requested (backward compatibility)
 	if fullOutput {
-		jsonData, err := json.MarshalIndent(objects, "", "  ")
+		// Return full paginated output
+		jsonData, err := json.MarshalIndent(paginatedResponse, "", "  ")
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resources: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal paginated resources: %v", err)), nil
 		}
 		return mcp.NewToolResultText(string(jsonData)), nil
 	}
 
-	// Use summarized output by default
-	summary := SummarizeResources(objects, includeLabels, includeAnnotations)
+	// Return summarized paginated output
+	summary := SummarizePaginatedResources(
+		paginatedResponse.Items,
+		includeLabels,
+		includeAnnotations,
+		paginatedResponse.Continue,
+		paginatedResponse.ResourceVersion,
+		paginatedResponse.RemainingItems,
+	)
 	jsonData, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resource summary: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal paginated resource summary: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil

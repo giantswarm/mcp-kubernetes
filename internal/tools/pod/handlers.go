@@ -48,15 +48,31 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	}
 
 	containerName, _ := args["containerName"].(string)
-
 	follow, _ := args["follow"].(bool)
 	previous, _ := args["previous"].(bool)
 	timestamps, _ := args["timestamps"].(bool)
 
-	var tailLines *int64
-	if tailLinesFloat, ok := args["tailLines"].(float64); ok {
-		tailLinesInt := int64(tailLinesFloat)
-		tailLines = &tailLinesInt
+	var tailLines, sinceLines, maxLines *int64
+
+	if tailLinesVal, ok := args["tailLines"]; ok {
+		if tailLinesFloat, ok := tailLinesVal.(float64); ok {
+			val := int64(tailLinesFloat)
+			tailLines = &val
+		}
+	}
+
+	if sinceLinesVal, ok := args["sinceLines"]; ok {
+		if sinceLinesFloat, ok := sinceLinesVal.(float64); ok {
+			val := int64(sinceLinesFloat)
+			sinceLines = &val
+		}
+	}
+
+	if maxLinesVal, ok := args["maxLines"]; ok {
+		if maxLinesFloat, ok := maxLinesVal.(float64); ok {
+			val := int64(maxLinesFloat)
+			maxLines = &val
+		}
 	}
 
 	opts := k8s.LogOptions{
@@ -64,21 +80,54 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 		Previous:   previous,
 		Timestamps: timestamps,
 		TailLines:  tailLines,
+		SinceLines: sinceLines,
+		MaxLines:   maxLines,
 	}
 
-	reader, err := sc.K8sClient().GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
+	logs, err := sc.K8sClient().GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: %v", err)), nil
 	}
-	defer reader.Close()
+	defer logs.Close()
 
-	// Read logs into a string
-	logsBytes, err := io.ReadAll(reader)
+	// Read logs and apply pagination if needed
+	logData, err := io.ReadAll(logs)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to read logs: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(string(logsBytes)), nil
+	logText := string(logData)
+
+	// Apply pagination if sinceLines or maxLines are specified
+	if sinceLines != nil || maxLines != nil {
+		lines := strings.Split(logText, "\n")
+		
+		startIdx := 0
+		if sinceLines != nil && *sinceLines > 0 {
+			startIdx = int(*sinceLines)
+			if startIdx >= len(lines) {
+				// If sinceLines is beyond available lines, return empty
+				return mcp.NewToolResultText(""), nil
+			}
+		}
+
+		endIdx := len(lines)
+		if maxLines != nil && *maxLines > 0 {
+			endIdx = startIdx + int(*maxLines)
+			if endIdx > len(lines) {
+				endIdx = len(lines)
+			}
+		}
+
+		if startIdx < endIdx {
+			paginatedLines := lines[startIdx:endIdx]
+			logText = strings.Join(paginatedLines, "\n")
+		} else {
+			logText = ""
+		}
+	}
+
+	return mcp.NewToolResultText(logText), nil
 }
 
 // handleExec handles kubectl exec operations
