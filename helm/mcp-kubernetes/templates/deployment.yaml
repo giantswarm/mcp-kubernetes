@@ -41,6 +41,9 @@ spec:
           args:
             - serve
             - --transport=streamable-http
+            {{- if .Values.mcpKubernetes.kubernetes.inCluster }}
+            - --in-cluster=true
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080
