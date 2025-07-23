@@ -40,11 +40,10 @@ spec:
             - /mcp-kubernetes
           args:
             - serve
-            - --port={{ .Values.mcpKubernetes.port }}
-            - --log-level={{ .Values.mcpKubernetes.logLevel }}
+            - --transport=streamable-http
           ports:
             - name: http
-              containerPort: {{ .Values.mcpKubernetes.port }}
+              containerPort: 8080
               protocol: TCP
           env:
             {{- if .Values.mcpKubernetes.kubernetes.inCluster }}

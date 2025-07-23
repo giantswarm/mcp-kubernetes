@@ -220,15 +220,6 @@
     "mcpKubernetes": {
       "type": "object",
       "properties": {
-        "port": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "logLevel": {
-          "type": "string",
-          "enum": ["debug", "info", "warn", "error"]
-        },
         "kubernetes": {
           "type": "object",
           "properties": {
@@ -255,8 +246,7 @@
             "required": ["name"]
           }
         }
-      },
-      "required": ["port", "logLevel"]
+      }
     }
   },
   "required": [

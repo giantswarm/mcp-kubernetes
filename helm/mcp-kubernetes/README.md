@@ -98,8 +98,6 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `mcpKubernetes.port` | MCP server port | `8080` |
-| `mcpKubernetes.logLevel` | Log level (debug, info, warn, error) | `info` |
 | `mcpKubernetes.kubernetes.inCluster` | Use in-cluster Kubernetes configuration | `true` |
 | `mcpKubernetes.kubernetes.kubeconfig` | Path to kubeconfig file | `""` |
 | `mcpKubernetes.env` | Additional environment variables | `[]` |

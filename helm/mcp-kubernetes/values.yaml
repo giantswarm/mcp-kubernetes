@@ -103,10 +103,6 @@ affinity: {}
 
 # MCP Kubernetes specific configuration
 mcpKubernetes:
-  # Port for the MCP server
-  port: 8080
-  # Log level
-  logLevel: info
   # Kubernetes configuration
   kubernetes:
     # If true, use in-cluster configuration
