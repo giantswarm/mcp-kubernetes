@@ -1,5 +1,5 @@
 # Binary output
-/mcp-kubernetes
+/mcp-kubernetes*
 dist/
 
 # Configuration files
@@ -21,9 +21,6 @@ dist/
 *.out
 coverage.txt
 coverage.html
-
-# Go modules
-go.sum
 
 # Go workspace file
 go.work
@@ -60,13 +57,10 @@ dev-debug.log
 .env.local
 .env.*.local
 
-# Dependency directories (legacy Node.js, can be removed if not needed)
-node_modules/
-
 # Task files
 tasks.json
 tasks/
 
 # Build artifacts
 build/
-bin/ mcp-kubernetes
+bin/mcp-kubernetes
