@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
 // handleGetAPIResources handles kubectl api-resources operations

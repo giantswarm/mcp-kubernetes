@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // PortForwardResponse represents the structured response for port forwarding operations
@@ -101,7 +102,7 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	// Apply pagination if sinceLines or maxLines are specified
 	if sinceLines != nil || maxLines != nil {
 		lines := strings.Split(logText, "\n")
-		
+
 		startIdx := 0
 		if sinceLines != nil && *sinceLines > 0 {
 			startIdx = int(*sinceLines)

@@ -62,8 +62,6 @@ func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, reso
 	return obj, nil
 }
 
-
-
 // List retrieves resources with pagination support.
 func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error) {
 	// Validate operation
@@ -143,9 +141,9 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 	}
 
 	if c.config.DebugMode && c.config.Logger != nil {
-		c.config.Logger.Debug("listed resources", 
-			"resourceType", resourceType, 
-			"namespace", namespace, 
+		c.config.Logger.Debug("listed resources",
+			"resourceType", resourceType,
+			"namespace", namespace,
 			"count", len(objects),
 			"continue", list.GetContinue(),
 			"limit", opts.Limit)

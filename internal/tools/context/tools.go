@@ -3,9 +3,10 @@ package contexttools
 import (
 	"context"
 
-	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
 // RegisterContextTools registers all context management tools with the MCP server
