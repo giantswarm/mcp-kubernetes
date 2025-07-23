@@ -1,13 +1,3 @@
-##@ Build
-
-.PHONY: build
-build: ## Build the binary for the current platform
-	go build -o mcp-kubernetes
-
-.PHONY: install
-install: build ## Install the binary
-	mv mcp-kubernetes $(GOPATH)/bin/mcp-kubernetes
-
 ##@ Release
 
 .PHONY: release-dry-run
