@@ -5,7 +5,8 @@
 replicaCount: 1
 
 image:
-  repository: mcp-kubernetes
+  registry: gsoci.azurecr.io
+  repository: giantswarm/mcp-kubernetes
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""

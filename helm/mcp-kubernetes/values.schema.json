@@ -9,6 +9,9 @@
     "image": {
       "type": "object",
       "properties": {
+        "registry": {
+          "type": "string"
+        },
         "repository": {
           "type": "string"
         },
@@ -20,7 +23,7 @@
           "type": "string"
         }
       },
-      "required": ["repository", "pullPolicy"]
+      "required": ["registry", "repository", "pullPolicy"]
     },
     "imagePullSecrets": {
       "type": "array",

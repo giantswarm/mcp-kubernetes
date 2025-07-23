@@ -42,7 +42,8 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `replicaCount` | Number of replicas | `1` |
-| `image.repository` | Container image repository | `mcp-kubernetes` |
+| `image.registry` | Container image registry | `gsoci.azurecr.io` |
+| `image.repository` | Container image repository | `giantswarm/mcp-kubernetes` |
 | `image.tag` | Container image tag | `""` (uses Chart.appVersion) |
 | `image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `nameOverride` | Override the name of the chart | `""` |
@@ -130,7 +131,8 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes
 
 ```bash
 helm install mcp-kubernetes ./helm/mcp-kubernetes \
-  --set image.repository=ghcr.io/giantswarm/mcp-kubernetes \
+  --set image.registry=ghcr.io \
+  --set image.repository=giantswarm/mcp-kubernetes \
   --set image.tag=v1.0.0
 ```
 
