@@ -105,10 +105,10 @@ type ListOptions struct {
 	LabelSelector string `json:"labelSelector,omitempty"`
 	FieldSelector string `json:"fieldSelector,omitempty"`
 	AllNamespaces bool   `json:"allNamespaces,omitempty"`
-	
+
 	// Pagination options
-	Limit    int64  `json:"limit,omitempty"`           // Maximum number of items to return (0 = no limit)
-	Continue string `json:"continue,omitempty"`        // Continue token from previous request
+	Limit    int64  `json:"limit,omitempty"`    // Maximum number of items to return (0 = no limit)
+	Continue string `json:"continue,omitempty"` // Continue token from previous request
 }
 
 // PaginatedListResponse contains a paginated list of resources with metadata
@@ -134,7 +134,7 @@ type LogOptions struct {
 	Timestamps bool       `json:"timestamps,omitempty"`
 	SinceTime  *time.Time `json:"sinceTime,omitempty"`
 	TailLines  *int64     `json:"tailLines,omitempty"`
-	
+
 	// Pagination options for log output
 	SinceLines *int64 `json:"sinceLines,omitempty"` // Skip this many lines from the beginning
 	MaxLines   *int64 `json:"maxLines,omitempty"`   // Maximum number of lines to return
@@ -183,11 +183,11 @@ type APIResourceInfo struct {
 
 // PaginatedAPIResourceResponse contains a paginated list of API resources
 type PaginatedAPIResourceResponse struct {
-	Items       []APIResourceInfo `json:"items"`
-	TotalItems  int               `json:"totalItems"`  // Number of items in this response
-	TotalCount  int               `json:"totalCount"`  // Total number of items available
-	HasMore     bool              `json:"hasMore"`     // Whether there are more items available
-	NextOffset  int               `json:"nextOffset"`  // Offset for next page (if hasMore is true)
+	Items      []APIResourceInfo `json:"items"`
+	TotalItems int               `json:"totalItems"` // Number of items in this response
+	TotalCount int               `json:"totalCount"` // Total number of items available
+	HasMore    bool              `json:"hasMore"`    // Whether there are more items available
+	NextOffset int               `json:"nextOffset"` // Offset for next page (if hasMore is true)
 }
 
 // ClusterHealth represents the health status of a Kubernetes cluster.

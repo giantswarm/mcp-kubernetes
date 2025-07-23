@@ -11,13 +11,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	mcpserver "github.com/mark3labs/mcp-go/server"
+
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
 	contexttools "github.com/giantswarm/mcp-kubernetes/internal/tools/context"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/pod"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource"
-	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // simpleLogger provides basic logging for the Kubernetes client

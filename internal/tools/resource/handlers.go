@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
-	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/mark3labs/mcp-go/mcp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
 // handleGetResource handles kubectl get operations
