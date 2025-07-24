@@ -41,6 +41,7 @@ spec:
           args:
             - serve
             - --transport=streamable-http
+            - --debug=true
             {{- if .Values.mcpKubernetes.kubernetes.inCluster }}
             - --in-cluster=true
             {{- end }}
@@ -59,14 +60,6 @@ spec:
             {{- with .Values.mcpKubernetes.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
