@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Align renovate config
+
 ## [0.0.18] - 2025-07-24
 
 ### Added
