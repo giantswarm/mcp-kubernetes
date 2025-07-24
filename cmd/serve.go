@@ -48,6 +48,7 @@ func newServeCmd() *cobra.Command {
 		qpsLimit           float32
 		burstLimit         int
 		debugMode          bool
+		inCluster          bool
 
 		// Transport options
 		transport       string
@@ -66,9 +67,13 @@ with Kubernetes clusters via the Model Context Protocol.
 Supports multiple transport types:
   - stdio: Standard input/output (default)
   - sse: Server-Sent Events over HTTP
-  - streamable-http: Streamable HTTP transport`,
+  - streamable-http: Streamable HTTP transport
+
+Authentication modes:
+  - Kubeconfig (default): Uses standard kubeconfig file authentication
+  - In-cluster: Uses service account token when running inside a Kubernetes pod`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runServe(transport, nonDestructiveMode, dryRun, qpsLimit, burstLimit, debugMode,
+			return runServe(transport, nonDestructiveMode, dryRun, qpsLimit, burstLimit, debugMode, inCluster,
 				httpAddr, sseEndpoint, messageEndpoint, httpEndpoint)
 		},
 	}
@@ -79,6 +84,7 @@ Supports multiple transport types:
 	cmd.Flags().Float32Var(&qpsLimit, "qps-limit", 20.0, "QPS limit for Kubernetes API calls (default: 20.0)")
 	cmd.Flags().IntVar(&burstLimit, "burst-limit", 30, "Burst limit for Kubernetes API calls (default: 30)")
 	cmd.Flags().BoolVar(&debugMode, "debug", false, "Enable debug logging (default: false)")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "Use in-cluster authentication (service account token) instead of kubeconfig (default: false)")
 
 	// Transport flags
 	cmd.Flags().StringVar(&transport, "transport", "stdio", "Transport type: stdio, sse, or streamable-http")
@@ -91,7 +97,7 @@ Supports multiple transport types:
 }
 
 // runServe contains the main server logic with support for multiple transports
-func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float32, burstLimit int, debugMode bool,
+func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float32, burstLimit int, debugMode, inCluster bool,
 	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string) error {
 
 	// Create Kubernetes client configuration
@@ -102,6 +108,7 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 		BurstLimit:         burstLimit,
 		Timeout:            30 * time.Second,
 		DebugMode:          debugMode,
+		InCluster:          inCluster,
 		Logger:             &simpleLogger{},
 	}
 
