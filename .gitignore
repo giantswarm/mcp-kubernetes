@@ -64,3 +64,6 @@ tasks/
 # Build artifacts
 build/
 bin/mcp-kubernetes
+
+# app-test-suite tests
+tests/ats/*.xml

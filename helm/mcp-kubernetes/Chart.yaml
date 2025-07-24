@@ -1,0 +1,19 @@
+apiVersion: v2
+name: mcp-kubernetes
+description: A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.0.17"
+home: https://github.com/giantswarm/mcp-kubernetes
+icon: https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png
+sources:
+  - https://github.com/giantswarm/mcp-kubernetes
+keywords:
+  - mcp
+  - kubernetes
+  - model-context-protocol
+maintainers:
+  - name: Giant Swarm
+    email: team-planeteers@giantswarm.io
+annotations:
+  application.giantswarm.io/team: team-planeteers
