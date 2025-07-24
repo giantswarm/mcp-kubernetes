@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.18] - 2025-07-24
+
 ### Added
 - Helm chart for Kubernetes deployment ([#54](https://github.com/giantswarm/mcp-kubernetes/pull/54))
 - In-cluster authentication support with `--in-cluster` flag ([#56](https://github.com/giantswarm/mcp-kubernetes/pull/56))
@@ -94,7 +96,8 @@ Initial release
 - Kubernetes client package implementation ([#3](https://github.com/giantswarm/mcp-kubernetes/pull/3))
 
 
-[Unreleased]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.17...HEAD
+[Unreleased]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.18...HEAD
+[0.0.18]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.17...v0.0.18
 [0.0.17]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.16...v0.0.17
 [0.0.16]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.15...v0.0.16
 [0.0.15]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.14...v0.0.15
