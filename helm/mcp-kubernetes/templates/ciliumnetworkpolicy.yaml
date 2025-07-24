@@ -1,0 +1,23 @@
+{{- if .Values.ciliumNetworkPolicy.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-allow-kube-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+    {{- with .Values.ciliumNetworkPolicy.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.ciliumNetworkPolicy.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  egress:
+  - toEntities:
+    - kube-apiserver
+  endpointSelector:
+    matchLabels:
+      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
+{{- end }}
