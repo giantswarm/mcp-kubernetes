@@ -3,7 +3,7 @@ name: mcp-kubernetes
 description: A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 type: application
 version: 0.0.18
-appVersion: "0.0.17"
+appVersion: "0.0.18"
 home: https://github.com/giantswarm/mcp-kubernetes
 icon: https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png
 sources:
