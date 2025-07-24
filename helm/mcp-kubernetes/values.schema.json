@@ -247,6 +247,21 @@
           }
         }
       }
+    },
+    "ciliumNetworkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "annotations": {
+          "type": "object"
+        }
+      },
+      "required": ["enabled"]
     }
   },
   "required": [
@@ -254,6 +269,7 @@
     "image",
     "serviceAccount",
     "service",
-    "mcpKubernetes"
+    "mcpKubernetes",
+    "ciliumNetworkPolicy"
   ]
 }

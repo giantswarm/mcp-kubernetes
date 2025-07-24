@@ -113,3 +113,12 @@ mcpKubernetes:
   env: []
   # - name: EXAMPLE_VAR
   #   value: "example-value"
+
+# Cilium Network Policy configuration
+ciliumNetworkPolicy:
+  # Specifies whether a CiliumNetworkPolicy should be created
+  enabled: true
+  # Additional labels to add to the CiliumNetworkPolicy
+  labels: {}
+  # Additional annotations to add to the CiliumNetworkPolicy
+  annotations: {}

@@ -1,2 +1,5 @@
-image:
-  tag: ""
+# image:
+#   tag: ""
+
+ciliumNetworkPolicy:
+  enabled: false

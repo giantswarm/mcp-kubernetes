@@ -102,6 +102,14 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 | `mcpKubernetes.kubernetes.kubeconfig` | Path to kubeconfig file | `""` |
 | `mcpKubernetes.env` | Additional environment variables | `[]` |
 
+### Cilium Network Policy
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `ciliumNetworkPolicy.enabled` | Create a CiliumNetworkPolicy | `true` |
+| `ciliumNetworkPolicy.labels` | Additional labels for the CiliumNetworkPolicy | `{}` |
+| `ciliumNetworkPolicy.annotations` | Additional annotations for the CiliumNetworkPolicy | `{}` |
+
 ## RBAC Permissions
 
 The chart automatically creates a ClusterRole and ClusterRoleBinding that grants the following permissions:
@@ -116,6 +124,17 @@ The chart automatically creates a ClusterRole and ClusterRoleBinding that grants
 - **Batch resources**: jobs, cronjobs
 - **Autoscaling resources**: horizontalpodautoscalers
 - **Policy resources**: poddisruptionbudgets
+
+## Network Security
+
+The chart creates a CliumNetworkPolicy to control network traffic for the mcp-kubernetes pods. The policy provides:
+
+- **Egress to kube-apiserver**: Required for Kubernetes API communication
+- **Default deny**: All other traffic is blocked by default
+
+The policy uses the standard chart selector labels (`app.kubernetes.io/name` and `app.kubernetes.io/instance`) to identify the target pods.
+
+**Note**: CiliumNetworkPolicy requires Cilium CNI to be installed in your cluster.
 
 ## Usage Examples
 
@@ -163,6 +182,13 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
   --set autoscaling.minReplicas=2 \
   --set autoscaling.maxReplicas=10 \
   --set autoscaling.targetCPUUtilizationPercentage=70
+```
+
+### Installation without Network Policy
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set ciliumNetworkPolicy.enabled=false
 ```
 
 ## Connecting to the MCP Server
