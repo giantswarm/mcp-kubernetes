@@ -207,7 +207,7 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 		}
 
 		// Validate current context exists
-		if _, exists := client.kubeconfigData.Contexts[client.currentContext]; !exists {
+		if _, exists := client.kubeconfigData.Contexts[client.currentContext]; !exists && client.currentContext != "" {
 			return nil, fmt.Errorf("context %q does not exist in kubeconfig", client.currentContext)
 		}
 
