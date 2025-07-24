@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -207,7 +209,7 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 		}
 
 		// Validate current context exists
-		if _, exists := client.kubeconfigData.Contexts[client.currentContext]; !exists {
+		if _, exists := client.kubeconfigData.Contexts[client.currentContext]; !exists && client.currentContext != "" {
 			return nil, fmt.Errorf("context %q does not exist in kubeconfig", client.currentContext)
 		}
 
@@ -245,6 +247,18 @@ func (c *kubernetesClient) validateInClusterEnvironment() error {
 // loadKubeconfig loads the kubeconfig from the specified path or default locations.
 func (c *kubernetesClient) loadKubeconfig() error {
 	var err error
+
+	{
+		kconf := os.Getenv("KUBECONFIG")
+		if strings.HasPrefix(kconf, "~/") {
+			uhd, _ := os.UserHomeDir()
+			kconf = filepath.Join(uhd, kconf[2:])
+		}
+
+		if kconf != "" && c.config.KubeconfigPath == "" {
+			c.config.KubeconfigPath = kconf
+		}
+	}
 
 	// Load kubeconfig
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
