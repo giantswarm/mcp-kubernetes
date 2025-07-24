@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -245,6 +247,18 @@ func (c *kubernetesClient) validateInClusterEnvironment() error {
 // loadKubeconfig loads the kubeconfig from the specified path or default locations.
 func (c *kubernetesClient) loadKubeconfig() error {
 	var err error
+
+	{
+		kconf := os.Getenv("KUBECONFIG")
+		if strings.HasPrefix(kconf, "~/") {
+			uhd, _ := os.UserHomeDir()
+			kconf = filepath.Join(uhd, kconf[2:])
+		}
+
+		if kconf != "" && c.config.KubeconfigPath == "" {
+			c.config.KubeconfigPath = kconf
+		}
+	}
 
 	// Load kubeconfig
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
