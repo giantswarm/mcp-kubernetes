@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -12,16 +11,11 @@ import (
 
 // Create simplified test client for validation tests only
 func createTestClientForResources() *kubernetesClient {
-	mockLogger := &MockLogger{}
-	// Setup the mock to accept any calls
-	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
-	mockLogger.On("Info", mock.Anything, mock.Anything).Return()
-	mockLogger.On("Warn", mock.Anything, mock.Anything).Return()
-	mockLogger.On("Error", mock.Anything, mock.Anything).Return()
+	testLog := &testLogger{}
 
 	return &kubernetesClient{
 		config: &ClientConfig{
-			Logger: mockLogger,
+			Logger: testLog,
 		},
 		clientsets:         make(map[string]kubernetes.Interface),
 		dynamicClients:     make(map[string]dynamic.Interface),
@@ -260,15 +254,14 @@ func TestKubernetesClient_CombinedValidationLogic(t *testing.T) {
 
 // Test logging operations
 func TestKubernetesClient_LogResourceOperations(t *testing.T) {
-	mockLogger := &MockLogger{}
+	testLog := &testLogger{}
 
-	// Expect debug log calls for each operation
-	mockLogger.On("Debug", "kubernetes operation", mock.AnythingOfType("[]interface {}")).Return().Times(5)
+	config := &ClientConfig{
+		Logger: testLog,
+	}
 
 	client := &kubernetesClient{
-		config: &ClientConfig{
-			Logger: mockLogger,
-		},
+		config: config,
 	}
 
 	// Test logging for different operations
@@ -278,5 +271,10 @@ func TestKubernetesClient_LogResourceOperations(t *testing.T) {
 	client.logOperation("delete", "test-context", "default", "pods", "old-pod")
 	client.logOperation("scale", "test-context", "default", "deployment", "test-deployment")
 
-	mockLogger.AssertExpectations(t)
+	assert.Equal(t, 5, len(testLog.messages))
+	assert.Contains(t, testLog.messages[0], "kubernetes operation")
+	assert.Contains(t, testLog.messages[1], "kubernetes operation")
+	assert.Contains(t, testLog.messages[2], "kubernetes operation")
+	assert.Contains(t, testLog.messages[3], "kubernetes operation")
+	assert.Contains(t, testLog.messages[4], "kubernetes operation")
 }

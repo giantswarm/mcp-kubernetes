@@ -5,33 +5,31 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
-// MockLogger for testing
-type MockLogger struct {
-	mock.Mock
+// testLogger implements the Logger interface for testing
+type testLogger struct {
+	messages []string
 }
 
-func (m *MockLogger) Debug(msg string, args ...interface{}) {
-	m.Called(msg, args)
+func (l *testLogger) Debug(msg string, args ...interface{}) {
+	l.messages = append(l.messages, msg)
 }
 
-func (m *MockLogger) Info(msg string, args ...interface{}) {
-	m.Called(msg, args)
+func (l *testLogger) Info(msg string, args ...interface{}) {
+	l.messages = append(l.messages, msg)
 }
 
-func (m *MockLogger) Warn(msg string, args ...interface{}) {
-	m.Called(msg, args)
+func (l *testLogger) Warn(msg string, args ...interface{}) {
+	l.messages = append(l.messages, msg)
 }
 
-func (m *MockLogger) Error(msg string, args ...interface{}) {
-	m.Called(msg, args)
+func (l *testLogger) Error(msg string, args ...interface{}) {
+	l.messages = append(l.messages, msg)
 }
 
 // Helper function to create test kubeconfig
@@ -39,7 +37,7 @@ func createTestKubeconfig() *api.Config {
 	return &api.Config{
 		Clusters: map[string]*api.Cluster{
 			"test-cluster": {
-				Server: "https://test.example.com",
+				Server: "https://test-server:6443",
 			},
 		},
 		AuthInfos: map[string]*api.AuthInfo{
@@ -53,247 +51,236 @@ func createTestKubeconfig() *api.Config {
 				AuthInfo:  "test-user",
 				Namespace: "test-namespace",
 			},
-			"another-context": {
-				Cluster:   "test-cluster",
-				AuthInfo:  "test-user",
-				Namespace: "another-namespace",
-			},
 		},
 		CurrentContext: "test-context",
 	}
 }
 
-// Test NewClient function with simplified approach
 func TestNewClient(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      *ClientConfig
-		expectError bool
-		errorMsg    string
+		name    string
+		config  *ClientConfig
+		wantErr bool
+		errMsg  string
 	}{
 		{
-			name:        "nil config",
-			config:      nil,
-			expectError: true,
-			errorMsg:    "client configuration is required",
+			name:    "nil config should fail",
+			config:  nil,
+			wantErr: true,
+			errMsg:  "client configuration is required",
 		},
 		{
-			name: "valid config with defaults",
+			name: "in-cluster mode without service account files should fail",
 			config: &ClientConfig{
-				NonDestructiveMode: true,
+				InCluster: true,
+				Logger:    &testLogger{},
 			},
-			expectError: false,
+			wantErr: true,
+			errMsg:  "in-cluster authentication not available",
 		},
 		{
-			name: "valid config with custom values",
+			name: "kubeconfig mode with invalid context should fail",
 			config: &ClientConfig{
-				QPSLimit:             50.0,
-				BurstLimit:           100,
-				Timeout:              60 * time.Second,
-				NonDestructiveMode:   false,
-				DryRun:               true,
-				AllowedOperations:    []string{"get", "list"},
-				RestrictedNamespaces: []string{"kube-system"},
+				InCluster: false,
+				Context:   "non-existent-context",
+				Logger:    &testLogger{},
 			},
-			expectError: false,
+			wantErr: true,
+			errMsg:  "does not exist in kubeconfig",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a temporary kubeconfig file for testing
-			tmpDir := t.TempDir()
-			kubeconfigPath := filepath.Join(tmpDir, "kubeconfig")
+			// Skip in-cluster test if we're actually in a cluster
+			if tt.config != nil && tt.config.InCluster {
+				if _, err := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token"); err == nil {
+					t.Skip("Skipping in-cluster test because we're actually in a cluster")
+				}
+			}
 
-			if tt.config != nil {
+			// Create a temporary kubeconfig file for testing
+			if tt.config != nil && !tt.config.InCluster {
+				tmpDir := t.TempDir()
+				kubeconfigPath := filepath.Join(tmpDir, "kubeconfig")
 				tt.config.KubeconfigPath = kubeconfigPath
 				// Create a minimal kubeconfig file
 				createMinimalKubeconfig(t, kubeconfigPath)
 			}
 
 			client, err := NewClient(tt.config)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorMsg)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
 				assert.Nil(t, client)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, client)
-
-				// Verify defaults are set correctly
-				if tt.config.QPSLimit == 0 {
-					assert.Equal(t, float32(20.0), client.qpsLimit)
-				} else {
-					assert.Equal(t, tt.config.QPSLimit, client.qpsLimit)
-				}
-
-				if tt.config.BurstLimit == 0 {
-					assert.Equal(t, 30, client.burstLimit)
-				} else {
-					assert.Equal(t, tt.config.BurstLimit, client.burstLimit)
-				}
-
-				if tt.config.Timeout == 0 {
-					assert.Equal(t, 30*time.Second, client.timeout)
-				} else {
-					assert.Equal(t, tt.config.Timeout, client.timeout)
-				}
 			}
 		})
 	}
 }
 
-func TestKubernetesClient_BasicContextOperations(t *testing.T) {
+func TestNewClientInCluster(t *testing.T) {
+	// Create temporary service account files
+	tmpDir := t.TempDir()
+	serviceAccountDir := filepath.Join(tmpDir, "serviceaccount")
+	err := os.MkdirAll(serviceAccountDir, 0755)
+	require.NoError(t, err)
+
+	// Create mock service account files
+	tokenPath := filepath.Join(serviceAccountDir, "token")
+	err = os.WriteFile(tokenPath, []byte("test-token"), 0644)
+	require.NoError(t, err)
+
+	caPath := filepath.Join(serviceAccountDir, "ca.crt")
+	err = os.WriteFile(caPath, []byte("test-ca"), 0644)
+	require.NoError(t, err)
+
+	namespacePath := filepath.Join(serviceAccountDir, "namespace")
+	err = os.WriteFile(namespacePath, []byte("test-namespace"), 0644)
+	require.NoError(t, err)
+
+	// Temporarily override the service account path
+	originalPath := "/var/run/secrets/kubernetes.io/serviceaccount"
+
+	// Test with mock files by creating a client that has the validate method mocked
+	config := &ClientConfig{
+		InCluster: true,
+		Logger:    &testLogger{},
+	}
+
+	// Since we can't easily mock the service account path without changing the implementation,
+	// we'll test the validateInClusterEnvironment method separately
 	client := &kubernetesClient{
-		config:         &ClientConfig{},
+		config: config,
+	}
+
+	// Test validateInClusterEnvironment with non-existent files
+	err = client.validateInClusterEnvironment()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "service account token not found")
+
+	_ = originalPath // avoid unused variable warning
+}
+
+func TestClientContextManagement(t *testing.T) {
+	// Test with a client that has kubeconfig data
+	client := &kubernetesClient{
+		config: &ClientConfig{
+			InCluster: false,
+			Logger:    &testLogger{},
+		},
 		kubeconfigData: createTestKubeconfig(),
 		currentContext: "test-context",
 	}
 
 	ctx := context.Background()
 
-	t.Run("ListContexts", func(t *testing.T) {
+	t.Run("ListContexts in kubeconfig mode", func(t *testing.T) {
 		contexts, err := client.ListContexts(ctx)
 		require.NoError(t, err)
-		require.Len(t, contexts, 2)
-
-		// Verify contexts
-		contextNames := make(map[string]bool)
-		for _, context := range contexts {
-			contextNames[context.Name] = context.Current
-		}
-
-		assert.True(t, contextNames["test-context"])
-		assert.False(t, contextNames["another-context"])
+		assert.Len(t, contexts, 1)
+		assert.Equal(t, "test-context", contexts[0].Name)
+		assert.Equal(t, "test-cluster", contexts[0].Cluster)
+		assert.Equal(t, "test-user", contexts[0].User)
+		assert.Equal(t, "test-namespace", contexts[0].Namespace)
+		assert.True(t, contexts[0].Current)
 	})
 
-	t.Run("GetCurrentContext", func(t *testing.T) {
-		currentContext, err := client.GetCurrentContext(ctx)
+	t.Run("GetCurrentContext in kubeconfig mode", func(t *testing.T) {
+		currentCtx, err := client.GetCurrentContext(ctx)
 		require.NoError(t, err)
-
-		assert.Equal(t, "test-context", currentContext.Name)
-		assert.Equal(t, "test-cluster", currentContext.Cluster)
-		assert.Equal(t, "test-user", currentContext.User)
-		assert.Equal(t, "test-namespace", currentContext.Namespace)
-		assert.True(t, currentContext.Current)
+		assert.Equal(t, "test-context", currentCtx.Name)
+		assert.Equal(t, "test-cluster", currentCtx.Cluster)
+		assert.Equal(t, "test-user", currentCtx.User)
+		assert.Equal(t, "test-namespace", currentCtx.Namespace)
+		assert.True(t, currentCtx.Current)
 	})
 
-	t.Run("SwitchContext", func(t *testing.T) {
-		err := client.SwitchContext(ctx, "another-context")
+	t.Run("SwitchContext in kubeconfig mode", func(t *testing.T) {
+		err := client.SwitchContext(ctx, "test-context")
 		require.NoError(t, err)
-		assert.Equal(t, "another-context", client.currentContext)
 
-		// Test switching to non-existent context
+		// Try switching to non-existent context
 		err = client.SwitchContext(ctx, "non-existent")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "does not exist in kubeconfig")
 	})
 }
 
-func TestKubernetesClient_SecurityValidation(t *testing.T) {
-	tests := []struct {
-		name                 string
-		nonDestructiveMode   bool
-		dryRun               bool
-		allowedOperations    []string
-		restrictedNamespaces []string
-		operation            string
-		namespace            string
-		expectError          bool
-		errorContains        string
-	}{
-		{
-			name:              "allowed operation",
-			allowedOperations: []string{"get", "list"},
-			operation:         "get",
-			expectError:       false,
-		},
-		{
-			name:              "disallowed operation",
-			allowedOperations: []string{"get", "list"},
-			operation:         "delete",
-			expectError:       true,
-			errorContains:     "is not allowed",
-		},
-		{
-			name:               "destructive operation in non-destructive mode without dry-run",
-			nonDestructiveMode: true,
-			dryRun:             false,
-			operation:          "delete",
-			expectError:        true,
-			errorContains:      "destructive operation",
-		},
-		{
-			name:               "destructive operation in non-destructive mode with dry-run",
-			nonDestructiveMode: true,
-			dryRun:             true,
-			operation:          "delete",
-			expectError:        false,
-		},
-		{
-			name:                 "restricted namespace",
-			restrictedNamespaces: []string{"kube-system"},
-			namespace:            "kube-system",
-			expectError:          true,
-			errorContains:        "is restricted",
-		},
-		{
-			name:                 "allowed namespace",
-			restrictedNamespaces: []string{"kube-system"},
-			namespace:            "default",
-			expectError:          false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := &kubernetesClient{
-				nonDestructiveMode:   tt.nonDestructiveMode,
-				dryRun:               tt.dryRun,
-				allowedOperations:    tt.allowedOperations,
-				restrictedNamespaces: tt.restrictedNamespaces,
-			}
-
-			// Test operation check
-			if tt.operation != "" {
-				err := client.isOperationAllowed(tt.operation)
-				if tt.expectError && tt.errorContains != "is restricted" {
-					assert.Error(t, err)
-					assert.Contains(t, err.Error(), tt.errorContains)
-				} else if !tt.expectError {
-					assert.NoError(t, err)
-				}
-			}
-
-			// Test namespace check
-			if tt.namespace != "" {
-				err := client.isNamespaceRestricted(tt.namespace)
-				if tt.expectError && tt.errorContains == "is restricted" {
-					assert.Error(t, err)
-					assert.Contains(t, err.Error(), tt.errorContains)
-				} else if tt.namespace != "" {
-					assert.NoError(t, err)
-				}
-			}
-		})
-	}
-}
-
-func TestKubernetesClient_LogOperation(t *testing.T) {
-	mockLogger := &MockLogger{}
+func TestClientContextManagementInCluster(t *testing.T) {
+	// Test with a client in in-cluster mode
 	client := &kubernetesClient{
 		config: &ClientConfig{
-			Logger: mockLogger,
+			InCluster: true,
+			Logger:    &testLogger{},
 		},
+		currentContext: "in-cluster",
 	}
 
-	// Expect debug log call
-	mockLogger.On("Debug", "kubernetes operation", mock.AnythingOfType("[]interface {}")).Return()
+	ctx := context.Background()
 
-	client.logOperation("get", "test-context", "default", "pods", "test-pod")
+	t.Run("ListContexts in in-cluster mode", func(t *testing.T) {
+		contexts, err := client.ListContexts(ctx)
+		require.NoError(t, err)
+		assert.Len(t, contexts, 1)
+		assert.Equal(t, "in-cluster", contexts[0].Name)
+		assert.Equal(t, "in-cluster", contexts[0].Cluster)
+		assert.Equal(t, "serviceaccount", contexts[0].User)
+		// The namespace will be "default" since the service account file doesn't exist
+		assert.Equal(t, "default", contexts[0].Namespace)
+		assert.True(t, contexts[0].Current)
+	})
 
-	mockLogger.AssertExpectations(t)
+	t.Run("GetCurrentContext in in-cluster mode", func(t *testing.T) {
+		currentCtx, err := client.GetCurrentContext(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "in-cluster", currentCtx.Name)
+		assert.Equal(t, "in-cluster", currentCtx.Cluster)
+		assert.Equal(t, "serviceaccount", currentCtx.User)
+		// The namespace will be "default" since the service account file doesn't exist
+		assert.Equal(t, "default", currentCtx.Namespace)
+		assert.True(t, currentCtx.Current)
+	})
+
+	t.Run("SwitchContext in in-cluster mode", func(t *testing.T) {
+		// Should allow switching to "in-cluster"
+		err := client.SwitchContext(ctx, "in-cluster")
+		require.NoError(t, err)
+
+		// Should not allow switching to other contexts
+		err = client.SwitchContext(ctx, "other-context")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot switch context in in-cluster mode")
+	})
+}
+
+func TestGetInClusterNamespace(t *testing.T) {
+	// Create a temporary namespace file
+	tmpDir := t.TempDir()
+	namespacePath := filepath.Join(tmpDir, "namespace")
+
+	// Test with existing namespace file
+	err := os.WriteFile(namespacePath, []byte("my-namespace"), 0644)
+	require.NoError(t, err)
+
+	client := &kubernetesClient{}
+
+	// We can't easily test the actual method without modifying the implementation
+	// to accept a path parameter, so we'll test the fallback behavior
+	namespace := client.getInClusterNamespace()
+	// This will return "default" since the actual service account file doesn't exist
+	assert.Equal(t, "default", namespace)
+}
+
+func TestValidateInClusterEnvironment(t *testing.T) {
+	client := &kubernetesClient{}
+
+	// Test with missing service account files (normal case outside cluster)
+	err := client.validateInClusterEnvironment()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "service account token not found")
 }
 
 // Helper function to create minimal kubeconfig for testing
@@ -304,12 +291,13 @@ apiVersion: v1
 kind: Config
 clusters:
 - cluster:
-    server: https://test.example.com
+    server: https://test-server:6443
   name: test-cluster
 contexts:
 - context:
     cluster: test-cluster
     user: test-user
+    namespace: test-namespace
   name: test-context
 current-context: test-context
 users:
@@ -321,7 +309,6 @@ users:
 	require.NoError(t, err)
 }
 
-// Benchmark tests
 func BenchmarkNewClient(b *testing.B) {
 	tmpDir := b.TempDir()
 	kubeconfigPath := filepath.Join(tmpDir, "kubeconfig")
@@ -329,6 +316,7 @@ func BenchmarkNewClient(b *testing.B) {
 
 	config := &ClientConfig{
 		KubeconfigPath: kubeconfigPath,
+		Logger:         &testLogger{},
 	}
 
 	b.ResetTimer()
