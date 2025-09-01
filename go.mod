@@ -6,7 +6,7 @@ require (
 	github.com/creativeprojects/go-selfupdate v1.5.0
 	github.com/mark3labs/mcp-go v0.38.0
 	github.com/spf13/cobra v1.9.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
 	k8s.io/client-go v0.33.3
