@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/creativeprojects/go-selfupdate v1.5.1
-	github.com/mark3labs/mcp-go v0.38.0
+	github.com/mark3labs/mcp-go v0.39.1
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.34.0
