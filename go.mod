@@ -2,7 +2,7 @@ module github.com/giantswarm/mcp-kubernetes
 
 go 1.24.6
 
-toolchain go1.24.7
+toolchain go1.25.1
 
 require (
 	github.com/creativeprojects/go-selfupdate v1.5.1
