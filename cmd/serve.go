@@ -40,6 +40,25 @@ func (l *simpleLogger) Error(msg string, args ...interface{}) {
 	log.Printf("[ERROR] %s %v", msg, args)
 }
 
+// silentLogger discards all log output for stdio mode
+type silentLogger struct{}
+
+func (l *silentLogger) Debug(msg string, args ...interface{}) {
+	// Discard output
+}
+
+func (l *silentLogger) Info(msg string, args ...interface{}) {
+	// Discard output
+}
+
+func (l *silentLogger) Warn(msg string, args ...interface{}) {
+	// Discard output
+}
+
+func (l *silentLogger) Error(msg string, args ...interface{}) {
+	// Discard output
+}
+
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
 	var (
@@ -101,6 +120,14 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string) error {
 
 	// Create Kubernetes client configuration
+	// Use a silent logger for stdio mode to avoid output interference
+	var k8sLogger k8s.Logger
+	if transport == "stdio" {
+		k8sLogger = &silentLogger{}
+	} else {
+		k8sLogger = &simpleLogger{}
+	}
+
 	k8sConfig := &k8s.ClientConfig{
 		NonDestructiveMode: nonDestructiveMode,
 		DryRun:             dryRun,
@@ -109,7 +136,7 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 		Timeout:            30 * time.Second,
 		DebugMode:          debugMode,
 		InCluster:          inCluster,
-		Logger:             &simpleLogger{},
+		Logger:             k8sLogger,
 	}
 
 	// Create Kubernetes client
@@ -124,13 +151,24 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	defer cancel()
 
 	// Create server context with kubernetes client and shutdown context
-	serverContext, err := server.NewServerContext(shutdownCtx, server.WithK8sClient(k8sClient))
+	// Use silent logger for stdio mode to avoid any output interference
+	var serverContextOptions []server.Option
+	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
+
+	if transport == "stdio" {
+		serverContextOptions = append(serverContextOptions, server.WithLogger(server.NewSilentLogger()))
+	}
+
+	serverContext, err := server.NewServerContext(shutdownCtx, serverContextOptions...)
 	if err != nil {
 		return fmt.Errorf("failed to create server context: %w", err)
 	}
 	defer func() {
 		if err := serverContext.Shutdown(); err != nil {
-			log.Printf("Error during server context shutdown: %v", err)
+			// Only log shutdown errors for non-stdio transports to avoid output interference
+			if transport != "stdio" {
+				log.Printf("Error during server context shutdown: %v", err)
+			}
 		}
 	}()
 
@@ -156,15 +194,16 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 		return fmt.Errorf("failed to register cluster tools: %w", err)
 	}
 
-	fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", transport)
-
 	// Start the appropriate server based on transport type
 	switch transport {
 	case "stdio":
+		// Don't print startup message for stdio mode as it interferes with MCP communication
 		return runStdioServer(mcpSrv)
 	case "sse":
+		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", transport)
 		return runSSEServer(mcpSrv, httpAddr, sseEndpoint, messageEndpoint, shutdownCtx, debugMode)
 	case "streamable-http":
+		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", transport)
 		return runStreamableHTTPServer(mcpSrv, httpAddr, httpEndpoint, shutdownCtx, debugMode)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", transport)
@@ -183,16 +222,12 @@ func runStdioServer(mcpSrv *mcpserver.MCPServer) error {
 	}()
 
 	// Wait for server completion
-	select {
-	case err := <-serverDone:
-		if err != nil {
-			return fmt.Errorf("server stopped with error: %w", err)
-		} else {
-			fmt.Println("Server stopped normally")
-		}
+	err := <-serverDone
+	if err != nil {
+		return fmt.Errorf("server stopped with error: %w", err)
 	}
 
-	fmt.Println("Server gracefully stopped")
+	// Don't print to stdout in stdio mode as it interferes with MCP communication
 	return nil
 }
 

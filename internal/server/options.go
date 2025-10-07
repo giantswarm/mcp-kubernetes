@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -143,11 +144,20 @@ type DefaultLogger struct {
 	level  string
 }
 
-// NewDefaultLogger creates a new default logger with standard output.
+// NewDefaultLogger creates a new default logger with standard error output.
 func NewDefaultLogger() Logger {
 	return &DefaultLogger{
-		logger: log.New(os.Stdout, "[mcp-kubernetes] ", log.LstdFlags|log.Lshortfile),
+		logger: log.New(os.Stderr, "[mcp-kubernetes] ", log.LstdFlags|log.Lshortfile),
 		level:  "info",
+	}
+}
+
+// NewSilentLogger creates a logger that discards all output.
+// This is useful for stdio mode where any output would interfere with MCP communication.
+func NewSilentLogger() Logger {
+	return &DefaultLogger{
+		logger: log.New(io.Discard, "", 0),
+		level:  "silent",
 	}
 }
 
@@ -179,7 +189,7 @@ func (l *DefaultLogger) With(args ...interface{}) Logger {
 	if len(args) > 0 {
 		prefix := fmt.Sprintf("[mcp-kubernetes] %v ", args)
 		return &DefaultLogger{
-			logger: log.New(os.Stdout, prefix, log.LstdFlags|log.Lshortfile),
+			logger: log.New(os.Stderr, prefix, log.LstdFlags|log.Lshortfile),
 			level:  l.level,
 		}
 	}
