@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 
@@ -149,15 +148,6 @@ func NewDefaultLogger() Logger {
 	return &DefaultLogger{
 		logger: log.New(os.Stderr, "[mcp-kubernetes] ", log.LstdFlags|log.Lshortfile),
 		level:  "info",
-	}
-}
-
-// NewSilentLogger creates a logger that discards all output.
-// This is useful for stdio mode where any output would interfere with MCP communication.
-func NewSilentLogger() Logger {
-	return &DefaultLogger{
-		logger: log.New(io.Discard, "", 0),
-		level:  "silent",
 	}
 }
 

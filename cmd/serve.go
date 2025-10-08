@@ -40,25 +40,6 @@ func (l *simpleLogger) Error(msg string, args ...interface{}) {
 	log.Printf("[ERROR] %s %v", msg, args)
 }
 
-// silentLogger discards all log output for stdio mode
-type silentLogger struct{}
-
-func (l *silentLogger) Debug(msg string, args ...interface{}) {
-	// Discard output
-}
-
-func (l *silentLogger) Info(msg string, args ...interface{}) {
-	// Discard output
-}
-
-func (l *silentLogger) Warn(msg string, args ...interface{}) {
-	// Discard output
-}
-
-func (l *silentLogger) Error(msg string, args ...interface{}) {
-	// Discard output
-}
-
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
 	var (
@@ -120,13 +101,7 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string) error {
 
 	// Create Kubernetes client configuration
-	// Use a silent logger for stdio mode to avoid output interference
-	var k8sLogger k8s.Logger
-	if transport == "stdio" {
-		k8sLogger = &silentLogger{}
-	} else {
-		k8sLogger = &simpleLogger{}
-	}
+	var k8sLogger = &simpleLogger{}
 
 	k8sConfig := &k8s.ClientConfig{
 		NonDestructiveMode: nonDestructiveMode,
@@ -151,13 +126,8 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	defer cancel()
 
 	// Create server context with kubernetes client and shutdown context
-	// Use silent logger for stdio mode to avoid any output interference
 	var serverContextOptions []server.Option
 	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
-
-	if transport == "stdio" {
-		serverContextOptions = append(serverContextOptions, server.WithLogger(server.NewSilentLogger()))
-	}
 
 	serverContext, err := server.NewServerContext(shutdownCtx, serverContextOptions...)
 	if err != nil {
