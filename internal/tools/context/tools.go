@@ -7,6 +7,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // RegisterContextTools registers all context management tools with the MCP server
@@ -14,6 +15,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	// kubernetes_context_list tool
 	listContextsTool := mcp.NewTool("kubernetes_context_list",
 		mcp.WithDescription("List all available Kubernetes contexts"),
+		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
 	s.AddTool(listContextsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -23,6 +25,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	// kubernetes_context_get_current tool
 	getCurrentContextTool := mcp.NewTool("kubernetes_context_get_current",
 		mcp.WithDescription("Get the current Kubernetes context"),
+		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
 	s.AddTool(getCurrentContextTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
