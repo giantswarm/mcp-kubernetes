@@ -7,6 +7,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // RegisterPodTools registers all pod management tools with the MCP server
@@ -72,6 +73,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithArray("command",
 			mcp.Required(),
 			mcp.Description("Command to execute as an array of strings"),
+			mcp.WithStringItems(),
 		),
 		mcp.WithBoolean("tty",
 			mcp.Description("Allocate a TTY for the exec session (default: false)"),
@@ -103,6 +105,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithArray("ports",
 			mcp.Required(),
 			mcp.Description("Port mappings as array of strings (e.g., ['8080:80', '9090:9090'])"),
+			mcp.WithStringItems(),
 		),
 	)
 
@@ -113,6 +116,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// list_port_forward_sessions tool
 	listSessionsTool := mcp.NewTool("list_port_forward_sessions",
 		mcp.WithDescription("List all active port forwarding sessions"),
+		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
 	s.AddTool(listSessionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -135,6 +139,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// stop_all_port_forward_sessions tool
 	stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
 		mcp.WithDescription("Stop all active port forwarding sessions"),
+		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
 	s.AddTool(stopAllSessionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

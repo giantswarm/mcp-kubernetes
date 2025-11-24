@@ -143,10 +143,10 @@ type DefaultLogger struct {
 	level  string
 }
 
-// NewDefaultLogger creates a new default logger with standard output.
+// NewDefaultLogger creates a new default logger with standard error output.
 func NewDefaultLogger() Logger {
 	return &DefaultLogger{
-		logger: log.New(os.Stdout, "[mcp-kubernetes] ", log.LstdFlags|log.Lshortfile),
+		logger: log.New(os.Stderr, "[mcp-kubernetes] ", log.LstdFlags|log.Lshortfile),
 		level:  "info",
 	}
 }
@@ -179,7 +179,7 @@ func (l *DefaultLogger) With(args ...interface{}) Logger {
 	if len(args) > 0 {
 		prefix := fmt.Sprintf("[mcp-kubernetes] %v ", args)
 		return &DefaultLogger{
-			logger: log.New(os.Stdout, prefix, log.LstdFlags|log.Lshortfile),
+			logger: log.New(os.Stderr, prefix, log.LstdFlags|log.Lshortfile),
 			level:  l.level,
 		}
 	}
