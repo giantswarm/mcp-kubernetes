@@ -8,9 +8,10 @@ A Model Context Protocol (MCP) server that provides tools for interacting with K
 - **Pod Operations**: Get logs, execute commands, and set up port forwarding
 - **Context Management**: List, get, and switch between Kubernetes contexts
 - **Cluster Information**: Get API resources and cluster health status
-- **Multiple Authentication Modes**: Support for both kubeconfig and in-cluster authentication
+- **Multiple Authentication Modes**: Support for kubeconfig, in-cluster, and OAuth 2.1 authentication
 - **Multiple Transport Types**: Support for stdio, SSE, and streamable HTTP
 - **Safety Features**: Non-destructive mode, dry-run capability, and operation restrictions
+- **OAuth 2.1 Support**: Secure token-based authentication with Google OAuth provider
 
 ## Installation
 
@@ -62,6 +63,22 @@ mcp-kubernetes serve --in-cluster
 - CA certificate must be available at `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`
 - Namespace must be available at `/var/run/secrets/kubernetes.io/serviceaccount/namespace`
 
+#### OAuth 2.1 Authentication
+Uses OAuth 2.1 with Google OAuth provider for secure, token-based authentication (available for HTTP transports only).
+
+```bash
+# Start with OAuth authentication
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --oauth-base-url=https://mcp.example.com \
+  --google-client-id=YOUR_CLIENT_ID \
+  --google-client-secret=YOUR_CLIENT_SECRET \
+  --registration-token=YOUR_SECURE_TOKEN
+```
+
+**See [docs/oauth.md](docs/oauth.md) for detailed OAuth setup and configuration.**
+
 ### Transport Types
 
 #### Standard I/O (Default)
@@ -91,7 +108,13 @@ mcp-kubernetes serve --transport streamable-http --http-addr :8080
 --burst-limit 30     # Burst limit for Kubernetes API calls
 
 # Authentication
---in-cluster         # Use in-cluster authentication instead of kubeconfig
+--in-cluster                   # Use in-cluster authentication instead of kubeconfig
+--enable-oauth                 # Enable OAuth 2.1 authentication (for HTTP transports)
+--oauth-base-url string        # OAuth base URL (e.g., https://mcp.example.com)
+--google-client-id string      # Google OAuth Client ID
+--google-client-secret string  # Google OAuth Client Secret
+--registration-token string    # OAuth client registration access token
+--allow-public-registration    # Allow unauthenticated OAuth client registration
 
 # Debugging
 --debug              # Enable debug logging
@@ -102,6 +125,7 @@ mcp-kubernetes serve --transport streamable-http --http-addr :8080
 --sse-endpoint /sse          # SSE endpoint path
 --message-endpoint /message  # Message endpoint path
 --http-endpoint /mcp         # HTTP endpoint path
+--disable-streaming          # Disable streaming for streamable-http transport
 ```
 
 ## Running in Kubernetes

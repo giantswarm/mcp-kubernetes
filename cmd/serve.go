@@ -56,6 +56,15 @@ func newServeCmd() *cobra.Command {
 		sseEndpoint     string
 		messageEndpoint string
 		httpEndpoint    string
+
+		// OAuth options
+		enableOAuth             bool
+		oauthBaseURL            string
+		googleClientID          string
+		googleClientSecret      string
+		disableStreaming        bool
+		registrationToken       string
+		allowPublicRegistration bool
 	)
 
 	cmd := &cobra.Command{
@@ -71,10 +80,13 @@ Supports multiple transport types:
 
 Authentication modes:
   - Kubeconfig (default): Uses standard kubeconfig file authentication
-  - In-cluster: Uses service account token when running inside a Kubernetes pod`,
+  - In-cluster: Uses service account token when running inside a Kubernetes pod
+  - OAuth (optional): Enable OAuth 2.1 authentication for HTTP transports`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runServe(transport, nonDestructiveMode, dryRun, qpsLimit, burstLimit, debugMode, inCluster,
-				httpAddr, sseEndpoint, messageEndpoint, httpEndpoint)
+				httpAddr, sseEndpoint, messageEndpoint, httpEndpoint,
+				enableOAuth, oauthBaseURL, googleClientID, googleClientSecret, disableStreaming,
+				registrationToken, allowPublicRegistration)
 		},
 	}
 
@@ -93,12 +105,23 @@ Authentication modes:
 	cmd.Flags().StringVar(&messageEndpoint, "message-endpoint", "/message", "Message endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&httpEndpoint, "http-endpoint", "/mcp", "HTTP endpoint path (for streamable-http transport)")
 
+	// OAuth flags
+	cmd.Flags().BoolVar(&enableOAuth, "enable-oauth", false, "Enable OAuth 2.1 authentication (for HTTP transports)")
+	cmd.Flags().StringVar(&oauthBaseURL, "oauth-base-url", "", "OAuth base URL (e.g., https://mcp.example.com)")
+	cmd.Flags().StringVar(&googleClientID, "google-client-id", "", "Google OAuth Client ID (can also be set via GOOGLE_CLIENT_ID env var)")
+	cmd.Flags().StringVar(&googleClientSecret, "google-client-secret", "", "Google OAuth Client Secret (can also be set via GOOGLE_CLIENT_SECRET env var)")
+	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
+	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
+	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
+
 	return cmd
 }
 
 // runServe contains the main server logic with support for multiple transports
 func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float32, burstLimit int, debugMode, inCluster bool,
-	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string) error {
+	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string,
+	enableOAuth bool, oauthBaseURL, googleClientID, googleClientSecret string, disableStreaming bool,
+	registrationToken string, allowPublicRegistration bool) error {
 
 	// Create Kubernetes client configuration
 	var k8sLogger = &simpleLogger{}
@@ -174,6 +197,39 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 		return runSSEServer(mcpSrv, httpAddr, sseEndpoint, messageEndpoint, shutdownCtx, debugMode)
 	case "streamable-http":
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", transport)
+		if enableOAuth {
+			// Get OAuth credentials from env vars if not provided via flags
+			if googleClientID == "" {
+				googleClientID = os.Getenv("GOOGLE_CLIENT_ID")
+			}
+			if googleClientSecret == "" {
+				googleClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
+			}
+
+			// Validate OAuth configuration
+			if oauthBaseURL == "" {
+				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
+			}
+			if googleClientID == "" {
+				return fmt.Errorf("Google Client ID is required (use --google-client-id or GOOGLE_CLIENT_ID env var)")
+			}
+			if googleClientSecret == "" {
+				return fmt.Errorf("Google Client Secret is required (use --google-client-secret or GOOGLE_CLIENT_SECRET env var)")
+			}
+			if !allowPublicRegistration && registrationToken == "" {
+				return fmt.Errorf("--registration-token is required when public registration is disabled")
+			}
+
+			return runOAuthHTTPServer(mcpSrv, httpAddr, shutdownCtx, server.OAuthConfig{
+				BaseURL:                       oauthBaseURL,
+				GoogleClientID:                googleClientID,
+				GoogleClientSecret:            googleClientSecret,
+				DisableStreaming:              disableStreaming,
+				DebugMode:                     debugMode,
+				AllowPublicClientRegistration: allowPublicRegistration,
+				RegistrationAccessToken:       registrationToken,
+			})
+		}
 		return runStreamableHTTPServer(mcpSrv, httpAddr, httpEndpoint, shutdownCtx, debugMode)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", transport)
@@ -326,5 +382,56 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	}
 
 	fmt.Println("HTTP server gracefully stopped")
+	return nil
+}
+
+// runOAuthHTTPServer runs the server with OAuth 2.1 authentication
+func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Context, config server.OAuthConfig) error {
+	// Create OAuth HTTP server
+	oauthServer, err := server.NewOAuthHTTPServer(mcpSrv, "streamable-http", config)
+	if err != nil {
+		return fmt.Errorf("failed to create OAuth HTTP server: %w", err)
+	}
+
+	fmt.Printf("OAuth-enabled HTTP server starting on %s\n", addr)
+	fmt.Printf("  Base URL: %s\n", config.BaseURL)
+	fmt.Printf("  MCP endpoint: /mcp (requires OAuth Bearer token)\n")
+	fmt.Printf("  OAuth endpoints:\n")
+	fmt.Printf("    - Authorization Server Metadata: /.well-known/oauth-authorization-server\n")
+	fmt.Printf("    - Protected Resource Metadata: /.well-known/oauth-protected-resource\n")
+	fmt.Printf("    - Client Registration: /oauth/register\n")
+	fmt.Printf("    - Authorization: /oauth/authorize\n")
+	fmt.Printf("    - Token: /oauth/token\n")
+	fmt.Printf("    - Callback: /oauth/callback\n")
+	fmt.Printf("    - Revoke: /oauth/revoke\n")
+	fmt.Printf("    - Introspect: /oauth/introspect\n")
+
+	// Start server in goroutine
+	serverDone := make(chan error, 1)
+	go func() {
+		defer close(serverDone)
+		if err := oauthServer.Start(addr); err != nil {
+			serverDone <- err
+		}
+	}()
+
+	// Wait for either shutdown signal or server completion
+	select {
+	case <-ctx.Done():
+		fmt.Println("Shutdown signal received, stopping OAuth HTTP server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := oauthServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("error shutting down OAuth HTTP server: %w", err)
+		}
+	case err := <-serverDone:
+		if err != nil {
+			return fmt.Errorf("OAuth HTTP server stopped with error: %w", err)
+		} else {
+			fmt.Println("OAuth HTTP server stopped normally")
+		}
+	}
+
+	fmt.Println("OAuth HTTP server gracefully stopped")
 	return nil
 }
