@@ -231,6 +231,35 @@
             }
           }
         },
+        "oauth": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "baseURL": {
+              "type": "string"
+            },
+            "googleClientID": {
+              "type": "string"
+            },
+            "googleClientSecret": {
+              "type": "string"
+            },
+            "registrationToken": {
+              "type": "string"
+            },
+            "allowPublicRegistration": {
+              "type": "boolean"
+            },
+            "disableStreaming": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string"
+            }
+          }
+        },
         "env": {
           "type": "array",
           "items": {

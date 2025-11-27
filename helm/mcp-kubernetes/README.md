@@ -102,6 +102,21 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 | `mcpKubernetes.kubernetes.kubeconfig` | Path to kubeconfig file | `""` |
 | `mcpKubernetes.env` | Additional environment variables | `[]` |
 
+### OAuth 2.1 Configuration
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `mcpKubernetes.oauth.enabled` | Enable OAuth 2.1 authentication | `false` |
+| `mcpKubernetes.oauth.baseURL` | OAuth base URL (required if OAuth enabled) | `""` |
+| `mcpKubernetes.oauth.googleClientID` | Google OAuth Client ID | `""` |
+| `mcpKubernetes.oauth.googleClientSecret` | Google OAuth Client Secret | `""` |
+| `mcpKubernetes.oauth.registrationToken` | OAuth client registration access token | `""` |
+| `mcpKubernetes.oauth.allowPublicRegistration` | Allow unauthenticated client registration (NOT recommended) | `false` |
+| `mcpKubernetes.oauth.disableStreaming` | Disable streaming for HTTP transport | `false` |
+| `mcpKubernetes.oauth.existingSecret` | Use existing secret for OAuth credentials | `""` |
+
+**Note**: For production deployments, it's highly recommended to use `existingSecret` instead of setting credentials in values.yaml.
+
 ### Cilium Network Policy
 
 | Parameter | Description | Default |
@@ -190,6 +205,40 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
 helm install mcp-kubernetes ./helm/mcp-kubernetes \
   --set ciliumNetworkPolicy.enabled=false
 ```
+
+### Installation with OAuth 2.1 Authentication
+
+First, create a secret with your OAuth credentials:
+
+```bash
+kubectl create secret generic mcp-k8s-oauth-credentials \
+  --from-literal=google-client-id=YOUR_CLIENT_ID \
+  --from-literal=google-client-secret=YOUR_CLIENT_SECRET \
+  --from-literal=registration-token=YOUR_REGISTRATION_TOKEN
+```
+
+Then install with OAuth enabled:
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set mcpKubernetes.oauth.enabled=true \
+  --set mcpKubernetes.oauth.baseURL=https://mcp-k8s.example.com \
+  --set mcpKubernetes.oauth.existingSecret=mcp-k8s-oauth-credentials \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set ingress.hosts[0].host=mcp-k8s.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix
+```
+
+Or use the example values file:
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-oauth-example.yaml
+```
+
+**Important**: OAuth requires HTTPS in production. Make sure to configure TLS for your ingress.
 
 ## Connecting to the MCP Server
 

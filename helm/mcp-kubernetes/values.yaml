@@ -109,6 +109,33 @@ mcpKubernetes:
     inCluster: true
     # Kubeconfig path (if not using in-cluster config)
     kubeconfig: ""
+  
+  # OAuth 2.1 configuration
+  oauth:
+    # Enable OAuth 2.1 authentication
+    enabled: false
+    # OAuth base URL (e.g., https://mcp.example.com)
+    # Required if OAuth is enabled
+    baseURL: ""
+    # Google OAuth Client ID
+    # Can be set here or via existingSecret
+    googleClientID: ""
+    # Google OAuth Client Secret
+    # Should be set via existingSecret for security
+    googleClientSecret: ""
+    # OAuth client registration access token
+    # Required if allowPublicRegistration is false
+    # Should be set via existingSecret for security
+    registrationToken: ""
+    # Allow unauthenticated OAuth client registration
+    # WARNING: Not recommended for production
+    allowPublicRegistration: false
+    # Disable streaming for streamable-http transport
+    disableStreaming: false
+    # Use an existing secret for OAuth credentials
+    # The secret should contain keys: google-client-id, google-client-secret, registration-token
+    existingSecret: ""
+  
   # Additional environment variables
   env: []
   # - name: EXAMPLE_VAR
