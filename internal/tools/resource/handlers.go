@@ -18,6 +18,7 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	args := request.GetArguments()
 
 	kubeContext, _ := args["kubeContext"].(string)
+	apiGroup, _ := args["apiGroup"].(string)
 
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
@@ -35,7 +36,7 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	}
 
 	// Use the k8s client from ServerContext
-	obj, err := sc.K8sClient().Get(ctx, kubeContext, namespace, resourceType, name)
+	obj, err := sc.K8sClient().Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %v", err)), nil
 	}
@@ -54,6 +55,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	args := request.GetArguments()
 
 	kubeContext, _ := args["kubeContext"].(string)
+	apiGroup, _ := args["apiGroup"].(string)
 
 	resourceType, ok := args["resourceType"].(string)
 	if !ok || resourceType == "" {
@@ -98,7 +100,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	// Use paginated API (now the only API)
-	paginatedResponse, err := sc.K8sClient().List(ctx, kubeContext, namespace, resourceType, opts)
+	paginatedResponse, err := sc.K8sClient().List(ctx, kubeContext, namespace, resourceType, apiGroup, opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
@@ -134,6 +136,7 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	args := request.GetArguments()
 
 	kubeContext, _ := args["kubeContext"].(string)
+	apiGroup, _ := args["apiGroup"].(string)
 
 	namespace, ok := args["namespace"].(string)
 	if !ok || namespace == "" {
@@ -150,7 +153,7 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-	description, err := sc.K8sClient().Describe(ctx, kubeContext, namespace, resourceType, name)
+	description, err := sc.K8sClient().Describe(ctx, kubeContext, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to describe resource: %v", err)), nil
 	}
@@ -291,6 +294,7 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 	}
 
 	kubeContext := request.GetString("kubeContext", "")
+	apiGroup := request.GetString("apiGroup", "")
 	namespace, err := request.RequireString("namespace")
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
@@ -306,7 +310,7 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-	err = sc.K8sClient().Delete(ctx, kubeContext, namespace, resourceType, name)
+	err = sc.K8sClient().Delete(ctx, kubeContext, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to delete resource: %v", err)), nil
 	}
@@ -333,6 +337,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	kubeContext := request.GetString("kubeContext", "")
+	apiGroup := request.GetString("apiGroup", "")
 	namespace, err := request.RequireString("namespace")
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
@@ -377,7 +382,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal patch data: %v", err)), nil
 	}
 
-	patchedObj, err := sc.K8sClient().Patch(ctx, kubeContext, namespace, resourceType, name, patchType, patchBytes)
+	patchedObj, err := sc.K8sClient().Patch(ctx, kubeContext, namespace, resourceType, apiGroup, name, patchType, patchBytes)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to patch resource: %v", err)), nil
 	}
@@ -410,6 +415,7 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	kubeContext := request.GetString("kubeContext", "")
+	apiGroup := request.GetString("apiGroup", "")
 	namespace, err := request.RequireString("namespace")
 	if err != nil {
 		return mcp.NewToolResultError("namespace is required"), nil
@@ -430,7 +436,7 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError("replicas is required"), nil
 	}
 
-	err = sc.K8sClient().Scale(ctx, kubeContext, namespace, resourceType, name, int32(replicas))
+	err = sc.K8sClient().Scale(ctx, kubeContext, namespace, resourceType, apiGroup, name, int32(replicas))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to scale resource: %v", err)), nil
 	}
