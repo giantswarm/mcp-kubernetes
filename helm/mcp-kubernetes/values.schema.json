@@ -249,11 +249,17 @@
             "registrationToken": {
               "type": "string"
             },
+            "registrationAccessToken": {
+              "type": "string"
+            },
             "allowPublicRegistration": {
               "type": "boolean"
             },
             "allowInsecureAuthWithoutState": {
               "type": "boolean"
+            },
+            "maxClientsPerIP": {
+              "type": "integer"
             },
             "encryptionKey": {
               "type": "boolean"

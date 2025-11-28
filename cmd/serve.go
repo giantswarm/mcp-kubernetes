@@ -66,6 +66,7 @@ func newServeCmd() *cobra.Command {
 		registrationToken             string
 		allowPublicRegistration       bool
 		allowInsecureAuthWithoutState bool
+		maxClientsPerIP               int
 		oauthEncryptionKey            string
 	)
 
@@ -88,7 +89,7 @@ Authentication modes:
 			return runServe(transport, nonDestructiveMode, dryRun, qpsLimit, burstLimit, debugMode, inCluster,
 				httpAddr, sseEndpoint, messageEndpoint, httpEndpoint,
 				enableOAuth, oauthBaseURL, googleClientID, googleClientSecret, disableStreaming,
-				registrationToken, allowPublicRegistration, allowInsecureAuthWithoutState, oauthEncryptionKey)
+				registrationToken, allowPublicRegistration, allowInsecureAuthWithoutState, maxClientsPerIP, oauthEncryptionKey)
 		},
 	}
 
@@ -116,6 +117,7 @@ Authentication modes:
 	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
 	cmd.Flags().BoolVar(&allowInsecureAuthWithoutState, "allow-insecure-auth-without-state", false, "Allow authorization requests without state parameter (for older MCP client compatibility)")
+	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 
 	return cmd
@@ -125,7 +127,7 @@ Authentication modes:
 func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float32, burstLimit int, debugMode, inCluster bool,
 	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string,
 	enableOAuth bool, oauthBaseURL, googleClientID, googleClientSecret string, disableStreaming bool,
-	registrationToken string, allowPublicRegistration, allowInsecureAuthWithoutState bool, oauthEncryptionKey string) error {
+	registrationToken string, allowPublicRegistration, allowInsecureAuthWithoutState bool, maxClientsPerIP int, oauthEncryptionKey string) error {
 
 	// Create Kubernetes client configuration
 	var k8sLogger = &simpleLogger{}
@@ -245,6 +247,7 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 				AllowPublicClientRegistration: allowPublicRegistration,
 				RegistrationAccessToken:       registrationToken,
 				AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
+				MaxClientsPerIP:               maxClientsPerIP,
 				EncryptionKey:                 encryptionKey,
 			})
 		}

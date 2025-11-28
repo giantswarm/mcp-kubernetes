@@ -126,15 +126,19 @@ mcpKubernetes:
     # OAuth client registration access token
     # Required if allowPublicRegistration is false
     # Should be set via existingSecret for security
-    registrationToken: ""
+    # Set to empty string or "false" to disable registration token requirement
+    registrationAccessToken: ""
     # Allow unauthenticated OAuth client registration
     # WARNING: Not recommended for production
     allowPublicRegistration: false
     # Allow authorization requests without state parameter
     # WARNING: Weakens CSRF protection, only enable for compatibility with older clients
     allowInsecureAuthWithoutState: false
+    # Maximum number of OAuth clients that can be registered per IP address
+    # Prevents DoS attacks via mass client registration
+    maxClientsPerIP: 10
     # Enable token encryption at rest (AES-256-GCM)
-    # If "true", the encryption key must be provided in the secret
+    # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
     encryptionKey: false
     # Disable streaming for streamable-http transport
     disableStreaming: false
