@@ -130,10 +130,16 @@ mcpKubernetes:
     # Allow unauthenticated OAuth client registration
     # WARNING: Not recommended for production
     allowPublicRegistration: false
+    # Allow authorization requests without state parameter
+    # WARNING: Weakens CSRF protection, only enable for compatibility with older clients
+    allowInsecureAuthWithoutState: false
+    # Enable token encryption at rest (AES-256-GCM)
+    # If "true", the encryption key must be provided in the secret
+    encryptionKey: false
     # Disable streaming for streamable-http transport
     disableStreaming: false
     # Use an existing secret for OAuth credentials
-    # The secret should contain keys: google-client-id, google-client-secret, registration-token
+    # The secret should contain keys: google-client-id, google-client-secret, registration-token, oauth-encryption-key (optional)
     existingSecret: ""
   
   # Additional environment variables

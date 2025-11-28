@@ -53,6 +53,9 @@ spec:
             {{- else }}
             - --registration-token=$(REGISTRATION_TOKEN)
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.allowInsecureAuthWithoutState }}
+            - --allow-insecure-auth-without-state=true
+            {{- end }}
             {{- if .Values.mcpKubernetes.oauth.disableStreaming }}
             - --disable-streaming=true
             {{- end }}
@@ -86,6 +89,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
                   key: registration-token
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.encryptionKey }}
+            - name: OAUTH_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: oauth-encryption-key
             {{- end }}
             {{- end }}
             {{- with .Values.mcpKubernetes.env }}

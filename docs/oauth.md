@@ -335,3 +335,4 @@ cmd/
 - [RFC 9728: Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)
 - [mcp-oauth Library](https://github.com/giantswarm/mcp-oauth)
 
+

@@ -58,13 +58,15 @@ func newServeCmd() *cobra.Command {
 		httpEndpoint    string
 
 		// OAuth options
-		enableOAuth             bool
-		oauthBaseURL            string
-		googleClientID          string
-		googleClientSecret      string
-		disableStreaming        bool
-		registrationToken       string
-		allowPublicRegistration bool
+		enableOAuth                   bool
+		oauthBaseURL                  string
+		googleClientID                string
+		googleClientSecret            string
+		disableStreaming              bool
+		registrationToken             string
+		allowPublicRegistration       bool
+		allowInsecureAuthWithoutState bool
+		oauthEncryptionKey            string
 	)
 
 	cmd := &cobra.Command{
@@ -86,7 +88,7 @@ Authentication modes:
 			return runServe(transport, nonDestructiveMode, dryRun, qpsLimit, burstLimit, debugMode, inCluster,
 				httpAddr, sseEndpoint, messageEndpoint, httpEndpoint,
 				enableOAuth, oauthBaseURL, googleClientID, googleClientSecret, disableStreaming,
-				registrationToken, allowPublicRegistration)
+				registrationToken, allowPublicRegistration, allowInsecureAuthWithoutState, oauthEncryptionKey)
 		},
 	}
 
@@ -113,6 +115,8 @@ Authentication modes:
 	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
 	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
+	cmd.Flags().BoolVar(&allowInsecureAuthWithoutState, "allow-insecure-auth-without-state", false, "Allow authorization requests without state parameter (for older MCP client compatibility)")
+	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 
 	return cmd
 }
@@ -121,7 +125,7 @@ Authentication modes:
 func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float32, burstLimit int, debugMode, inCluster bool,
 	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string,
 	enableOAuth bool, oauthBaseURL, googleClientID, googleClientSecret string, disableStreaming bool,
-	registrationToken string, allowPublicRegistration bool) error {
+	registrationToken string, allowPublicRegistration, allowInsecureAuthWithoutState bool, oauthEncryptionKey string) error {
 
 	// Create Kubernetes client configuration
 	var k8sLogger = &simpleLogger{}
@@ -205,6 +209,9 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 			if googleClientSecret == "" {
 				googleClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
 			}
+			if oauthEncryptionKey == "" {
+				oauthEncryptionKey = os.Getenv("OAUTH_ENCRYPTION_KEY")
+			}
 
 			// Validate OAuth configuration
 			if oauthBaseURL == "" {
@@ -220,6 +227,15 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 				return fmt.Errorf("--registration-token is required when public registration is disabled")
 			}
 
+			// Prepare encryption key if provided
+			var encryptionKey []byte
+			if oauthEncryptionKey != "" {
+				encryptionKey = []byte(oauthEncryptionKey)
+				if len(encryptionKey) != 32 {
+					return fmt.Errorf("OAuth encryption key must be exactly 32 bytes, got %d bytes", len(encryptionKey))
+				}
+			}
+
 			return runOAuthHTTPServer(mcpSrv, httpAddr, shutdownCtx, server.OAuthConfig{
 				BaseURL:                       oauthBaseURL,
 				GoogleClientID:                googleClientID,
@@ -228,6 +244,8 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 				DebugMode:                     debugMode,
 				AllowPublicClientRegistration: allowPublicRegistration,
 				RegistrationAccessToken:       registrationToken,
+				AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
+				EncryptionKey:                 encryptionKey,
 			})
 		}
 		return runStreamableHTTPServer(mcpSrv, httpAddr, httpEndpoint, shutdownCtx, debugMode)

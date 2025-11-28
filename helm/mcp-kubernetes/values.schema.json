@@ -252,6 +252,15 @@
             "allowPublicRegistration": {
               "type": "boolean"
             },
+            "allowInsecureAuthWithoutState": {
+              "type": "boolean"
+            },
+            "encryptionKey": {
+              "type": "boolean"
+            },
+            "encryptionKeyValue": {
+              "type": "string"
+            },
             "disableStreaming": {
               "type": "boolean"
             },
