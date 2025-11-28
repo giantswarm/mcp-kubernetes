@@ -142,6 +142,10 @@ mcpKubernetes:
     encryptionKey: false
     # Disable streaming for streamable-http transport
     disableStreaming: false
+    # Enable downstream OAuth token passthrough to Kubernetes API
+    # When enabled, user OAuth tokens are used for Kubernetes authentication
+    # Requires inCluster mode and Kubernetes cluster configured with Google OIDC
+    enableDownstreamOAuth: false
     # Use an existing secret for OAuth credentials
     # The secret should contain keys: google-client-id, google-client-secret, registration-token, oauth-encryption-key (optional)
     existingSecret: ""

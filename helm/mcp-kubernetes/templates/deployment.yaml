@@ -65,6 +65,9 @@ spec:
             {{- if .Values.mcpKubernetes.oauth.disableStreaming }}
             - --disable-streaming=true
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+            - --enable-downstream-oauth=true
+            {{- end }}
             {{- end }}
           ports:
             - name: http
