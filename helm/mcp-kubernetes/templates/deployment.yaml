@@ -48,11 +48,19 @@ spec:
             {{- if .Values.mcpKubernetes.oauth.enabled }}
             - --enable-oauth=true
             - --oauth-base-url={{ required "mcpKubernetes.oauth.baseURL is required when OAuth is enabled" .Values.mcpKubernetes.oauth.baseURL }}
-            - --allow-public-registration={{ .Values.mcpKubernetes.oauth.allowPublicRegistration }}
+            {{- if .Values.mcpKubernetes.oauth.allowPublicClientRegistration }}
+            - --allow-public-registration=true
+            {{- else }}
+            - --allow-public-registration=false
             {{- if .Values.mcpKubernetes.oauth.registrationAccessToken }}
             - --registration-access-token={{ .Values.mcpKubernetes.oauth.registrationAccessToken }}
             {{- end }}
-            - --allow-insecure-auth-without-state={{ .Values.mcpKubernetes.oauth.allowInsecureAuthWithoutState }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.allowInsecureAuthWithoutState }}
+            - --allow-insecure-auth-without-state=true
+            {{- else }}
+            - --allow-insecure-auth-without-state=false
+            {{- end }}
             - --max-clients-per-ip={{ .Values.mcpKubernetes.oauth.maxClientsPerIP }}
             {{- if .Values.mcpKubernetes.oauth.disableStreaming }}
             - --disable-streaming=true
