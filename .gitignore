@@ -6,6 +6,9 @@ dist/
 .mcp-kubernetes/config.yaml
 .cursor/mcp.json
 
+# Local-only cursor rules (not for public repo)
+.cursor/rules/*.local.mdc
+
 # Go specific
 # Binaries for programs and plugins
 *.exe
