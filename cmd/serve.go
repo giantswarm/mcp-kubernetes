@@ -69,6 +69,7 @@ func newServeCmd() *cobra.Command {
 		allowInsecureAuthWithoutState bool
 		maxClientsPerIP               int
 		oauthEncryptionKey            string
+		downstreamOAuth               bool
 	)
 
 	cmd := &cobra.Command{
@@ -85,12 +86,19 @@ Supports multiple transport types:
 Authentication modes:
   - Kubeconfig (default): Uses standard kubeconfig file authentication
   - In-cluster: Uses service account token when running inside a Kubernetes pod
-  - OAuth (optional): Enable OAuth 2.1 authentication for HTTP transports`,
+  - OAuth (optional): Enable OAuth 2.1 authentication for HTTP transports
+
+Downstream OAuth (--downstream-oauth):
+  When enabled with --enable-oauth and --in-cluster, the server will use each user's
+  OAuth access token to authenticate with the Kubernetes API instead of the service
+  account token. This ensures users only have their configured RBAC permissions.
+  Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runServe(transport, nonDestructiveMode, dryRun, qpsLimit, burstLimit, debugMode, inCluster,
 				httpAddr, sseEndpoint, messageEndpoint, httpEndpoint,
 				enableOAuth, oauthBaseURL, googleClientID, googleClientSecret, disableStreaming,
-				registrationToken, allowPublicRegistration, allowInsecureAuthWithoutState, maxClientsPerIP, oauthEncryptionKey)
+				registrationToken, allowPublicRegistration, allowInsecureAuthWithoutState, maxClientsPerIP, oauthEncryptionKey,
+				downstreamOAuth)
 		},
 	}
 
@@ -120,6 +128,7 @@ Authentication modes:
 	cmd.Flags().BoolVar(&allowInsecureAuthWithoutState, "allow-insecure-auth-without-state", false, "Allow authorization requests without state parameter (for older MCP client compatibility)")
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
+	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
 
 	return cmd
 }
@@ -128,7 +137,8 @@ Authentication modes:
 func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float32, burstLimit int, debugMode, inCluster bool,
 	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string,
 	enableOAuth bool, oauthBaseURL, googleClientID, googleClientSecret string, disableStreaming bool,
-	registrationToken string, allowPublicRegistration, allowInsecureAuthWithoutState bool, maxClientsPerIP int, oauthEncryptionKey string) error {
+	registrationToken string, allowPublicRegistration, allowInsecureAuthWithoutState bool, maxClientsPerIP int, oauthEncryptionKey string,
+	downstreamOAuth bool) error {
 
 	// Create Kubernetes client configuration
 	var k8sLogger = &simpleLogger{}
@@ -150,6 +160,16 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
+	// Validate downstream OAuth configuration
+	if downstreamOAuth {
+		if !enableOAuth {
+			return fmt.Errorf("--downstream-oauth requires --enable-oauth to be set")
+		}
+		if !inCluster {
+			return fmt.Errorf("--downstream-oauth requires --in-cluster mode (must be running inside a Kubernetes cluster)")
+		}
+	}
+
 	// Setup graceful shutdown - listen for both SIGINT and SIGTERM
 	shutdownCtx, cancel := signal.NotifyContext(context.Background(),
 		os.Interrupt, syscall.SIGTERM)
@@ -158,6 +178,17 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	// Create server context with kubernetes client and shutdown context
 	var serverContextOptions []server.Option
 	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
+
+	// Create client factory for downstream OAuth if enabled
+	if downstreamOAuth {
+		clientFactory, err := k8s.NewBearerTokenClientFactory(k8sConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create bearer token client factory: %w", err)
+		}
+		serverContextOptions = append(serverContextOptions, server.WithClientFactory(clientFactory))
+		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuth(true))
+		log.Printf("Downstream OAuth enabled: user OAuth tokens will be used for Kubernetes API authentication")
+	}
 
 	serverContext, err := server.NewServerContext(shutdownCtx, serverContextOptions...)
 	if err != nil {

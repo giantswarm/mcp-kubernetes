@@ -6,7 +6,14 @@ import (
 	"sync"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 )
+
+// getAccessTokenFromContext retrieves the OAuth access token from the context.
+// This is a thin wrapper around the oauth package function.
+func getAccessTokenFromContext(ctx context.Context) (string, bool) {
+	return oauth.GetAccessTokenFromContext(ctx)
+}
 
 // ServerContext encapsulates all dependencies needed by the MCP server
 // and provides a clean abstraction for dependency injection and lifecycle management.
@@ -15,6 +22,12 @@ type ServerContext struct {
 	k8sClient k8s.Client
 	logger    Logger
 	config    *Config
+
+	// OAuth downstream authentication support
+	// When clientFactory is set and downstreamOAuth is true, the server will
+	// create per-user Kubernetes clients using the user's OAuth token.
+	clientFactory   k8s.ClientFactory
+	downstreamOAuth bool
 
 	// Context management
 	ctx    context.Context
@@ -69,10 +82,58 @@ func (sc *ServerContext) Context() context.Context {
 }
 
 // K8sClient returns the Kubernetes client interface.
+// Note: For OAuth downstream mode, consider using K8sClientForContext instead.
 func (sc *ServerContext) K8sClient() k8s.Client {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.k8sClient
+}
+
+// K8sClientForContext returns a Kubernetes client appropriate for the request context.
+// If downstream OAuth is enabled and an access token is present in the context,
+// it returns a per-user client using the bearer token. Otherwise, it returns the
+// shared service account client.
+func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+
+	// If downstream OAuth is not enabled, use the shared client
+	if !sc.downstreamOAuth || sc.clientFactory == nil {
+		return sc.k8sClient
+	}
+
+	// Try to get the access token from context
+	// The import for oauth package is added at the top
+	accessToken, ok := getAccessTokenFromContext(ctx)
+	if !ok || accessToken == "" {
+		// No access token in context, fall back to shared client
+		sc.logger.Debug("No access token in context, using shared client")
+		return sc.k8sClient
+	}
+
+	// Create a per-user client with the bearer token
+	client, err := sc.clientFactory.CreateBearerTokenClient(accessToken)
+	if err != nil {
+		sc.logger.Warn("Failed to create bearer token client, using shared client", "error", err)
+		return sc.k8sClient
+	}
+
+	sc.logger.Debug("Created bearer token client for user request")
+	return client
+}
+
+// DownstreamOAuthEnabled returns true if downstream OAuth authentication is enabled.
+func (sc *ServerContext) DownstreamOAuthEnabled() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.downstreamOAuth
+}
+
+// ClientFactory returns the client factory for creating per-user clients.
+func (sc *ServerContext) ClientFactory() k8s.ClientFactory {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.clientFactory
 }
 
 // Logger returns the logger interface.

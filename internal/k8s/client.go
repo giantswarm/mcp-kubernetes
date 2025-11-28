@@ -28,6 +28,16 @@ type Client interface {
 	ClusterManager
 }
 
+// ClientFactory creates Kubernetes clients with custom authentication.
+// This is used for creating per-user clients when OAuth passthrough is enabled.
+type ClientFactory interface {
+	// CreateBearerTokenClient creates a new Kubernetes client that uses the provided
+	// bearer token for authentication. This is used for OAuth passthrough where
+	// the user's Google OAuth access token is used to authenticate with Kubernetes.
+	// The baseClient provides the cluster connection details (host, CA cert).
+	CreateBearerTokenClient(bearerToken string) (Client, error)
+}
+
 // ContextManager handles Kubernetes context operations.
 type ContextManager interface {
 	// ListContexts returns all available Kubernetes contexts.

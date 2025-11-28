@@ -155,7 +155,7 @@ func TestRunServeWithInCluster(t *testing.T) {
 			// We can't easily test the full runServe function without complex mocking,
 			// but we can verify that the configuration is correctly structured
 			err := runServe("stdio", true, false, 20.0, 30, false, tt.inCluster, ":8080", "/sse", "/message", "/mcp",
-				false, "", "", "", false, "", false, false, 10, "")
+				false, "", "", "", false, "", false, false, 10, "", false)
 
 			if tt.expectedError != "" {
 				require.Error(t, err)

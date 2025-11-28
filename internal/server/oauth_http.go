@@ -40,6 +40,7 @@ type OAuthConfig struct {
 type OAuthHTTPServer struct {
 	mcpServer        *mcpserver.MCPServer
 	oauthHandler     *oauth.Handler
+	tokenProvider    *oauth.TokenProvider
 	httpServer       *http.Server
 	serverType       string // "streamable-http"
 	disableStreaming bool
@@ -97,9 +98,13 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		return nil, fmt.Errorf("failed to create OAuth handler: %w", err)
 	}
 
+	// Create token provider for downstream OAuth passthrough
+	tokenProvider := oauth.NewTokenProvider(oauthHandler.GetStore())
+
 	return &OAuthHTTPServer{
 		mcpServer:        mcpServer,
 		oauthHandler:     oauthHandler,
+		tokenProvider:    tokenProvider,
 		serverType:       serverType,
 		disableStreaming: config.DisableStreaming,
 	}, nil
@@ -113,9 +118,13 @@ func CreateOAuthHandler(config OAuthConfig) (*oauth.Handler, error) {
 
 // NewOAuthHTTPServerWithHandler creates a new OAuth-enabled HTTP server with an existing handler
 func NewOAuthHTTPServerWithHandler(mcpServer *mcpserver.MCPServer, serverType string, oauthHandler *oauth.Handler, disableStreaming bool) (*OAuthHTTPServer, error) {
+	// Create token provider for downstream OAuth passthrough
+	tokenProvider := oauth.NewTokenProvider(oauthHandler.GetStore())
+
 	return &OAuthHTTPServer{
 		mcpServer:        mcpServer,
 		oauthHandler:     oauthHandler,
+		tokenProvider:    tokenProvider,
 		serverType:       serverType,
 		disableStreaming: disableStreaming,
 	}, nil
@@ -243,11 +252,12 @@ func (s *OAuthHTTPServer) Start(addr string) error {
 			)
 		}
 
-		// Wrap MCP endpoint with OAuth middleware
-		mcpHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			httpServer.ServeHTTP(w, r)
-		})
-		mux.Handle("/mcp", libHandler.ValidateToken(mcpHandler))
+		// Create middleware to inject access token into context for downstream K8s auth
+		accessTokenInjector := s.createAccessTokenInjectorMiddleware(httpServer)
+
+		// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
+		// Then our injector adds the access token for downstream use
+		mux.Handle("/mcp", libHandler.ValidateToken(accessTokenInjector))
 
 	default:
 		return fmt.Errorf("unsupported server type: %s", s.serverType)
@@ -285,6 +295,34 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 // GetOAuthHandler returns the OAuth handler for testing or direct access
 func (s *OAuthHTTPServer) GetOAuthHandler() *oauth.Handler {
 	return s.oauthHandler
+}
+
+// GetTokenProvider returns the token provider for downstream OAuth passthrough
+func (s *OAuthHTTPServer) GetTokenProvider() *oauth.TokenProvider {
+	return s.tokenProvider
+}
+
+// createAccessTokenInjectorMiddleware creates middleware that injects the user's
+// Google OAuth access token into the request context. This token can then be used
+// for downstream Kubernetes API authentication.
+func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Get user info from context (set by ValidateToken middleware)
+		userInfo, ok := oauth.GetUserFromContext(ctx)
+		if ok && userInfo != nil && userInfo.Email != "" {
+			// Retrieve the user's stored Google OAuth token
+			token, err := s.tokenProvider.GetToken(ctx, userInfo.Email)
+			if err == nil && token != nil && token.AccessToken != "" {
+				// Add the access token to the context for downstream use
+				ctx = oauth.ContextWithAccessToken(ctx, token.AccessToken)
+				r = r.WithContext(ctx)
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // validateHTTPSRequirement ensures OAuth 2.1 HTTPS compliance

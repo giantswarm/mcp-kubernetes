@@ -9,6 +9,15 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// contextKey is a custom type for context keys to avoid collisions.
+type contextKey string
+
+const (
+	// accessTokenKey is the context key for storing the user's OAuth access token.
+	// This token can be used for downstream Kubernetes API authentication.
+	accessTokenKey contextKey = "oauth_access_token"
+)
+
 // TokenProvider implements a token provider interface using the mcp-oauth library's storage.
 // It bridges the mcp-oauth storage with code that needs token access.
 type TokenProvider struct {
@@ -48,4 +57,20 @@ func GetUserFromContext(ctx context.Context) (*UserInfo, bool) {
 // This is useful for testing code that depends on authenticated user context.
 func ContextWithUserInfo(ctx context.Context, userInfo *UserInfo) context.Context {
 	return oauth.ContextWithUserInfo(ctx, userInfo)
+}
+
+// ContextWithAccessToken creates a context with the given OAuth access token.
+// This is used to pass the user's Google OAuth access token for downstream
+// Kubernetes API authentication.
+func ContextWithAccessToken(ctx context.Context, accessToken string) context.Context {
+	return context.WithValue(ctx, accessTokenKey, accessToken)
+}
+
+// GetAccessTokenFromContext retrieves the OAuth access token from the context.
+// This returns the user's Google OAuth access token that can be used for
+// downstream Kubernetes API authentication.
+// Returns the access token and true if present, or empty string and false if not available.
+func GetAccessTokenFromContext(ctx context.Context) (string, bool) {
+	token, ok := ctx.Value(accessTokenKey).(string)
+	return token, ok && token != ""
 }

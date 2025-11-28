@@ -7,6 +7,7 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
 - **OAuth 2.1 Compliance**: Implements the latest OAuth 2.1 specification with PKCE enforcement
 - **Google OAuth Provider**: Supports Google OAuth for authentication with GCP/GKE integration
 - **Token Refresh**: Automatic token refresh with refresh token rotation
+- **Downstream OAuth Passthrough**: Use users' OAuth tokens for Kubernetes API authentication (RBAC)
 - **Security Features**:
   - Rate limiting (per-IP and per-user)
   - Audit logging
@@ -139,6 +140,80 @@ Response:
      }'
    ```
 
+## Downstream OAuth Authentication (RBAC Passthrough)
+
+When running `mcp-kubernetes` inside a Kubernetes cluster, you can enable **downstream OAuth authentication** to ensure that users only have their configured Kubernetes RBAC permissions.
+
+### How It Works
+
+1. User authenticates to `mcp-kubernetes` via Google OAuth
+2. `mcp-kubernetes` stores the user's OAuth access token
+3. When the user makes MCP tool calls, their OAuth token is used to authenticate with the Kubernetes API
+4. The Kubernetes cluster validates the token via its OIDC configuration and applies RBAC rules
+
+This ensures that users can only perform actions they're authorized for in the Kubernetes cluster, rather than having the full permissions of the `mcp-kubernetes` service account.
+
+### Requirements
+
+- The Kubernetes cluster must be configured for OIDC authentication with Google as the identity provider
+- `mcp-kubernetes` must be running in-cluster (`--in-cluster` flag)
+- OAuth must be enabled (`--enable-oauth` flag)
+
+### GKE Configuration
+
+For Google Kubernetes Engine (GKE), OIDC with Google is typically enabled by default. You may need to configure:
+
+1. **RBAC bindings**: Create `RoleBinding` or `ClusterRoleBinding` resources to grant permissions to Google identities:
+
+```yaml
+# Example: Give user read access to a namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: user-reader
+  namespace: my-app
+subjects:
+- kind: User
+  name: user@example.com  # Google account email
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### Non-GKE Kubernetes Clusters
+
+For other Kubernetes distributions, configure the API server with OIDC flags:
+
+```yaml
+# API server configuration
+--oidc-issuer-url=https://accounts.google.com
+--oidc-client-id=YOUR_GOOGLE_CLIENT_ID
+--oidc-username-claim=email
+--oidc-groups-claim=groups  # Optional
+```
+
+### Enabling Downstream OAuth
+
+Start the server with the `--downstream-oauth` flag:
+
+```bash
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --in-cluster \
+  --downstream-oauth \
+  --oauth-base-url=https://mcp.example.com \
+  --google-client-id=YOUR_CLIENT_ID \
+  --google-client-secret=YOUR_CLIENT_SECRET \
+  --registration-token=YOUR_SECURE_TOKEN
+```
+
+### Fallback Behavior
+
+If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kubernetes` falls back to using its service account token. This ensures the server remains functional while logging warnings about the fallback.
+
 ## Configuration Options
 
 ### Command-Line Flags
@@ -152,6 +227,7 @@ Response:
 | `--registration-token` | OAuth client registration access token | - | Yes (unless public registration enabled) |
 | `--allow-public-registration` | Allow unauthenticated OAuth client registration | `false` | No |
 | `--disable-streaming` | Disable streaming for streamable-http transport | `false` | No |
+| `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth | `false` | No |
 
 ### Environment Variables
 
@@ -316,14 +392,40 @@ The integration is organized as follows:
 internal/mcp/oauth/          # OAuth integration layer
   ├── doc.go                 # Package documentation
   ├── handler.go             # OAuth handler wrapper
-  └── token_provider.go      # Token provider implementation
+  └── token_provider.go      # Token provider (access token context handling)
 
 internal/server/
+  ├── context.go             # ServerContext with per-user client support
+  ├── options.go             # Configuration options (WithDownstreamOAuth)
   └── oauth_http.go          # OAuth HTTP server integration
 
+internal/k8s/
+  ├── client.go              # Client interface with ClientFactory
+  ├── bearer_client.go       # Bearer token client for OAuth passthrough
+  └── resource_ops.go        # Shared resource operations
+
+internal/tools/
+  └── types.go               # GetK8sClient helper for tool handlers
+
 cmd/
-  └── serve.go               # Command-line interface
+  └── serve.go               # Command-line interface (--downstream-oauth)
 ```
+
+### Downstream OAuth Data Flow
+
+When `--downstream-oauth` is enabled:
+
+1. **Authentication**: User authenticates via Google OAuth
+2. **Token Storage**: Access token is stored in `mcp-oauth` token store
+3. **Request Handling**: On each MCP tool call:
+   - `ValidateToken` middleware validates the MCP access token
+   - Access token injector middleware retrieves user's Google OAuth token
+   - Token is stored in request context
+4. **Tool Execution**: Tool handler calls `tools.GetK8sClient(ctx, sc)`
+   - If downstream OAuth enabled, creates `bearerTokenClient` with user's token
+   - Otherwise, uses shared service account client
+5. **Kubernetes API Call**: Bearer token client uses user's token for K8s API auth
+6. **RBAC Enforcement**: Kubernetes validates token and applies user's RBAC permissions
 
 ## References
 
