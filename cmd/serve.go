@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -232,9 +233,16 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 			// Prepare encryption key if provided
 			var encryptionKey []byte
 			if oauthEncryptionKey != "" {
-				encryptionKey = []byte(oauthEncryptionKey)
+				// Try to decode from base64 first
+				decoded, err := base64.StdEncoding.DecodeString(oauthEncryptionKey)
+				if err == nil && len(decoded) == 32 {
+					encryptionKey = decoded
+				} else {
+					// Use as raw bytes if not base64 or wrong length after decoding
+					encryptionKey = []byte(oauthEncryptionKey)
+				}
 				if len(encryptionKey) != 32 {
-					return fmt.Errorf("OAuth encryption key must be exactly 32 bytes, got %d bytes", len(encryptionKey))
+					return fmt.Errorf("OAuth encryption key must be exactly 32 bytes, got %d bytes (key might need to be base64 decoded)", len(encryptionKey))
 				}
 			}
 
