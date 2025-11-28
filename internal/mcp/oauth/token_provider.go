@@ -49,4 +49,3 @@ func GetUserFromContext(ctx context.Context) (*UserInfo, bool) {
 func ContextWithUserInfo(ctx context.Context, userInfo *UserInfo) context.Context {
 	return oauth.ContextWithUserInfo(ctx, userInfo)
 }
-

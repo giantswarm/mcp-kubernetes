@@ -22,8 +22,8 @@ const (
 // DefaultOAuthScopes are the default Google OAuth scopes for Kubernetes management
 // These scopes allow the MCP server to access Google Cloud Platform resources
 var DefaultOAuthScopes = []string{
-	"https://www.googleapis.com/auth/cloud-platform",  // Full access to GCP (includes GKE)
-	"https://www.googleapis.com/auth/userinfo.email",  // User email for identification
+	"https://www.googleapis.com/auth/cloud-platform",   // Full access to GCP (includes GKE)
+	"https://www.googleapis.com/auth/userinfo.email",   // User email for identification
 	"https://www.googleapis.com/auth/userinfo.profile", // User profile information
 }
 
@@ -337,4 +337,3 @@ func (h *Handler) Stop() {
 		}
 	})
 }
-
