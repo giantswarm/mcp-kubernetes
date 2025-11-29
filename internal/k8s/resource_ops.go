@@ -653,7 +653,7 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 		health.Components = append(health.Components, ComponentHealth{
 			Name:    "API Server",
 			Status:  "Unhealthy",
-			Message: fmt.Sprintf("Failed to get server version: %v", err),
+			Message: fmt.Sprintf("Failed to get server version: %s", err.Error()),
 		})
 		return health, nil
 	}
@@ -727,7 +727,7 @@ func resolveResourceTypeShared(resourceType string, builtinResources map[string]
 	}
 
 	// Set up timeout for discovery API call
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DiscoveryTimeoutSeconds*time.Second)
 	defer cancel()
 
 	type discoveryResult struct {
@@ -891,4 +891,3 @@ func calculateOverallHealthShared(components []ComponentHealth, nodes []NodeHeal
 
 	return "Healthy"
 }
-

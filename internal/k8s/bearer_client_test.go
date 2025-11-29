@@ -198,4 +198,3 @@ func TestInitBuiltinResources(t *testing.T) {
 	assert.Equal(t, "v1", deployGVR.Version)
 	assert.Equal(t, "deployments", deployGVR.Resource)
 }
-

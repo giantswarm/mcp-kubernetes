@@ -41,6 +41,44 @@ func (l *simpleLogger) Error(msg string, args ...interface{}) {
 	log.Printf("[ERROR] %s %v", msg, args)
 }
 
+// ServeConfig holds all configuration for the serve command.
+type ServeConfig struct {
+	// Transport settings
+	Transport string
+	HTTPAddr  string
+
+	// Endpoint paths
+	SSEEndpoint     string
+	MessageEndpoint string
+	HTTPEndpoint    string
+
+	// Kubernetes client settings
+	NonDestructiveMode bool
+	DryRun             bool
+	QPSLimit           float32
+	BurstLimit         int
+	DebugMode          bool
+	InCluster          bool
+
+	// OAuth configuration
+	OAuth           OAuthServeConfig
+	DownstreamOAuth bool
+}
+
+// OAuthServeConfig holds OAuth-specific configuration.
+type OAuthServeConfig struct {
+	Enabled                       bool
+	BaseURL                       string
+	GoogleClientID                string
+	GoogleClientSecret            string
+	DisableStreaming              bool
+	RegistrationToken             string
+	AllowPublicRegistration       bool
+	AllowInsecureAuthWithoutState bool
+	MaxClientsPerIP               int
+	EncryptionKey                 string
+}
+
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
 	var (
@@ -94,11 +132,33 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runServe(transport, nonDestructiveMode, dryRun, qpsLimit, burstLimit, debugMode, inCluster,
-				httpAddr, sseEndpoint, messageEndpoint, httpEndpoint,
-				enableOAuth, oauthBaseURL, googleClientID, googleClientSecret, disableStreaming,
-				registrationToken, allowPublicRegistration, allowInsecureAuthWithoutState, maxClientsPerIP, oauthEncryptionKey,
-				downstreamOAuth)
+			config := ServeConfig{
+				Transport:          transport,
+				HTTPAddr:           httpAddr,
+				SSEEndpoint:        sseEndpoint,
+				MessageEndpoint:    messageEndpoint,
+				HTTPEndpoint:       httpEndpoint,
+				NonDestructiveMode: nonDestructiveMode,
+				DryRun:             dryRun,
+				QPSLimit:           qpsLimit,
+				BurstLimit:         burstLimit,
+				DebugMode:          debugMode,
+				InCluster:          inCluster,
+				OAuth: OAuthServeConfig{
+					Enabled:                       enableOAuth,
+					BaseURL:                       oauthBaseURL,
+					GoogleClientID:                googleClientID,
+					GoogleClientSecret:            googleClientSecret,
+					DisableStreaming:              disableStreaming,
+					RegistrationToken:             registrationToken,
+					AllowPublicRegistration:       allowPublicRegistration,
+					AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
+					MaxClientsPerIP:               maxClientsPerIP,
+					EncryptionKey:                 oauthEncryptionKey,
+				},
+				DownstreamOAuth: downstreamOAuth,
+			}
+			return runServe(config)
 		},
 	}
 
@@ -134,23 +194,18 @@ Downstream OAuth (--downstream-oauth):
 }
 
 // runServe contains the main server logic with support for multiple transports
-func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float32, burstLimit int, debugMode, inCluster bool,
-	httpAddr, sseEndpoint, messageEndpoint, httpEndpoint string,
-	enableOAuth bool, oauthBaseURL, googleClientID, googleClientSecret string, disableStreaming bool,
-	registrationToken string, allowPublicRegistration, allowInsecureAuthWithoutState bool, maxClientsPerIP int, oauthEncryptionKey string,
-	downstreamOAuth bool) error {
-
+func runServe(config ServeConfig) error {
 	// Create Kubernetes client configuration
 	var k8sLogger = &simpleLogger{}
 
 	k8sConfig := &k8s.ClientConfig{
-		NonDestructiveMode: nonDestructiveMode,
-		DryRun:             dryRun,
-		QPSLimit:           qpsLimit,
-		BurstLimit:         burstLimit,
+		NonDestructiveMode: config.NonDestructiveMode,
+		DryRun:             config.DryRun,
+		QPSLimit:           config.QPSLimit,
+		BurstLimit:         config.BurstLimit,
 		Timeout:            30 * time.Second,
-		DebugMode:          debugMode,
-		InCluster:          inCluster,
+		DebugMode:          config.DebugMode,
+		InCluster:          config.InCluster,
 		Logger:             k8sLogger,
 	}
 
@@ -161,11 +216,11 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	}
 
 	// Validate downstream OAuth configuration
-	if downstreamOAuth {
-		if !enableOAuth {
+	if config.DownstreamOAuth {
+		if !config.OAuth.Enabled {
 			return fmt.Errorf("--downstream-oauth requires --enable-oauth to be set")
 		}
-		if !inCluster {
+		if !config.InCluster {
 			return fmt.Errorf("--downstream-oauth requires --in-cluster mode (must be running inside a Kubernetes cluster)")
 		}
 	}
@@ -180,7 +235,7 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
 
 	// Create client factory for downstream OAuth if enabled
-	if downstreamOAuth {
+	if config.DownstreamOAuth {
 		clientFactory, err := k8s.NewBearerTokenClientFactory(k8sConfig)
 		if err != nil {
 			return fmt.Errorf("failed to create bearer token client factory: %w", err)
@@ -197,7 +252,7 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	defer func() {
 		if err := serverContext.Shutdown(); err != nil {
 			// Only log shutdown errors for non-stdio transports to avoid output interference
-			if transport != "stdio" {
+			if config.Transport != "stdio" {
 				log.Printf("Error during server context shutdown: %v", err)
 			}
 		}
@@ -226,73 +281,73 @@ func runServe(transport string, nonDestructiveMode, dryRun bool, qpsLimit float3
 	}
 
 	// Start the appropriate server based on transport type
-	switch transport {
+	switch config.Transport {
 	case "stdio":
 		// Don't print startup message for stdio mode as it interferes with MCP communication
 		return runStdioServer(mcpSrv)
 	case "sse":
-		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", transport)
-		return runSSEServer(mcpSrv, httpAddr, sseEndpoint, messageEndpoint, shutdownCtx, debugMode)
+		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
+		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode)
 	case "streamable-http":
-		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", transport)
-		if enableOAuth {
+		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
+		if config.OAuth.Enabled {
 			// Get OAuth credentials from env vars if not provided via flags
-			if googleClientID == "" {
-				googleClientID = os.Getenv("GOOGLE_CLIENT_ID")
+			if config.OAuth.GoogleClientID == "" {
+				config.OAuth.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")
 			}
-			if googleClientSecret == "" {
-				googleClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
+			if config.OAuth.GoogleClientSecret == "" {
+				config.OAuth.GoogleClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
 			}
-			if oauthEncryptionKey == "" {
-				oauthEncryptionKey = os.Getenv("OAUTH_ENCRYPTION_KEY")
+			if config.OAuth.EncryptionKey == "" {
+				config.OAuth.EncryptionKey = os.Getenv("OAUTH_ENCRYPTION_KEY")
 			}
 
 			// Validate OAuth configuration
-			if oauthBaseURL == "" {
+			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
-			if googleClientID == "" {
+			if config.OAuth.GoogleClientID == "" {
 				return fmt.Errorf("Google Client ID is required (use --google-client-id or GOOGLE_CLIENT_ID env var)")
 			}
-			if googleClientSecret == "" {
+			if config.OAuth.GoogleClientSecret == "" {
 				return fmt.Errorf("Google Client Secret is required (use --google-client-secret or GOOGLE_CLIENT_SECRET env var)")
 			}
-			if !allowPublicRegistration && registrationToken == "" {
+			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" {
 				return fmt.Errorf("--registration-token is required when public registration is disabled")
 			}
 
 			// Prepare encryption key if provided
 			var encryptionKey []byte
-			if oauthEncryptionKey != "" {
+			if config.OAuth.EncryptionKey != "" {
 				// Try to decode from base64 first
-				decoded, err := base64.StdEncoding.DecodeString(oauthEncryptionKey)
+				decoded, err := base64.StdEncoding.DecodeString(config.OAuth.EncryptionKey)
 				if err == nil && len(decoded) == 32 {
 					encryptionKey = decoded
 				} else {
 					// Use as raw bytes if not base64 or wrong length after decoding
-					encryptionKey = []byte(oauthEncryptionKey)
+					encryptionKey = []byte(config.OAuth.EncryptionKey)
 				}
 				if len(encryptionKey) != 32 {
 					return fmt.Errorf("OAuth encryption key must be exactly 32 bytes, got %d bytes (key might need to be base64 decoded)", len(encryptionKey))
 				}
 			}
 
-			return runOAuthHTTPServer(mcpSrv, httpAddr, shutdownCtx, server.OAuthConfig{
-				BaseURL:                       oauthBaseURL,
-				GoogleClientID:                googleClientID,
-				GoogleClientSecret:            googleClientSecret,
-				DisableStreaming:              disableStreaming,
-				DebugMode:                     debugMode,
-				AllowPublicClientRegistration: allowPublicRegistration,
-				RegistrationAccessToken:       registrationToken,
-				AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
-				MaxClientsPerIP:               maxClientsPerIP,
+			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
+				BaseURL:                       config.OAuth.BaseURL,
+				GoogleClientID:                config.OAuth.GoogleClientID,
+				GoogleClientSecret:            config.OAuth.GoogleClientSecret,
+				DisableStreaming:              config.OAuth.DisableStreaming,
+				DebugMode:                     config.DebugMode,
+				AllowPublicClientRegistration: config.OAuth.AllowPublicRegistration,
+				RegistrationAccessToken:       config.OAuth.RegistrationToken,
+				AllowInsecureAuthWithoutState: config.OAuth.AllowInsecureAuthWithoutState,
+				MaxClientsPerIP:               config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                 encryptionKey,
 			})
 		}
-		return runStreamableHTTPServer(mcpSrv, httpAddr, httpEndpoint, shutdownCtx, debugMode)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode)
 	default:
-		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", transport)
+		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}
 }
 

@@ -17,6 +17,18 @@ const (
 	// defaultBurstMultiplier is the default multiplier for burst size relative to rate
 	// Burst = Rate * defaultBurstMultiplier
 	defaultBurstMultiplier = 2
+
+	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (90 days)
+	DefaultRefreshTokenTTL = 90 * 24 * time.Hour
+
+	// DefaultMaxClientsPerIP is the default maximum number of clients per IP address
+	DefaultMaxClientsPerIP = 10
+
+	// DefaultTokenRefreshThreshold is the default threshold for proactive token refresh (5 minutes)
+	DefaultTokenRefreshThreshold = 300
+
+	// DefaultClockSkewGracePeriod is the default grace period for clock skew (5 seconds)
+	DefaultClockSkewGracePeriod = 5
 )
 
 // DefaultOAuthScopes are the default Google OAuth scopes for Kubernetes management
@@ -181,13 +193,13 @@ func NewHandler(config *Config) (*Handler, error) {
 	// Set default refresh token TTL if not specified
 	refreshTokenTTL := config.Security.RefreshTokenTTL
 	if refreshTokenTTL == 0 {
-		refreshTokenTTL = 90 * 24 * time.Hour // 90 days default
+		refreshTokenTTL = DefaultRefreshTokenTTL
 	}
 
 	// Set default max clients per IP if not specified
 	maxClientsPerIP := config.Security.MaxClientsPerIP
 	if maxClientsPerIP == 0 {
-		maxClientsPerIP = 10
+		maxClientsPerIP = DefaultMaxClientsPerIP
 	}
 
 	// Create server configuration
@@ -202,8 +214,8 @@ func NewHandler(config *Config) (*Handler, error) {
 		AllowNoStateParameter:         config.Security.AllowInsecureAuthWithoutState,
 		MaxClientsPerIP:               maxClientsPerIP,
 		TrustProxy:                    config.RateLimit.TrustProxy,
-		TokenRefreshThreshold:         300, // 5 minutes proactive refresh
-		ClockSkewGracePeriod:          5,   // 5 seconds clock skew tolerance
+		TokenRefreshThreshold:         DefaultTokenRefreshThreshold,
+		ClockSkewGracePeriod:          DefaultClockSkewGracePeriod,
 	}
 
 	// Configure interstitial page branding if provided
@@ -337,4 +349,3 @@ func (h *Handler) Stop() {
 		}
 	})
 }
-
