@@ -42,48 +42,25 @@ spec:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
 ---
 {{- if .Values.mcpKubernetes.oauth.enabled }}
-# Allow DNS egress for FQDN resolution (required for toFQDNs policies)
+# Allow egress to external world for OAuth (HTTPS) when OAuth is enabled
+# This is simpler and more reliable than FQDN-based policies
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}-allow-dns
+  name: {{ include "mcp-kubernetes.fullname" . }}-allow-external
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
 spec:
   egress:
-  - toEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: kube-system
-        k8s-app: kube-dns
-    toPorts:
-    - ports:
-      - port: "53"
-        protocol: UDP
-      - port: "53"
-        protocol: TCP
-  endpointSelector:
-    matchLabels:
-      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
----
-# Allow egress to Google OAuth endpoints when OAuth is enabled
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}-allow-google-oauth
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
-spec:
-  egress:
-  - toFQDNs:
-    - matchName: "oauth2.googleapis.com"
-    - matchName: "accounts.google.com"
-    - matchName: "www.googleapis.com"
+  - toEntities:
+    - world
     toPorts:
     - ports:
       - port: "443"
         protocol: TCP
+      - port: "53"
+        protocol: UDP
   endpointSelector:
     matchLabels:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
