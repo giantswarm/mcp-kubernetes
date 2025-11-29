@@ -66,7 +66,7 @@ spec:
             - --disable-streaming=true
             {{- end }}
             {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
-            - --enable-downstream-oauth=true
+            - --downstream-oauth
             {{- end }}
             {{- end }}
           ports:
