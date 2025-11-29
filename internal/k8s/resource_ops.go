@@ -891,3 +891,4 @@ func calculateOverallHealthShared(components []ComponentHealth, nodes []NodeHeal
 
 	return "Healthy"
 }
+

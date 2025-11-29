@@ -337,3 +337,4 @@ func (h *Handler) Stop() {
 		}
 	})
 }
+

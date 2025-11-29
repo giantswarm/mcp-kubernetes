@@ -54,3 +54,4 @@ func TestContextWithAccessToken(t *testing.T) {
 		assert.Equal(t, "my-token", token)
 	})
 }
+

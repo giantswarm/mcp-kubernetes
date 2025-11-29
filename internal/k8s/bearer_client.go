@@ -772,3 +772,4 @@ func (c *bearerTokenClient) GetClusterHealth(ctx context.Context, kubeContext st
 
 	return getClusterHealth(ctx, clientset, discoveryClient)
 }
+
