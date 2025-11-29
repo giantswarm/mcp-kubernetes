@@ -2,7 +2,7 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}-allow-kube-apiserver
+  name: {{ include "mcp-kubernetes.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
@@ -17,71 +17,16 @@ spec:
   egress:
   - toEntities:
     - kube-apiserver
-  endpointSelector:
-    matchLabels:
-      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
----
-# Allow ingress from ingress controller and cluster traffic
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}-allow-ingress
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
-spec:
+  - toEntities:
+    - cluster
+  {{- if .Values.mcpKubernetes.oauth.enabled }}
+  - toEntities:
+    - world
+  {{- end }}
   ingress:
   - fromEntities:
     - cluster
-    toPorts:
-    - ports:
-      - port: "8080"
-        protocol: TCP
   endpointSelector:
     matchLabels:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
----
-{{- if .Values.mcpKubernetes.oauth.enabled }}
-# Allow DNS egress to CoreDNS for name resolution
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}-allow-dns
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
-spec:
-  egress:
-  - toEntities:
-    - cluster
-    toPorts:
-    - ports:
-      - port: "53"
-        protocol: UDP
-      - port: "53"
-        protocol: TCP
-  endpointSelector:
-    matchLabels:
-      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
----
-# Allow egress to external world for OAuth (HTTPS) when OAuth is enabled
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}-allow-external-https
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
-spec:
-  egress:
-  - toEntities:
-    - world
-    toPorts:
-    - ports:
-      - port: "443"
-        protocol: TCP
-  endpointSelector:
-    matchLabels:
-      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
-{{- end }}
 {{- end }}
