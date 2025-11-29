@@ -59,18 +59,36 @@ func ContextWithUserInfo(ctx context.Context, userInfo *UserInfo) context.Contex
 	return oauth.ContextWithUserInfo(ctx, userInfo)
 }
 
-// ContextWithAccessToken creates a context with the given OAuth access token.
-// This is used to pass the user's Google OAuth access token for downstream
-// Kubernetes API authentication.
-func ContextWithAccessToken(ctx context.Context, accessToken string) context.Context {
-	return context.WithValue(ctx, accessTokenKey, accessToken)
+// ContextWithAccessToken creates a context with the given OAuth ID token.
+// This is used to pass the user's Google OAuth ID token for downstream
+// Kubernetes OIDC authentication.
+// Note: Kubernetes OIDC requires the ID token, not the access token.
+func ContextWithAccessToken(ctx context.Context, idToken string) context.Context {
+	return context.WithValue(ctx, accessTokenKey, idToken)
 }
 
-// GetAccessTokenFromContext retrieves the OAuth access token from the context.
-// This returns the user's Google OAuth access token that can be used for
-// downstream Kubernetes API authentication.
-// Returns the access token and true if present, or empty string and false if not available.
+// GetAccessTokenFromContext retrieves the OAuth ID token from the context.
+// This returns the user's Google OAuth ID token that can be used for
+// downstream Kubernetes OIDC authentication.
+// Returns the ID token and true if present, or empty string and false if not available.
 func GetAccessTokenFromContext(ctx context.Context) (string, bool) {
 	token, ok := ctx.Value(accessTokenKey).(string)
 	return token, ok && token != ""
+}
+
+// GetIDToken extracts the ID token from an OAuth2 token.
+// Google OAuth responses include an id_token in the Extra data.
+// Kubernetes OIDC authentication requires the ID token, not the access token.
+func GetIDToken(token *oauth2.Token) string {
+	if token == nil {
+		return ""
+	}
+	idToken := token.Extra("id_token")
+	if idToken == nil {
+		return ""
+	}
+	if s, ok := idToken.(string); ok {
+		return s
+	}
+	return ""
 }

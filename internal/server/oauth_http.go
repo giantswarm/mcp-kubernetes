@@ -314,10 +314,14 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if ok && userInfo != nil && userInfo.Email != "" {
 			// Retrieve the user's stored Google OAuth token
 			token, err := s.tokenProvider.GetToken(ctx, userInfo.Email)
-			if err == nil && token != nil && token.AccessToken != "" {
-				// Add the access token to the context for downstream use
-				ctx = oauth.ContextWithAccessToken(ctx, token.AccessToken)
-				r = r.WithContext(ctx)
+			if err == nil && token != nil {
+				// Extract the ID token for Kubernetes OIDC authentication
+				// Kubernetes OIDC validates the ID token, not the access token
+				idToken := oauth.GetIDToken(token)
+				if idToken != "" {
+					ctx = oauth.ContextWithAccessToken(ctx, idToken)
+					r = r.WithContext(ctx)
+				}
 			}
 		}
 
