@@ -21,6 +21,26 @@ spec:
     matchLabels:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
 ---
+# Allow ingress from ingress controller and cluster traffic
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-allow-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+spec:
+  ingress:
+  - fromEntities:
+    - cluster
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+  endpointSelector:
+    matchLabels:
+      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
+---
 {{- if .Values.mcpKubernetes.oauth.enabled }}
 # Allow egress to Google OAuth endpoints when OAuth is enabled
 apiVersion: cilium.io/v2
