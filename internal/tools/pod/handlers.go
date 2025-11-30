@@ -12,6 +12,7 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // PortForwardResponse represents the structured response for port forwarding operations
@@ -85,7 +86,9 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 		MaxLines:   maxLines,
 	}
 
-	logs, err := sc.K8sClient().GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+	logs, err := k8sClient.GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: %v", err)), nil
 	}
@@ -176,7 +179,9 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 		TTY: tty,
 	}
 
-	result, err := sc.K8sClient().Exec(ctx, kubeContext, namespace, podName, containerName, command, opts)
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+	result, err := k8sClient.Exec(ctx, kubeContext, namespace, podName, containerName, command, opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to execute command: %v", err)), nil
 	}
@@ -254,17 +259,20 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	setupCtx, setupCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer setupCancel()
 
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+
 	// Handle port forwarding based on resource type
 	switch resourceType {
 	case "pod":
-		session, err = sc.K8sClient().PortForward(setupCtx, kubeContext, namespace, resourceName, ports, opts)
+		session, err = k8sClient.PortForward(setupCtx, kubeContext, namespace, resourceName, ports, opts)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to setup port forwarding to pod: %v", err)), nil
 		}
 		sessionID = fmt.Sprintf("%s/%s:%s", namespace, resourceName, strings.Join(ports, ","))
 
 	case "service":
-		session, err = sc.K8sClient().PortForwardToService(setupCtx, kubeContext, namespace, resourceName, ports, opts)
+		session, err = k8sClient.PortForwardToService(setupCtx, kubeContext, namespace, resourceName, ports, opts)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to setup port forwarding to service: %v", err)), nil
 		}

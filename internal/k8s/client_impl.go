@@ -92,13 +92,13 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 
 	// Set defaults
 	if config.QPSLimit == 0 {
-		config.QPSLimit = 20.0
+		config.QPSLimit = DefaultQPSLimit
 	}
 	if config.BurstLimit == 0 {
-		config.BurstLimit = 30
+		config.BurstLimit = DefaultBurstLimit
 	}
 	if config.Timeout == 0 {
-		config.Timeout = 30 * time.Second
+		config.Timeout = DefaultTimeout * time.Second
 	}
 
 	client := &kubernetesClient{
@@ -114,72 +114,7 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 		qpsLimit:             config.QPSLimit,
 		burstLimit:           config.BurstLimit,
 		timeout:              config.Timeout,
-		builtinResources:     make(map[string]schema.GroupVersionResource),
-	}
-
-	// Initialize builtin resources
-	client.builtinResources = map[string]schema.GroupVersionResource{
-		// Core/v1 resources
-		"pods":                   {Group: "", Version: "v1", Resource: "pods"},
-		"pod":                    {Group: "", Version: "v1", Resource: "pods"},
-		"services":               {Group: "", Version: "v1", Resource: "services"},
-		"service":                {Group: "", Version: "v1", Resource: "services"},
-		"svc":                    {Group: "", Version: "v1", Resource: "services"},
-		"nodes":                  {Group: "", Version: "v1", Resource: "nodes"},
-		"node":                   {Group: "", Version: "v1", Resource: "nodes"},
-		"namespaces":             {Group: "", Version: "v1", Resource: "namespaces"},
-		"namespace":              {Group: "", Version: "v1", Resource: "namespaces"},
-		"ns":                     {Group: "", Version: "v1", Resource: "namespaces"},
-		"configmaps":             {Group: "", Version: "v1", Resource: "configmaps"},
-		"configmap":              {Group: "", Version: "v1", Resource: "configmaps"},
-		"cm":                     {Group: "", Version: "v1", Resource: "configmaps"},
-		"secrets":                {Group: "", Version: "v1", Resource: "secrets"},
-		"secret":                 {Group: "", Version: "v1", Resource: "secrets"},
-		"persistentvolumes":      {Group: "", Version: "v1", Resource: "persistentvolumes"},
-		"persistentvolume":       {Group: "", Version: "v1", Resource: "persistentvolumes"},
-		"pv":                     {Group: "", Version: "v1", Resource: "persistentvolumes"},
-		"persistentvolumeclaims": {Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
-		"persistentvolumeclaim":  {Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
-		"pvc":                    {Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
-
-		// Apps/v1 resources
-		"deployments":  {Group: "apps", Version: "v1", Resource: "deployments"},
-		"deployment":   {Group: "apps", Version: "v1", Resource: "deployments"},
-		"deploy":       {Group: "apps", Version: "v1", Resource: "deployments"},
-		"replicasets":  {Group: "apps", Version: "v1", Resource: "replicasets"},
-		"replicaset":   {Group: "apps", Version: "v1", Resource: "replicasets"},
-		"rs":           {Group: "apps", Version: "v1", Resource: "replicasets"},
-		"daemonsets":   {Group: "apps", Version: "v1", Resource: "daemonsets"},
-		"daemonset":    {Group: "apps", Version: "v1", Resource: "daemonsets"},
-		"ds":           {Group: "apps", Version: "v1", Resource: "daemonsets"},
-		"statefulsets": {Group: "apps", Version: "v1", Resource: "statefulsets"},
-		"statefulset":  {Group: "apps", Version: "v1", Resource: "statefulsets"},
-		"sts":          {Group: "apps", Version: "v1", Resource: "statefulsets"},
-
-		// Batch resources
-		"jobs":     {Group: "batch", Version: "v1", Resource: "jobs"},
-		"job":      {Group: "batch", Version: "v1", Resource: "jobs"},
-		"cronjobs": {Group: "batch", Version: "v1", Resource: "cronjobs"},
-		"cronjob":  {Group: "batch", Version: "v1", Resource: "cronjobs"},
-		"cj":       {Group: "batch", Version: "v1", Resource: "cronjobs"},
-
-		// Networking resources
-		"ingresses": {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
-		"ingress":   {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
-		"ing":       {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
-
-		// RBAC resources
-		"roles":               {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
-		"role":                {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
-		"rolebindings":        {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
-		"rolebinding":         {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
-		"clusterroles":        {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"},
-		"clusterrole":         {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"},
-		"clusterrolebindings": {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"},
-		"clusterrolebinding":  {Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"},
-		"serviceaccounts":     {Group: "", Version: "v1", Resource: "serviceaccounts"},
-		"serviceaccount":      {Group: "", Version: "v1", Resource: "serviceaccounts"},
-		"sa":                  {Group: "", Version: "v1", Resource: "serviceaccounts"},
+		builtinResources:     initBuiltinResources(),
 	}
 
 	// Handle authentication mode
@@ -224,21 +159,18 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 // validateInClusterEnvironment checks if the required in-cluster authentication files are present.
 func (c *kubernetesClient) validateInClusterEnvironment() error {
 	// Check if service account token file exists
-	tokenPath := "/var/run/secrets/kubernetes.io/serviceaccount/token"
-	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
-		return fmt.Errorf("service account token not found at %s", tokenPath)
+	if _, err := os.Stat(DefaultTokenPath); os.IsNotExist(err) {
+		return fmt.Errorf("service account token not found at %s", DefaultTokenPath)
 	}
 
 	// Check if CA certificate file exists
-	caPath := "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-	if _, err := os.Stat(caPath); os.IsNotExist(err) {
-		return fmt.Errorf("service account CA certificate not found at %s", caPath)
+	if _, err := os.Stat(DefaultCACertPath); os.IsNotExist(err) {
+		return fmt.Errorf("service account CA certificate not found at %s", DefaultCACertPath)
 	}
 
 	// Check if namespace file exists
-	namespacePath := "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-	if _, err := os.Stat(namespacePath); os.IsNotExist(err) {
-		return fmt.Errorf("service account namespace not found at %s", namespacePath)
+	if _, err := os.Stat(DefaultNamespacePath); os.IsNotExist(err) {
+		return fmt.Errorf("service account namespace not found at %s", DefaultNamespacePath)
 	}
 
 	return nil
@@ -399,8 +331,9 @@ func (c *kubernetesClient) getRestConfig(contextName string) (*rest.Config, erro
 	return restConfig, nil
 }
 
-// getRestConfigUnsafe returns a rest.Config for the specified context without using locks.
-func (c *kubernetesClient) getRestConfigUnsafe(contextName string) (*rest.Config, error) {
+// getRestConfigLocked returns a rest.Config for the specified context without using locks.
+// Caller must hold the write lock.
+func (c *kubernetesClient) getRestConfigLocked(contextName string) (*rest.Config, error) {
 	// Use current context if none specified
 	if contextName == "" {
 		contextName = c.currentContext
@@ -492,7 +425,7 @@ func (c *kubernetesClient) getClientset(contextName string) (kubernetes.Interfac
 	}
 
 	// Call unsafe version since we already hold the write lock
-	restConfig, err := c.getRestConfigUnsafe(contextName)
+	restConfig, err := c.getRestConfigLocked(contextName)
 	if err != nil {
 		if c.config.DebugMode && c.config.Logger != nil {
 			c.config.Logger.Error("getClientset: failed to get REST config", "error", err)
@@ -567,7 +500,7 @@ func (c *kubernetesClient) getDynamicClient(contextName string) (dynamic.Interfa
 	}
 
 	// Call unsafe version since we already hold the write lock
-	restConfig, err := c.getRestConfigUnsafe(contextName)
+	restConfig, err := c.getRestConfigLocked(contextName)
 	if err != nil {
 		if c.config.DebugMode && c.config.Logger != nil {
 			c.config.Logger.Error("getDynamicClient: failed to get REST config", "error", err)
@@ -642,7 +575,7 @@ func (c *kubernetesClient) getDiscoveryClient(contextName string) (discovery.Dis
 	}
 
 	// Call unsafe version since we already hold the write lock
-	restConfig, err := c.getRestConfigUnsafe(contextName)
+	restConfig, err := c.getRestConfigLocked(contextName)
 	if err != nil {
 		if c.config.DebugMode && c.config.Logger != nil {
 			c.config.Logger.Error("getDiscoveryClient: failed to get REST config", "error", err)
@@ -828,8 +761,7 @@ func (c *kubernetesClient) SwitchContext(ctx context.Context, contextName string
 
 // getInClusterNamespace reads the namespace from the service account namespace file.
 func (c *kubernetesClient) getInClusterNamespace() string {
-	namespacePath := "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-	data, err := os.ReadFile(namespacePath)
+	data, err := os.ReadFile(DefaultNamespacePath)
 	if err != nil {
 		// Fallback to default namespace if we can't read the file
 		return "default"

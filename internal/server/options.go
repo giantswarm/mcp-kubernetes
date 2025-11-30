@@ -129,6 +129,28 @@ func WithRestrictedNamespaces(namespaces []string) Option {
 	}
 }
 
+// WithClientFactory sets the client factory for creating per-user Kubernetes clients.
+// This is used for OAuth downstream authentication where each user's OAuth token
+// is used to authenticate with Kubernetes.
+func WithClientFactory(factory k8s.ClientFactory) Option {
+	return func(sc *ServerContext) error {
+		sc.clientFactory = factory
+		return nil
+	}
+}
+
+// WithDownstreamOAuth enables downstream OAuth authentication.
+// When enabled and a client factory is set, the server will create per-user
+// Kubernetes clients using the user's OAuth token for authentication.
+// This requires the Kubernetes cluster to be configured to accept the OAuth
+// provider's tokens (e.g., Google OIDC for GKE).
+func WithDownstreamOAuth(enabled bool) Option {
+	return func(sc *ServerContext) error {
+		sc.downstreamOAuth = enabled
+		return nil
+	}
+}
+
 // Error definitions for ServerContext validation and operations.
 var (
 	ErrMissingK8sClient = errors.New("kubernetes client is required")

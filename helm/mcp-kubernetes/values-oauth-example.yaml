@@ -1,0 +1,77 @@
+# Example values for deploying mcp-kubernetes with OAuth 2.1 authentication
+# This is a YAML-formatted file showing how to configure OAuth.
+
+# Ingress is typically required for OAuth to work properly
+# as OAuth needs a publicly accessible URL
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Add any other annotations needed for your ingress
+  hosts:
+    - host: mcp-k8s.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mcp-k8s-tls
+      hosts:
+        - mcp-k8s.example.com
+
+# MCP Kubernetes specific configuration
+mcpKubernetes:
+  # Kubernetes configuration
+  kubernetes:
+    # Use in-cluster configuration when deployed in Kubernetes
+    inCluster: true
+  
+  # OAuth 2.1 configuration
+  oauth:
+    # Enable OAuth 2.1 authentication
+    enabled: true
+    
+    # OAuth base URL - MUST match your ingress host
+    # This is used for OAuth callbacks and metadata endpoints
+    baseURL: "https://mcp-k8s.example.com"
+    
+    # OPTION 1: Use values directly (NOT RECOMMENDED for production)
+    # Only use this for testing/development
+    # googleClientID: "your-client-id.apps.googleusercontent.com"
+    # googleClientSecret: "your-client-secret"
+    # registrationToken: "your-secure-random-token"
+    
+    # OPTION 2: Use an existing secret (RECOMMENDED for production)
+    # Create the secret with:
+    # kubectl create secret generic mcp-k8s-oauth-credentials \
+    #   --from-literal=google-client-id=YOUR_CLIENT_ID \
+    #   --from-literal=google-client-secret=YOUR_CLIENT_SECRET \
+    #   --from-literal=registration-token=YOUR_REGISTRATION_TOKEN
+    existingSecret: "mcp-k8s-oauth-credentials"
+    
+    # Security settings
+    allowPublicRegistration: false  # Require registration token (recommended)
+    disableStreaming: false          # Enable streaming by default
+  
+  # Additional environment variables (if needed)
+  env: []
+
+# Resources - increase for production workloads
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Enable horizontal pod autoscaling for production
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+
+

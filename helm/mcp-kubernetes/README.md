@@ -102,6 +102,36 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 | `mcpKubernetes.kubernetes.kubeconfig` | Path to kubeconfig file | `""` |
 | `mcpKubernetes.env` | Additional environment variables | `[]` |
 
+### OAuth 2.1 Configuration
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `mcpKubernetes.oauth.enabled` | Enable OAuth 2.1 authentication | `false` |
+| `mcpKubernetes.oauth.baseURL` | OAuth base URL (required if OAuth enabled) | `""` |
+| `mcpKubernetes.oauth.googleClientID` | Google OAuth Client ID | `""` |
+| `mcpKubernetes.oauth.googleClientSecret` | Google OAuth Client Secret | `""` |
+| `mcpKubernetes.oauth.registrationToken` | OAuth client registration access token | `""` |
+| `mcpKubernetes.oauth.allowPublicRegistration` | Allow unauthenticated client registration (NOT recommended) | `false` |
+| `mcpKubernetes.oauth.disableStreaming` | Disable streaming for HTTP transport | `false` |
+| `mcpKubernetes.oauth.existingSecret` | Use existing secret for OAuth credentials | `""` |
+
+**⚠️ SECURITY WARNING:** 
+
+**For production deployments:**
+- **MUST** use `existingSecret` - NEVER set credentials in values.yaml
+- **MUST** use a secret management solution (see options below)
+- **MUST** enable HTTPS with valid TLS certificates
+- **MUST** set `allowPublicRegistration: false`
+
+**Recommended Secret Management Solutions:**
+- Kubernetes External Secrets Operator (recommended)
+- HashiCorp Vault with Vault Secrets Operator
+- AWS Secrets Store CSI Driver
+- Google Secret Manager CSI Driver
+- Azure Key Vault CSI Driver
+
+See the [Production Secret Management](#production-secret-management) section below for detailed examples.
+
 ### Cilium Network Policy
 
 | Parameter | Description | Default |
@@ -189,6 +219,342 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
 ```bash
 helm install mcp-kubernetes ./helm/mcp-kubernetes \
   --set ciliumNetworkPolicy.enabled=false
+```
+
+### Installation with OAuth 2.1 Authentication
+
+**⚠️ DEVELOPMENT ONLY:** The following example uses a manually created Kubernetes Secret, which is acceptable for development but **NOT recommended for production**.
+
+**For production**, use a secret management solution (see [Production Secret Management](#production-secret-management)).
+
+#### Development Example
+
+```bash
+# Development only - use secret manager in production!
+kubectl create secret generic mcp-k8s-oauth-credentials \
+  --from-literal=google-client-id=YOUR_CLIENT_ID \
+  --from-literal=google-client-secret=YOUR_CLIENT_SECRET \
+  --from-literal=registration-token=$(openssl rand -hex 32) \
+  --from-literal=oauth-encryption-key=$(openssl rand -base64 32)
+```
+
+Then install with OAuth enabled:
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set mcpKubernetes.oauth.enabled=true \
+  --set mcpKubernetes.oauth.baseURL=https://mcp-k8s.example.com \
+  --set mcpKubernetes.oauth.existingSecret=mcp-k8s-oauth-credentials \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set ingress.hosts[0].host=mcp-k8s.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix \
+  --set ingress.tls[0].secretName=mcp-k8s-tls \
+  --set ingress.tls[0].hosts[0]=mcp-k8s.example.com
+```
+
+Or use the example values file:
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-oauth-example.yaml
+```
+
+**Important**: OAuth requires HTTPS in production. Make sure to configure TLS for your ingress.
+
+## Production Secret Management
+
+**⚠️ CRITICAL:** Production deployments **MUST** use a secret management solution. Basic Kubernetes Secrets are the **minimum acceptable standard** but still not ideal.
+
+### Why Secret Managers Are Required
+
+Environment variables and manually created Kubernetes Secrets are **NOT secure** for production because they:
+- Are visible in process listings (`ps aux`, `kubectl describe pod`)
+- Get leaked in logs, error messages, and crash dumps
+- Have no built-in audit trail or rotation capabilities
+- Lack encryption at rest (unless explicitly enabled)
+- Cannot be securely deleted from memory
+- No centralized access control
+
+### Recommended Solutions
+
+#### 1. External Secrets Operator (Recommended for Kubernetes)
+
+The External Secrets Operator syncs secrets from external secret managers into Kubernetes Secrets.
+
+**Installation:**
+```bash
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets-system \
+  --create-namespace \
+  --set installCRDs=true
+```
+
+**AWS Secrets Manager Example:**
+```yaml
+# SecretStore - Configure connection to AWS Secrets Manager
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: aws-secretsmanager
+  namespace: default
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: us-east-1
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: mcp-kubernetes
+
+---
+# ExternalSecret - Define which secrets to sync
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: mcp-oauth-credentials
+  namespace: default
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: SecretStore
+  target:
+    name: mcp-oauth-credentials
+    creationPolicy: Owner
+  data:
+  - secretKey: google-client-id
+    remoteRef:
+      key: mcp-kubernetes/oauth
+      property: google-client-id
+  - secretKey: google-client-secret
+    remoteRef:
+      key: mcp-kubernetes/oauth
+      property: google-client-secret
+  - secretKey: oauth-encryption-key
+    remoteRef:
+      key: mcp-kubernetes/oauth
+      property: oauth-encryption-key
+  - secretKey: registration-token
+    remoteRef:
+      key: mcp-kubernetes/oauth
+      property: registration-token
+```
+
+**Then deploy mcp-kubernetes:**
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set mcpKubernetes.oauth.enabled=true \
+  --set mcpKubernetes.oauth.baseURL=https://mcp-k8s.example.com \
+  --set mcpKubernetes.oauth.existingSecret=mcp-oauth-credentials \
+  --set ingress.enabled=true \
+  --set ingress.tls[0].secretName=mcp-k8s-tls \
+  --set ingress.tls[0].hosts[0]=mcp-k8s.example.com
+```
+
+#### 2. HashiCorp Vault
+
+**Installation:**
+```bash
+helm repo add hashicorp https://helm.releases.hashicorp.com
+helm install vault hashicorp/vault \
+  --set "injector.enabled=true" \
+  --set "server.dev.enabled=true"  # Dev mode for testing only!
+```
+
+**Store secrets in Vault:**
+```bash
+vault kv put secret/mcp-kubernetes/oauth \
+  google-client-id="YOUR_CLIENT_ID" \
+  google-client-secret="YOUR_CLIENT_SECRET" \
+  oauth-encryption-key="$(openssl rand -base64 32)" \
+  registration-token="$(openssl rand -hex 32)"
+```
+
+**Deploy with Vault annotations:**
+```yaml
+# values-vault.yaml
+mcpKubernetes:
+  oauth:
+    enabled: true
+    baseURL: https://mcp-k8s.example.com
+
+podAnnotations:
+  vault.hashicorp.com/agent-inject: "true"
+  vault.hashicorp.com/role: "mcp-kubernetes"
+  vault.hashicorp.com/agent-inject-secret-oauth: "secret/data/mcp-kubernetes/oauth"
+  vault.hashicorp.com/agent-inject-template-oauth: |
+    {{- with secret "secret/data/mcp-kubernetes/oauth" -}}
+    export GOOGLE_CLIENT_ID="{{ .Data.data.google-client-id }}"
+    export GOOGLE_CLIENT_SECRET="{{ .Data.data.google-client-secret }}"
+    export OAUTH_ENCRYPTION_KEY="{{ .Data.data.oauth-encryption-key }}"
+    export REGISTRATION_TOKEN="{{ .Data.data.registration-token }}"
+    {{- end }}
+
+# Modify container command to source secrets
+containers:
+  - name: mcp-kubernetes
+    command: ["/bin/sh", "-c"]
+    args:
+      - source /vault/secrets/oauth && exec /app/mcp-kubernetes serve --enable-oauth ...
+```
+
+#### 3. Cloud Provider Secret Managers
+
+**AWS Secrets Store CSI Driver:**
+```yaml
+# Install the driver
+helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+helm install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver \
+  --namespace kube-system
+
+# Install AWS provider
+kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/deployment/aws-provider-installer.yaml
+
+# SecretProviderClass
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: mcp-oauth-secrets
+spec:
+  provider: aws
+  parameters:
+    objects: |
+      - objectName: "mcp-kubernetes/oauth"
+        objectType: "secretsmanager"
+        jmesPath:
+          - path: google-client-id
+            objectAlias: google-client-id
+          - path: google-client-secret
+            objectAlias: google-client-secret
+          - path: oauth-encryption-key
+            objectAlias: oauth-encryption-key
+          - path: registration-token
+            objectAlias: registration-token
+  secretObjects:
+  - secretName: mcp-oauth-credentials
+    type: Opaque
+    data:
+    - objectName: google-client-id
+      key: google-client-id
+    - objectName: google-client-secret
+      key: google-client-secret
+    - objectName: oauth-encryption-key
+      key: oauth-encryption-key
+    - objectName: registration-token
+      key: registration-token
+
+# Update values.yaml to mount the CSI volume
+volumes:
+- name: secrets-store
+  csi:
+    driver: secrets-store.csi.k8s.io
+    readOnly: true
+    volumeAttributes:
+      secretProviderClass: mcp-oauth-secrets
+
+volumeMounts:
+- name: secrets-store
+  mountPath: "/mnt/secrets-store"
+  readOnly: true
+```
+
+**Google Secret Manager CSI Driver:**
+```bash
+# Install the driver
+kubectl apply -f https://github.com/GoogleCloudPlatform/secrets-store-csi-driver-provider-gcp/releases/latest/download/provider-gcp-installer.yaml
+
+# Similar configuration to AWS, using GCP-specific parameters
+```
+
+**Azure Key Vault CSI Driver:**
+```bash
+# Install the driver
+helm repo add csi-secrets-store-provider-azure https://azure.github.io/secrets-store-csi-driver-provider-azure/charts
+helm install csi-secrets-store-provider-azure csi-secrets-store-provider-azure/csi-secrets-store-provider-azure
+```
+
+### Production Security Checklist
+
+Before deploying to production, verify:
+
+**Secret Management:**
+- [ ] Using External Secrets Operator or equivalent secret manager
+- [ ] Secrets are NOT hardcoded in values.yaml
+- [ ] Secrets are NOT stored as plain environment variables
+- [ ] Secret rotation procedure is documented and tested
+- [ ] Access to secrets is logged and monitored
+- [ ] Encryption at rest is enabled for Kubernetes Secrets
+
+**Network Security:**
+- [ ] HTTPS is enforced (ingress.tls is configured)
+- [ ] TLS certificates are from a trusted CA (Let's Encrypt, commercial CA)
+- [ ] `allowPublicRegistration: false` is set
+- [ ] CORS origins are validated and minimal
+- [ ] Network policies are configured and tested
+
+**Application Security:**
+- [ ] OAuth encryption key is exactly 32 bytes
+- [ ] Registration token is cryptographically random
+- [ ] Resource limits are set appropriately
+- [ ] Security context prevents privilege escalation
+- [ ] Container runs as non-root user
+
+**Monitoring & Operations:**
+- [ ] Audit logging is enabled
+- [ ] Metrics are collected and monitored
+- [ ] Alerts are configured for security events
+- [ ] Incident response plan exists
+- [ ] Backup and disaster recovery tested
+
+**Supply Chain Security:**
+- [ ] Container images are scanned for vulnerabilities
+- [ ] Images are from trusted registries
+- [ ] Image pull secrets are configured
+- [ ] Dependency updates are monitored
+- [ ] SBOM is available for deployed version
+
+### Encryption Key Rotation
+
+**Recommended Schedule:**
+- Regular rotation: Every 90 days
+- After incidents: Immediately
+- Staff changes: Within 24 hours
+
+**Rotation Procedure:**
+1. Generate new encryption key: `openssl rand -base64 32`
+2. Update secret in your secret manager
+3. Wait for External Secrets Operator to sync (check `refreshInterval`)
+4. Restart pods to pick up new key: `kubectl rollout restart deployment/mcp-kubernetes`
+5. Wait for token expiration (typically 1 hour)
+6. Verify new tokens are being issued successfully
+
+### Monitoring Secret Sync
+
+**Check External Secrets status:**
+```bash
+# Verify ExternalSecret is synced
+kubectl get externalsecret mcp-oauth-credentials -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+
+# Check for errors
+kubectl describe externalsecret mcp-oauth-credentials
+
+# View last sync time
+kubectl get externalsecret mcp-oauth-credentials -o jsonpath='{.status.syncedResourceVersion}'
+```
+
+**Set up alerts:**
+```yaml
+# Prometheus alert for failed secret sync
+- alert: ExternalSecretSyncFailed
+  expr: |
+    external_secrets_sync_calls_error{name="mcp-oauth-credentials"} > 0
+  for: 5m
+  annotations:
+    summary: "External Secret sync failing for mcp-oauth-credentials"
 ```
 
 ## Connecting to the MCP Server

@@ -2,7 +2,7 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}-allow-kube-apiserver
+  name: {{ include "mcp-kubernetes.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
@@ -17,6 +17,15 @@ spec:
   egress:
   - toEntities:
     - kube-apiserver
+  - toEntities:
+    - cluster
+  {{- if .Values.mcpKubernetes.oauth.enabled }}
+  - toEntities:
+    - world
+  {{- end }}
+  ingress:
+  - fromEntities:
+    - cluster
   endpointSelector:
     matchLabels:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}

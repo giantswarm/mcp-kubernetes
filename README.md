@@ -8,9 +8,10 @@ A Model Context Protocol (MCP) server that provides tools for interacting with K
 - **Pod Operations**: Get logs, execute commands, and set up port forwarding
 - **Context Management**: List, get, and switch between Kubernetes contexts
 - **Cluster Information**: Get API resources and cluster health status
-- **Multiple Authentication Modes**: Support for both kubeconfig and in-cluster authentication
+- **Multiple Authentication Modes**: Support for kubeconfig, in-cluster, and OAuth 2.1 authentication
 - **Multiple Transport Types**: Support for stdio, SSE, and streamable HTTP
 - **Safety Features**: Non-destructive mode, dry-run capability, and operation restrictions
+- **OAuth 2.1 Support**: Secure token-based authentication with Google OAuth provider
 
 ## Installation
 
@@ -62,6 +63,22 @@ mcp-kubernetes serve --in-cluster
 - CA certificate must be available at `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`
 - Namespace must be available at `/var/run/secrets/kubernetes.io/serviceaccount/namespace`
 
+#### OAuth 2.1 Authentication
+Uses OAuth 2.1 with Google OAuth provider for secure, token-based authentication (available for HTTP transports only).
+
+```bash
+# Start with OAuth authentication
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --oauth-base-url=https://mcp.example.com \
+  --google-client-id=YOUR_CLIENT_ID \
+  --google-client-secret=YOUR_CLIENT_SECRET \
+  --registration-token=YOUR_SECURE_TOKEN
+```
+
+**See [docs/oauth.md](docs/oauth.md) for detailed OAuth setup and configuration.**
+
 ### Transport Types
 
 #### Standard I/O (Default)
@@ -91,7 +108,13 @@ mcp-kubernetes serve --transport streamable-http --http-addr :8080
 --burst-limit 30     # Burst limit for Kubernetes API calls
 
 # Authentication
---in-cluster         # Use in-cluster authentication instead of kubeconfig
+--in-cluster                   # Use in-cluster authentication instead of kubeconfig
+--enable-oauth                 # Enable OAuth 2.1 authentication (for HTTP transports)
+--oauth-base-url string        # OAuth base URL (e.g., https://mcp.example.com)
+--google-client-id string      # Google OAuth Client ID
+--google-client-secret string  # Google OAuth Client Secret
+--registration-token string    # OAuth client registration access token
+--allow-public-registration    # Allow unauthenticated OAuth client registration
 
 # Debugging
 --debug              # Enable debug logging
@@ -102,6 +125,7 @@ mcp-kubernetes serve --transport streamable-http --http-addr :8080
 --sse-endpoint /sse          # SSE endpoint path
 --message-endpoint /message  # Message endpoint path
 --http-endpoint /mcp         # HTTP endpoint path
+--disable-streaming          # Disable streaming for streamable-http transport
 ```
 
 ## Running in Kubernetes
@@ -237,10 +261,53 @@ make lint
 
 ## Security
 
+### Authentication & Authorization
+
 - The server runs in non-destructive mode by default
 - Supports dry-run mode for safe operation testing
 - Allows restriction of operations and namespaces
 - Follows Kubernetes RBAC when using in-cluster authentication
+- OAuth 2.1 support with PKCE enforcement for HTTP transports
+- Downstream OAuth authentication for per-user RBAC enforcement
+
+### Secret Management (CRITICAL for Production)
+
+**⚠️ PRODUCTION REQUIREMENT:** You **MUST** use a secret management solution for production deployments.
+
+**Recommended Solutions:**
+- HashiCorp Vault
+- AWS Secrets Manager  
+- Google Cloud Secret Manager
+- Azure Key Vault
+- Kubernetes External Secrets Operator
+
+**NEVER use environment variables for secrets in production** because they:
+- Are visible in process listings (`ps aux`, `docker inspect`)
+- Get leaked in logs and error messages
+- Have no audit trail or rotation support
+- Are not encrypted at rest
+- Cannot be securely deleted
+
+**For detailed setup and examples**, see:
+- [OAuth Authentication Guide](docs/oauth.md#production-secret-management)
+- [Production Security Checklist](docs/oauth.md#security-checklist-for-production-comprehensive)
+- [Incident Response Procedures](docs/oauth.md#incident-response-procedures)
+
+### Security Best Practices
+
+**Development:**
+- Use environment variables **only** for local development
+- Never commit secrets to Git
+- Use pre-commit hooks (gitleaks, git-secrets)
+- Generate secrets securely (avoid shell history)
+
+**Production:**
+- Store secrets in a secret manager (required)
+- Enable encryption at rest for Kubernetes Secrets
+- Rotate encryption keys every 90 days
+- Enable audit logging and monitoring
+- Use HTTPS with valid TLS certificates
+- Follow the [comprehensive production checklist](docs/oauth.md#security-checklist-for-production-comprehensive)
 
 ## License
 
