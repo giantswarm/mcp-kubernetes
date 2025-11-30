@@ -11,6 +11,11 @@ import (
 const (
 	// arrayWildcard is the token used to match any element in an array path
 	arrayWildcard = "[*]"
+
+	// Security limits to prevent resource exhaustion attacks
+	maxFilterCriteria  = 50   // Maximum number of filter criteria allowed
+	maxPathDepth       = 20   // Maximum depth of nested paths (number of dots)
+	maxFilterValueSize = 1024 // Maximum size of filter values in bytes
 )
 
 // FilterCriteria represents client-side filtering criteria for resources.
@@ -24,9 +29,40 @@ type FilterCriteria map[string]interface{}
 // - Array element matching: {"spec.taints[*].key": "node.kubernetes.io/unschedulable"}
 // - Nested map matching: {"metadata.labels.app": "nginx"}
 // - Multiple criteria (AND logic): all criteria must match for a resource to pass
-func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) []runtime.Object {
+//
+// Returns an error if filter criteria exceed security limits to prevent resource exhaustion.
+func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([]runtime.Object, error) {
 	if len(criteria) == 0 {
-		return objects
+		return objects, nil
+	}
+
+	// Validate number of filter criteria to prevent DoS
+	if len(criteria) > maxFilterCriteria {
+		return nil, fmt.Errorf("too many filter criteria: %d (maximum allowed: %d)", len(criteria), maxFilterCriteria)
+	}
+
+	// Validate each filter criterion
+	for path, value := range criteria {
+		// Validate path depth to prevent deep recursion attacks
+		pathDepth := strings.Count(path, ".")
+		if pathDepth > maxPathDepth {
+			return nil, fmt.Errorf("filter path too deep: %q has depth %d (maximum allowed: %d)", path, pathDepth, maxPathDepth)
+		}
+
+		// Validate path is not empty or contains suspicious patterns
+		if path == "" {
+			return nil, fmt.Errorf("filter path cannot be empty")
+		}
+		if strings.Contains(path, "..") {
+			return nil, fmt.Errorf("filter path contains invalid pattern '..': %q", path)
+		}
+
+		// Validate filter value size for string values
+		if strValue, ok := value.(string); ok {
+			if len(strValue) > maxFilterValueSize {
+				return nil, fmt.Errorf("filter value too large: %d bytes (maximum allowed: %d)", len(strValue), maxFilterValueSize)
+			}
+		}
 	}
 
 	filtered := make([]runtime.Object, 0, len(objects))
@@ -36,7 +72,7 @@ func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) []
 		}
 	}
 
-	return filtered
+	return filtered, nil
 }
 
 // matchesFilter checks if a single object matches all filter criteria

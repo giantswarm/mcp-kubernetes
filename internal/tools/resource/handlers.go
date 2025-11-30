@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -118,8 +119,18 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	// Apply client-side filtering if criteria provided
 	if len(filterCriteria) > 0 {
-		paginatedResponse.Items = ApplyClientSideFilter(paginatedResponse.Items, filterCriteria)
+		filteredItems, err := ApplyClientSideFilter(paginatedResponse.Items, filterCriteria)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid filter criteria: %v", err)), nil
+		}
+		paginatedResponse.Items = filteredItems
 		paginatedResponse.TotalItems = len(paginatedResponse.Items)
+
+		// Warn on large result sets after filtering (potential performance issue)
+		if paginatedResponse.TotalItems > 1000 {
+			log.Printf("[WARN] Large result set after client-side filtering: %d items (resource: %s, criteria: %d filters)",
+				paginatedResponse.TotalItems, resourceType, len(filterCriteria))
+		}
 	}
 
 	if fullOutput {

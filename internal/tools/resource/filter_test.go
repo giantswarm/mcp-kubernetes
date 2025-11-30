@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -102,7 +103,8 @@ func TestApplyClientSideFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ApplyClientSideFilter(tt.objects, tt.criteria)
+			result, err := ApplyClientSideFilter(tt.objects, tt.criteria)
+			assert.NoError(t, err, "unexpected error during filtering")
 			assert.Equal(t, tt.expected, len(result), "unexpected number of filtered resources")
 		})
 	}
@@ -405,5 +407,91 @@ func createTestPodWithLabel(name, labelKey, labelValue string) *unstructured.Uns
 				},
 			},
 		},
+	}
+}
+
+// TestSecurityLimits tests the security validations for filter criteria
+func TestSecurityLimits(t *testing.T) {
+	tests := []struct {
+		name          string
+		criteria      FilterCriteria
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "too many filter criteria",
+			criteria: func() FilterCriteria {
+				c := make(FilterCriteria)
+				for i := 0; i < maxFilterCriteria+1; i++ {
+					c[fmt.Sprintf("field%d", i)] = "value"
+				}
+				return c
+			}(),
+			expectError:   true,
+			errorContains: "too many filter criteria",
+		},
+		{
+			name: "path too deep",
+			criteria: FilterCriteria{
+				"a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z": "value",
+			},
+			expectError:   true,
+			errorContains: "path too deep",
+		},
+		{
+			name: "empty path",
+			criteria: FilterCriteria{
+				"": "value",
+			},
+			expectError:   true,
+			errorContains: "path cannot be empty",
+		},
+		{
+			name: "path with double dots",
+			criteria: FilterCriteria{
+				"metadata..name": "value",
+			},
+			expectError:   true,
+			errorContains: "invalid pattern '..'",
+		},
+		{
+			name: "filter value too large",
+			criteria: FilterCriteria{
+				"metadata.name": func() string {
+					// Create a string larger than maxFilterValueSize
+					largeValue := make([]byte, maxFilterValueSize+1)
+					for i := range largeValue {
+						largeValue[i] = 'a'
+					}
+					return string(largeValue)
+				}(),
+			},
+			expectError:   true,
+			errorContains: "value too large",
+		},
+		{
+			name: "valid criteria at limits",
+			criteria: FilterCriteria{
+				"metadata.name": "test",
+				"spec.replicas": 3,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objects := []runtime.Object{createTestNode("node1", "Ready")}
+			_, err := ApplyClientSideFilter(objects, tt.criteria)
+
+			if tt.expectError {
+				assert.Error(t, err, "expected error but got none")
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains, "error message doesn't contain expected text")
+				}
+			} else {
+				assert.NoError(t, err, "unexpected error")
+			}
+		})
 	}
 }

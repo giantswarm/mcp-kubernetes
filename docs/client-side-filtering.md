@@ -192,6 +192,34 @@ If you get unexpected results:
 2. **Simplify the filter**: Start with a single criterion and add more to narrow down the issue
 3. **Verify array paths**: Ensure you're using `[*]` for array fields
 
+## Security Considerations
+
+Client-side filtering includes built-in protections against resource exhaustion attacks:
+
+- **RBAC Enforcement**: Client-side filtering respects Kubernetes RBAC. You can only filter resources you have permission to view. Filtering happens after authentication and authorization, so it cannot be used to access unauthorized resources.
+
+- **Resource Limits**: To prevent denial-of-service attacks, the following limits are enforced:
+  - Maximum 50 filter criteria per request
+  - Maximum path depth of 20 levels (e.g., `a.b.c.d...`)
+  - Maximum filter value size of 1024 bytes for string values
+
+- **Performance Monitoring**: The system logs a warning when filtered results exceed 1000 items, as this may indicate inefficient filtering. Consider using server-side selectors (`labelSelector`, `fieldSelector`) when possible to reduce data transfer and memory usage.
+
+- **Path Validation**: Filter paths are validated to prevent malicious patterns:
+  - Empty paths are rejected
+  - Paths containing `..` are rejected
+  - Excessive nesting is prevented
+
+### Best Practices for Security
+
+1. **Prefer Server-Side Filtering**: Use `labelSelector` and `fieldSelector` when possible, as they filter at the API server level and are more efficient.
+
+2. **Limit Result Sets**: Combine filters with appropriate `limit` parameters to avoid processing large datasets.
+
+3. **Monitor Usage**: In multi-tenant environments, monitor logs for warnings about large result sets or rejected filter criteria.
+
+4. **Trusted Users Only**: While client-side filtering includes DoS protections, it's designed for trusted users within your organization. Additional rate limiting may be needed for untrusted or public-facing deployments.
+
 ## Related Issues
 
 - [Issue #88: Field selector doesn't support filtering nodes by taints](https://github.com/giantswarm/mcp-kubernetes/issues/88)
