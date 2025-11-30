@@ -261,10 +261,53 @@ make lint
 
 ## Security
 
+### Authentication & Authorization
+
 - The server runs in non-destructive mode by default
 - Supports dry-run mode for safe operation testing
 - Allows restriction of operations and namespaces
 - Follows Kubernetes RBAC when using in-cluster authentication
+- OAuth 2.1 support with PKCE enforcement for HTTP transports
+- Downstream OAuth authentication for per-user RBAC enforcement
+
+### Secret Management (CRITICAL for Production)
+
+**⚠️ PRODUCTION REQUIREMENT:** You **MUST** use a secret management solution for production deployments.
+
+**Recommended Solutions:**
+- HashiCorp Vault
+- AWS Secrets Manager  
+- Google Cloud Secret Manager
+- Azure Key Vault
+- Kubernetes External Secrets Operator
+
+**NEVER use environment variables for secrets in production** because they:
+- Are visible in process listings (`ps aux`, `docker inspect`)
+- Get leaked in logs and error messages
+- Have no audit trail or rotation support
+- Are not encrypted at rest
+- Cannot be securely deleted
+
+**For detailed setup and examples**, see:
+- [OAuth Authentication Guide](docs/oauth.md#production-secret-management)
+- [Production Security Checklist](docs/oauth.md#security-checklist-for-production-comprehensive)
+- [Incident Response Procedures](docs/oauth.md#incident-response-procedures)
+
+### Security Best Practices
+
+**Development:**
+- Use environment variables **only** for local development
+- Never commit secrets to Git
+- Use pre-commit hooks (gitleaks, git-secrets)
+- Generate secrets securely (avoid shell history)
+
+**Production:**
+- Store secrets in a secret manager (required)
+- Enable encryption at rest for Kubernetes Secrets
+- Rotate encryption keys every 90 days
+- Enable audit logging and monitoring
+- Use HTTPS with valid TLS certificates
+- Follow the [comprehensive production checklist](docs/oauth.md#security-checklist-for-production-comprehensive)
 
 ## License
 
