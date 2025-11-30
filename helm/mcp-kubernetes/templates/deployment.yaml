@@ -48,6 +48,7 @@ spec:
             {{- if .Values.mcpKubernetes.oauth.enabled }}
             - --enable-oauth=true
             - --oauth-base-url={{ required "mcpKubernetes.oauth.baseURL is required when OAuth is enabled" .Values.mcpKubernetes.oauth.baseURL }}
+            - --oauth-provider={{ .Values.mcpKubernetes.oauth.provider | default "dex" }}
             {{- if .Values.mcpKubernetes.oauth.allowPublicClientRegistration }}
             - --allow-public-registration=true
             {{- else }}
@@ -82,6 +83,7 @@ spec:
               value: {{ .Values.mcpKubernetes.kubernetes.kubeconfig }}
             {{- end }}
             {{- if .Values.mcpKubernetes.oauth.enabled }}
+            {{- if eq (.Values.mcpKubernetes.oauth.provider | default "dex") "google" }}
             - name: GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -92,6 +94,21 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
                   key: google-client-secret
+            {{- else if eq (.Values.mcpKubernetes.oauth.provider | default "dex") "dex" }}
+            - name: DEX_ISSUER_URL
+              value: {{ required "mcpKubernetes.oauth.dex.issuerURL is required when Dex provider is used" .Values.mcpKubernetes.oauth.dex.issuerURL | quote }}
+            - name: DEX_CLIENT_ID
+              value: {{ required "mcpKubernetes.oauth.dex.clientID is required when Dex provider is used" .Values.mcpKubernetes.oauth.dex.clientID | quote }}
+            - name: DEX_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: dex-client-secret
+            {{- if .Values.mcpKubernetes.oauth.dex.connectorID }}
+            - name: DEX_CONNECTOR_ID
+              value: {{ .Values.mcpKubernetes.oauth.dex.connectorID | quote }}
+            {{- end }}
+            {{- end }}
             {{- if not .Values.mcpKubernetes.oauth.allowPublicRegistration }}
             - name: REGISTRATION_TOKEN
               valueFrom:

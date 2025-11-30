@@ -5,7 +5,9 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
 ## Features
 
 - **OAuth 2.1 Compliance**: Implements the latest OAuth 2.1 specification with PKCE enforcement
-- **Google OAuth Provider**: Supports Google OAuth for authentication with GCP/GKE integration
+- **Multiple OAuth Providers**:
+  - **Dex OIDC Provider** (default): Full OIDC support with connector selection, groups claim, and custom connector ID
+  - **Google OAuth Provider**: Supports Google OAuth for authentication with GCP/GKE integration
 - **Token Refresh**: Automatic token refresh with refresh token rotation
 - **Downstream OAuth Passthrough**: Use users' OAuth tokens for Kubernetes API authentication (RBAC)
 - **Security Features**:
@@ -33,13 +35,14 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
      - For production: `https://your-domain.com/oauth/callback`
    - Save the Client ID and Client Secret
 
-### 2. Start the Server with OAuth
+### 2. Start the Server with OAuth (Google Provider)
 
 ```bash
 # Using command-line flags
 mcp-kubernetes serve \
   --transport=streamable-http \
   --enable-oauth \
+  --oauth-provider=google \
   --oauth-base-url=https://your-domain.com \
   --google-client-id=YOUR_CLIENT_ID \
   --google-client-secret=YOUR_CLIENT_SECRET \
@@ -52,9 +55,66 @@ export GOOGLE_CLIENT_SECRET="YOUR_CLIENT_SECRET"
 mcp-kubernetes serve \
   --transport=streamable-http \
   --enable-oauth \
+  --oauth-provider=google \
   --oauth-base-url=https://your-domain.com \
   --registration-token=YOUR_SECURE_TOKEN
 ```
+
+## Quick Start with Dex Provider
+
+### 1. Prerequisites
+
+You'll need a Dex server configured with at least one connector (GitHub, LDAP, SAML, etc.). Dex acts as a portal to other identity providers.
+
+For testing, you can deploy Dex using Helm:
+
+```bash
+helm repo add dex https://charts.dexidp.io
+helm install dex dex/dex --set config.issuer=https://dex.example.com
+```
+
+### 2. Register OAuth Client in Dex
+
+Add your mcp-kubernetes OAuth client to Dex configuration:
+
+```yaml
+# dex-config.yaml
+staticClients:
+- id: mcp-kubernetes
+  name: 'MCP Kubernetes'
+  secret: your-dex-client-secret
+  redirectURIs:
+  - 'https://your-domain.com/oauth/callback'
+```
+
+### 3. Start the Server with Dex OAuth
+
+```bash
+# Using command-line flags (Dex is the default provider)
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --oauth-base-url=https://your-domain.com \
+  --dex-issuer-url=https://dex.example.com \
+  --dex-client-id=mcp-kubernetes \
+  --dex-client-secret=YOUR_DEX_CLIENT_SECRET \
+  --dex-connector-id=github \
+  --registration-token=YOUR_SECURE_TOKEN
+
+# Using environment variables
+export DEX_ISSUER_URL="https://dex.example.com"
+export DEX_CLIENT_ID="mcp-kubernetes"
+export DEX_CLIENT_SECRET="YOUR_DEX_CLIENT_SECRET"
+export DEX_CONNECTOR_ID="github"  # Optional: bypass connector selection
+
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --oauth-base-url=https://your-domain.com \
+  --registration-token=YOUR_SECURE_TOKEN
+```
+
+**Note**: The `--dex-connector-id` flag is optional but recommended for better UX. When set, it automatically selects the specified Dex connector (e.g., GitHub, LDAP) instead of showing the connector selection screen.
 
 ### 3. Client Registration
 
@@ -222,8 +282,13 @@ If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kube
 |------|-------------|---------|----------|
 | `--enable-oauth` | Enable OAuth 2.1 authentication | `false` | No |
 | `--oauth-base-url` | OAuth base URL (e.g., https://mcp.example.com) | - | Yes (if OAuth enabled) |
-| `--google-client-id` | Google OAuth Client ID | - | Yes (if OAuth enabled) |
-| `--google-client-secret` | Google OAuth Client Secret | - | Yes (if OAuth enabled) |
+| `--oauth-provider` | OAuth provider: `dex` or `google` | `dex` | No |
+| `--google-client-id` | Google OAuth Client ID | - | Yes (if Google provider) |
+| `--google-client-secret` | Google OAuth Client Secret | - | Yes (if Google provider) |
+| `--dex-issuer-url` | Dex OIDC issuer URL (e.g., https://dex.example.com) | - | Yes (if Dex provider) |
+| `--dex-client-id` | Dex OAuth Client ID | - | Yes (if Dex provider) |
+| `--dex-client-secret` | Dex OAuth Client Secret | - | Yes (if Dex provider) |
+| `--dex-connector-id` | Dex connector ID (optional, bypasses selection screen) | - | No |
 | `--registration-token` | OAuth client registration access token | - | Yes (unless public registration enabled) |
 | `--allow-public-registration` | Allow unauthenticated OAuth client registration | `false` | No |
 | `--disable-streaming` | Disable streaming for streamable-http transport | `false` | No |
@@ -255,8 +320,12 @@ See the [Production Secret Management](#production-secret-management) section be
 
 | Variable | Description | Production Alternative |
 |----------|-------------|----------------------|
-| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | Use secret manager |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | Use secret manager |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID (Google provider) | Use secret manager |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret (Google provider) | Use secret manager |
+| `DEX_ISSUER_URL` | Dex OIDC issuer URL (Dex provider) | ConfigMap or secret manager |
+| `DEX_CLIENT_ID` | Dex OAuth Client ID (Dex provider) | ConfigMap or secret manager |
+| `DEX_CLIENT_SECRET` | Dex OAuth Client Secret (Dex provider) | Use secret manager |
+| `DEX_CONNECTOR_ID` | Dex connector ID (optional) | ConfigMap |
 | `OAUTH_ENCRYPTION_KEY` | OAuth encryption key (32 bytes, base64) | Use secret manager |
 | `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | ConfigMap or secret manager |
 
@@ -439,7 +508,7 @@ make govulncheck
 ```
 
 **Dependencies**:
-- Primary OAuth library: `github.com/giantswarm/mcp-oauth v0.2.1`
+- Primary OAuth library: `github.com/giantswarm/mcp-oauth v0.2.7`
 - Ensure regular updates for security patches
 - Review dependency updates before merging
 
@@ -1168,10 +1237,12 @@ curl -X POST http://localhost:8080/oauth/register \
 
 ## Architecture
 
-The OAuth implementation is based on the [mcp-oauth](https://github.com/giantswarm/mcp-oauth) library, which provides:
+The OAuth implementation is based on the [mcp-oauth](https://github.com/giantswarm/mcp-oauth) library (v0.2.7), which provides:
 
 - OAuth 2.1 server implementation
-- Google OAuth provider integration
+- Multiple provider support:
+  - Dex OIDC provider (with connector selection and groups claim)
+  - Google OAuth provider
 - In-memory token storage
 - Security features (rate limiting, audit logging, encryption)
 - RFC-compliant endpoints

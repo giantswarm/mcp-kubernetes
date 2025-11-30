@@ -49,8 +49,13 @@ type ServeConfig struct {
 type OAuthServeConfig struct {
 	Enabled                       bool
 	BaseURL                       string
+	Provider                      string // "dex" or "google"
 	GoogleClientID                string
 	GoogleClientSecret            string
+	DexIssuerURL                  string
+	DexClientID                   string
+	DexClientSecret               string
+	DexConnectorID                string // optional: bypasses connector selection screen
 	DisableStreaming              bool
 	RegistrationToken             string
 	AllowPublicRegistration       bool

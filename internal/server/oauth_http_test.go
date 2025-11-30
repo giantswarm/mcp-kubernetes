@@ -69,6 +69,7 @@ func TestValidateHTTPSRequirement(t *testing.T) {
 func TestCreateOAuthServer(t *testing.T) {
 	config := OAuthConfig{
 		BaseURL:                       "https://mcp.example.com",
+		Provider:                      "google",
 		GoogleClientID:                "test-client-id",
 		GoogleClientSecret:            "test-client-secret",
 		AllowPublicClientRegistration: false,
@@ -96,6 +97,7 @@ func TestCreateOAuthServer(t *testing.T) {
 func TestCreateOAuthServerWithDefaults(t *testing.T) {
 	config := OAuthConfig{
 		BaseURL:            "https://mcp.example.com",
+		Provider:           "google",
 		GoogleClientID:     "test-client-id",
 		GoogleClientSecret: "test-client-secret",
 		DebugMode:          false,
@@ -115,6 +117,7 @@ func TestCreateOAuthServerWithDefaults(t *testing.T) {
 func TestCreateOAuthServerWithDebugMode(t *testing.T) {
 	config := OAuthConfig{
 		BaseURL:            "https://mcp.example.com",
+		Provider:           "google",
 		GoogleClientID:     "test-client-id",
 		GoogleClientSecret: "test-client-secret",
 		DebugMode:          true,
@@ -131,6 +134,7 @@ func TestCreateOAuthServerWithDebugMode(t *testing.T) {
 func TestCreateOAuthServerWithInterstitial(t *testing.T) {
 	config := OAuthConfig{
 		BaseURL:            "https://mcp.example.com",
+		Provider:           "google",
 		GoogleClientID:     "test-client-id",
 		GoogleClientSecret: "test-client-secret",
 		Interstitial: &server.InterstitialConfig{
@@ -146,4 +150,36 @@ func TestCreateOAuthServerWithInterstitial(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, oauthServer)
 	assert.NotNil(t, oauthServer.Config.Interstitial)
+}
+
+// TestCreateOAuthServerWithDexProvider tests Dex provider creation
+// Note: This test is skipped because Dex provider initialization requires
+// OIDC discovery from a live Dex server. Full Dex provider testing should
+// be done in integration tests with a real Dex instance.
+func TestCreateOAuthServerWithDexProvider(t *testing.T) {
+	t.Skip("Dex provider requires live OIDC discovery - test in integration tests")
+}
+
+// TestCreateOAuthServerWithDexProviderNoConnector tests Dex provider without connector ID
+// Note: This test is skipped because Dex provider initialization requires
+// OIDC discovery from a live Dex server. Full Dex provider testing should
+// be done in integration tests with a real Dex instance.
+func TestCreateOAuthServerWithDexProviderNoConnector(t *testing.T) {
+	t.Skip("Dex provider requires live OIDC discovery - test in integration tests")
+}
+
+// TestCreateOAuthServerWithInvalidProvider tests invalid provider handling
+func TestCreateOAuthServerWithInvalidProvider(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:   "https://mcp.example.com",
+		Provider:  "invalid-provider",
+		DebugMode: false,
+	}
+
+	oauthServer, tokenStore, err := createOAuthServer(config)
+
+	assert.Error(t, err)
+	assert.Nil(t, oauthServer)
+	assert.Nil(t, tokenStore)
+	assert.Contains(t, err.Error(), "unsupported OAuth provider")
 }

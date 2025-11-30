@@ -10,6 +10,8 @@ import (
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/providers"
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
@@ -62,11 +64,26 @@ type OAuthConfig struct {
 	// BaseURL is the MCP server base URL (e.g., https://mcp.example.com)
 	BaseURL string
 
+	// Provider specifies the OAuth provider: "dex" or "google"
+	Provider string
+
 	// GoogleClientID is the Google OAuth Client ID
 	GoogleClientID string
 
 	// GoogleClientSecret is the Google OAuth Client Secret
 	GoogleClientSecret string
+
+	// DexIssuerURL is the Dex OIDC issuer URL
+	DexIssuerURL string
+
+	// DexClientID is the Dex OAuth Client ID
+	DexClientID string
+
+	// DexClientSecret is the Dex OAuth Client Secret
+	DexClientSecret string
+
+	// DexConnectorID is the optional Dex connector ID to bypass connector selection
+	DexConnectorID string
 
 	// DisableStreaming disables streaming for streamable-http transport
 	DisableStreaming bool
@@ -128,21 +145,52 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		logger = slog.Default()
 	}
 
-	// Create Google provider
+	// Create OAuth provider based on configuration
 	redirectURL := config.BaseURL + "/oauth/callback"
-	scopes := []string{
-		"https://www.googleapis.com/auth/cloud-platform",
-		"https://www.googleapis.com/auth/userinfo.email",
-		"https://www.googleapis.com/auth/userinfo.profile",
-	}
-	provider, err := google.NewProvider(&google.Config{
-		ClientID:     config.GoogleClientID,
-		ClientSecret: config.GoogleClientSecret,
-		RedirectURL:  redirectURL,
-		Scopes:       scopes,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
+	var provider providers.Provider
+	var err error
+
+	switch config.Provider {
+	case "dex":
+		// Dex OIDC provider with groups support
+		scopes := []string{"openid", "profile", "email", "groups", "offline_access"}
+		dexConfig := &dex.Config{
+			IssuerURL:    config.DexIssuerURL,
+			ClientID:     config.DexClientID,
+			ClientSecret: config.DexClientSecret,
+			RedirectURL:  redirectURL,
+			Scopes:       scopes,
+		}
+		// Add optional connector ID if provided (bypasses connector selection)
+		if config.DexConnectorID != "" {
+			dexConfig.ConnectorID = config.DexConnectorID
+		}
+		provider, err = dex.NewProvider(dexConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
+		}
+		logger.Info("Using Dex OIDC provider", "issuer", config.DexIssuerURL)
+
+	case "google":
+		// Google OAuth provider
+		scopes := []string{
+			"https://www.googleapis.com/auth/cloud-platform",
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		}
+		provider, err = google.NewProvider(&google.Config{
+			ClientID:     config.GoogleClientID,
+			ClientSecret: config.GoogleClientSecret,
+			RedirectURL:  redirectURL,
+			Scopes:       scopes,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
+		}
+		logger.Info("Using Google OAuth provider")
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: dex, google)", config.Provider)
 	}
 
 	// Create memory storage
