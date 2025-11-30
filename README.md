@@ -11,7 +11,7 @@ A Model Context Protocol (MCP) server that provides tools for interacting with K
 - **Multiple Authentication Modes**: Support for kubeconfig, in-cluster, and OAuth 2.1 authentication
 - **Multiple Transport Types**: Support for stdio, SSE, and streamable HTTP
 - **Safety Features**: Non-destructive mode, dry-run capability, and operation restrictions
-- **OAuth 2.1 Support**: Secure token-based authentication with Google OAuth provider
+- **OAuth 2.1 Support**: Secure token-based authentication with Dex OIDC (default) and Google OAuth providers
 
 ## Installation
 
@@ -64,13 +64,25 @@ mcp-kubernetes serve --in-cluster
 - Namespace must be available at `/var/run/secrets/kubernetes.io/serviceaccount/namespace`
 
 #### OAuth 2.1 Authentication
-Uses OAuth 2.1 with Google OAuth provider for secure, token-based authentication (available for HTTP transports only).
+Uses OAuth 2.1 with Dex OIDC (default) or Google OAuth provider for secure, token-based authentication (available for HTTP transports only).
 
 ```bash
-# Start with OAuth authentication
+# Start with Dex OAuth authentication (default provider)
 mcp-kubernetes serve \
   --transport=streamable-http \
   --enable-oauth \
+  --oauth-base-url=https://mcp.example.com \
+  --dex-issuer-url=https://dex.example.com \
+  --dex-client-id=mcp-kubernetes \
+  --dex-client-secret=YOUR_DEX_SECRET \
+  --dex-connector-id=github \
+  --registration-token=YOUR_SECURE_TOKEN
+
+# Or use Google OAuth provider
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --oauth-provider=google \
   --oauth-base-url=https://mcp.example.com \
   --google-client-id=YOUR_CLIENT_ID \
   --google-client-secret=YOUR_CLIENT_SECRET \

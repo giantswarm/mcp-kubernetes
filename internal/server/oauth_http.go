@@ -10,6 +10,8 @@ import (
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/providers"
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
@@ -22,6 +24,10 @@ import (
 )
 
 const (
+	// OAuth provider constants
+	OAuthProviderDex    = "dex"
+	OAuthProviderGoogle = "google"
+
 	// DefaultOAuthScopes are the default Google OAuth scopes for Kubernetes management
 	DefaultOAuthScopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
 
@@ -56,17 +62,44 @@ const (
 	DefaultShutdownTimeout = 30 * time.Second
 )
 
+var (
+	// dexOAuthScopes are the OAuth scopes requested when using Dex OIDC provider
+	dexOAuthScopes = []string{"openid", "profile", "email", "groups", "offline_access"}
+
+	// googleOAuthScopes are the OAuth scopes requested when using Google OAuth provider
+	googleOAuthScopes = []string{
+		"https://www.googleapis.com/auth/cloud-platform",
+		"https://www.googleapis.com/auth/userinfo.email",
+		"https://www.googleapis.com/auth/userinfo.profile",
+	}
+)
+
 // OAuthConfig holds MCP-specific OAuth configuration
 // Uses the mcp-oauth library's types directly to avoid duplication
 type OAuthConfig struct {
 	// BaseURL is the MCP server base URL (e.g., https://mcp.example.com)
 	BaseURL string
 
+	// Provider specifies the OAuth provider: "dex" or "google"
+	Provider string
+
 	// GoogleClientID is the Google OAuth Client ID
 	GoogleClientID string
 
 	// GoogleClientSecret is the Google OAuth Client Secret
 	GoogleClientSecret string
+
+	// DexIssuerURL is the Dex OIDC issuer URL
+	DexIssuerURL string
+
+	// DexClientID is the Dex OAuth Client ID
+	DexClientID string
+
+	// DexClientSecret is the Dex OAuth Client Secret
+	DexClientSecret string
+
+	// DexConnectorID is the optional Dex connector ID to bypass connector selection
+	DexConnectorID string
 
 	// DisableStreaming disables streaming for streamable-http transport
 	DisableStreaming bool
@@ -128,21 +161,43 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		logger = slog.Default()
 	}
 
-	// Create Google provider
 	redirectURL := config.BaseURL + "/oauth/callback"
-	scopes := []string{
-		"https://www.googleapis.com/auth/cloud-platform",
-		"https://www.googleapis.com/auth/userinfo.email",
-		"https://www.googleapis.com/auth/userinfo.profile",
-	}
-	provider, err := google.NewProvider(&google.Config{
-		ClientID:     config.GoogleClientID,
-		ClientSecret: config.GoogleClientSecret,
-		RedirectURL:  redirectURL,
-		Scopes:       scopes,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
+	var provider providers.Provider
+	var err error
+
+	switch config.Provider {
+	case OAuthProviderDex:
+		dexConfig := &dex.Config{
+			IssuerURL:    config.DexIssuerURL,
+			ClientID:     config.DexClientID,
+			ClientSecret: config.DexClientSecret,
+			RedirectURL:  redirectURL,
+			Scopes:       dexOAuthScopes,
+		}
+		// Add optional connector ID if provided (bypasses connector selection)
+		if config.DexConnectorID != "" {
+			dexConfig.ConnectorID = config.DexConnectorID
+		}
+		provider, err = dex.NewProvider(dexConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
+		}
+		logger.Info("Using Dex OIDC provider", "issuer", config.DexIssuerURL)
+
+	case OAuthProviderGoogle:
+		provider, err = google.NewProvider(&google.Config{
+			ClientID:     config.GoogleClientID,
+			ClientSecret: config.GoogleClientSecret,
+			RedirectURL:  redirectURL,
+			Scopes:       googleOAuthScopes,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
+		}
+		logger.Info("Using Google OAuth provider")
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
 	// Create memory storage

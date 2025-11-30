@@ -42,8 +42,13 @@ func newServeCmd() *cobra.Command {
 		// OAuth options
 		enableOAuth                   bool
 		oauthBaseURL                  string
+		oauthProvider                 string
 		googleClientID                string
 		googleClientSecret            string
+		dexIssuerURL                  string
+		dexClientID                   string
+		dexClientSecret               string
+		dexConnectorID                string
 		disableStreaming              bool
 		registrationToken             string
 		allowPublicRegistration       bool
@@ -90,8 +95,13 @@ Downstream OAuth (--downstream-oauth):
 				OAuth: OAuthServeConfig{
 					Enabled:                       enableOAuth,
 					BaseURL:                       oauthBaseURL,
+					Provider:                      oauthProvider,
 					GoogleClientID:                googleClientID,
 					GoogleClientSecret:            googleClientSecret,
+					DexIssuerURL:                  dexIssuerURL,
+					DexClientID:                   dexClientID,
+					DexClientSecret:               dexClientSecret,
+					DexConnectorID:                dexConnectorID,
 					DisableStreaming:              disableStreaming,
 					RegistrationToken:             registrationToken,
 					AllowPublicRegistration:       allowPublicRegistration,
@@ -123,8 +133,13 @@ Downstream OAuth (--downstream-oauth):
 	// OAuth flags
 	cmd.Flags().BoolVar(&enableOAuth, "enable-oauth", false, "Enable OAuth 2.1 authentication (for HTTP transports)")
 	cmd.Flags().StringVar(&oauthBaseURL, "oauth-base-url", "", "OAuth base URL (e.g., https://mcp.example.com)")
+	cmd.Flags().StringVar(&oauthProvider, "oauth-provider", OAuthProviderDex, fmt.Sprintf("OAuth provider: %s or %s (default: %s)", OAuthProviderDex, OAuthProviderGoogle, OAuthProviderDex))
 	cmd.Flags().StringVar(&googleClientID, "google-client-id", "", "Google OAuth Client ID (can also be set via GOOGLE_CLIENT_ID env var)")
 	cmd.Flags().StringVar(&googleClientSecret, "google-client-secret", "", "Google OAuth Client Secret (can also be set via GOOGLE_CLIENT_SECRET env var)")
+	cmd.Flags().StringVar(&dexIssuerURL, "dex-issuer-url", "", "Dex OIDC issuer URL (can also be set via DEX_ISSUER_URL env var)")
+	cmd.Flags().StringVar(&dexClientID, "dex-client-id", "", "Dex OAuth Client ID (can also be set via DEX_CLIENT_ID env var)")
+	cmd.Flags().StringVar(&dexClientSecret, "dex-client-secret", "", "Dex OAuth Client Secret (can also be set via DEX_CLIENT_SECRET env var)")
+	cmd.Flags().StringVar(&dexConnectorID, "dex-connector-id", "", "Dex connector ID to bypass connector selection (optional, can also be set via DEX_CONNECTOR_ID env var)")
 	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
 	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
@@ -266,26 +281,50 @@ func runServe(config ServeConfig) error {
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
 		if config.OAuth.Enabled {
 			// Get OAuth credentials from env vars if not provided via flags
-			if config.OAuth.GoogleClientID == "" {
-				config.OAuth.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")
-			}
-			if config.OAuth.GoogleClientSecret == "" {
-				config.OAuth.GoogleClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
-			}
-			if config.OAuth.EncryptionKey == "" {
-				config.OAuth.EncryptionKey = os.Getenv("OAUTH_ENCRYPTION_KEY")
-			}
+			loadEnvIfEmpty(&config.OAuth.GoogleClientID, "GOOGLE_CLIENT_ID")
+			loadEnvIfEmpty(&config.OAuth.GoogleClientSecret, "GOOGLE_CLIENT_SECRET")
+			loadEnvIfEmpty(&config.OAuth.DexIssuerURL, "DEX_ISSUER_URL")
+			loadEnvIfEmpty(&config.OAuth.DexClientID, "DEX_CLIENT_ID")
+			loadEnvIfEmpty(&config.OAuth.DexClientSecret, "DEX_CLIENT_SECRET")
+			loadEnvIfEmpty(&config.OAuth.DexConnectorID, "DEX_CONNECTOR_ID")
+			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
 
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
-			if config.OAuth.GoogleClientID == "" {
-				return fmt.Errorf("Google Client ID is required (use --google-client-id or GOOGLE_CLIENT_ID env var)")
+			// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
+			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL"); err != nil {
+				return err
 			}
-			if config.OAuth.GoogleClientSecret == "" {
-				return fmt.Errorf("Google Client Secret is required (use --google-client-secret or GOOGLE_CLIENT_SECRET env var)")
+
+			// Provider-specific validation
+			switch config.OAuth.Provider {
+			case OAuthProviderDex:
+				if config.OAuth.DexIssuerURL == "" {
+					return fmt.Errorf("dex issuer URL is required when using Dex provider (--dex-issuer-url or DEX_ISSUER_URL)")
+				}
+				// Validate Dex issuer URL is HTTPS and not vulnerable to SSRF
+				if err := validateSecureURL(config.OAuth.DexIssuerURL, "Dex issuer URL"); err != nil {
+					return err
+				}
+				if config.OAuth.DexClientID == "" {
+					return fmt.Errorf("dex client ID is required when using Dex provider (--dex-client-id or DEX_CLIENT_ID)")
+				}
+				if config.OAuth.DexClientSecret == "" {
+					return fmt.Errorf("dex client secret is required when using Dex provider (--dex-client-secret or DEX_CLIENT_SECRET)")
+				}
+			case OAuthProviderGoogle:
+				if config.OAuth.GoogleClientID == "" {
+					return fmt.Errorf("google client ID is required when using Google provider (--google-client-id or GOOGLE_CLIENT_ID)")
+				}
+				if config.OAuth.GoogleClientSecret == "" {
+					return fmt.Errorf("google client secret is required when using Google provider (--google-client-secret or GOOGLE_CLIENT_SECRET)")
+				}
+			default:
+				return fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.OAuth.Provider, OAuthProviderDex, OAuthProviderGoogle)
 			}
+
 			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" {
 				return fmt.Errorf("--registration-token is required when public registration is disabled")
 			}
@@ -326,8 +365,13 @@ func runServe(config ServeConfig) error {
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
 				BaseURL:                       config.OAuth.BaseURL,
+				Provider:                      config.OAuth.Provider,
 				GoogleClientID:                config.OAuth.GoogleClientID,
 				GoogleClientSecret:            config.OAuth.GoogleClientSecret,
+				DexIssuerURL:                  config.OAuth.DexIssuerURL,
+				DexClientID:                   config.OAuth.DexClientID,
+				DexClientSecret:               config.OAuth.DexClientSecret,
+				DexConnectorID:                config.OAuth.DexConnectorID,
 				DisableStreaming:              config.OAuth.DisableStreaming,
 				DebugMode:                     config.DebugMode,
 				AllowPublicClientRegistration: config.OAuth.AllowPublicRegistration,

@@ -1,5 +1,5 @@
-# Example values for deploying mcp-kubernetes with OAuth 2.1 authentication
-# This is a YAML-formatted file showing how to configure OAuth.
+# Example values for deploying mcp-kubernetes with Dex OIDC authentication
+# This is a YAML-formatted file showing how to configure Dex OAuth.
 
 # Ingress is typically required for OAuth to work properly
 # as OAuth needs a publicly accessible URL
@@ -31,31 +31,39 @@ mcpKubernetes:
     # Enable OAuth 2.1 authentication
     enabled: true
     
-    # OAuth provider - use "google" for Google OAuth
-    provider: "google"
+    # OAuth provider - use "dex" for Dex OIDC
+    provider: "dex"
     
     # OAuth base URL - MUST match your ingress host
     # This is used for OAuth callbacks and metadata endpoints
     baseURL: "https://mcp-k8s.example.com"
     
-    # Google OAuth configuration
-    google:
+    # Dex OIDC configuration
+    dex:
+      # Dex issuer URL - the OIDC discovery endpoint
+      issuerURL: "https://dex.example.com"
+      
+      # Dex OAuth Client ID
+      clientID: "mcp-kubernetes"
+      
+      # Dex OAuth Client Secret
       # OPTION 1: Use values directly (NOT RECOMMENDED for production)
       # Only use this for testing/development
-      # clientID: "your-client-id.apps.googleusercontent.com"
-      # clientSecret: "your-client-secret"
+      # clientSecret: "your-dex-client-secret"
       
       # OPTION 2: Use an existing secret (RECOMMENDED for production)
       # The secret is referenced via existingSecret below
-      # clientID and clientSecret are read from the secret
-      clientID: ""
-      clientSecret: ""
+      # clientSecret is read from the secret
+      
+      # Optional: Dex connector ID to bypass connector selection screen
+      # If your Dex has multiple connectors (GitHub, LDAP, etc.), setting this
+      # will automatically use the specified connector for better UX
+      # connectorID: "github"
     
     # OPTION 2: Use an existing secret (RECOMMENDED for production)
     # Create the secret with:
     # kubectl create secret generic mcp-k8s-oauth-credentials \
-    #   --from-literal=google-client-id=YOUR_CLIENT_ID \
-    #   --from-literal=google-client-secret=YOUR_CLIENT_SECRET \
+    #   --from-literal=dex-client-secret=YOUR_DEX_CLIENT_SECRET \
     #   --from-literal=registration-token=YOUR_REGISTRATION_TOKEN \
     #   --from-literal=oauth-encryption-key=$(openssl rand -base64 32)
     existingSecret: "mcp-k8s-oauth-credentials"
@@ -64,6 +72,11 @@ mcpKubernetes:
     allowPublicRegistration: false  # Require registration token (recommended)
     disableStreaming: false          # Enable streaming by default
     encryptionKey: true              # Enable token encryption at rest (recommended)
+    
+    # Enable downstream OAuth for Kubernetes API authentication
+    # When enabled, user OAuth tokens are used for Kubernetes API calls
+    # Requires the Kubernetes cluster to be configured with Dex OIDC authentication
+    # enableDownstreamOAuth: true
   
   # Additional environment variables (if needed)
   env: []
@@ -84,6 +97,7 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
   targetMemoryUtilizationPercentage: 80
+
 
 
 

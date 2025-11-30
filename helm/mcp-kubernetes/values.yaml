@@ -117,12 +117,28 @@ mcpKubernetes:
     # OAuth base URL (e.g., https://mcp.example.com)
     # Required if OAuth is enabled
     baseURL: ""
-    # Google OAuth Client ID
-    # Can be set here or via existingSecret
-    googleClientID: ""
-    # Google OAuth Client Secret
-    # Should be set via existingSecret for security
-    googleClientSecret: ""
+    # OAuth provider: "dex" or "google" (default: "dex")
+    provider: "dex"
+    # Google OAuth configuration
+    google:
+      # Google OAuth Client ID
+      # Can be set here or via existingSecret
+      clientID: ""
+      # Google OAuth Client Secret
+      # Should be set via existingSecret for security
+      clientSecret: ""
+    # Dex OIDC configuration
+    dex:
+      # Dex OIDC issuer URL (e.g., https://dex.example.com)
+      issuerURL: ""
+      # Dex OAuth Client ID
+      clientID: ""
+      # Dex OAuth Client Secret
+      # Should be set via existingSecret for security
+      clientSecret: ""
+      # Dex connector ID (optional)
+      # When set, bypasses the connector selection screen for better UX
+      connectorID: ""
     # OAuth client registration access token
     # Required if allowPublicRegistration is false
     # Should be set via existingSecret for security
@@ -144,10 +160,10 @@ mcpKubernetes:
     disableStreaming: false
     # Enable downstream OAuth token passthrough to Kubernetes API
     # When enabled, user OAuth tokens are used for Kubernetes authentication
-    # Requires inCluster mode and Kubernetes cluster configured with Google OIDC
+    # Requires inCluster mode and Kubernetes cluster configured with OIDC
     enableDownstreamOAuth: false
     # Use an existing secret for OAuth credentials
-    # The secret should contain keys: google-client-id, google-client-secret, registration-token, oauth-encryption-key (optional)
+    # The secret should contain keys: google-client-id, google-client-secret, dex-client-secret, registration-token, oauth-encryption-key (optional)
     existingSecret: ""
 
   # Additional environment variables
