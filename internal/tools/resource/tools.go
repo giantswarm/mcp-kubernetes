@@ -128,7 +128,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Server-side field selector (limited fields: metadata.name, metadata.namespace, spec.nodeName, status.phase). For fields not supported by Kubernetes, use 'filter' instead."),
 		),
 		mcp.WithObject("filter",
-			mcp.Description("Client-side filter for advanced scenarios. USE CASES: 1) Find nodes with specific taints (incident investigation): {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"}, 2) Filter by nested labels: {\"metadata.labels.app\": \"nginx\"}, 3) Multiple conditions (AND): {\"spec.taints[*].key\": \"node.kubernetes.io/unschedulable\", \"spec.taints[*].effect\": \"NoSchedule\"}. SYNTAX: Use dot notation for nested fields, [*] for array matching, exact values for comparison. Performance note: Prefer labelSelector/fieldSelector when available as they filter server-side."),
+			mcp.Description("Client-side filter for advanced scenarios not supported by fieldSelector (e.g., filtering nodes by taints). Supports dot notation for nested fields and [*] for array matching. Examples: {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"} or {\"metadata.labels.app\": \"nginx\"}. See docs/client-side-filtering.md for full syntax and use cases. Performance note: Prefer labelSelector/fieldSelector when available as they filter server-side."),
 		),
 		mcp.WithBoolean("allNamespaces",
 			mcp.Description("List resources from all namespaces (default: false)"),

@@ -285,6 +285,64 @@ func TestValuesMatch(t *testing.T) {
 	}
 }
 
+func TestMapsMatch(t *testing.T) {
+	tests := []struct {
+		name     string
+		actual   map[string]interface{}
+		expected map[string]interface{}
+		match    bool
+	}{
+		{
+			name:     "exact match",
+			actual:   map[string]interface{}{"key": "value"},
+			expected: map[string]interface{}{"key": "value"},
+			match:    true,
+		},
+		{
+			name:     "actual has extra keys",
+			actual:   map[string]interface{}{"key": "value", "extra": "ignored"},
+			expected: map[string]interface{}{"key": "value"},
+			match:    true,
+		},
+		{
+			name:     "value mismatch",
+			actual:   map[string]interface{}{"key": "wrong"},
+			expected: map[string]interface{}{"key": "value"},
+			match:    false,
+		},
+		{
+			name:     "missing key in actual",
+			actual:   map[string]interface{}{},
+			expected: map[string]interface{}{"key": "value"},
+			match:    false,
+		},
+		{
+			name:     "empty maps",
+			actual:   map[string]interface{}{},
+			expected: map[string]interface{}{},
+			match:    true,
+		},
+		{
+			name: "nested matching",
+			actual: map[string]interface{}{
+				"outer": "value1",
+				"inner": "value2",
+			},
+			expected: map[string]interface{}{
+				"outer": "value1",
+			},
+			match: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mapsMatch(tt.actual, tt.expected)
+			assert.Equal(t, tt.match, result, "unexpected map match result")
+		})
+	}
+}
+
 // Helper functions to create test objects
 
 type taint struct {

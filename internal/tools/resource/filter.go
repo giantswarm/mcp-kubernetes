@@ -2,11 +2,15 @@ package resource
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+)
+
+const (
+	// arrayWildcard is the token used to match any element in an array path
+	arrayWildcard = "[*]"
 )
 
 // FilterCriteria represents client-side filtering criteria for resources.
@@ -25,7 +29,7 @@ func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) []
 		return objects
 	}
 
-	filtered := make([]runtime.Object, 0)
+	filtered := make([]runtime.Object, 0, len(objects))
 	for _, obj := range objects {
 		if matchesFilter(obj, criteria) {
 			filtered = append(filtered, obj)
@@ -59,7 +63,7 @@ func matchesFilter(obj runtime.Object, criteria FilterCriteria) bool {
 // - Nested maps: "metadata.labels.app"
 func matchesFieldPath(obj *unstructured.Unstructured, path string, expectedValue interface{}) bool {
 	// Check if this is an array wildcard path (contains [*])
-	if strings.Contains(path, "[*]") {
+	if strings.Contains(path, arrayWildcard) {
 		return matchesArrayPath(obj, path, expectedValue)
 	}
 
@@ -79,14 +83,16 @@ func matchesArrayPath(obj *unstructured.Unstructured, path string, expectedValue
 	parts := strings.Split(path, ".")
 
 	// Find the array part
-	var arrayIndex int
-	var arrayFieldName string
-	var remainingPath []string
+	var (
+		arrayIndex     int
+		arrayFieldName string
+		remainingPath  []string
+	)
 
 	for i, part := range parts {
-		if strings.Contains(part, "[*]") {
+		if strings.Contains(part, arrayWildcard) {
 			arrayIndex = i
-			arrayFieldName = strings.TrimSuffix(part, "[*]")
+			arrayFieldName = strings.TrimSuffix(part, arrayWildcard)
 			if i+1 < len(parts) {
 				remainingPath = parts[i+1:]
 			}
@@ -176,10 +182,6 @@ func valuesMatch(actual, expected interface{}) bool {
 		return false
 	}
 
-	// Convert both to comparable types
-	actualValue := reflect.ValueOf(actual)
-	expectedValue := reflect.ValueOf(expected)
-
 	// Handle string comparison (most common case)
 	actualStr, actualIsStr := actual.(string)
 	expectedStr, expectedIsStr := expected.(string)
@@ -187,15 +189,7 @@ func valuesMatch(actual, expected interface{}) bool {
 		return actualStr == expectedStr
 	}
 
-	// Handle number comparisons
-	if actualValue.Kind() >= reflect.Int && actualValue.Kind() <= reflect.Float64 {
-		if expectedValue.Kind() >= reflect.Int && expectedValue.Kind() <= reflect.Float64 {
-			return actualValue.Convert(reflect.TypeOf(float64(0))).Float() ==
-				expectedValue.Convert(reflect.TypeOf(float64(0))).Float()
-		}
-	}
-
-	// Handle bool
+	// Handle bool comparison
 	actualBool, actualIsBool := actual.(bool)
 	expectedBool, expectedIsBool := expected.(bool)
 	if actualIsBool && expectedIsBool {
@@ -212,7 +206,8 @@ func valuesMatch(actual, expected interface{}) bool {
 		return mapsMatch(actualMap, expectedMap)
 	}
 
-	// Fallback to direct comparison
+	// Fallback to string representation comparison for numbers and other types
+	// This handles int, float, and other types in a simple, type-safe way
 	return fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", expected)
 }
 

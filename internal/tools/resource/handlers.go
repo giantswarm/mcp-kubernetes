@@ -76,9 +76,11 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// Client-side filtering parameter
 	var filterCriteria FilterCriteria
 	if filterArg, ok := args["filter"]; ok {
-		if filterMap, ok := filterArg.(map[string]interface{}); ok {
-			filterCriteria = filterMap
+		filterMap, ok := filterArg.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("filter parameter must be an object/map"), nil
 		}
+		filterCriteria = filterMap
 	}
 
 	// New parameters for controlling output format
