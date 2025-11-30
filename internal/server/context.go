@@ -9,12 +9,6 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 )
 
-// getAccessTokenFromContext retrieves the OAuth access token from the context.
-// This is a thin wrapper around the oauth package function.
-func getAccessTokenFromContext(ctx context.Context) (string, bool) {
-	return oauth.GetAccessTokenFromContext(ctx)
-}
-
 // ServerContext encapsulates all dependencies needed by the MCP server
 // and provides a clean abstraction for dependency injection and lifecycle management.
 type ServerContext struct {
@@ -150,8 +144,7 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 	}
 
 	// Try to get the access token from context
-	// The import for oauth package is added at the top
-	accessToken, ok := getAccessTokenFromContext(ctx)
+	accessToken, ok := oauth.GetAccessTokenFromContext(ctx)
 	if !ok || accessToken == "" {
 		// No access token in context, fall back to shared client
 		sc.logger.Debug("No access token in context, using shared client")
