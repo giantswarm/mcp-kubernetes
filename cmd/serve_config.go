@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"fmt"
 	"log"
+	"net"
+	"net/url"
 	"os"
+	"strings"
 )
 
 // OAuth provider constants
@@ -78,4 +82,95 @@ func loadEnvIfEmpty(target *string, envKey string) {
 	if *target == "" {
 		*target = os.Getenv(envKey)
 	}
+}
+
+// validateSecureURL validates that a URL uses HTTPS and is not vulnerable to SSRF attacks.
+// It checks for:
+// - Valid URL format
+// - HTTPS scheme (HTTP not allowed)
+// - No private/local IP addresses
+// - No localhost references
+func validateSecureURL(urlStr string, fieldName string) error {
+	// Check for empty URL
+	if urlStr == "" {
+		return fmt.Errorf("%s must be a valid URL: empty URL provided", fieldName)
+	}
+
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid URL: %w", fieldName, err)
+	}
+
+	// Require HTTPS
+	if parsedURL.Scheme != "https" {
+		if parsedURL.Scheme == "" {
+			return fmt.Errorf("%s must be a valid URL with HTTPS scheme", fieldName)
+		}
+		return fmt.Errorf("%s must use HTTPS (got: %s)", fieldName, parsedURL.Scheme)
+	}
+
+	// Extract hostname for validation
+	hostname := parsedURL.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("%s must have a valid hostname", fieldName)
+	}
+
+	// Check for localhost references
+	if strings.ToLower(hostname) == "localhost" {
+		return fmt.Errorf("%s cannot use localhost", fieldName)
+	}
+
+	// Resolve hostname to IP addresses to check for private IPs
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		// DNS lookup failure - this could be transient or the domain doesn't exist yet
+		// For development/testing purposes, we'll allow this but log a warning
+		log.Printf("[WARN] Could not resolve %s (%s) to validate IP address: %v", fieldName, hostname, err)
+		return nil
+	}
+
+	// Check if any resolved IP is private or loopback
+	for _, ip := range ips {
+		if isPrivateOrLoopbackIP(ip) {
+			return fmt.Errorf("%s resolves to a private or loopback IP address (%s), which could be a security risk", fieldName, ip.String())
+		}
+	}
+
+	return nil
+}
+
+// isPrivateOrLoopbackIP checks if an IP address is private, loopback, or link-local.
+func isPrivateOrLoopbackIP(ip net.IP) bool {
+	// Check for loopback
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Check for link-local
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Check for private IPv4 ranges
+	// 10.0.0.0/8
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 10 {
+			return true
+		}
+		// 172.16.0.0/12
+		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
+			return true
+		}
+		// 192.168.0.0/16
+		if ip4[0] == 192 && ip4[1] == 168 {
+			return true
+		}
+	}
+
+	// Check for private IPv6 ranges (fc00::/7 - Unique Local Addresses)
+	if len(ip) == net.IPv6len && ip[0] == 0xfc || ip[0] == 0xfd {
+		return true
+	}
+
+	return false
 }

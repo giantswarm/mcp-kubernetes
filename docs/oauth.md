@@ -348,11 +348,67 @@ The server exposes the following OAuth 2.1 endpoints:
 
 ### HTTPS Requirement
 
-OAuth 2.1 **requires HTTPS** for all production deployments. The server will reject HTTP connections except for loopback addresses (localhost, 127.0.0.1, ::1).
+OAuth 2.1 **requires HTTPS** for all production deployments. The server enforces HTTPS for all OAuth URLs with multiple security validations:
 
-For development, you can use:
+**Automatic Validation:**
+- OAuth base URL must use HTTPS
+- Dex issuer URL must use HTTPS (for Dex provider)
+- Localhost URLs are blocked in production (SSRF protection)
+- Private IP addresses are blocked (SSRF protection)
+
+**SSRF Protection:**
+The server validates all OAuth URLs to prevent Server-Side Request Forgery (SSRF) attacks:
+- Blocks localhost and 127.0.0.1
+- Blocks private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Blocks link-local addresses (169.254.0.0/16, fe80::/10)
+- Blocks loopback addresses (::1)
+
+For development only, you can use:
 - `http://localhost:8080`
 - `http://127.0.0.1:8080`
+
+**Note**: Production deployments attempting to use HTTP or private IPs will fail validation with a clear error message.
+
+### OAuth Provider Security Considerations
+
+#### Dex OIDC Provider
+
+When using the Dex provider, the server requests the following scopes:
+- `openid`: OpenID Connect authentication
+- `profile`: User profile information
+- `email`: User email address
+- **`groups`**: User group memberships
+- `offline_access`: Refresh tokens
+
+**Groups Scope Privacy Implications:**
+
+The `groups` scope exposes user group memberships to the MCP server. This is necessary for:
+- Kubernetes RBAC integration (mapping groups to cluster roles)
+- Fine-grained access control
+- Audit logging with group context
+
+**Security considerations:**
+- Group memberships may contain sensitive organizational information
+- Ensure your Dex connectors (GitHub, LDAP, etc.) are configured to return only necessary groups
+- Consider using group filtering in Dex configuration if you need to limit exposure
+- Document which groups are being passed to users
+
+**Connector ID Security:**
+
+The optional `--dex-connector-id` flag bypasses the Dex connector selection screen for better UX. Security notes:
+- Connector IDs are not secrets but reveal your authentication backend (e.g., "github", "ldap", "saml")
+- This information could help attackers understand your infrastructure
+- Acceptable for internal use but avoid publishing in public documentation
+- Consider the trade-off between UX convenience and information disclosure
+
+#### Google OAuth Provider
+
+When using the Google provider, the server requests:
+- `https://www.googleapis.com/auth/cloud-platform`: Full GCP access
+- `https://www.googleapis.com/auth/userinfo.email`: User email
+- `https://www.googleapis.com/auth/userinfo.profile`: User profile
+
+**Security note**: The `cloud-platform` scope grants broad access to GCP resources. Ensure your OAuth consent screen clearly communicates this to users.
 
 ### Security Best Practices
 

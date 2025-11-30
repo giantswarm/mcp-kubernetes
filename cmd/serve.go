@@ -293,12 +293,20 @@ func runServe(config ServeConfig) error {
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
+			// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
+			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL"); err != nil {
+				return err
+			}
 
 			// Provider-specific validation
 			switch config.OAuth.Provider {
 			case OAuthProviderDex:
 				if config.OAuth.DexIssuerURL == "" {
 					return fmt.Errorf("dex issuer URL is required when using Dex provider (--dex-issuer-url or DEX_ISSUER_URL)")
+				}
+				// Validate Dex issuer URL is HTTPS and not vulnerable to SSRF
+				if err := validateSecureURL(config.OAuth.DexIssuerURL, "Dex issuer URL"); err != nil {
+					return err
 				}
 				if config.OAuth.DexClientID == "" {
 					return fmt.Errorf("dex client ID is required when using Dex provider (--dex-client-id or DEX_CLIENT_ID)")
