@@ -15,8 +15,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected ServiceName to be 'mcp-kubernetes', got %s", config.ServiceName)
 	}
 
-	if !config.Enabled {
-		t.Error("expected Enabled to be true by default")
+	if config.Enabled {
+		t.Error("expected Enabled to be false by default for zero overhead")
 	}
 
 	if config.MetricsExporter != "prometheus" {

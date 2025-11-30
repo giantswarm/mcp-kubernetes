@@ -10,6 +10,18 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// Metric attribute keys - using constants for consistency and DRY
+const (
+	// Common attributes (reused across metrics)
+	attrMethod       = "method"
+	attrPath         = "path"
+	attrStatus       = "status"
+	attrOperation    = "operation"
+	attrResourceType = "resource_type"
+	attrNamespace    = "namespace"
+	attrResult       = "result"
+)
+
 // Metrics provides methods for recording observability metrics.
 type Metrics struct {
 	// HTTP metrics
@@ -122,9 +134,9 @@ func (m *Metrics) RecordHTTPRequest(ctx context.Context, method, path string, st
 	}
 
 	attrs := []attribute.KeyValue{
-		attribute.String("method", method),
-		attribute.String("path", path),
-		attribute.String("status", strconv.Itoa(statusCode)),
+		attribute.String(attrMethod, method),
+		attribute.String(attrPath, path),
+		attribute.String(attrStatus, strconv.Itoa(statusCode)),
 	}
 
 	m.httpRequestsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
@@ -133,16 +145,23 @@ func (m *Metrics) RecordHTTPRequest(ctx context.Context, method, path string, st
 
 // RecordK8sOperation records a Kubernetes operation with operation type, resource type,
 // namespace, status, and duration.
+//
+// CARDINALITY WARNING: Recording namespace and resource_type as labels can create
+// high cardinality in large clusters with thousands of namespaces and resource types.
+// In production with >1000 namespaces, consider:
+// 1. Using sampling for detailed labels
+// 2. Aggregating by operation and status only
+// 3. Using traces for per-namespace/resource debugging instead of metrics
 func (m *Metrics) RecordK8sOperation(ctx context.Context, operation, resourceType, namespace, status string, duration time.Duration) {
 	if m.k8sOperationsTotal == nil || m.k8sOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
 	attrs := []attribute.KeyValue{
-		attribute.String("operation", operation),
-		attribute.String("resource_type", resourceType),
-		attribute.String("namespace", namespace),
-		attribute.String("status", status),
+		attribute.String(attrOperation, operation),
+		attribute.String(attrResourceType, resourceType),
+		attribute.String(attrNamespace, namespace),
+		attribute.String(attrStatus, status),
 	}
 
 	m.k8sOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
@@ -151,15 +170,18 @@ func (m *Metrics) RecordK8sOperation(ctx context.Context, operation, resourceTyp
 
 // RecordPodOperation records a Kubernetes pod operation with operation type, namespace,
 // status, and duration.
+//
+// CARDINALITY WARNING: Recording namespace as a label can create high cardinality
+// in large clusters with thousands of namespaces.
 func (m *Metrics) RecordPodOperation(ctx context.Context, operation, namespace, status string, duration time.Duration) {
 	if m.k8sPodOperationsTotal == nil || m.k8sPodOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
 	attrs := []attribute.KeyValue{
-		attribute.String("operation", operation),
-		attribute.String("namespace", namespace),
-		attribute.String("status", status),
+		attribute.String(attrOperation, operation),
+		attribute.String(attrNamespace, namespace),
+		attribute.String(attrStatus, status),
 	}
 
 	m.k8sPodOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
@@ -174,7 +196,7 @@ func (m *Metrics) RecordOAuthDownstreamAuth(ctx context.Context, result string) 
 	}
 
 	attrs := []attribute.KeyValue{
-		attribute.String("result", result),
+		attribute.String(attrResult, result),
 	}
 
 	m.oauthDownstreamAuthTotal.Add(ctx, 1, metric.WithAttributes(attrs...))

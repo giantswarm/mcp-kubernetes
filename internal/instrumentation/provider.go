@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -108,6 +109,8 @@ func (p *Provider) initMeterProvider(ctx context.Context, res *resource.Resource
 		reader = metric.NewPeriodicReader(exporter)
 
 	case "stdout":
+		// DEVELOPMENT ONLY WARNING
+		fmt.Fprint(os.Stderr, "⚠️  [mcp-kubernetes] Stdout metrics exporter enabled - for development/debugging only, not for production\n")
 		exporter, err := stdoutmetric.New()
 		if err != nil {
 			return fmt.Errorf("failed to create stdout metrics exporter: %w", err)
@@ -146,15 +149,27 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 		if p.config.OTLPEndpoint == "" {
 			return fmt.Errorf("OTLP endpoint is required for OTLP tracing exporter")
 		}
-		exporter, err = otlptracehttp.New(ctx,
+
+		opts := []otlptracehttp.Option{
 			otlptracehttp.WithEndpoint(p.config.OTLPEndpoint),
-			otlptracehttp.WithInsecure(), // TODO: Make this configurable
-		)
+		}
+
+		if p.config.OTLPInsecure {
+			// SECURITY WARNING: Traces may contain sensitive metadata
+			// Only use insecure transport for local development/testing
+			fmt.Fprint(os.Stderr, "⚠️  [mcp-kubernetes] OTLP insecure transport enabled - use only for development\n")
+			opts = append(opts, otlptracehttp.WithInsecure())
+		}
+		// If not insecure, the exporter will use TLS by default
+
+		exporter, err = otlptracehttp.New(ctx, opts...)
 		if err != nil {
 			return fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 		}
 
 	case "stdout":
+		// DEVELOPMENT ONLY WARNING
+		fmt.Fprint(os.Stderr, "⚠️  [mcp-kubernetes] Stdout traces exporter enabled - for development/debugging only, not for production\n")
 		exporter, err = stdouttrace.New()
 		if err != nil {
 			return fmt.Errorf("failed to create stdout trace exporter: %w", err)

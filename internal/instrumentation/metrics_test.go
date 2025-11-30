@@ -2,6 +2,7 @@ package instrumentation
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,4 +210,153 @@ func TestMetricConstants(t *testing.T) {
 			t.Errorf("operation constant should not be empty")
 		}
 	}
+}
+
+func TestMetrics_ConcurrentHTTPRecording(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			method := "GET"
+			if id%2 == 0 {
+				method = "POST"
+			}
+			statusCode := 200
+			if id%3 == 0 {
+				statusCode = 500
+			}
+			metrics.RecordHTTPRequest(ctx, method, "/test", statusCode, 10*time.Millisecond)
+		}(i)
+	}
+
+	wg.Wait()
+	// If we got here without panic or race conditions, the test passes
+}
+
+func TestMetrics_ConcurrentK8sOperationRecording(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			operation := OperationGet
+			if id%2 == 0 {
+				operation = OperationList
+			}
+			namespace := "default"
+			if id%3 == 0 {
+				namespace = "kube-system"
+			}
+			metrics.RecordK8sOperation(ctx, operation, "pods", namespace, StatusSuccess, 50*time.Millisecond)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestMetrics_ConcurrentPodOperationRecording(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			operation := OperationLogs
+			if id%2 == 0 {
+				operation = OperationExec
+			}
+			metrics.RecordPodOperation(ctx, operation, "default", StatusSuccess, 100*time.Millisecond)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestMetrics_ConcurrentOAuthRecording(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			result := OAuthResultSuccess
+			if id%3 == 0 {
+				result = OAuthResultFallback
+			} else if id%3 == 1 {
+				result = OAuthResultFailure
+			}
+			metrics.RecordOAuthDownstreamAuth(ctx, result)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestMetrics_ConcurrentSessionTracking(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 2)
+
+	// Half incrementing, half decrementing
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			metrics.IncrementActiveSessions(ctx)
+		}()
+		go func() {
+			defer wg.Done()
+			metrics.DecrementActiveSessions(ctx)
+		}()
+	}
+
+	wg.Wait()
+	// Final count should be around 0, but we can't easily verify this
+	// The important thing is no race conditions or panics
 }

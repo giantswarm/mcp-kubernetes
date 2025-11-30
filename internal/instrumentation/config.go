@@ -14,7 +14,8 @@ type Config struct {
 	// ServiceVersion is the version of the service
 	ServiceVersion string
 
-	// Enabled determines if instrumentation is active (default: true)
+	// Enabled determines if instrumentation is active (default: false for zero overhead)
+	// Set to true via INSTRUMENTATION_ENABLED=true to enable metrics and tracing
 	Enabled bool
 
 	// MetricsExporter specifies the metrics exporter type
@@ -29,6 +30,13 @@ type Config struct {
 	// Example: "http://localhost:4318"
 	OTLPEndpoint string
 
+	// OTLPInsecure controls whether to use insecure HTTP for OTLP export
+	// When false (default), uses TLS for secure transport
+	// Set to true only for local development or testing with unencrypted endpoints
+	// WARNING: Never use insecure transport in production - traces may contain
+	// sensitive metadata and should be encrypted in transit
+	OTLPInsecure bool
+
 	// TraceSamplingRate is the sampling rate for traces (0.0 to 1.0, default: 0.1)
 	TraceSamplingRate float64
 
@@ -41,10 +49,11 @@ func DefaultConfig() Config {
 	config := Config{
 		ServiceName:        getEnvOrDefault("OTEL_SERVICE_NAME", "mcp-kubernetes"),
 		ServiceVersion:     "unknown",
-		Enabled:            getEnvBoolOrDefault("INSTRUMENTATION_ENABLED", true),
+		Enabled:            getEnvBoolOrDefault("INSTRUMENTATION_ENABLED", false),
 		MetricsExporter:    getEnvOrDefault("METRICS_EXPORTER", "prometheus"),
 		TracingExporter:    getEnvOrDefault("TRACING_EXPORTER", "none"),
 		OTLPEndpoint:       getEnvOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		OTLPInsecure:       getEnvBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", false),
 		TraceSamplingRate:  getEnvFloatOrDefault("OTEL_TRACES_SAMPLER_ARG", 0.1),
 		PrometheusEndpoint: getEnvOrDefault("PROMETHEUS_ENDPOINT", "/metrics"),
 	}

@@ -27,6 +27,21 @@
 // OAuth Authentication Metrics:
 //   - oauth_downstream_auth_total: Counter of OAuth authentication events by result
 //
+// # Cardinality Considerations
+//
+// IMPORTANT: Some metrics include labels like namespace, resource_type, and pod names
+// which can create high cardinality in large Kubernetes clusters. In production
+// environments with >1000 namespaces or pods, consider:
+//   - Using sampling to reduce metric volume
+//   - Aggregating metrics at a higher level (e.g., by operation type only)
+//   - Using distributed tracing for detailed per-resource debugging
+//   - Monitoring cardinality in your metrics backend (Prometheus, etc.)
+//
+// High cardinality can lead to:
+//   - Increased memory usage in metrics backends
+//   - Slower query performance
+//   - Higher storage costs
+//
 // # Tracing
 //
 // Distributed tracing spans are created for:
