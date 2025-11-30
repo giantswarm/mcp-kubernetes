@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 )
@@ -23,8 +24,11 @@ type ServerContext struct {
 	clientFactory   k8s.ClientFactory
 	downstreamOAuth bool
 
-	// Metrics tracking
+	// Legacy metrics tracking (deprecated - use instrumentation provider instead)
 	metrics *Metrics
+
+	// OpenTelemetry instrumentation provider
+	instrumentationProvider *instrumentation.Provider
 
 	// Context management
 	ctx    context.Context
@@ -54,21 +58,24 @@ func NewMetrics() *Metrics {
 	return &Metrics{}
 }
 
-// IncrementPerUserAuthSuccess increments the per-user auth success counter
+// IncrementPerUserAuthSuccess increments the per-user auth success counter.
+// Deprecated: Use instrumentation provider's RecordOAuthDownstreamAuth instead.
 func (m *Metrics) IncrementPerUserAuthSuccess() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.PerUserAuthSuccess++
 }
 
-// IncrementPerUserAuthFallback increments the fallback counter
+// IncrementPerUserAuthFallback increments the fallback counter.
+// Deprecated: Use instrumentation provider's RecordOAuthDownstreamAuth instead.
 func (m *Metrics) IncrementPerUserAuthFallback() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.PerUserAuthFallback++
 }
 
-// IncrementBearerClientFailures increments the bearer client failure counter
+// IncrementBearerClientFailures increments the bearer client failure counter.
+// Deprecated: Use instrumentation provider's RecordOAuthDownstreamAuth instead.
 func (m *Metrics) IncrementBearerClientFailures() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -149,6 +156,10 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 		// No access token in context, fall back to shared client
 		sc.logger.Debug("No access token in context, using shared client")
 		sc.metrics.IncrementPerUserAuthFallback()
+		// Record OAuth metrics with instrumentation
+		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFallback)
+		}
 		return sc.k8sClient
 	}
 
@@ -158,11 +169,19 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 		sc.logger.Warn("Failed to create bearer token client, using shared client", "error", err)
 		sc.metrics.IncrementBearerClientFailures()
 		sc.metrics.IncrementPerUserAuthFallback()
+		// Record OAuth metrics with instrumentation
+		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFailure)
+		}
 		return sc.k8sClient
 	}
 
 	sc.logger.Debug("Created bearer token client for user request")
 	sc.metrics.IncrementPerUserAuthSuccess()
+	// Record OAuth metrics with instrumentation
+	if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+		sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)
+	}
 	return client
 }
 
@@ -180,11 +199,19 @@ func (sc *ServerContext) ClientFactory() k8s.ClientFactory {
 	return sc.clientFactory
 }
 
-// Metrics returns the metrics tracker.
+// Metrics returns the legacy metrics tracker.
+// Deprecated: Use InstrumentationProvider instead.
 func (sc *ServerContext) Metrics() *Metrics {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.metrics
+}
+
+// InstrumentationProvider returns the OpenTelemetry instrumentation provider.
+func (sc *ServerContext) InstrumentationProvider() *instrumentation.Provider {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.instrumentationProvider
 }
 
 // Logger returns the logger interface.
@@ -313,6 +340,14 @@ func (sc *ServerContext) Shutdown() error {
 
 	// Clean up active port forwarding sessions
 	sc.cleanupPortForwardSessions()
+
+	// Shutdown instrumentation provider
+	if sc.instrumentationProvider != nil {
+		shutdownCtx := context.Background()
+		if err := sc.instrumentationProvider.Shutdown(shutdownCtx); err != nil {
+			sc.logger.Error("Failed to shutdown instrumentation provider", "error", err)
+		}
+	}
 
 	// Cancel the context
 	if sc.cancel != nil {

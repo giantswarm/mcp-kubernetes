@@ -166,6 +166,23 @@ mcpKubernetes:
     # The secret should contain keys: google-client-id, google-client-secret, dex-client-secret, registration-token, oauth-encryption-key (optional)
     existingSecret: ""
 
+  # OpenTelemetry Instrumentation configuration
+  instrumentation:
+    # Enable OpenTelemetry instrumentation (default: true)
+    enabled: true
+    # Metrics exporter type: prometheus, otlp, stdout (default: prometheus)
+    metricsExporter: "prometheus"
+    # Tracing exporter type: otlp, stdout, none (default: none)
+    tracingExporter: "none"
+    # OTLP endpoint for traces/metrics (required for otlp exporters)
+    otlpEndpoint: ""
+    # Trace sampling rate (0.0 to 1.0, default: 0.1)
+    traceSamplingRate: 0.1
+
+  # Service configuration
+  service:
+    port: 8080
+
   # Additional environment variables
   env: []
   # - name: EXAMPLE_VAR

@@ -13,10 +13,15 @@ spec:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
+        {{- if .Values.mcpKubernetes.instrumentation.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.mcpKubernetes.service.port }}"
+        prometheus.io/path: "/metrics"
+        {{- end }}
       labels:
         {{- include "mcp-kubernetes.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
@@ -122,6 +127,23 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
                   key: oauth-encryption-key
+            {{- end }}
+            {{- end }}
+            # OpenTelemetry Instrumentation environment variables
+            {{- if .Values.mcpKubernetes.instrumentation }}
+            - name: INSTRUMENTATION_ENABLED
+              value: {{ .Values.mcpKubernetes.instrumentation.enabled | default true | quote }}
+            - name: METRICS_EXPORTER
+              value: {{ .Values.mcpKubernetes.instrumentation.metricsExporter | default "prometheus" | quote }}
+            - name: TRACING_EXPORTER
+              value: {{ .Values.mcpKubernetes.instrumentation.tracingExporter | default "none" | quote }}
+            {{- if .Values.mcpKubernetes.instrumentation.otlpEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.mcpKubernetes.instrumentation.otlpEndpoint | quote }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.instrumentation.traceSamplingRate }}
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.mcpKubernetes.instrumentation.traceSamplingRate | quote }}
             {{- end }}
             {{- end }}
             {{- with .Values.mcpKubernetes.env }}
