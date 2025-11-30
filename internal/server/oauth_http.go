@@ -7,15 +7,27 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
+	oauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/providers/google"
+	"github.com/giantswarm/mcp-oauth/security"
+	oauthserver "github.com/giantswarm/mcp-oauth/server"
+	"github.com/giantswarm/mcp-oauth/storage"
+	"github.com/giantswarm/mcp-oauth/storage/memory"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
+	mcpoauth "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
+	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
 
 const (
+	// DefaultOAuthScopes are the default Google OAuth scopes for Kubernetes management
+	DefaultOAuthScopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
+
+	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (90 days)
+	DefaultRefreshTokenTTL = 90 * 24 * time.Hour
+
 	// DefaultIPRateLimit is the default rate limit for requests per IP (requests/second)
 	DefaultIPRateLimit = 10
 
@@ -27,6 +39,9 @@ const (
 
 	// DefaultUserBurst is the default burst size for authenticated user rate limiting
 	DefaultUserBurst = 200
+
+	// DefaultMaxClientsPerIP is the default maximum number of clients per IP address
+	DefaultMaxClientsPerIP = 10
 
 	// DefaultReadHeaderTimeout is the default timeout for reading request headers
 	DefaultReadHeaderTimeout = 10 * time.Second
@@ -41,271 +56,237 @@ const (
 	DefaultShutdownTimeout = 30 * time.Second
 )
 
-// OAuthConfig holds configuration for OAuth server creation
+// OAuthConfig holds MCP-specific OAuth configuration
+// Uses the mcp-oauth library's types directly to avoid duplication
 type OAuthConfig struct {
-	BaseURL            string
-	GoogleClientID     string
+	// BaseURL is the MCP server base URL (e.g., https://mcp.example.com)
+	BaseURL string
+
+	// GoogleClientID is the Google OAuth Client ID
+	GoogleClientID string
+
+	// GoogleClientSecret is the Google OAuth Client Secret
 	GoogleClientSecret string
-	DisableStreaming   bool
-	DebugMode          bool // Enable debug logging
 
-	// Security Settings (secure by default)
-	// See oauth.Config for detailed documentation
-	AllowPublicClientRegistration bool   // Default: false (requires registration token)
-	RegistrationAccessToken       string // Required if AllowPublicClientRegistration=false
-	AllowInsecureAuthWithoutState bool   // Default: false (state parameter required)
-	MaxClientsPerIP               int    // Default: 10 (prevents DoS)
-	EncryptionKey                 []byte // AES-256 key for token encryption (32 bytes)
+	// DisableStreaming disables streaming for streamable-http transport
+	DisableStreaming bool
 
-	// HTTP Security Settings
-	EnableHSTS     bool   // Enable HSTS header (for reverse proxy scenarios)
-	AllowedOrigins string // Comma-separated list of allowed CORS origins
+	// DebugMode enables debug logging
+	DebugMode bool
 
-	// Interstitial page branding configuration
+	// EncryptionKey is the AES-256 key for encrypting tokens at rest (32 bytes)
+	// If empty, tokens are stored unencrypted in memory
+	EncryptionKey []byte
+
+	// RegistrationAccessToken is the token required for client registration
+	// Required if AllowPublicClientRegistration is false
+	RegistrationAccessToken string
+
+	// AllowPublicClientRegistration allows unauthenticated dynamic client registration
+	// WARNING: This can lead to DoS attacks. Default: false
+	AllowPublicClientRegistration bool
+
+	// AllowInsecureAuthWithoutState allows authorization requests without state parameter
+	// WARNING: Disabling this weakens CSRF protection. Default: false
+	AllowInsecureAuthWithoutState bool
+
+	// MaxClientsPerIP limits the number of clients that can be registered per IP
+	MaxClientsPerIP int
+
+	// EnableHSTS enables HSTS header (for reverse proxy scenarios)
+	EnableHSTS bool
+
+	// AllowedOrigins is a comma-separated list of allowed CORS origins
+	AllowedOrigins string
+
+	// Interstitial configures the OAuth success page for custom URL schemes
 	// If nil, uses the default mcp-oauth interstitial page
-	Interstitial *oauth.InterstitialConfig
+	Interstitial *oauthserver.InterstitialConfig
 }
 
 // OAuthHTTPServer wraps an MCP server with OAuth 2.1 authentication
 type OAuthHTTPServer struct {
 	mcpServer        *mcpserver.MCPServer
+	oauthServer      *oauth.Server
 	oauthHandler     *oauth.Handler
-	tokenProvider    *oauth.TokenProvider
+	tokenStore       storage.TokenStore
 	httpServer       *http.Server
 	serverType       string // "streamable-http"
 	disableStreaming bool
 }
 
-// buildOAuthConfig converts OAuthConfig to oauth.Config
-// This eliminates code duplication between NewOAuthHTTPServer and CreateOAuthHandler
-func buildOAuthConfig(config OAuthConfig) *oauth.Config {
+// createOAuthServer creates an OAuth server using mcp-oauth library directly
+func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, error) {
 	// Create logger with appropriate level
 	var logger *slog.Logger
 	if config.DebugMode {
-		// Debug level logging
 		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		}))
 		logger.Debug("Debug logging enabled for OAuth handler")
 	} else {
-		// Info level logging (default)
 		logger = slog.Default()
 	}
 
-	oauthConfig := &oauth.Config{
-		BaseURL:            config.BaseURL,
-		GoogleClientID:     config.GoogleClientID,
-		GoogleClientSecret: config.GoogleClientSecret,
-		Logger:             logger,
-		Security: oauth.SecurityConfig{
-			AllowPublicClientRegistration: config.AllowPublicClientRegistration,
-			RegistrationAccessToken:       config.RegistrationAccessToken,
-			AllowInsecureAuthWithoutState: config.AllowInsecureAuthWithoutState,
-			MaxClientsPerIP:               config.MaxClientsPerIP,
-			EncryptionKey:                 config.EncryptionKey,
-			EnableAuditLogging:            true, // Always enable audit logging
-		},
-		RateLimit: oauth.RateLimitConfig{
-			Rate:      DefaultIPRateLimit,
-			Burst:     DefaultIPBurst,
-			UserRate:  DefaultUserRateLimit,
-			UserBurst: DefaultUserBurst,
-		},
+	// Create Google provider
+	redirectURL := config.BaseURL + "/oauth/callback"
+	scopes := []string{
+		"https://www.googleapis.com/auth/cloud-platform",
+		"https://www.googleapis.com/auth/userinfo.email",
+		"https://www.googleapis.com/auth/userinfo.profile",
+	}
+	provider, err := google.NewProvider(&google.Config{
+		ClientID:     config.GoogleClientID,
+		ClientSecret: config.GoogleClientSecret,
+		RedirectURL:  redirectURL,
+		Scopes:       scopes,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
 	}
 
-	// Pass through interstitial config if provided
+	// Create memory storage
+	store := memory.New()
+
+	// Set defaults
+	maxClientsPerIP := config.MaxClientsPerIP
+	if maxClientsPerIP == 0 {
+		maxClientsPerIP = DefaultMaxClientsPerIP
+	}
+
+	// Create server configuration using library types directly
+	serverConfig := &oauthserver.Config{
+		Issuer:                        config.BaseURL,
+		RefreshTokenTTL:               int64(DefaultRefreshTokenTTL.Seconds()),
+		AllowRefreshTokenRotation:     true,  // OAuth 2.1 best practice
+		RequirePKCE:                   true,  // OAuth 2.1 requirement
+		AllowPKCEPlain:                false, // Only S256, not plain
+		AllowPublicClientRegistration: config.AllowPublicClientRegistration,
+		RegistrationAccessToken:       config.RegistrationAccessToken,
+		AllowNoStateParameter:         config.AllowInsecureAuthWithoutState,
+		MaxClientsPerIP:               maxClientsPerIP,
+	}
+
+	// Configure interstitial page branding if provided
 	if config.Interstitial != nil {
-		oauthConfig.Interstitial = config.Interstitial
+		serverConfig.Interstitial = config.Interstitial
 	}
 
-	return oauthConfig
+	// Create OAuth server
+	server, err := oauth.NewServer(
+		provider,
+		store, // TokenStore
+		store, // ClientStore
+		store, // FlowStore
+		serverConfig,
+		logger,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
+	}
+
+	// Set up encryption if key provided
+	if len(config.EncryptionKey) > 0 {
+		encryptor, err := security.NewEncryptor(config.EncryptionKey)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+		}
+		server.SetEncryptor(encryptor)
+		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
+	}
+
+	// Set up audit logging (always enabled for security)
+	auditor := security.NewAuditor(logger, true)
+	server.SetAuditor(auditor)
+	logger.Info("Security audit logging enabled")
+
+	// Set up IP-based rate limiting
+	ipRateLimiter := security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)
+	server.SetRateLimiter(ipRateLimiter)
+	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
+
+	// Set up user-based rate limiting
+	userRateLimiter := security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)
+	server.SetUserRateLimiter(userRateLimiter)
+	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
+
+	// Set up client registration rate limiting
+	clientRegRL := security.NewClientRegistrationRateLimiter(logger)
+	server.SetClientRegistrationRateLimiter(clientRegRL)
+
+	return server, store, nil
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server
 func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, config OAuthConfig) (*OAuthHTTPServer, error) {
-	oauthHandler, err := oauth.NewHandler(buildOAuthConfig(config))
+	oauthServer, tokenStore, err := createOAuthServer(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OAuth handler: %w", err)
+		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Create token provider for downstream OAuth passthrough
-	tokenProvider := oauth.NewTokenProvider(oauthHandler.GetStore())
+	// Create HTTP handler
+	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
 
 	return &OAuthHTTPServer{
 		mcpServer:        mcpServer,
+		oauthServer:      oauthServer,
 		oauthHandler:     oauthHandler,
-		tokenProvider:    tokenProvider,
+		tokenStore:       tokenStore,
 		serverType:       serverType,
 		disableStreaming: config.DisableStreaming,
 	}, nil
 }
 
-// CreateOAuthHandler creates an OAuth handler for use with HTTP transport
-// This allows creating the handler before the server to inject the token provider
-func CreateOAuthHandler(config OAuthConfig) (*oauth.Handler, error) {
-	return oauth.NewHandler(buildOAuthConfig(config))
+// CreateOAuthServer creates an OAuth server for use with HTTP transport
+// This allows creating the server before the HTTP server to inject the token store
+func CreateOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, error) {
+	return createOAuthServer(config)
 }
 
-// NewOAuthHTTPServerWithHandler creates a new OAuth-enabled HTTP server with an existing handler
-func NewOAuthHTTPServerWithHandler(mcpServer *mcpserver.MCPServer, serverType string, oauthHandler *oauth.Handler, disableStreaming bool) (*OAuthHTTPServer, error) {
-	// Create token provider for downstream OAuth passthrough
-	tokenProvider := oauth.NewTokenProvider(oauthHandler.GetStore())
+// NewOAuthHTTPServerWithServer creates a new OAuth-enabled HTTP server with an existing OAuth server
+func NewOAuthHTTPServerWithServer(mcpServer *mcpserver.MCPServer, serverType string, oauthServer *oauth.Server, tokenStore storage.TokenStore, disableStreaming bool) (*OAuthHTTPServer, error) {
+	// Create HTTP handler
+	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
 
 	return &OAuthHTTPServer{
 		mcpServer:        mcpServer,
+		oauthServer:      oauthServer,
 		oauthHandler:     oauthHandler,
-		tokenProvider:    tokenProvider,
+		tokenStore:       tokenStore,
 		serverType:       serverType,
 		disableStreaming: disableStreaming,
 	}, nil
 }
 
-// securityHeadersMiddleware adds security headers to all HTTP responses
-func securityHeadersMiddleware(hstsEnabled bool) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Prevent MIME sniffing
-			w.Header().Set("X-Content-Type-Options", "nosniff")
-
-			// Prevent clickjacking
-			w.Header().Set("X-Frame-Options", "DENY")
-
-			// Force HTTPS (configurable for reverse proxy scenarios)
-			if r.TLS != nil || hstsEnabled {
-				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-			}
-
-			// Prevent XSS
-			w.Header().Set("X-XSS-Protection", "1; mode=block")
-
-			// Restrict referrer information
-			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-
-			// Content Security Policy
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
-
-			// Permissions Policy - restrict dangerous features
-			w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=()")
-
-			// Cross-Origin policies for additional isolation
-			w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-			w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
-			w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// corsMiddleware adds CORS headers for OAuth endpoints with validated origins
-func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-
-			// If allowed origins is configured, check if origin is allowed
-			if len(allowedOrigins) > 0 && origin != "" {
-				for _, allowed := range allowedOrigins {
-					if origin == allowed {
-						w.Header().Set("Access-Control-Allow-Origin", origin)
-						w.Header().Set("Vary", "Origin")
-						break
-					}
-				}
-			}
-
-			// Set CORS headers
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-			w.Header().Set("Access-Control-Max-Age", "3600")
-
-			// Handle preflight requests
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// validateAllowedOrigins validates and normalizes allowed CORS origins
-func validateAllowedOrigins(originsEnv string) ([]string, error) {
-	if originsEnv == "" {
-		return nil, nil
-	}
-
-	origins := strings.Split(originsEnv, ",")
-	validated := make([]string, 0, len(origins))
-
-	for _, origin := range origins {
-		origin = strings.TrimSpace(origin)
-		if origin == "" {
-			continue
-		}
-
-		// Validate URL format
-		u, err := url.Parse(origin)
-		if err != nil {
-			return nil, fmt.Errorf("invalid origin URL %q: %w", origin, err)
-		}
-
-		// Must have scheme and host
-		if u.Scheme == "" || u.Host == "" {
-			return nil, fmt.Errorf("origin %q must include scheme and host (e.g., https://example.com)", origin)
-		}
-
-		// Only allow http/https
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return nil, fmt.Errorf("origin %q must use http or https scheme", origin)
-		}
-
-		// No path, query, or fragment allowed
-		if u.Path != "" && u.Path != "/" {
-			return nil, fmt.Errorf("origin %q should not include path", origin)
-		}
-
-		// Normalize by removing trailing slash and using scheme://host:port format
-		normalized := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
-		validated = append(validated, normalized)
-	}
-
-	return validated, nil
-}
-
 // setupOAuthRoutes registers OAuth 2.1 endpoints on the mux
 func (s *OAuthHTTPServer) setupOAuthRoutes(mux *http.ServeMux) {
-	libHandler := s.oauthHandler.GetHandler()
-
 	// Protected Resource Metadata endpoint (RFC 9728)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", libHandler.ServeProtectedResourceMetadata)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", s.oauthHandler.ServeProtectedResourceMetadata)
 
 	// Authorization Server Metadata endpoint (RFC 8414)
-	mux.HandleFunc("/.well-known/oauth-authorization-server", libHandler.ServeAuthorizationServerMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", s.oauthHandler.ServeAuthorizationServerMetadata)
 
 	// Dynamic Client Registration endpoint (RFC 7591)
-	mux.HandleFunc("/oauth/register", libHandler.ServeClientRegistration)
+	mux.HandleFunc("/oauth/register", s.oauthHandler.ServeClientRegistration)
 
 	// OAuth Authorization endpoint
-	mux.HandleFunc("/oauth/authorize", libHandler.ServeAuthorization)
+	mux.HandleFunc("/oauth/authorize", s.oauthHandler.ServeAuthorization)
 
 	// OAuth Token endpoint
-	mux.HandleFunc("/oauth/token", libHandler.ServeToken)
+	mux.HandleFunc("/oauth/token", s.oauthHandler.ServeToken)
 
 	// OAuth Callback endpoint (from provider)
-	mux.HandleFunc("/oauth/callback", libHandler.ServeCallback)
+	mux.HandleFunc("/oauth/callback", s.oauthHandler.ServeCallback)
 
 	// Token Revocation endpoint (RFC 7009)
-	mux.HandleFunc("/oauth/revoke", libHandler.ServeTokenRevocation)
+	mux.HandleFunc("/oauth/revoke", s.oauthHandler.ServeTokenRevocation)
 
 	// Token Introspection endpoint (RFC 7662)
-	mux.HandleFunc("/oauth/introspect", libHandler.ServeTokenIntrospection)
+	mux.HandleFunc("/oauth/introspect", s.oauthHandler.ServeTokenIntrospection)
 }
 
 // setupMCPRoutes registers MCP endpoints on the mux
 func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
-	libHandler := s.oauthHandler.GetHandler()
 
 	switch s.serverType {
 	case "streamable-http":
@@ -327,7 +308,7 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 
 		// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
 		// Then our injector adds the access token for downstream use
-		mux.Handle("/mcp", libHandler.ValidateToken(accessTokenInjector))
+		mux.Handle("/mcp", s.oauthHandler.ValidateToken(accessTokenInjector))
 
 		return nil
 	default:
@@ -338,13 +319,13 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 // validateStartConfig validates the configuration before starting the server
 func (s *OAuthHTTPServer) validateStartConfig(config OAuthConfig) ([]string, error) {
 	// Validate HTTPS requirement for OAuth 2.1
-	baseURL := s.oauthHandler.GetServer().Config.Issuer
+	baseURL := s.oauthServer.Config.Issuer
 	if err := validateHTTPSRequirement(baseURL); err != nil {
 		return nil, err
 	}
 
 	// Validate and parse allowed CORS origins
-	allowedOrigins, err := validateAllowedOrigins(config.AllowedOrigins)
+	allowedOrigins, err := middleware.ValidateAllowedOrigins(config.AllowedOrigins)
 	if err != nil {
 		return nil, fmt.Errorf("invalid ALLOWED_ORIGINS: %w", err)
 	}
@@ -371,7 +352,7 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 	}
 
 	// Create HTTP server with security and CORS middleware
-	handler := securityHeadersMiddleware(config.EnableHSTS)(corsMiddleware(allowedOrigins)(mux))
+	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
 
 	s.httpServer = &http.Server{
 		Addr:              addr,
@@ -387,9 +368,11 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 
 // Shutdown gracefully shuts down the server
 func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
-	// Stop the OAuth handler's background services
-	if s.oauthHandler != nil {
-		s.oauthHandler.Stop()
+	// Shutdown OAuth server (handles rate limiters, storage cleanup, etc.)
+	if s.oauthServer != nil {
+		if err := s.oauthServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("failed to shutdown OAuth server: %w", err)
+		}
 	}
 
 	// Shutdown HTTP server
@@ -399,14 +382,19 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// GetOAuthServer returns the OAuth server for testing or direct access
+func (s *OAuthHTTPServer) GetOAuthServer() *oauth.Server {
+	return s.oauthServer
+}
+
 // GetOAuthHandler returns the OAuth handler for testing or direct access
 func (s *OAuthHTTPServer) GetOAuthHandler() *oauth.Handler {
 	return s.oauthHandler
 }
 
-// GetTokenProvider returns the token provider for downstream OAuth passthrough
-func (s *OAuthHTTPServer) GetTokenProvider() *oauth.TokenProvider {
-	return s.tokenProvider
+// GetTokenStore returns the token store for downstream OAuth passthrough
+func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
+	return s.tokenStore
 }
 
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's
@@ -417,16 +405,16 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		ctx := r.Context()
 
 		// Get user info from context (set by ValidateToken middleware)
-		userInfo, ok := oauth.GetUserFromContext(ctx)
+		userInfo, ok := oauth.UserInfoFromContext(ctx)
 		if ok && userInfo != nil && userInfo.Email != "" {
 			// Retrieve the user's stored Google OAuth token
-			token, err := s.tokenProvider.GetToken(ctx, userInfo.Email)
+			token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
 			if err == nil && token != nil {
 				// Extract the ID token for Kubernetes OIDC authentication
 				// Kubernetes OIDC validates the ID token, not the access token
-				idToken := oauth.GetIDToken(token)
+				idToken := mcpoauth.GetIDToken(token)
 				if idToken != "" {
-					ctx = oauth.ContextWithAccessToken(ctx, idToken)
+					ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
 					r = r.WithContext(ctx)
 				}
 			}
