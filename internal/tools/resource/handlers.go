@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -73,6 +74,16 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	labelSelector, _ := args["labelSelector"].(string)
 	fieldSelector, _ := args["fieldSelector"].(string)
 
+	// Client-side filtering parameter
+	var filterCriteria FilterCriteria
+	if filterArg, ok := args["filter"]; ok {
+		filterMap, ok := filterArg.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("filter parameter must be an object/map"), nil
+		}
+		filterCriteria = filterMap
+	}
+
 	// New parameters for controlling output format
 	fullOutput, _ := args["fullOutput"].(bool)
 	includeLabels, _ := args["includeLabels"].(bool)
@@ -104,6 +115,22 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	paginatedResponse, err := k8sClient.List(ctx, kubeContext, namespace, resourceType, opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
+	}
+
+	// Apply client-side filtering if criteria provided
+	if len(filterCriteria) > 0 {
+		filteredItems, err := ApplyClientSideFilter(paginatedResponse.Items, filterCriteria)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid filter criteria: %v", err)), nil
+		}
+		paginatedResponse.Items = filteredItems
+		paginatedResponse.TotalItems = len(paginatedResponse.Items)
+
+		// Warn on large result sets after filtering (potential performance issue)
+		if paginatedResponse.TotalItems > 1000 {
+			log.Printf("[WARN] Large result set after client-side filtering: %d items (resource: %s, criteria: %d filters)",
+				paginatedResponse.TotalItems, resourceType, len(filterCriteria))
+		}
 	}
 
 	if fullOutput {
