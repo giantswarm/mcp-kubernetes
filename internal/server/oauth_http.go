@@ -24,6 +24,10 @@ import (
 )
 
 const (
+	// OAuth provider constants
+	OAuthProviderDex    = "dex"
+	OAuthProviderGoogle = "google"
+
 	// DefaultOAuthScopes are the default Google OAuth scopes for Kubernetes management
 	DefaultOAuthScopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
 
@@ -56,6 +60,18 @@ const (
 
 	// DefaultShutdownTimeout is the default timeout for graceful server shutdown
 	DefaultShutdownTimeout = 30 * time.Second
+)
+
+var (
+	// dexOAuthScopes are the OAuth scopes requested when using Dex OIDC provider
+	dexOAuthScopes = []string{"openid", "profile", "email", "groups", "offline_access"}
+
+	// googleOAuthScopes are the OAuth scopes requested when using Google OAuth provider
+	googleOAuthScopes = []string{
+		"https://www.googleapis.com/auth/cloud-platform",
+		"https://www.googleapis.com/auth/userinfo.email",
+		"https://www.googleapis.com/auth/userinfo.profile",
+	}
 )
 
 // OAuthConfig holds MCP-specific OAuth configuration
@@ -145,21 +161,18 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		logger = slog.Default()
 	}
 
-	// Create OAuth provider based on configuration
 	redirectURL := config.BaseURL + "/oauth/callback"
 	var provider providers.Provider
 	var err error
 
 	switch config.Provider {
-	case "dex":
-		// Dex OIDC provider with groups support
-		scopes := []string{"openid", "profile", "email", "groups", "offline_access"}
+	case OAuthProviderDex:
 		dexConfig := &dex.Config{
 			IssuerURL:    config.DexIssuerURL,
 			ClientID:     config.DexClientID,
 			ClientSecret: config.DexClientSecret,
 			RedirectURL:  redirectURL,
-			Scopes:       scopes,
+			Scopes:       dexOAuthScopes,
 		}
 		// Add optional connector ID if provided (bypasses connector selection)
 		if config.DexConnectorID != "" {
@@ -171,18 +184,12 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		}
 		logger.Info("Using Dex OIDC provider", "issuer", config.DexIssuerURL)
 
-	case "google":
-		// Google OAuth provider
-		scopes := []string{
-			"https://www.googleapis.com/auth/cloud-platform",
-			"https://www.googleapis.com/auth/userinfo.email",
-			"https://www.googleapis.com/auth/userinfo.profile",
-		}
+	case OAuthProviderGoogle:
 		provider, err = google.NewProvider(&google.Config{
 			ClientID:     config.GoogleClientID,
 			ClientSecret: config.GoogleClientSecret,
 			RedirectURL:  redirectURL,
-			Scopes:       scopes,
+			Scopes:       googleOAuthScopes,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
@@ -190,7 +197,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		logger.Info("Using Google OAuth provider")
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: dex, google)", config.Provider)
+		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
 	// Create memory storage

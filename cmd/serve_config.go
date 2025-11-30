@@ -1,6 +1,15 @@
 package cmd
 
-import "log"
+import (
+	"log"
+	"os"
+)
+
+// OAuth provider constants
+const (
+	OAuthProviderDex    = "dex"
+	OAuthProviderGoogle = "google"
+)
 
 // simpleLogger provides basic logging for the Kubernetes client
 type simpleLogger struct{}
@@ -62,4 +71,11 @@ type OAuthServeConfig struct {
 	AllowInsecureAuthWithoutState bool
 	MaxClientsPerIP               int
 	EncryptionKey                 string
+}
+
+// loadEnvIfEmpty loads an environment variable into a string pointer if it's empty.
+func loadEnvIfEmpty(target *string, envKey string) {
+	if *target == "" {
+		*target = os.Getenv(envKey)
+	}
 }
