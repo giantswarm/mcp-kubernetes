@@ -109,7 +109,7 @@ mcpKubernetes:
     inCluster: true
     # Kubeconfig path (if not using in-cluster config)
     kubeconfig: ""
-  
+
   # OAuth 2.1 configuration
   oauth:
     # Enable OAuth 2.1 authentication
@@ -149,7 +149,7 @@ mcpKubernetes:
     # Use an existing secret for OAuth credentials
     # The secret should contain keys: google-client-id, google-client-secret, registration-token, oauth-encryption-key (optional)
     existingSecret: ""
-  
+
   # Additional environment variables
   env: []
   # - name: EXAMPLE_VAR
