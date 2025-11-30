@@ -262,46 +262,211 @@ For development, you can use:
 - `http://localhost:8080`
 - `http://127.0.0.1:8080`
 
-### Client Registration Token
+### Security Best Practices
+
+#### Production Configuration Checklist
+
+**CRITICAL - Never deploy to production with these settings:**
+
+```bash
+# ❌ INSECURE - Do not use in production
+--allow-public-registration=true          # Allows unlimited client registration (DoS risk)
+--allow-insecure-auth-without-state=true  # Weakens CSRF protection
+--debug=true                              # May log sensitive information
+```
+
+**✅ RECOMMENDED - Production configuration:**
+
+```bash
+# Secure production settings
+--allow-public-registration=false          # Require registration token
+--registration-token=STRONG_RANDOM_TOKEN  # Use cryptographically random token
+--allow-insecure-auth-without-state=false # Enforce state parameter for CSRF protection
+--oauth-encryption-key=$(openssl rand -base64 32)  # Enable token encryption
+```
+
+#### Client Registration Token
 
 By default, client registration requires a bearer token for security. You can:
 
-1. **Use a registration token** (recommended):
+1. **Use a registration token** (✅ RECOMMENDED for production):
    ```bash
-   --registration-token=YOUR_SECURE_RANDOM_TOKEN
+   # Generate a secure random token
+   REGISTRATION_TOKEN=$(openssl rand -hex 32)
+   --registration-token=$REGISTRATION_TOKEN
    ```
 
-2. **Allow public registration** (NOT RECOMMENDED for production):
+2. **Allow public registration** (❌ NOT RECOMMENDED for production):
    ```bash
-   --allow-public-registration
+   # Only for development/testing
+   --allow-public-registration=true
    ```
+   **Warning**: This allows unlimited client registration and may lead to denial-of-service attacks.
+
+#### Token Encryption at Rest
+
+**REQUIRED for production**: Encrypt tokens at rest using AES-256-GCM:
+
+```bash
+# Generate a 32-byte encryption key (base64 encoded)
+OAUTH_ENCRYPTION_KEY=$(openssl rand -base64 32)
+
+# Pass to server
+--oauth-encryption-key=$OAUTH_ENCRYPTION_KEY
+
+# Or via environment variable
+export OAUTH_ENCRYPTION_KEY=$(openssl rand -base64 32)
+```
+
+**Important**: Store the encryption key securely (e.g., in Kubernetes Secret, HashiCorp Vault, AWS Secrets Manager). The key must be:
+- Exactly 32 bytes (after base64 decoding)
+- Base64 encoded
+- Stored securely and never committed to version control
+
+#### CORS Configuration
+
+When configuring CORS origins, validate all URLs:
+
+```bash
+# Valid CORS origins (must include scheme and host)
+export ALLOWED_ORIGINS="https://app.example.com,https://admin.example.com"
+
+# ❌ INVALID - will be rejected
+export ALLOWED_ORIGINS="example.com"  # Missing scheme
+export ALLOWED_ORIGINS="https://example.com/path"  # Paths not allowed
+```
+
+The server validates:
+- All origins must use `http` or `https` scheme
+- Must include host (with optional port)
+- No path, query, or fragment components
+- Normalizes to `scheme://host:port` format
+
+#### Security Headers
+
+The server automatically adds comprehensive security headers:
+
+- **HSTS**: Enabled for HTTPS connections (or via `ENABLE_HSTS=true` for reverse proxies)
+- **Content Security Policy**: Restricts resource loading
+- **Permissions Policy**: Disables dangerous browser features
+- **Cross-Origin Policies**: Isolation from other origins
+- **X-Frame-Options**: Prevents clickjacking
+- **X-Content-Type-Options**: Prevents MIME sniffing
+
+For reverse proxy scenarios (e.g., behind ingress):
+```bash
+export ENABLE_HSTS=true  # Force HSTS header even without TLS termination
+```
 
 ### Rate Limiting
 
-The server implements rate limiting to prevent abuse:
+The server implements multi-layered rate limiting to prevent abuse:
 - **IP-based**: 10 req/sec per IP (burst: 20)
 - **User-based**: 100 req/sec per authenticated user (burst: 200)
-- **Client registration**: Prevents mass registration attacks
+- **Client registration**: Prevents mass registration attacks (max 10 clients per IP by default)
 
-### Token Encryption
-
-Tokens can be encrypted at rest using AES-256-GCM. To enable:
-
-```go
-// In code, when creating the OAuth config
-config := server.OAuthConfig{
-    // ... other config ...
-    EncryptionKey: []byte("your-32-byte-encryption-key-here"),
-}
+Configure limits:
+```bash
+--max-clients-per-ip=10  # Limit clients registered per IP address
 ```
 
 ### Audit Logging
 
-Security audit logging is enabled by default and logs:
-- Authentication events
-- Token operations
-- Security violations
+Security audit logging is **enabled by default** and logs:
+- Authentication events (success/failure)
+- Token operations (issue, refresh, revoke)
+- Security violations (rate limits, invalid tokens)
 - Client registration attempts
+
+Review logs regularly for:
+- Unusual authentication patterns
+- High rate of failed authentications
+- Unexpected client registrations
+- Token abuse patterns
+
+### Monitoring and Alerts
+
+The server tracks metrics for downstream OAuth operations:
+
+```go
+// Available metrics (accessible via sc.Metrics())
+metrics := sc.Metrics()
+success, fallback, failures := metrics.GetMetrics()
+
+// Track:
+// - PerUserAuthSuccess: Successful per-user K8s authentications
+// - PerUserAuthFallback: Fallbacks to service account
+// - BearerClientFailures: Failed bearer token client creations
+```
+
+**Recommended alerts**:
+- High fallback rate (>10% of requests)
+- Increasing bearer client failures
+- Unusual authentication patterns
+
+### Dependency Security
+
+The project includes automated vulnerability scanning:
+
+```bash
+# Run locally
+make govulncheck
+
+# Runs automatically in CI/CD on every pull request
+```
+
+**Dependencies**:
+- Primary OAuth library: `github.com/giantswarm/mcp-oauth v0.2.1`
+- Ensure regular updates for security patches
+- Review dependency updates before merging
+
+### Environment Variables
+
+**Never commit secrets to version control**. Use environment variables or secrets management:
+
+```bash
+# ✅ GOOD - Use environment variables
+export GOOGLE_CLIENT_SECRET="your-secret"
+export OAUTH_ENCRYPTION_KEY=$(openssl rand -base64 32)
+export REGISTRATION_TOKEN=$(openssl rand -hex 32)
+
+# ❌ BAD - Never hardcode secrets
+--google-client-secret="hardcoded-secret"  # Don't do this!
+```
+
+For Kubernetes deployments, use Secrets:
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mcp-oauth-credentials
+type: Opaque
+data:
+  google-client-id: <base64-encoded>
+  google-client-secret: <base64-encoded>
+  oauth-encryption-key: <base64-encoded-32-bytes>
+  registration-token: <base64-encoded>
+```
+
+### Security Checklist for Production
+
+Before deploying to production, verify:
+
+- [ ] HTTPS is enforced (not localhost)
+- [ ] `--allow-public-registration=false`
+- [ ] `--allow-insecure-auth-without-state=false`
+- [ ] `--debug=false` (debug logging disabled)
+- [ ] OAuth encryption key is set (32 bytes, base64 encoded)
+- [ ] Registration token is configured and secure
+- [ ] CORS origins are validated and minimal
+- [ ] Secrets are stored in secure secret management (not in code)
+- [ ] Rate limiting is enabled (default settings)
+- [ ] Audit logging is reviewed regularly
+- [ ] Dependency scanning is enabled in CI/CD
+- [ ] Container runs as non-root with minimal privileges
+- [ ] Resource limits are set appropriately
+- [ ] Network policies restrict unnecessary traffic
+- [ ] Regular security updates are applied
 
 ## Customizing the OAuth Success Page
 

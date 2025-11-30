@@ -316,20 +316,35 @@ func runServe(config ServeConfig) error {
 				return fmt.Errorf("--registration-token is required when public registration is disabled")
 			}
 
-			// Prepare encryption key if provided
+			// Prepare encryption key if provided (must be base64 encoded)
 			var encryptionKey []byte
 			if config.OAuth.EncryptionKey != "" {
-				// Try to decode from base64 first
+				// Decode from base64
 				decoded, err := base64.StdEncoding.DecodeString(config.OAuth.EncryptionKey)
-				if err == nil && len(decoded) == 32 {
-					encryptionKey = decoded
-				} else {
-					// Use as raw bytes if not base64 or wrong length after decoding
-					encryptionKey = []byte(config.OAuth.EncryptionKey)
+				if err != nil {
+					return fmt.Errorf("OAuth encryption key must be base64 encoded (use: openssl rand -base64 32): %w", err)
 				}
-				if len(encryptionKey) != 32 {
-					return fmt.Errorf("OAuth encryption key must be exactly 32 bytes, got %d bytes (key might need to be base64 decoded)", len(encryptionKey))
+				if len(decoded) != 32 {
+					return fmt.Errorf("OAuth encryption key must be exactly 32 bytes after base64 decoding, got %d bytes (use: openssl rand -base64 32)", len(decoded))
 				}
+				encryptionKey = decoded
+				fmt.Println("OAuth: Token encryption at rest enabled (AES-256-GCM)")
+			} else {
+				fmt.Println("WARNING: OAuth encryption key not set - tokens will be stored unencrypted")
+			}
+
+			// Warn about insecure configuration options
+			if config.OAuth.AllowPublicRegistration {
+				fmt.Println("WARNING: Public client registration is enabled - this allows unlimited client registration and may lead to DoS")
+				fmt.Println("         Recommended: Set --allow-public-registration=false and use --registration-token")
+			}
+			if config.OAuth.AllowInsecureAuthWithoutState {
+				fmt.Println("WARNING: State parameter is optional - this weakens CSRF protection")
+				fmt.Println("         Recommended: Set --allow-insecure-auth-without-state=false for production")
+			}
+			if config.DebugMode {
+				fmt.Println("WARNING: Debug logging is enabled - this may log sensitive information")
+				fmt.Println("         Recommended: Disable debug mode in production")
 			}
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
@@ -343,6 +358,8 @@ func runServe(config ServeConfig) error {
 				AllowInsecureAuthWithoutState: config.OAuth.AllowInsecureAuthWithoutState,
 				MaxClientsPerIP:               config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                 encryptionKey,
+				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == "true",
+				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
 			})
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode)
@@ -525,7 +542,7 @@ func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Co
 	serverDone := make(chan error, 1)
 	go func() {
 		defer close(serverDone)
-		if err := oauthServer.Start(addr); err != nil {
+		if err := oauthServer.Start(addr, config); err != nil {
 			serverDone <- err
 		}
 	}()

@@ -28,6 +28,12 @@ test-vet: ## Run go test and go vet
 	@echo "Running go vet..."
 	@go vet ./...
 
+.PHONY: govulncheck
+govulncheck: ## Run govulncheck to scan for known vulnerabilities
+	@echo "Checking for known vulnerabilities..."
+	@command -v govulncheck >/dev/null 2>&1 || { echo "Installing govulncheck..."; go install golang.org/x/vuln/cmd/govulncheck@latest; }
+	@govulncheck ./...
+
 # Note: These targets require Docker and 'act' to be installed.
 # See: https://github.com/nektos/act#installation
 

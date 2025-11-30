@@ -29,6 +29,9 @@ type ServerContext struct {
 	clientFactory   k8s.ClientFactory
 	downstreamOAuth bool
 
+	// Metrics tracking
+	metrics *Metrics
+
 	// Context management
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -40,6 +43,49 @@ type ServerContext struct {
 	// Active session tracking for cleanup during shutdown
 	activeSessions map[string]*k8s.PortForwardSession
 	sessionsMu     sync.RWMutex
+}
+
+// Metrics tracks operational metrics for monitoring
+type Metrics struct {
+	// OAuth downstream authentication metrics
+	PerUserAuthSuccess   int64 // Successful per-user authentications
+	PerUserAuthFallback  int64 // Fallbacks to service account
+	BearerClientFailures int64 // Failed bearer client creations
+
+	mu sync.RWMutex
+}
+
+// NewMetrics creates a new Metrics instance
+func NewMetrics() *Metrics {
+	return &Metrics{}
+}
+
+// IncrementPerUserAuthSuccess increments the per-user auth success counter
+func (m *Metrics) IncrementPerUserAuthSuccess() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PerUserAuthSuccess++
+}
+
+// IncrementPerUserAuthFallback increments the fallback counter
+func (m *Metrics) IncrementPerUserAuthFallback() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PerUserAuthFallback++
+}
+
+// IncrementBearerClientFailures increments the bearer client failure counter
+func (m *Metrics) IncrementBearerClientFailures() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.BearerClientFailures++
+}
+
+// GetMetrics returns a snapshot of current metrics
+func (m *Metrics) GetMetrics() (success, fallback, failures int64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.PerUserAuthSuccess, m.PerUserAuthFallback, m.BearerClientFailures
 }
 
 // NewServerContext creates a new ServerContext with default values.
@@ -55,6 +101,7 @@ func NewServerContext(ctx context.Context, opts ...Option) (*ServerContext, erro
 		config:         NewDefaultConfig(),
 		logger:         NewDefaultLogger(),
 		activeSessions: make(map[string]*k8s.PortForwardSession),
+		metrics:        NewMetrics(),
 	}
 
 	// Apply functional options
@@ -108,6 +155,7 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 	if !ok || accessToken == "" {
 		// No access token in context, fall back to shared client
 		sc.logger.Debug("No access token in context, using shared client")
+		sc.metrics.IncrementPerUserAuthFallback()
 		return sc.k8sClient
 	}
 
@@ -115,10 +163,13 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 	client, err := sc.clientFactory.CreateBearerTokenClient(accessToken)
 	if err != nil {
 		sc.logger.Warn("Failed to create bearer token client, using shared client", "error", err)
+		sc.metrics.IncrementBearerClientFailures()
+		sc.metrics.IncrementPerUserAuthFallback()
 		return sc.k8sClient
 	}
 
 	sc.logger.Debug("Created bearer token client for user request")
+	sc.metrics.IncrementPerUserAuthSuccess()
 	return client
 }
 
@@ -134,6 +185,13 @@ func (sc *ServerContext) ClientFactory() k8s.ClientFactory {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.clientFactory
+}
+
+// Metrics returns the metrics tracker.
+func (sc *ServerContext) Metrics() *Metrics {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.metrics
 }
 
 // Logger returns the logger interface.
