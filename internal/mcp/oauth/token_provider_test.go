@@ -1,3 +1,6 @@
+// Package oauth provides tests for OAuth token provider and context handling.
+// These tests verify the correct storage and retrieval of OAuth access tokens
+// in request contexts for downstream Kubernetes API authentication.
 package oauth
 
 import (

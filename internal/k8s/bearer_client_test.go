@@ -1,3 +1,6 @@
+// Package k8s provides tests for bearer token-based Kubernetes client authentication.
+// These tests verify the functionality of creating and using Kubernetes clients
+// with OAuth bearer tokens for downstream authentication.
 package k8s
 
 import (

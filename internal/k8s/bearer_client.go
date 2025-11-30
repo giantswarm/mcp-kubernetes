@@ -191,11 +191,12 @@ func (c *bearerTokenClient) getClientset() (kubernetes.Interface, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Double-check after acquiring write lock
 	if c.clientset != nil {
 		return c.clientset, nil
 	}
 
-	config, err := c.getRestConfigLocked()
+	config, err := c.getRestConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -207,28 +208,6 @@ func (c *bearerTokenClient) getClientset() (kubernetes.Interface, error) {
 
 	c.clientset = clientset
 	return clientset, nil
-}
-
-// getRestConfigLocked returns the REST config without locking.
-// Caller must hold the write lock.
-func (c *bearerTokenClient) getRestConfigLocked() (*rest.Config, error) {
-	if c.restConfig != nil {
-		return c.restConfig, nil
-	}
-
-	config := &rest.Config{
-		Host:        c.clusterHost,
-		BearerToken: c.bearerToken,
-		TLSClientConfig: rest.TLSClientConfig{
-			CAFile: c.caCertFile,
-		},
-		QPS:     c.qpsLimit,
-		Burst:   c.burstLimit,
-		Timeout: c.timeout,
-	}
-
-	c.restConfig = config
-	return config, nil
 }
 
 // getDynamicClient returns the dynamic client.
@@ -244,11 +223,12 @@ func (c *bearerTokenClient) getDynamicClient() (dynamic.Interface, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Double-check after acquiring write lock
 	if c.dynamicClient != nil {
 		return c.dynamicClient, nil
 	}
 
-	config, err := c.getRestConfigLocked()
+	config, err := c.getRestConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -275,11 +255,12 @@ func (c *bearerTokenClient) getDiscoveryClient() (discovery.DiscoveryInterface, 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Double-check after acquiring write lock
 	if c.discoveryClient != nil {
 		return c.discoveryClient, nil
 	}
 
-	config, err := c.getRestConfigLocked()
+	config, err := c.getRestConfig()
 	if err != nil {
 		return nil, err
 	}

@@ -22,63 +22,6 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource"
 )
 
-// simpleLogger provides basic logging for the Kubernetes client
-type simpleLogger struct{}
-
-func (l *simpleLogger) Debug(msg string, args ...interface{}) {
-	log.Printf("[DEBUG] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Info(msg string, args ...interface{}) {
-	log.Printf("[INFO] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Warn(msg string, args ...interface{}) {
-	log.Printf("[WARN] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Error(msg string, args ...interface{}) {
-	log.Printf("[ERROR] %s %v", msg, args)
-}
-
-// ServeConfig holds all configuration for the serve command.
-type ServeConfig struct {
-	// Transport settings
-	Transport string
-	HTTPAddr  string
-
-	// Endpoint paths
-	SSEEndpoint     string
-	MessageEndpoint string
-	HTTPEndpoint    string
-
-	// Kubernetes client settings
-	NonDestructiveMode bool
-	DryRun             bool
-	QPSLimit           float32
-	BurstLimit         int
-	DebugMode          bool
-	InCluster          bool
-
-	// OAuth configuration
-	OAuth           OAuthServeConfig
-	DownstreamOAuth bool
-}
-
-// OAuthServeConfig holds OAuth-specific configuration.
-type OAuthServeConfig struct {
-	Enabled                       bool
-	BaseURL                       string
-	GoogleClientID                string
-	GoogleClientSecret            string
-	DisableStreaming              bool
-	RegistrationToken             string
-	AllowPublicRegistration       bool
-	AllowInsecureAuthWithoutState bool
-	MaxClientsPerIP               int
-	EncryptionKey                 string
-}
-
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
 	var (
@@ -191,6 +134,37 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
 
 	return cmd
+}
+
+// validateEncryptionKey validates an AES-256 encryption key for security weaknesses
+func validateEncryptionKey(key []byte) error {
+	if len(key) != 32 {
+		return fmt.Errorf("encryption key must be exactly 32 bytes, got %d bytes", len(key))
+	}
+
+	// Check for all-zero key
+	allZero := true
+	for _, b := range key {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return fmt.Errorf("encryption key is all zeros - use a cryptographically secure random key (openssl rand -base64 32)")
+	}
+
+	// Check for repeated patterns (simple entropy check)
+	// Count unique bytes - a good key should have high entropy
+	uniqueBytes := make(map[byte]bool)
+	for _, b := range key {
+		uniqueBytes[b] = true
+	}
+	if len(uniqueBytes) < 16 {
+		return fmt.Errorf("encryption key appears to have low entropy (only %d unique bytes) - use a cryptographically secure random key (openssl rand -base64 32)", len(uniqueBytes))
+	}
+
+	return nil
 }
 
 // runServe contains the main server logic with support for multiple transports
@@ -324,9 +298,12 @@ func runServe(config ServeConfig) error {
 				if err != nil {
 					return fmt.Errorf("OAuth encryption key must be base64 encoded (use: openssl rand -base64 32): %w", err)
 				}
-				if len(decoded) != 32 {
-					return fmt.Errorf("OAuth encryption key must be exactly 32 bytes after base64 decoding, got %d bytes (use: openssl rand -base64 32)", len(decoded))
+
+				// Validate key for security weaknesses
+				if err := validateEncryptionKey(decoded); err != nil {
+					return fmt.Errorf("OAuth encryption key validation failed: %w", err)
 				}
+
 				encryptionKey = decoded
 				fmt.Println("OAuth: Token encryption at rest enabled (AES-256-GCM)")
 			} else {
@@ -366,204 +343,4 @@ func runServe(config ServeConfig) error {
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}
-}
-
-// runStdioServer runs the server with STDIO transport
-func runStdioServer(mcpSrv *mcpserver.MCPServer) error {
-	// Start the server in a goroutine so we can handle shutdown signals
-	serverDone := make(chan error, 1)
-	go func() {
-		defer close(serverDone)
-		if err := mcpserver.ServeStdio(mcpSrv); err != nil {
-			serverDone <- err
-		}
-	}()
-
-	// Wait for server completion
-	err := <-serverDone
-	if err != nil {
-		return fmt.Errorf("server stopped with error: %w", err)
-	}
-
-	// Don't print to stdout in stdio mode as it interferes with MCP communication
-	return nil
-}
-
-// runSSEServer runs the server with SSE transport
-func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint string, ctx context.Context, debugMode bool) error {
-	if debugMode {
-		log.Printf("[DEBUG] Initializing SSE server with configuration:")
-		log.Printf("[DEBUG]   Address: %s", addr)
-		log.Printf("[DEBUG]   SSE Endpoint: %s", sseEndpoint)
-		log.Printf("[DEBUG]   Message Endpoint: %s", messageEndpoint)
-	}
-
-	// Create SSE server with custom endpoints
-	sseServer := mcpserver.NewSSEServer(mcpSrv,
-		mcpserver.WithSSEEndpoint(sseEndpoint),
-		mcpserver.WithMessageEndpoint(messageEndpoint),
-	)
-
-	if debugMode {
-		log.Printf("[DEBUG] SSE server instance created successfully")
-	}
-
-	fmt.Printf("SSE server starting on %s\n", addr)
-	fmt.Printf("  SSE endpoint: %s\n", sseEndpoint)
-	fmt.Printf("  Message endpoint: %s\n", messageEndpoint)
-
-	// Start server in goroutine
-	serverDone := make(chan error, 1)
-	go func() {
-		defer close(serverDone)
-		if debugMode {
-			log.Printf("[DEBUG] Starting SSE server listener on %s", addr)
-		}
-		if err := sseServer.Start(addr); err != nil {
-			if debugMode {
-				log.Printf("[DEBUG] SSE server start failed: %v", err)
-			}
-			serverDone <- err
-		} else {
-			if debugMode {
-				log.Printf("[DEBUG] SSE server listener stopped cleanly")
-			}
-		}
-	}()
-
-	if debugMode {
-		log.Printf("[DEBUG] SSE server goroutine started, waiting for shutdown signal or server completion")
-	}
-
-	// Wait for either shutdown signal or server completion
-	select {
-	case <-ctx.Done():
-		if debugMode {
-			log.Printf("[DEBUG] Shutdown signal received, initiating SSE server shutdown")
-		}
-		fmt.Println("Shutdown signal received, stopping SSE server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30)
-		defer cancel()
-		if debugMode {
-			log.Printf("[DEBUG] Starting graceful shutdown with 30s timeout")
-		}
-		if err := sseServer.Shutdown(shutdownCtx); err != nil {
-			if debugMode {
-				log.Printf("[DEBUG] Error during SSE server shutdown: %v", err)
-			}
-			return fmt.Errorf("error shutting down SSE server: %w", err)
-		}
-		if debugMode {
-			log.Printf("[DEBUG] SSE server shutdown completed successfully")
-		}
-	case err := <-serverDone:
-		if err != nil {
-			if debugMode {
-				log.Printf("[DEBUG] SSE server stopped with error: %v", err)
-			}
-			return fmt.Errorf("SSE server stopped with error: %w", err)
-		} else {
-			if debugMode {
-				log.Printf("[DEBUG] SSE server stopped normally")
-			}
-			fmt.Println("SSE server stopped normally")
-		}
-	}
-
-	fmt.Println("SSE server gracefully stopped")
-	if debugMode {
-		log.Printf("[DEBUG] SSE server shutdown sequence completed")
-	}
-	return nil
-}
-
-// runStreamableHTTPServer runs the server with Streamable HTTP transport
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool) error {
-	// Create Streamable HTTP server with custom endpoint
-	httpServer := mcpserver.NewStreamableHTTPServer(mcpSrv,
-		mcpserver.WithEndpointPath(endpoint),
-	)
-
-	fmt.Printf("Streamable HTTP server starting on %s\n", addr)
-	fmt.Printf("  HTTP endpoint: %s\n", endpoint)
-
-	// Start server in goroutine
-	serverDone := make(chan error, 1)
-	go func() {
-		defer close(serverDone)
-		if err := httpServer.Start(addr); err != nil {
-			serverDone <- err
-		}
-	}()
-
-	// Wait for either shutdown signal or server completion
-	select {
-	case <-ctx.Done():
-		fmt.Println("Shutdown signal received, stopping HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30)
-		defer cancel()
-		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("error shutting down HTTP server: %w", err)
-		}
-	case err := <-serverDone:
-		if err != nil {
-			return fmt.Errorf("HTTP server stopped with error: %w", err)
-		} else {
-			fmt.Println("HTTP server stopped normally")
-		}
-	}
-
-	fmt.Println("HTTP server gracefully stopped")
-	return nil
-}
-
-// runOAuthHTTPServer runs the server with OAuth 2.1 authentication
-func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Context, config server.OAuthConfig) error {
-	// Create OAuth HTTP server
-	oauthServer, err := server.NewOAuthHTTPServer(mcpSrv, "streamable-http", config)
-	if err != nil {
-		return fmt.Errorf("failed to create OAuth HTTP server: %w", err)
-	}
-
-	fmt.Printf("OAuth-enabled HTTP server starting on %s\n", addr)
-	fmt.Printf("  Base URL: %s\n", config.BaseURL)
-	fmt.Printf("  MCP endpoint: /mcp (requires OAuth Bearer token)\n")
-	fmt.Printf("  OAuth endpoints:\n")
-	fmt.Printf("    - Authorization Server Metadata: /.well-known/oauth-authorization-server\n")
-	fmt.Printf("    - Protected Resource Metadata: /.well-known/oauth-protected-resource\n")
-	fmt.Printf("    - Client Registration: /oauth/register\n")
-	fmt.Printf("    - Authorization: /oauth/authorize\n")
-	fmt.Printf("    - Token: /oauth/token\n")
-	fmt.Printf("    - Callback: /oauth/callback\n")
-	fmt.Printf("    - Revoke: /oauth/revoke\n")
-	fmt.Printf("    - Introspect: /oauth/introspect\n")
-
-	// Start server in goroutine
-	serverDone := make(chan error, 1)
-	go func() {
-		defer close(serverDone)
-		if err := oauthServer.Start(addr, config); err != nil {
-			serverDone <- err
-		}
-	}()
-
-	// Wait for either shutdown signal or server completion
-	select {
-	case <-ctx.Done():
-		fmt.Println("Shutdown signal received, stopping OAuth HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := oauthServer.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("error shutting down OAuth HTTP server: %w", err)
-		}
-	case err := <-serverDone:
-		if err != nil {
-			return fmt.Errorf("OAuth HTTP server stopped with error: %w", err)
-		} else {
-			fmt.Println("OAuth HTTP server stopped normally")
-		}
-	}
-
-	fmt.Println("OAuth HTTP server gracefully stopped")
-	return nil
 }

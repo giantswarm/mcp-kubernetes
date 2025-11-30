@@ -14,17 +14,16 @@ import (
 )
 
 const (
-	// defaultBurstMultiplier is the default multiplier for burst size relative to rate
-	// Burst = Rate * defaultBurstMultiplier
+	// defaultBurstMultiplier is the default multiplier for burst size relative to rate (Burst = Rate * 2)
 	defaultBurstMultiplier = 2
 
-	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (90 days)
+	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (90 days = 2160 hours)
 	DefaultRefreshTokenTTL = 90 * 24 * time.Hour
 
-	// DefaultMaxClientsPerIP is the default maximum number of clients per IP address
+	// DefaultMaxClientsPerIP is the default maximum number of clients per IP address (10 clients)
 	DefaultMaxClientsPerIP = 10
 
-	// DefaultTokenRefreshThreshold is the default threshold for proactive token refresh (5 minutes)
+	// DefaultTokenRefreshThreshold is the default threshold for proactive token refresh (5 minutes = 300 seconds)
 	DefaultTokenRefreshThreshold = 300
 
 	// DefaultClockSkewGracePeriod is the default grace period for clock skew (5 seconds)

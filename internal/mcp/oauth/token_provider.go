@@ -10,11 +10,17 @@ import (
 )
 
 // contextKey is a custom type for context keys to avoid collisions.
+// Using a custom type instead of a plain string prevents key collisions
+// with other packages that might use the same string key in the context.
+// This is a Go best practice recommended in the context package documentation:
+// https://pkg.go.dev/context#WithValue
 type contextKey string
 
 const (
 	// accessTokenKey is the context key for storing the user's OAuth access token.
 	// This token can be used for downstream Kubernetes API authentication.
+	// The custom contextKey type ensures this key cannot collide with string keys
+	// from other packages.
 	accessTokenKey contextKey = "oauth_access_token"
 )
 

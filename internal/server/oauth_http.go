@@ -15,6 +15,32 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 )
 
+const (
+	// DefaultIPRateLimit is the default rate limit for requests per IP (requests/second)
+	DefaultIPRateLimit = 10
+
+	// DefaultIPBurst is the default burst size for IP rate limiting
+	DefaultIPBurst = 20
+
+	// DefaultUserRateLimit is the default rate limit for authenticated users (requests/second)
+	DefaultUserRateLimit = 100
+
+	// DefaultUserBurst is the default burst size for authenticated user rate limiting
+	DefaultUserBurst = 200
+
+	// DefaultReadHeaderTimeout is the default timeout for reading request headers
+	DefaultReadHeaderTimeout = 10 * time.Second
+
+	// DefaultWriteTimeout is the default timeout for writing responses (increased for long-running MCP operations)
+	DefaultWriteTimeout = 120 * time.Second
+
+	// DefaultIdleTimeout is the default idle timeout for keepalive connections
+	DefaultIdleTimeout = 120 * time.Second
+
+	// DefaultShutdownTimeout is the default timeout for graceful server shutdown
+	DefaultShutdownTimeout = 30 * time.Second
+)
+
 // OAuthConfig holds configuration for OAuth server creation
 type OAuthConfig struct {
 	BaseURL            string
@@ -32,8 +58,8 @@ type OAuthConfig struct {
 	EncryptionKey                 []byte // AES-256 key for token encryption (32 bytes)
 
 	// HTTP Security Settings
-	EnableHSTS      bool   // Enable HSTS header (for reverse proxy scenarios)
-	AllowedOrigins  string // Comma-separated list of allowed CORS origins
+	EnableHSTS     bool   // Enable HSTS header (for reverse proxy scenarios)
+	AllowedOrigins string // Comma-separated list of allowed CORS origins
 
 	// Interstitial page branding configuration
 	// If nil, uses the default mcp-oauth interstitial page
@@ -80,10 +106,10 @@ func buildOAuthConfig(config OAuthConfig) *oauth.Config {
 			EnableAuditLogging:            true, // Always enable audit logging
 		},
 		RateLimit: oauth.RateLimitConfig{
-			Rate:      10,  // 10 req/sec per IP
-			Burst:     20,  // Allow burst of 20
-			UserRate:  100, // 100 req/sec per authenticated user
-			UserBurst: 200, // Allow burst of 200
+			Rate:      DefaultIPRateLimit,
+			Burst:     DefaultIPBurst,
+			UserRate:  DefaultUserRateLimit,
+			UserBurst: DefaultUserBurst,
 		},
 	}
 
@@ -248,26 +274,9 @@ func validateAllowedOrigins(originsEnv string) ([]string, error) {
 	return validated, nil
 }
 
-// Start starts the OAuth-enabled HTTP server
-func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
-	// Validate HTTPS requirement for OAuth 2.1
-	baseURL := s.oauthHandler.GetServer().Config.Issuer
-	if err := validateHTTPSRequirement(baseURL); err != nil {
-		return err
-	}
-
-	// Validate and parse allowed CORS origins
-	allowedOrigins, err := validateAllowedOrigins(config.AllowedOrigins)
-	if err != nil {
-		return fmt.Errorf("invalid ALLOWED_ORIGINS: %w", err)
-	}
-
-	mux := http.NewServeMux()
-
-	// Get the OAuth HTTP handler
+// setupOAuthRoutes registers OAuth 2.1 endpoints on the mux
+func (s *OAuthHTTPServer) setupOAuthRoutes(mux *http.ServeMux) {
 	libHandler := s.oauthHandler.GetHandler()
-
-	// ========== OAuth 2.1 Endpoints ==========
 
 	// Protected Resource Metadata endpoint (RFC 9728)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", libHandler.ServeProtectedResourceMetadata)
@@ -292,10 +301,12 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 
 	// Token Introspection endpoint (RFC 7662)
 	mux.HandleFunc("/oauth/introspect", libHandler.ServeTokenIntrospection)
+}
 
-	// ========== MCP Endpoints ==========
+// setupMCPRoutes registers MCP endpoints on the mux
+func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
+	libHandler := s.oauthHandler.GetHandler()
 
-	// Register MCP endpoints based on server type
 	switch s.serverType {
 	case "streamable-http":
 		// Create Streamable HTTP server
@@ -318,8 +329,45 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		// Then our injector adds the access token for downstream use
 		mux.Handle("/mcp", libHandler.ValidateToken(accessTokenInjector))
 
+		return nil
 	default:
 		return fmt.Errorf("unsupported server type: %s", s.serverType)
+	}
+}
+
+// validateStartConfig validates the configuration before starting the server
+func (s *OAuthHTTPServer) validateStartConfig(config OAuthConfig) ([]string, error) {
+	// Validate HTTPS requirement for OAuth 2.1
+	baseURL := s.oauthHandler.GetServer().Config.Issuer
+	if err := validateHTTPSRequirement(baseURL); err != nil {
+		return nil, err
+	}
+
+	// Validate and parse allowed CORS origins
+	allowedOrigins, err := validateAllowedOrigins(config.AllowedOrigins)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ALLOWED_ORIGINS: %w", err)
+	}
+
+	return allowedOrigins, nil
+}
+
+// Start starts the OAuth-enabled HTTP server
+func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
+	// Validate configuration
+	allowedOrigins, err := s.validateStartConfig(config)
+	if err != nil {
+		return err
+	}
+
+	mux := http.NewServeMux()
+
+	// Setup OAuth 2.1 endpoints
+	s.setupOAuthRoutes(mux)
+
+	// Setup MCP endpoints
+	if err := s.setupMCPRoutes(mux); err != nil {
+		return err
 	}
 
 	// Create HTTP server with security and CORS middleware
@@ -328,9 +376,9 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 	s.httpServer = &http.Server{
 		Addr:              addr,
 		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      120 * time.Second, // Increased for long-running MCP operations
-		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: DefaultReadHeaderTimeout,
+		WriteTimeout:      DefaultWriteTimeout,
+		IdleTimeout:       DefaultIdleTimeout,
 	}
 
 	// Start server
