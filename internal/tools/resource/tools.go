@@ -109,7 +109,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// kubernetes_list tool
 	listResourceTool := mcp.NewTool("kubernetes_list",
-		mcp.WithDescription("List Kubernetes resources of a specific type"),
+		mcp.WithDescription("List Kubernetes resources of a specific type with optional client-side filtering"),
 		mcp.WithString("kubeContext",
 			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
 		),
@@ -126,6 +126,9 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		),
 		mcp.WithString("fieldSelector",
 			mcp.Description("Field selector to filter resources (optional)"),
+		),
+		mcp.WithObject("filter",
+			mcp.Description("Client-side filter criteria as JSON object. Supports nested field paths (e.g., {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"}). Use [*] for array matching. Multiple criteria use AND logic. Examples: {\"metadata.labels.app\": \"nginx\"}, {\"spec.taints[*].key\": \"node.kubernetes.io/unschedulable\"}"),
 		),
 		mcp.WithBoolean("allNamespaces",
 			mcp.Description("List resources from all namespaces (default: false)"),
