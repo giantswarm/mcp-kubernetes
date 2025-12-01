@@ -537,20 +537,21 @@ Review logs regularly for:
 The server tracks metrics for downstream OAuth operations:
 
 ```go
-// Available metrics (accessible via sc.Metrics())
-metrics := sc.Metrics()
-success, fallback, failures := metrics.GetMetrics()
+// OAuth authentication metrics are available via OpenTelemetry instrumentation
+// Enable instrumentation to track OAuth downstream authentication:
+// - oauth_downstream_auth_total{result="success"}: Successful per-user K8s authentications
+// - oauth_downstream_auth_total{result="fallback"}: Fallbacks to service account
+// - oauth_downstream_auth_total{result="failure"}: Failed bearer token client creations
 
-// Track:
-// - PerUserAuthSuccess: Successful per-user K8s authentications
-// - PerUserAuthFallback: Fallbacks to service account
-// - BearerClientFailures: Failed bearer token client creations
+// Configure instrumentation via environment variables:
+// INSTRUMENTATION_ENABLED=true
+// METRICS_EXPORTER=prometheus
 ```
 
 **Recommended alerts**:
-- High fallback rate (>10% of requests)
-- Increasing bearer client failures
-- Unusual authentication patterns
+- High fallback rate (>10% of requests): `rate(oauth_downstream_auth_total{result="fallback"}[5m]) > 0.1`
+- Increasing authentication failures: `rate(oauth_downstream_auth_total{result="failure"}[5m]) > 0`
+- Unusual authentication patterns: Monitor success/fallback ratio
 
 ### Dependency Security
 

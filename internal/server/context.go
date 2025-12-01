@@ -24,9 +24,6 @@ type ServerContext struct {
 	clientFactory   k8s.ClientFactory
 	downstreamOAuth bool
 
-	// Legacy metrics tracking (deprecated - use instrumentation provider instead)
-	metrics *Metrics
-
 	// OpenTelemetry instrumentation provider
 	instrumentationProvider *instrumentation.Provider
 
@@ -43,52 +40,6 @@ type ServerContext struct {
 	sessionsMu     sync.RWMutex
 }
 
-// Metrics tracks operational metrics for monitoring
-type Metrics struct {
-	// OAuth downstream authentication metrics
-	PerUserAuthSuccess   int64 // Successful per-user authentications
-	PerUserAuthFallback  int64 // Fallbacks to service account
-	BearerClientFailures int64 // Failed bearer client creations
-
-	mu sync.RWMutex
-}
-
-// NewMetrics creates a new Metrics instance
-func NewMetrics() *Metrics {
-	return &Metrics{}
-}
-
-// IncrementPerUserAuthSuccess increments the per-user auth success counter.
-// Deprecated: Use instrumentation provider's RecordOAuthDownstreamAuth instead.
-func (m *Metrics) IncrementPerUserAuthSuccess() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.PerUserAuthSuccess++
-}
-
-// IncrementPerUserAuthFallback increments the fallback counter.
-// Deprecated: Use instrumentation provider's RecordOAuthDownstreamAuth instead.
-func (m *Metrics) IncrementPerUserAuthFallback() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.PerUserAuthFallback++
-}
-
-// IncrementBearerClientFailures increments the bearer client failure counter.
-// Deprecated: Use instrumentation provider's RecordOAuthDownstreamAuth instead.
-func (m *Metrics) IncrementBearerClientFailures() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.BearerClientFailures++
-}
-
-// GetMetrics returns a snapshot of current metrics
-func (m *Metrics) GetMetrics() (success, fallback, failures int64) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.PerUserAuthSuccess, m.PerUserAuthFallback, m.BearerClientFailures
-}
-
 // NewServerContext creates a new ServerContext with default values.
 // Use the provided functional options to customize the context.
 func NewServerContext(ctx context.Context, opts ...Option) (*ServerContext, error) {
@@ -102,7 +53,6 @@ func NewServerContext(ctx context.Context, opts ...Option) (*ServerContext, erro
 		config:         NewDefaultConfig(),
 		logger:         NewDefaultLogger(),
 		activeSessions: make(map[string]*k8s.PortForwardSession),
-		metrics:        NewMetrics(),
 	}
 
 	// Apply functional options
@@ -155,8 +105,6 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 	if !ok || accessToken == "" {
 		// No access token in context, fall back to shared client
 		sc.logger.Debug("No access token in context, using shared client")
-		sc.metrics.IncrementPerUserAuthFallback()
-		// Record OAuth metrics with instrumentation
 		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFallback)
 		}
@@ -167,9 +115,6 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 	client, err := sc.clientFactory.CreateBearerTokenClient(accessToken)
 	if err != nil {
 		sc.logger.Warn("Failed to create bearer token client, using shared client", "error", err)
-		sc.metrics.IncrementBearerClientFailures()
-		sc.metrics.IncrementPerUserAuthFallback()
-		// Record OAuth metrics with instrumentation
 		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFailure)
 		}
@@ -177,8 +122,6 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
 	}
 
 	sc.logger.Debug("Created bearer token client for user request")
-	sc.metrics.IncrementPerUserAuthSuccess()
-	// Record OAuth metrics with instrumentation
 	if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 		sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)
 	}
@@ -197,14 +140,6 @@ func (sc *ServerContext) ClientFactory() k8s.ClientFactory {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.clientFactory
-}
-
-// Metrics returns the legacy metrics tracker.
-// Deprecated: Use InstrumentationProvider instead.
-func (sc *ServerContext) Metrics() *Metrics {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
-	return sc.metrics
 }
 
 // InstrumentationProvider returns the OpenTelemetry instrumentation provider.
