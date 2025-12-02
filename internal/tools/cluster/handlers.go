@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // handleGetAPIResources handles kubectl api-resources operations
@@ -43,8 +44,9 @@ func handleGetAPIResources(ctx context.Context, request mcp.CallToolRequest, sc 
 		}
 	}
 
-	// Use paginated API (now the only API)
-	paginatedResponse, err := sc.K8sClient().GetAPIResources(ctx, kubeContext, limit, offset, apiGroup, namespacedOnly, verbs)
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+	paginatedResponse, err := k8sClient.GetAPIResources(ctx, kubeContext, limit, offset, apiGroup, namespacedOnly, verbs)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get API resources: %v", err)), nil
 	}
@@ -64,7 +66,9 @@ func handleGetClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc
 
 	kubeContext, _ := args["kubeContext"].(string)
 
-	health, err := sc.K8sClient().GetClusterHealth(ctx, kubeContext)
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+	health, err := k8sClient.GetClusterHealth(ctx, kubeContext)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get cluster health: %v", err)), nil
 	}

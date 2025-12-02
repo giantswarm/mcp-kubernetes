@@ -23,10 +23,35 @@
 
 2. The MCP Kubernetes server is now running and ready to serve Model Context Protocol requests.
 
+{{- if .Values.mcpKubernetes.oauth.enabled }}
+
+3. OAuth 2.1 Authentication is ENABLED
+   - OAuth Base URL: {{ .Values.mcpKubernetes.oauth.baseURL }}
+   - Authorization Server Metadata: {{ .Values.mcpKubernetes.oauth.baseURL }}/.well-known/oauth-authorization-server
+   - Protected Resource Metadata: {{ .Values.mcpKubernetes.oauth.baseURL }}/.well-known/oauth-protected-resource
+   
+   To access the MCP server, clients must:
+   1. Register with the OAuth server (POST {{ .Values.mcpKubernetes.oauth.baseURL }}/oauth/register)
+   2. Authenticate via OAuth 2.1 flow
+   3. Use the access token in the Authorization header
+   
+   See the documentation for more details:
+   https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/oauth.md
+
+4. To configure your MCP client to use this server, use the following connection details:
+   - Host: {{ include "mcp-kubernetes.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+   - Port: {{ .Values.service.port }}
+   - Protocol: HTTP
+   - Authentication: OAuth 2.1 Bearer Token (required)
+
+{{- else }}
+
 3. To configure your MCP client to use this server, use the following connection details:
    - Host: {{ include "mcp-kubernetes.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
    - Port: {{ .Values.service.port }}
    - Protocol: HTTP
 
-4. For more information about using the MCP Kubernetes server, visit:
+{{- end }}
+
+5. For more information about using the MCP Kubernetes server, visit:
    https://github.com/giantswarm/mcp-kubernetes

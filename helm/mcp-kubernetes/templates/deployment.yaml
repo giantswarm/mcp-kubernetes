@@ -45,6 +45,31 @@ spec:
             {{- if .Values.mcpKubernetes.kubernetes.inCluster }}
             - --in-cluster=true
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.enabled }}
+            - --enable-oauth=true
+            - --oauth-base-url={{ required "mcpKubernetes.oauth.baseURL is required when OAuth is enabled" .Values.mcpKubernetes.oauth.baseURL }}
+            - --oauth-provider={{ .Values.mcpKubernetes.oauth.provider | default "dex" }}
+            {{- if .Values.mcpKubernetes.oauth.allowPublicClientRegistration }}
+            - --allow-public-registration=true
+            {{- else }}
+            - --allow-public-registration=false
+            {{- if .Values.mcpKubernetes.oauth.registrationAccessToken }}
+            - --registration-access-token={{ .Values.mcpKubernetes.oauth.registrationAccessToken }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.allowInsecureAuthWithoutState }}
+            - --allow-insecure-auth-without-state=true
+            {{- else }}
+            - --allow-insecure-auth-without-state=false
+            {{- end }}
+            - --max-clients-per-ip={{ .Values.mcpKubernetes.oauth.maxClientsPerIP }}
+            {{- if .Values.mcpKubernetes.oauth.disableStreaming }}
+            - --disable-streaming=true
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+            - --downstream-oauth
+            {{- end }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -56,6 +81,48 @@ spec:
             {{- else if .Values.mcpKubernetes.kubernetes.kubeconfig }}
             - name: KUBECONFIG
               value: {{ .Values.mcpKubernetes.kubernetes.kubeconfig }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.enabled }}
+            {{- if eq (.Values.mcpKubernetes.oauth.provider | default "dex") "google" }}
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: google-client-id
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: google-client-secret
+            {{- else if eq (.Values.mcpKubernetes.oauth.provider | default "dex") "dex" }}
+            - name: DEX_ISSUER_URL
+              value: {{ required "mcpKubernetes.oauth.dex.issuerURL is required when Dex provider is used" .Values.mcpKubernetes.oauth.dex.issuerURL | quote }}
+            - name: DEX_CLIENT_ID
+              value: {{ required "mcpKubernetes.oauth.dex.clientID is required when Dex provider is used" .Values.mcpKubernetes.oauth.dex.clientID | quote }}
+            - name: DEX_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: dex-client-secret
+            {{- if .Values.mcpKubernetes.oauth.dex.connectorID }}
+            - name: DEX_CONNECTOR_ID
+              value: {{ .Values.mcpKubernetes.oauth.dex.connectorID | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if not .Values.mcpKubernetes.oauth.allowPublicRegistration }}
+            - name: REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: registration-token
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.encryptionKey }}
+            - name: OAUTH_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: oauth-encryption-key
+            {{- end }}
             {{- end }}
             {{- with .Values.mcpKubernetes.env }}
             {{- toYaml . | nindent 12 }}

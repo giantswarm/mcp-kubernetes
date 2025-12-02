@@ -154,7 +154,33 @@ func TestRunServeWithInCluster(t *testing.T) {
 
 			// We can't easily test the full runServe function without complex mocking,
 			// but we can verify that the configuration is correctly structured
-			err := runServe("stdio", true, false, 20.0, 30, false, tt.inCluster, ":8080", "/sse", "/message", "/mcp")
+			config := ServeConfig{
+				Transport:          "stdio",
+				HTTPAddr:           ":8080",
+				SSEEndpoint:        "/sse",
+				MessageEndpoint:    "/message",
+				HTTPEndpoint:       "/mcp",
+				NonDestructiveMode: true,
+				DryRun:             false,
+				QPSLimit:           20.0,
+				BurstLimit:         30,
+				DebugMode:          false,
+				InCluster:          tt.inCluster,
+				OAuth: OAuthServeConfig{
+					Enabled:                       false,
+					BaseURL:                       "",
+					GoogleClientID:                "",
+					GoogleClientSecret:            "",
+					DisableStreaming:              false,
+					RegistrationToken:             "",
+					AllowPublicRegistration:       false,
+					AllowInsecureAuthWithoutState: false,
+					MaxClientsPerIP:               10,
+					EncryptionKey:                 "",
+				},
+				DownstreamOAuth: false,
+			}
+			err := runServe(config)
 
 			if tt.expectedError != "" {
 				require.Error(t, err)

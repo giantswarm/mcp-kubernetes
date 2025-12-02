@@ -8,11 +8,14 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // handleListContexts handles kubectl context list operations
 func handleListContexts(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	contexts, err := sc.K8sClient().ListContexts(ctx)
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+	contexts, err := k8sClient.ListContexts(ctx)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list contexts: %v", err)), nil
 	}
@@ -28,7 +31,9 @@ func handleListContexts(ctx context.Context, request mcp.CallToolRequest, sc *se
 
 // handleGetCurrentContext handles kubectl context get-current operations
 func handleGetCurrentContext(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	currentContext, err := sc.K8sClient().GetCurrentContext(ctx)
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+	currentContext, err := k8sClient.GetCurrentContext(ctx)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get current context: %v", err)), nil
 	}
@@ -51,7 +56,9 @@ func handleUseContext(ctx context.Context, request mcp.CallToolRequest, sc *serv
 		return mcp.NewToolResultError("contextName is required"), nil
 	}
 
-	err := sc.K8sClient().SwitchContext(ctx, contextName)
+	// Use appropriate k8s client (per-user if OAuth downstream enabled)
+	k8sClient := tools.GetK8sClient(ctx, sc)
+	err := k8sClient.SwitchContext(ctx, contextName)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to switch context: %v", err)), nil
 	}
