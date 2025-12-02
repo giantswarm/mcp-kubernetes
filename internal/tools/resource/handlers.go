@@ -155,7 +155,6 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
 	description, err := k8sClient.Describe(ctx, kubeContext, namespace, resourceType, apiGroup, name)
@@ -319,7 +318,6 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
 	err = k8sClient.Delete(ctx, kubeContext, namespace, resourceType, apiGroup, name)
@@ -394,7 +392,6 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal patch data: %v", err)), nil
 	}
 
-
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
 	patchedObj, err := k8sClient.Patch(ctx, kubeContext, namespace, resourceType, apiGroup, name, patchType, patchBytes)
@@ -450,7 +447,6 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	if err != nil {
 		return mcp.NewToolResultError("replicas is required"), nil
 	}
-
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
