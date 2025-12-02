@@ -53,13 +53,13 @@ type ContextManager interface {
 // ResourceManager handles Kubernetes resource operations.
 type ResourceManager interface {
 	// Get retrieves a specific resource by name and namespace.
-	Get(ctx context.Context, kubeContext, namespace, resourceType, name string) (runtime.Object, error)
+	Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (runtime.Object, error)
 
 	// List retrieves resources with pagination support.
-	List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error)
+	List(ctx context.Context, kubeContext, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error)
 
 	// Describe provides detailed information about a resource.
-	Describe(ctx context.Context, kubeContext, namespace, resourceType, name string) (*ResourceDescription, error)
+	Describe(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error)
 
 	// Create creates a new resource from the provided object.
 	Create(ctx context.Context, kubeContext, namespace string, obj runtime.Object) (runtime.Object, error)
@@ -68,13 +68,13 @@ type ResourceManager interface {
 	Apply(ctx context.Context, kubeContext, namespace string, obj runtime.Object) (runtime.Object, error)
 
 	// Delete removes a resource by name and namespace.
-	Delete(ctx context.Context, kubeContext, namespace, resourceType, name string) error
+	Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) error
 
 	// Patch updates specific fields of a resource.
-	Patch(ctx context.Context, kubeContext, namespace, resourceType, name string, patchType types.PatchType, data []byte) (runtime.Object, error)
+	Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error)
 
 	// Scale changes the number of replicas for scalable resources.
-	Scale(ctx context.Context, kubeContext, namespace, resourceType, name string, replicas int32) error
+	Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) error
 }
 
 // PodManager handles pod-specific operations.
