@@ -18,7 +18,7 @@ import (
 // ResourceManager implementation
 
 // Get retrieves a specific resource by name and namespace.
-func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, resourceType, name string) (runtime.Object, error) {
+func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("get"); err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, reso
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, apiGroup, kubeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, reso
 }
 
 // List retrieves resources with pagination support.
-func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error) {
+func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("list"); err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, apiGroup, kubeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 }
 
 // Describe provides detailed information about a resource.
-func (c *kubernetesClient) Describe(ctx context.Context, kubeContext, namespace, resourceType, name string) (*ResourceDescription, error) {
+func (c *kubernetesClient) Describe(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("describe"); err != nil {
 		return nil, err
@@ -169,7 +169,7 @@ func (c *kubernetesClient) Describe(ctx context.Context, kubeContext, namespace,
 	c.logOperation("describe", kubeContext, namespace, resourceType, name)
 
 	// Get the resource first
-	resource, err := c.Get(ctx, kubeContext, namespace, resourceType, name)
+	resource, err := c.Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (c *kubernetesClient) Apply(ctx context.Context, kubeContext, namespace str
 	c.logOperation("apply", kubeContext, namespace, unstruct.GetKind(), unstruct.GetName())
 
 	// Try to get existing resource first
-	existingObj, err := c.Get(ctx, kubeContext, namespace, unstruct.GetKind(), unstruct.GetName())
+	existingObj, err := c.Get(ctx, kubeContext, namespace, unstruct.GetKind(), unstruct.GetAPIVersion(), unstruct.GetName())
 	if err != nil {
 		// Resource doesn't exist, create it
 		return c.Create(ctx, kubeContext, namespace, obj)
@@ -346,7 +346,7 @@ func (c *kubernetesClient) Apply(ctx context.Context, kubeContext, namespace str
 }
 
 // Delete removes a resource by name and namespace.
-func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, name string) error {
+func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) error {
 	// Validate operation
 	if err := c.isOperationAllowed("delete"); err != nil {
 		return err
@@ -368,7 +368,7 @@ func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, r
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, apiGroup, kubeContext)
 	if err != nil {
 		return err
 	}
@@ -397,7 +397,7 @@ func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, r
 }
 
 // Patch updates specific fields of a resource.
-func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
+func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("patch"); err != nil {
 		return nil, err
@@ -419,7 +419,7 @@ func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, re
 	}
 
 	// Resolve resource type to GVR
-	gvr, namespaced, err := c.resolveResourceType(resourceType, kubeContext)
+	gvr, namespaced, err := c.resolveResourceType(resourceType, apiGroup, kubeContext)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +448,7 @@ func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, re
 }
 
 // Scale changes the number of replicas for scalable resources.
-func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, name string, replicas int32) error {
+func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) error {
 	// Validate operation
 	if err := c.isOperationAllowed("scale"); err != nil {
 		return err
@@ -520,13 +520,25 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 // Helper methods
 
 // resolveResourceType determines the GroupVersionResource for a given resource type
-func (c *kubernetesClient) resolveResourceType(resourceType, contextName string) (schema.GroupVersionResource, bool, error) {
+func (c *kubernetesClient) resolveResourceType(resourceType, apiGroup, contextName string) (schema.GroupVersionResource, bool, error) {
 	if c.config.DebugMode && c.config.Logger != nil {
 		c.config.Logger.Debug("resolveResourceType: starting", "resourceType", resourceType, "contextName", contextName)
 	}
 
 	// Normalize to lower case for comparison
 	resourceType = strings.ToLower(resourceType)
+	apiGroup = strings.ToLower(apiGroup)
+
+	// Parse apiGroup into group and optional preferred version (supports \"group\" or \"group/version\")
+	requestedGroup := ""
+	preferredVersion := ""
+	if apiGroup != "" {
+		parts := strings.SplitN(apiGroup, "/", 2)
+		requestedGroup = parts[0]
+		if len(parts) == 2 {
+			preferredVersion = parts[1]
+		}
+	}
 
 	if c.config.DebugMode && c.config.Logger != nil {
 		c.config.Logger.Debug("resolveResourceType: normalized resource", "normalizedType", resourceType)
@@ -534,16 +546,18 @@ func (c *kubernetesClient) resolveResourceType(resourceType, contextName string)
 
 	// Check built-in resources first
 	if gvr, exists := c.builtinResources[resourceType]; exists {
-		namespaced := c.isResourceNamespaced(gvr)
-		if c.config.DebugMode && c.config.Logger != nil {
-			c.config.Logger.Debug("resolveResourceType: found in builtin resources",
-				"resourceType", resourceType,
-				"group", gvr.Group,
-				"version", gvr.Version,
-				"resource", gvr.Resource,
-				"namespaced", namespaced)
+		if requestedGroup == "" || groupsMatch(requestedGroup, gvr.Group) {
+			namespaced := c.isResourceNamespaced(gvr)
+			if c.config.DebugMode && c.config.Logger != nil {
+				c.config.Logger.Debug("resolveResourceType: found in builtin resources",
+					"resourceType", resourceType,
+					"group", gvr.Group,
+					"version", gvr.Version,
+					"resource", gvr.Resource,
+					"namespaced", namespaced)
+			}
+			return gvr, namespaced, nil
 		}
-		return gvr, namespaced, nil
 	}
 
 	if c.config.DebugMode && c.config.Logger != nil {
@@ -605,65 +619,90 @@ func (c *kubernetesClient) resolveResourceType(resourceType, contextName string)
 		c.config.Logger.Debug("resolveResourceType: searching through API resources", "targetResource", resourceType)
 	}
 
-	// Search through all API resources
-	for _, resourceList := range resourceLists {
-		if resourceList == nil {
-			continue
-		}
-
-		gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
-		if err != nil {
-			if c.config.DebugMode && c.config.Logger != nil {
-				c.config.Logger.Warn("resolveResourceType: failed to parse group version",
-					"groupVersion", resourceList.GroupVersion, "error", err)
-			}
-			continue
-		}
-
-		if c.config.DebugMode && c.config.Logger != nil {
-			c.config.Logger.Debug("resolveResourceType: checking resource list",
-				"groupVersion", resourceList.GroupVersion,
-				"resourceCount", len(resourceList.APIResources))
-		}
-
-		for _, resource := range resourceList.APIResources {
-			// Check if this resource matches what we're looking for
-			matches := []string{
-				strings.ToLower(resource.Name),         // e.g., "pods"
-				strings.ToLower(resource.Kind),         // e.g., "Pod"
-				strings.ToLower(resource.SingularName), // e.g., "pod"
+	// Helper to search API resources with optional group/version preference
+	searchResources := func(preferVersion string) (schema.GroupVersionResource, bool, bool) {
+		for _, resourceList := range resourceLists {
+			if resourceList == nil {
+				continue
 			}
 
-			// Also check short names
-			for _, shortName := range resource.ShortNames {
-				matches = append(matches, strings.ToLower(shortName))
+			gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
+			if err != nil {
+				if c.config.DebugMode && c.config.Logger != nil {
+					c.config.Logger.Warn("resolveResourceType: failed to parse group version",
+						"groupVersion", resourceList.GroupVersion, "error", err)
+				}
+				continue
+			}
+
+			// Filter by requested group if provided
+			if requestedGroup != "" && !groupsMatch(requestedGroup, gv.Group) {
+				continue
+			}
+
+			// Optionally filter by preferred version
+			if preferVersion != "" && gv.Version != preferVersion {
+				continue
 			}
 
 			if c.config.DebugMode && c.config.Logger != nil {
-				c.config.Logger.Debug("resolveResourceType: checking resource",
-					"resourceName", resource.Name,
-					"kind", resource.Kind,
-					"singular", resource.SingularName,
-					"shortNames", resource.ShortNames,
-					"matches", matches)
+				c.config.Logger.Debug("resolveResourceType: checking resource list",
+					"groupVersion", resourceList.GroupVersion,
+					"resourceCount", len(resourceList.APIResources))
 			}
 
-			for _, match := range matches {
-				if match == resourceType {
-					gvr := gv.WithResource(resource.Name)
-					if c.config.DebugMode && c.config.Logger != nil {
-						c.config.Logger.Debug("resolveResourceType: found match!",
-							"resourceType", resourceType,
-							"matched", match,
-							"group", gvr.Group,
-							"version", gvr.Version,
-							"resource", gvr.Resource,
-							"namespaced", resource.Namespaced)
+			for _, resource := range resourceList.APIResources {
+				// Check if this resource matches what we're looking for
+				matches := []string{
+					strings.ToLower(resource.Name),         // e.g., "pods"
+					strings.ToLower(resource.Kind),         // e.g., "Pod"
+					strings.ToLower(resource.SingularName), // e.g., "pod"
+				}
+
+				// Also check short names
+				for _, shortName := range resource.ShortNames {
+					matches = append(matches, strings.ToLower(shortName))
+				}
+
+				if c.config.DebugMode && c.config.Logger != nil {
+					c.config.Logger.Debug("resolveResourceType: checking resource",
+						"resourceName", resource.Name,
+						"kind", resource.Kind,
+						"singular", resource.SingularName,
+						"shortNames", resource.ShortNames,
+						"matches", matches)
+				}
+
+				for _, match := range matches {
+					if match == resourceType {
+						gvr := gv.WithResource(resource.Name)
+						if c.config.DebugMode && c.config.Logger != nil {
+							c.config.Logger.Debug("resolveResourceType: found match!",
+								"resourceType", resourceType,
+								"matched", match,
+								"group", gvr.Group,
+								"version", gvr.Version,
+								"resource", gvr.Resource,
+								"namespaced", resource.Namespaced)
+						}
+						return gvr, resource.Namespaced, true
 					}
-					return gvr, resource.Namespaced, nil
 				}
 			}
 		}
+		return schema.GroupVersionResource{}, false, false
+	}
+
+	// First, if a preferred version was specified (via apiGroup like \"apps/v1\"), search with that preference
+	if preferredVersion != "" {
+		if gvr, namespaced, found := searchResources(preferredVersion); found {
+			return gvr, namespaced, nil
+		}
+	}
+
+	// Fallback: search without version preference (still honoring requested group if provided)
+	if gvr, namespaced, found := searchResources(""); found {
+		return gvr, namespaced, nil
 	}
 
 	if c.config.DebugMode && c.config.Logger != nil {
@@ -702,12 +741,34 @@ func (c *kubernetesClient) isResourceNamespaced(gvr schema.GroupVersionResource)
 
 // resolveGVRFromObject resolves GroupVersionResource from an unstructured object.
 func (c *kubernetesClient) resolveGVRFromObject(kubeContext string, obj *unstructured.Unstructured) (schema.GroupVersionResource, bool, error) {
-	_, err := schema.ParseGroupVersion(obj.GetAPIVersion())
+	gv, err := schema.ParseGroupVersion(obj.GetAPIVersion())
 	if err != nil {
 		return schema.GroupVersionResource{}, false, fmt.Errorf("failed to parse API version: %w", err)
 	}
 
-	return c.resolveResourceType(obj.GetKind(), kubeContext)
+	// For non-core groups, include version hint (e.g., \"apps/v1\") so resolution can prefer that version.
+	// For core resources (empty group), we rely on the default core mappings.
+	apiGroup := ""
+	if gv.Group != "" {
+		apiGroup = gv.String() // \"group/version\"
+	}
+
+	return c.resolveResourceType(obj.GetKind(), apiGroup, kubeContext)
+}
+
+// groupsMatch determines if a requested API group matches an actual group value.
+// It treats \"core\" and \"\" (empty string) as equivalent for core resources.
+func groupsMatch(requested, actual string) bool {
+	if requested == actual {
+		return true
+	}
+
+	// Treat \"core\" and empty string as equivalent for the core API group.
+	if (requested == "core" && actual == "") || (requested == "" && actual == "core") {
+		return true
+	}
+
+	return false
 }
 
 // getResourceEvents retrieves events related to a specific resource.

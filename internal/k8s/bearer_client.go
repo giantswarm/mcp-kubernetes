@@ -378,7 +378,7 @@ func (c *bearerTokenClient) SwitchContext(ctx context.Context, contextName strin
 // by using the internal clients created with bearer token authentication.
 
 // Get retrieves a specific resource by name and namespace.
-func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, resourceType, name string) (runtime.Object, error) {
+func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
 	c.logOperation("get", kubeContext, namespace, resourceType, name)
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
@@ -396,11 +396,11 @@ func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, res
 	}
 
 	// Use the shared resource operations from resources.go
-	return getResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, name)
+	return getResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name)
 }
 
 // List retrieves resources with pagination support.
-func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error) {
+func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
 	c.logOperation("list", kubeContext, namespace, resourceType, "")
 
 	if namespace != "" && !opts.AllNamespaces {
@@ -419,11 +419,11 @@ func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, re
 		return nil, err
 	}
 
-	return listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, opts)
+	return listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
 }
 
 // Describe provides detailed information about a resource.
-func (c *bearerTokenClient) Describe(ctx context.Context, kubeContext, namespace, resourceType, name string) (*ResourceDescription, error) {
+func (c *bearerTokenClient) Describe(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error) {
 	c.logOperation("describe", kubeContext, namespace, resourceType, name)
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
@@ -445,7 +445,7 @@ func (c *bearerTokenClient) Describe(ctx context.Context, kubeContext, namespace
 		return nil, err
 	}
 
-	return describeResource(ctx, dynamicClient, discoveryClient, clientset, c.builtinResources, namespace, resourceType, name)
+	return describeResource(ctx, dynamicClient, discoveryClient, clientset, c.builtinResources, namespace, resourceType, apiGroup, name)
 }
 
 // Create creates a new resource.
@@ -499,7 +499,7 @@ func (c *bearerTokenClient) Apply(ctx context.Context, kubeContext, namespace st
 }
 
 // Delete removes a resource.
-func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, name string) error {
+func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) error {
 	c.logOperation("delete", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("delete"); err != nil {
@@ -520,11 +520,11 @@ func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, 
 		return err
 	}
 
-	return deleteResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, name, c.dryRun)
+	return deleteResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, c.dryRun)
 }
 
 // Patch updates specific fields of a resource.
-func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
+func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
 	c.logOperation("patch", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("patch"); err != nil {
@@ -545,11 +545,11 @@ func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, r
 		return nil, err
 	}
 
-	return patchResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, name, patchType, data, c.dryRun)
+	return patchResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, patchType, data, c.dryRun)
 }
 
 // Scale changes the number of replicas.
-func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, name string, replicas int32) error {
+func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) error {
 	c.logOperation("scale", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("scale"); err != nil {
@@ -570,7 +570,7 @@ func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, r
 		return err
 	}
 
-	return scaleResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, name, replicas, c.dryRun)
+	return scaleResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, replicas, c.dryRun)
 }
 
 // ========== PodManager Implementation ==========
