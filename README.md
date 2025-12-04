@@ -12,6 +12,7 @@ A Model Context Protocol (MCP) server that provides tools for interacting with K
 - **Multiple Transport Types**: Support for stdio, SSE, and streamable HTTP
 - **Safety Features**: Non-destructive mode, dry-run capability, and operation restrictions
 - **OAuth 2.1 Support**: Secure token-based authentication with Dex OIDC (default) and Google OAuth providers
+- **Production-Grade Observability**: OpenTelemetry instrumentation with Prometheus metrics and distributed tracing
 
 ## Installation
 
@@ -90,6 +91,40 @@ mcp-kubernetes serve \
 ```
 
 **See [docs/oauth.md](docs/oauth.md) for detailed OAuth setup and configuration.**
+
+### Observability
+
+The server includes comprehensive OpenTelemetry instrumentation for production monitoring:
+
+- **Metrics**: Prometheus-compatible metrics for HTTP requests, Kubernetes operations, and sessions
+- **Distributed Tracing**: OpenTelemetry traces for request flows and K8s API calls
+- **Metrics Endpoint**: `/metrics` endpoint for Prometheus scraping
+
+```bash
+# Enable instrumentation (enabled by default)
+INSTRUMENTATION_ENABLED=true
+
+# Configure metrics exporter (prometheus, otlp, stdout)
+METRICS_EXPORTER=prometheus
+
+# Configure tracing exporter (otlp, stdout, none)
+TRACING_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Set trace sampling rate (0.0 to 1.0)
+OTEL_TRACES_SAMPLER_ARG=0.1
+```
+
+**Available Metrics:**
+- `http_requests_total` - HTTP request counter
+- `http_request_duration_seconds` - HTTP request duration histogram
+- `kubernetes_operations_total` - Kubernetes operation counter
+- `kubernetes_operation_duration_seconds` - K8s operation duration histogram
+- `kubernetes_pod_operations_total` - Pod operation counter
+- `oauth_downstream_auth_total` - OAuth authentication counter
+- `active_port_forward_sessions` - Active port-forward sessions gauge
+
+**See [docs/observability.md](docs/observability.md) for detailed metrics documentation, Prometheus queries, and alerting examples.**
 
 ### Transport Types
 

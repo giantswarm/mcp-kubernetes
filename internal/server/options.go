@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 )
 
@@ -147,6 +148,15 @@ func WithClientFactory(factory k8s.ClientFactory) Option {
 func WithDownstreamOAuth(enabled bool) Option {
 	return func(sc *ServerContext) error {
 		sc.downstreamOAuth = enabled
+		return nil
+	}
+}
+
+// WithInstrumentationProvider sets the OpenTelemetry instrumentation provider.
+// This enables production-grade observability including metrics and tracing.
+func WithInstrumentationProvider(provider *instrumentation.Provider) Option {
+	return func(sc *ServerContext) error {
+		sc.instrumentationProvider = provider
 		return nil
 	}
 }
