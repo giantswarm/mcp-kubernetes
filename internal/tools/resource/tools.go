@@ -160,10 +160,17 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Include resource annotations in summary output (default: false)"),
 		),
 		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of items to return per page (optional, default: 20, 0 = no limit)"),
+			mcp.Description("Maximum number of items to return per page (optional, default: 20, max: 1000)"),
 		),
 		mcp.WithString("continue",
 			mcp.Description("Continue token from previous paginated request (optional)"),
+		),
+		mcp.WithBoolean("summary",
+			mcp.Description("Return aggregated counts (by status, namespace) instead of full objects. Useful for fleet-scale operations with many results. Default: false"),
+		),
+		mcp.WithString("output",
+			mcp.Description("Output format: 'slim' (default, removes verbose fields), 'normal' (standard output), 'wide' (includes all fields)"),
+			mcp.Enum("slim", "normal", "wide"),
 		),
 	)
 	listResourceTool := mcp.NewTool("kubernetes_list", listResourceOpts...)

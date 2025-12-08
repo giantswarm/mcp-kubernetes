@@ -183,6 +183,18 @@ func (sc *ServerContext) FederationEnabled() bool {
 	return sc.federationManager != nil
 }
 
+// OutputConfig returns the output processing configuration.
+// Returns default config if not explicitly set.
+func (sc *ServerContext) OutputConfig() *OutputConfig {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+
+	if sc.config != nil && sc.config.Output != nil {
+		return sc.config.Output
+	}
+	return NewDefaultOutputConfig()
+}
+
 // RecordK8sOperation records a Kubernetes operation metric if instrumentation is enabled.
 // This is a convenience method that handles nil checks internally.
 func (sc *ServerContext) RecordK8sOperation(ctx context.Context, operation, resourceType, namespace, status string, duration time.Duration) {
@@ -472,6 +484,37 @@ type Config struct {
 	EnableAuth           bool     `json:"enableAuth"`
 	AllowedOperations    []string `json:"allowedOperations"`
 	RestrictedNamespaces []string `json:"restrictedNamespaces"`
+
+	// Output processing settings for fleet-scale operations
+	Output *OutputConfig `json:"output,omitempty"`
+}
+
+// OutputConfig holds configuration for output processing.
+// This controls how large responses are handled to prevent context overflow.
+type OutputConfig struct {
+	// MaxItems limits the number of resources returned per query.
+	// Default: 100, Absolute max: 1000
+	MaxItems int `json:"maxItems" yaml:"maxItems"`
+
+	// MaxClusters limits clusters in fleet-wide queries.
+	// Default: 20, Absolute max: 100
+	MaxClusters int `json:"maxClusters" yaml:"maxClusters"`
+
+	// MaxResponseBytes is a hard limit on response size in bytes.
+	// Default: 512KB, Absolute max: 2MB
+	MaxResponseBytes int `json:"maxResponseBytes" yaml:"maxResponseBytes"`
+
+	// SlimOutput enables removal of verbose fields that rarely help AI agents.
+	// Default: true
+	SlimOutput bool `json:"slimOutput" yaml:"slimOutput"`
+
+	// MaskSecrets replaces secret data with "***REDACTED***".
+	// Default: true (security critical - should rarely be disabled)
+	MaskSecrets bool `json:"maskSecrets" yaml:"maskSecrets"`
+
+	// SummaryThreshold is the item count above which summary mode is suggested.
+	// Default: 500
+	SummaryThreshold int `json:"summaryThreshold" yaml:"summaryThreshold"`
 }
 
 // NewDefaultConfig creates a configuration with sensible defaults.
@@ -487,6 +530,19 @@ func NewDefaultConfig() *Config {
 		EnableAuth:           false,
 		AllowedOperations:    []string{"get", "list", "describe"},
 		RestrictedNamespaces: []string{"kube-system", "kube-public"},
+		Output:               NewDefaultOutputConfig(),
+	}
+}
+
+// NewDefaultOutputConfig creates default output processing configuration.
+func NewDefaultOutputConfig() *OutputConfig {
+	return &OutputConfig{
+		MaxItems:         100,
+		MaxClusters:      20,
+		MaxResponseBytes: 512 * 1024, // 512KB
+		SlimOutput:       true,
+		MaskSecrets:      true,
+		SummaryThreshold: 500,
 	}
 }
 
@@ -507,6 +563,12 @@ func (c *Config) Clone() *Config {
 	if c.RestrictedNamespaces != nil {
 		clone.RestrictedNamespaces = make([]string, len(c.RestrictedNamespaces))
 		copy(clone.RestrictedNamespaces, c.RestrictedNamespaces)
+	}
+
+	// Deep copy output config
+	if c.Output != nil {
+		outputCopy := *c.Output
+		clone.Output = &outputCopy
 	}
 
 	return &clone

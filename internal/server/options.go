@@ -183,6 +183,21 @@ func WithFederationManager(manager federation.ClusterClientManager) Option {
 	}
 }
 
+// WithOutputConfig sets the output processing configuration.
+// This controls how large responses are handled to prevent context overflow.
+func WithOutputConfig(output *OutputConfig) Option {
+	return func(sc *ServerContext) error {
+		if sc.config == nil {
+			sc.config = NewDefaultConfig()
+		}
+		if output != nil {
+			outputCopy := *output
+			sc.config.Output = &outputCopy
+		}
+		return nil
+	}
+}
+
 // Error definitions for ServerContext validation and operations.
 var (
 	ErrMissingK8sClient = errors.New("kubernetes client is required")

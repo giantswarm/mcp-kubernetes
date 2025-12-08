@@ -15,6 +15,7 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 )
 
 // recordK8sOperation records metrics for a Kubernetes operation.
@@ -66,13 +67,34 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 
 	recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
+	// Apply output processing (slim output, secret masking)
+	processor := getOutputProcessor(sc)
+	processedObj, err := output.ProcessSingleRuntimeObject(processor, obj)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
+	}
+
 	// Convert the resource to JSON for output
-	jsonData, err := json.MarshalIndent(obj, "", "  ")
+	jsonData, err := json.MarshalIndent(processedObj, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resource: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
+}
+
+// getOutputProcessor creates an output processor from server context configuration.
+func getOutputProcessor(sc *server.ServerContext) *output.Processor {
+	outputCfg := sc.OutputConfig()
+	cfg := &output.Config{
+		MaxItems:         outputCfg.MaxItems,
+		MaxClusters:      outputCfg.MaxClusters,
+		MaxResponseBytes: outputCfg.MaxResponseBytes,
+		SlimOutput:       outputCfg.SlimOutput,
+		MaskSecrets:      outputCfg.MaskSecrets,
+		SummaryThreshold: outputCfg.SummaryThreshold,
+	}
+	return output.NewProcessor(cfg)
 }
 
 // handleListResources handles kubectl list operations
@@ -115,6 +137,15 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	fullOutput, _ := args["fullOutput"].(bool)
 	includeLabels, _ := args["includeLabels"].(bool)
 	includeAnnotations, _ := args["includeAnnotations"].(bool)
+
+	// Summary mode parameter for fleet-scale operations
+	summaryMode, _ := args["summary"].(bool)
+
+	// Output format parameter (normal, wide, slim)
+	outputFormat, _ := args["output"].(string)
+	if outputFormat == "" {
+		outputFormat = "slim" // Default to slim output for reduced context usage
+	}
 
 	// Pagination parameters with sensible defaults
 	var limit int64 = 20 // Default page size
@@ -173,8 +204,31 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 	recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, duration)
 
+	// Get output processor for slim output and secret masking
+	processor := getOutputProcessor(sc)
+
+	// Handle summary mode - return aggregated counts instead of full items
+	if summaryMode {
+		return handleSummaryResponse(paginatedResponse.Items, processor, resourceType)
+	}
+
+	// Apply output processing (slim output, secret masking) based on output format
+	if outputFormat == "slim" || outputFormat == "normal" {
+		processedItems, result, err := output.ProcessRuntimeObjects(processor, paginatedResponse.Items)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources: %v", err)), nil
+		}
+		paginatedResponse.Items = processedItems
+
+		// Log truncation warnings
+		if result.Metadata.Truncated {
+			log.Printf("[INFO] Response truncated: showing %d of %d items (resource: %s)",
+				result.Metadata.FinalCount, result.Metadata.OriginalCount, resourceType)
+		}
+	}
+
 	if fullOutput {
-		// Return full paginated output
+		// Return full paginated output with any processing warnings
 		jsonData, err := json.MarshalIndent(paginatedResponse, "", "  ")
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal paginated resources: %v", err)), nil
@@ -622,4 +676,58 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	recordK8sOperation(ctx, sc, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s scaled to %d replicas successfully", resourceType, name, int32(replicas))), nil
+}
+
+// handleSummaryResponse generates a summary response for large result sets.
+// This provides aggregated counts by status, namespace, etc. instead of full items.
+func handleSummaryResponse(items []runtime.Object, processor *output.Processor, resourceType string) (*mcp.CallToolResult, error) {
+	// Convert to maps for summary generation
+	maps, err := output.FromRuntimeObjects(items)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources for summary: %v", err)), nil
+	}
+
+	// Generate summary
+	opts := output.DefaultSummaryOptions()
+	opts.IncludeByNamespace = true
+	opts.IncludeByStatus = true
+	opts.MaxSampleSize = 10
+
+	summary := processor.GenerateSummary(maps, opts)
+
+	// Build response with summary
+	response := map[string]interface{}{
+		"kind":           resourceType + "Summary",
+		"total":          summary.Total,
+		"sample":         summary.Sample,
+		"hasMore":        summary.HasMore,
+		"_isSummaryMode": true,
+		"_hint":          "Use summary=false or add filters to see full resource details",
+	}
+
+	if summary.ByStatus != nil && len(summary.ByStatus) > 0 {
+		response["byStatus"] = summary.ByStatus
+	}
+
+	if summary.ByNamespace != nil && len(summary.ByNamespace) > 0 {
+		// Limit namespace count to top 10 for readability
+		if len(summary.ByNamespace) > 10 {
+			topNamespaces := output.TopCounts(summary.ByNamespace, 10)
+			nsMap := make(map[string]int)
+			for _, entry := range topNamespaces {
+				nsMap[entry.Key] = entry.Count
+			}
+			response["byNamespace"] = nsMap
+			response["_namespacesTruncated"] = true
+		} else {
+			response["byNamespace"] = summary.ByNamespace
+		}
+	}
+
+	jsonData, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal summary: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonData)), nil
 }
