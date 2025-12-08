@@ -350,6 +350,22 @@ func getSecretKeys(data map[string][]byte) []string {
 // ConfigWithImpersonation returns a copy of the config with impersonation configured.
 // This is used to create per-user clients from the base kubeconfig credentials.
 //
+// # Audit Trail
+//
+// This function automatically adds the "agent: mcp-kubernetes" extra header to all
+// impersonated requests. This allows Kubernetes audit logs to identify that operations
+// were performed via the MCP server, providing a clear audit trail. The agent header
+// is merged with any existing extra headers from the UserInfo.
+//
+// The resulting HTTP headers will include:
+//
+//	Impersonate-User: <user.Email>
+//	Impersonate-Group: <user.Groups[0]>
+//	Impersonate-Group: <user.Groups[1]>
+//	...
+//	Impersonate-Extra-agent: mcp-kubernetes
+//	Impersonate-Extra-<key>: <value>  (for each entry in user.Extra)
+//
 // # Security
 //
 // This function panics if config is non-nil but user is nil. This is a deliberate
@@ -371,11 +387,33 @@ func ConfigWithImpersonation(config *rest.Config, user *UserInfo) *rest.Config {
 	}
 
 	impersonatedConfig := rest.CopyConfig(config)
+
+	// Build extra headers, merging user's extra with the agent identifier
+	extra := mergeExtraWithAgent(user.Extra)
+
 	impersonatedConfig.Impersonate = rest.ImpersonationConfig{
 		UserName: user.Email,
 		Groups:   user.Groups,
-		Extra:    user.Extra,
+		Extra:    extra,
 	}
 
 	return impersonatedConfig
+}
+
+// mergeExtraWithAgent creates a new extra map that includes the agent identifier.
+// The agent identifier is always added to provide an audit trail in Kubernetes logs.
+// If the user already has extra headers, they are preserved and the agent is added.
+// The user's extra values take precedence if they specify a custom agent value.
+func mergeExtraWithAgent(userExtra map[string][]string) map[string][]string {
+	// Start with the agent identifier
+	extra := map[string][]string{
+		ImpersonationAgentExtraKey: {ImpersonationAgentName},
+	}
+
+	// Merge user's extra headers (user values take precedence)
+	for k, v := range userExtra {
+		extra[k] = v
+	}
+
+	return extra
 }

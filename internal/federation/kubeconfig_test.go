@@ -386,7 +386,11 @@ func TestConfigWithImpersonation(t *testing.T) {
 
 		assert.Equal(t, "user@example.com", result.Impersonate.UserName)
 		assert.Equal(t, []string{"dev", "ops"}, result.Impersonate.Groups)
-		assert.Equal(t, map[string][]string{"department": {"engineering"}}, result.Impersonate.Extra)
+
+		// Extra should contain both user's extras and the agent identifier
+		assert.Equal(t, []string{"engineering"}, result.Impersonate.Extra["department"])
+		assert.Equal(t, []string{ImpersonationAgentName}, result.Impersonate.Extra[ImpersonationAgentExtraKey],
+			"agent header should be automatically added for audit trail")
 
 		// Verify original config wasn't modified
 		assert.Empty(t, config.Impersonate.UserName, "original config should not be modified")
@@ -434,6 +438,9 @@ func TestConfigWithImpersonation(t *testing.T) {
 
 		// Result should have impersonation
 		assert.Equal(t, "user@example.com", result.Impersonate.UserName)
+		// Result should have agent header
+		assert.Contains(t, result.Impersonate.Extra, ImpersonationAgentExtraKey,
+			"agent header should be added even without user extras")
 		// Original should be unchanged
 		assert.Equal(t, "https://original.example.com", config.Host)
 		assert.Empty(t, config.Impersonate.UserName, "original config should not be modified")
