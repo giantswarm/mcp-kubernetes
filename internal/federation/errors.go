@@ -68,6 +68,25 @@ func (e *ClusterNotFoundError) UserFacingError() string {
 }
 
 // KubeconfigError provides detailed context about kubeconfig retrieval failures.
+//
+// # Error Matching Semantics
+//
+// This error type implements both Is() and Unwrap() with distinct behaviors:
+//
+//   - Is() matches against sentinel errors (ErrKubeconfigSecretNotFound, ErrKubeconfigInvalid)
+//     based on the NotFound field. This allows callers to use errors.Is() to distinguish
+//     between "secret not found" and "secret found but invalid" scenarios.
+//
+//   - Unwrap() returns the underlying cause (Err field), allowing errors.Is() to also match
+//     against the root cause (e.g., a Kubernetes API error).
+//
+// Example usage:
+//
+//	if errors.Is(err, federation.ErrKubeconfigSecretNotFound) {
+//	    // Handle missing secret
+//	} else if errors.Is(err, federation.ErrKubeconfigInvalid) {
+//	    // Handle malformed kubeconfig
+//	}
 type KubeconfigError struct {
 	ClusterName string
 	SecretName  string
@@ -75,7 +94,7 @@ type KubeconfigError struct {
 	Reason      string
 	Err         error
 	// NotFound indicates the kubeconfig secret was not found (vs other errors like invalid data).
-	// When true, Unwrap() returns ErrKubeconfigSecretNotFound instead of ErrKubeconfigInvalid.
+	// When true, Is() matches ErrKubeconfigSecretNotFound; otherwise it matches ErrKubeconfigInvalid.
 	NotFound bool
 }
 

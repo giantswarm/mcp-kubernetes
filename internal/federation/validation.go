@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"unicode"
@@ -320,6 +321,17 @@ func AnonymizeEmail(email string) string {
 	}
 	hash := sha256.Sum256([]byte(email))
 	return "user:" + hex.EncodeToString(hash[:8])
+}
+
+// UserHashAttr returns a slog attribute with the anonymized user email.
+// This is a convenience function to reduce repetition in logging calls and ensure
+// consistent attribute naming across the codebase.
+//
+// Usage:
+//
+//	m.logger.Debug("Operation completed", UserHashAttr(user.Email))
+func UserHashAttr(email string) slog.Attr {
+	return slog.String("user_hash", AnonymizeEmail(email))
 }
 
 // AnonymizeUserInfo returns anonymized user identifiers for logging.

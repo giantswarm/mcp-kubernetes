@@ -95,6 +95,8 @@ func createTestKubeconfigSecret(clusterName, namespace, key, kubeconfigData stri
 
 // setupTestManager creates a Manager with fake clients for testing.
 // It accepts optional CAPI cluster resources and kubeconfig secrets.
+// The manager is automatically closed when the test completes via t.Cleanup(),
+// so callers don't need to manually defer Close().
 func setupTestManager(t *testing.T, clusters []*unstructured.Unstructured, secrets []*corev1.Secret) *Manager {
 	t.Helper()
 
@@ -127,6 +129,11 @@ func setupTestManager(t *testing.T, clusters []*unstructured.Unstructured, secre
 
 	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
+
+	// Automatically cleanup when test completes (even on failure)
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
 
 	return manager
 }

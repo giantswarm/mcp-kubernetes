@@ -253,7 +253,7 @@ func (m *Manager) ListClusters(ctx context.Context, user *UserInfo) ([]ClusterSu
 	// This will be implemented in a separate issue (#111 - CAPI Cluster Discovery)
 	// For now, return an empty list
 	m.logger.Debug("ListClusters called - CAPI discovery not yet implemented",
-		"user_hash", AnonymizeEmail(user.Email))
+		UserHashAttr(user.Email))
 	return []ClusterSummary{}, nil
 }
 
@@ -279,7 +279,7 @@ func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, use
 	// For now, return not found
 	m.logger.Debug("GetClusterSummary called - CAPI discovery not yet implemented",
 		"cluster", clusterName,
-		"user_hash", AnonymizeEmail(user.Email))
+		UserHashAttr(user.Email))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "CAPI cluster discovery not yet implemented",
@@ -389,7 +389,7 @@ func (m *Manager) getRemoteDynamicWithImpersonation(ctx context.Context, cluster
 func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
 	m.logger.Debug("Creating remote cluster client",
 		"cluster", clusterName,
-		"user_hash", AnonymizeEmail(user.Email),
+		UserHashAttr(user.Email),
 		"group_count", len(user.Groups))
 
 	// Retrieve the kubeconfig for the cluster using user's credentials
@@ -417,7 +417,7 @@ func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName str
 
 	m.logger.Debug("Successfully created remote cluster client",
 		"cluster", clusterName,
-		"user_hash", AnonymizeEmail(user.Email))
+		UserHashAttr(user.Email))
 
 	return clientset, dynClient, impersonatedConfig, nil
 }

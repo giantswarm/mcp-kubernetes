@@ -49,12 +49,20 @@ type ClusterInfo struct {
 //   - Never logs kubeconfig contents (sensitive credential data)
 //   - All user-facing errors are sanitized to prevent information leakage
 func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName string, user *UserInfo) (*rest.Config, error) {
+	// Fail fast if context is already cancelled or expired
+	if err := ctx.Err(); err != nil {
+		return nil, &ClusterNotFoundError{
+			ClusterName: clusterName,
+			Reason:      "context cancelled or expired",
+		}
+	}
+
 	// Get user-scoped clients for MC operations
 	clientset, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
 	if err != nil {
 		m.logger.Debug("Failed to get user clients for kubeconfig retrieval",
 			"cluster", clusterName,
-			"user_hash", AnonymizeEmail(user.Email),
+			UserHashAttr(user.Email),
 			"error", err)
 		return nil, &ClusterNotFoundError{
 			ClusterName: clusterName,
@@ -108,12 +116,17 @@ func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterN
 // information leakage through error response differentiation.
 func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynamicClient dynamic.Interface, user *UserInfo) (*ClusterInfo, error) {
 	// List all CAPI Cluster resources across all namespaces (using user's RBAC)
-	// Note: We don't use FieldSelector because the fake dynamic client doesn't support it well
+	//
+	// Note: We don't use FieldSelector because the fake dynamic client doesn't support it well.
+	// TODO(performance): In production with many clusters, consider using a FieldSelector
+	// (metadata.name=clusterName) or LabelSelector to reduce API server load. This would
+	// require updating the test infrastructure to support field selectors in the fake client,
+	// or using integration tests with a real API server.
 	list, err := dynamicClient.Resource(CAPIClusterGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		m.logger.Debug("Failed to list CAPI Cluster resources",
 			"cluster", clusterName,
-			"user_hash", AnonymizeEmail(user.Email),
+			UserHashAttr(user.Email),
 			"error", err)
 		return nil, &ClusterNotFoundError{
 			ClusterName: clusterName,
@@ -128,7 +141,7 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 			m.logger.Debug("Found CAPI Cluster",
 				"cluster", clusterName,
 				"namespace", namespace,
-				"user_hash", AnonymizeEmail(user.Email))
+				UserHashAttr(user.Email))
 			return &ClusterInfo{
 				Name:      clusterName,
 				Namespace: namespace,
@@ -138,7 +151,7 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 
 	m.logger.Debug("CAPI Cluster not found",
 		"cluster", clusterName,
-		"user_hash", AnonymizeEmail(user.Email))
+		UserHashAttr(user.Email))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "no CAPI Cluster resource found with this name",
@@ -166,7 +179,7 @@ func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo
 			"cluster", info.Name,
 			"namespace", info.Namespace,
 			"secret", secretName,
-			"user_hash", AnonymizeEmail(user.Email),
+			UserHashAttr(user.Email),
 			"error", err)
 
 		// Determine if this is a "not found" or "forbidden" error
@@ -192,7 +205,7 @@ func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo
 		m.logger.Debug("Failed to parse kubeconfig data",
 			"cluster", info.Name,
 			"namespace", info.Namespace,
-			"user_hash", AnonymizeEmail(user.Email),
+			UserHashAttr(user.Email),
 			"error", err)
 		return nil, &KubeconfigError{
 			ClusterName: info.Name,
@@ -208,7 +221,7 @@ func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo
 	m.logger.Debug("Successfully parsed kubeconfig",
 		"cluster", info.Name,
 		"namespace", info.Namespace,
-		"user_hash", AnonymizeEmail(user.Email),
+		UserHashAttr(user.Email),
 		"host", sanitizeHost(config.Host))
 
 	return config, nil
@@ -327,6 +340,13 @@ func getSecretKeys(data map[string][]byte) []string {
 
 // ConfigWithImpersonation returns a copy of the config with impersonation configured.
 // This is used to create per-user clients from the base kubeconfig credentials.
+//
+// Nil handling:
+//   - If config is nil, returns nil (nothing to configure)
+//   - If user is nil, returns the original config unchanged. This allows callers to
+//     optionally apply impersonation without nil checks. The caller is responsible for
+//     ensuring user is non-nil when impersonation is required (enforced by Manager's
+//     public API methods via ValidateUserInfo).
 func ConfigWithImpersonation(config *rest.Config, user *UserInfo) *rest.Config {
 	if config == nil || user == nil {
 		return config

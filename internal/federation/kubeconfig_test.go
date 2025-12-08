@@ -128,7 +128,6 @@ func TestGetKubeconfigForCluster(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := setupTestManager(t, tt.clusters, tt.secrets)
-			defer func() { _ = manager.Close() }()
 
 			user := testUser()
 			config, err := manager.GetKubeconfigForCluster(context.Background(), tt.clusterName, user)
@@ -157,7 +156,6 @@ func TestGetKubeconfigForClusterValidated(t *testing.T) {
 			createTestKubeconfigSecret("unreachable-cluster", "org-acme", CAPISecretKey, testValidKubeconfig),
 		}
 		manager := setupTestManager(t, clusters, secrets)
-		defer func() { _ = manager.Close() }()
 
 		user := testUser()
 		// GetKubeconfigForClusterValidated will try to connect to the cluster
@@ -218,7 +216,6 @@ func TestFindClusterInfo(t *testing.T) {
 			fakeDynamic := createTestFakeDynamicClient(testScheme, objects...)
 
 			manager := setupTestManager(t, tt.clusters, nil)
-			defer func() { _ = manager.Close() }()
 
 			user := testUser()
 			info, err := manager.findClusterInfo(context.Background(), tt.clusterName, fakeDynamic, user)
@@ -250,7 +247,7 @@ func TestExtractKubeconfigData(t *testing.T) {
 	}
 	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
-	defer func() { _ = manager.Close() }()
+	t.Cleanup(func() { _ = manager.Close() })
 
 	info := &ClusterInfo{Name: "test", Namespace: "ns"}
 
@@ -530,7 +527,6 @@ func TestRemoteClientWithKubeconfig(t *testing.T) {
 			createTestKubeconfigSecret("remote-cluster", "org-acme", CAPISecretKey, testValidKubeconfig),
 		}
 		manager := setupTestManager(t, clusters, secrets)
-		defer func() { _ = manager.Close() }()
 
 		user := &UserInfo{
 			Email:  "user@example.com",
@@ -552,7 +548,6 @@ func TestRemoteClientWithKubeconfig(t *testing.T) {
 			createTestKubeconfigSecret("remote-cluster", "org-acme", CAPISecretKey, testValidKubeconfig),
 		}
 		manager := setupTestManager(t, clusters, secrets)
-		defer func() { _ = manager.Close() }()
 
 		user := &UserInfo{
 			Email:  "user@example.com",
@@ -566,7 +561,6 @@ func TestRemoteClientWithKubeconfig(t *testing.T) {
 
 	t.Run("returns error when cluster not found", func(t *testing.T) {
 		manager := setupTestManager(t, nil, nil)
-		defer func() { _ = manager.Close() }()
 
 		user := &UserInfo{Email: "user@example.com"}
 
@@ -580,7 +574,6 @@ func TestRemoteClientWithKubeconfig(t *testing.T) {
 			createTestCAPICluster("no-secret", "org-acme"),
 		}
 		manager := setupTestManager(t, clusters, nil)
-		defer func() { _ = manager.Close() }()
 
 		user := &UserInfo{Email: "user@example.com"}
 
@@ -620,7 +613,7 @@ func TestFindClusterInfoWithDynamicClientError(t *testing.T) {
 	}
 	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
-	defer func() { _ = manager.Close() }()
+	t.Cleanup(func() { _ = manager.Close() })
 
 	user := testUser()
 	_, err = manager.findClusterInfo(context.Background(), "any-cluster", fakeDynamic, user)
@@ -649,7 +642,7 @@ func TestGetKubeconfigFromSecretWithClientError(t *testing.T) {
 	}
 	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
-	defer func() { _ = manager.Close() }()
+	t.Cleanup(func() { _ = manager.Close() })
 
 	user := testUser()
 	info := &ClusterInfo{Name: "test-cluster", Namespace: "org-acme"}
@@ -684,7 +677,7 @@ func TestValidateClusterConnectionError(t *testing.T) {
 	}
 	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
-	defer func() { _ = manager.Close() }()
+	t.Cleanup(func() { _ = manager.Close() })
 
 	// Create config that will fail validation (unreachable host)
 	config := &rest.Config{
@@ -714,7 +707,7 @@ func TestConnectionValidationTimeoutConfigurable(t *testing.T) {
 	t.Run("default timeout is used when not configured", func(t *testing.T) {
 		manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 		require.NoError(t, err)
-		defer func() { _ = manager.Close() }()
+		t.Cleanup(func() { _ = manager.Close() })
 
 		assert.Equal(t, DefaultConnectionValidationTimeout, manager.connectionValidationTimeout)
 	})
@@ -726,7 +719,7 @@ func TestConnectionValidationTimeoutConfigurable(t *testing.T) {
 			WithManagerConnectionValidationTimeout(customTimeout),
 		)
 		require.NoError(t, err)
-		defer func() { _ = manager.Close() }()
+		t.Cleanup(func() { _ = manager.Close() })
 
 		assert.Equal(t, customTimeout, manager.connectionValidationTimeout)
 	})
@@ -739,7 +732,7 @@ func TestConnectionValidationTimeoutConfigurable(t *testing.T) {
 			WithManagerConnectionValidationTimeout(shortTimeout),
 		)
 		require.NoError(t, err)
-		defer func() { _ = manager.Close() }()
+		t.Cleanup(func() { _ = manager.Close() })
 
 		config := &rest.Config{
 			Host: "https://unreachable.example.com:6443",
