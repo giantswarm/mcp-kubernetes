@@ -117,7 +117,7 @@ func TestNewClientCache(t *testing.T) {
 
 	t.Run("default configuration", func(t *testing.T) {
 		cache := NewClientCache()
-		defer cache.Close()
+		t.Cleanup(func() { _ = cache.Close() })
 
 		assert.Equal(t, 0, cache.Size())
 		assert.False(t, cache.closed)
@@ -134,7 +134,7 @@ func TestNewClientCache(t *testing.T) {
 			WithCacheConfig(config),
 			WithCacheLogger(logger),
 		)
-		defer cache.Close()
+		t.Cleanup(func() { _ = cache.Close() })
 
 		assert.Equal(t, config.TTL, cache.config.TTL)
 		assert.Equal(t, config.MaxEntries, cache.config.MaxEntries)
@@ -149,7 +149,7 @@ func TestNewClientCache(t *testing.T) {
 		}
 
 		cache := NewClientCache(WithCacheConfig(config))
-		defer cache.Close()
+		t.Cleanup(func() { _ = cache.Close() })
 
 		defaults := DefaultCacheConfig()
 		assert.Equal(t, defaults.TTL, cache.config.TTL)
@@ -166,7 +166,7 @@ func TestClientCache_SetAndGet(t *testing.T) {
 		WithCacheLogger(logger),
 		WithCacheMetrics(metrics),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -233,7 +233,7 @@ func TestClientCache_TTLExpiration(t *testing.T) {
 		WithCacheMetrics(metrics),
 		withCacheClock(mockClock),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -266,7 +266,7 @@ func TestClientCache_Delete(t *testing.T) {
 		WithCacheLogger(logger),
 		WithCacheMetrics(metrics),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -296,7 +296,7 @@ func TestClientCache_DeleteByCluster(t *testing.T) {
 	cache := NewClientCache(
 		WithCacheLogger(logger),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -341,7 +341,7 @@ func TestClientCache_LRUEviction(t *testing.T) {
 		WithCacheMetrics(metrics),
 		withCacheClock(mockClock),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -383,7 +383,7 @@ func TestClientCache_GetOrCreate(t *testing.T) {
 		WithCacheLogger(logger),
 		WithCacheMetrics(metrics),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -421,7 +421,7 @@ func TestClientCache_GetOrCreate_ConcurrentSingleflight(t *testing.T) {
 	cache := NewClientCache(
 		WithCacheLogger(logger),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -498,7 +498,7 @@ func TestClientCache_Stats(t *testing.T) {
 		}),
 		withCacheClock(mockClock),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -541,7 +541,7 @@ func TestClientCache_Cleanup(t *testing.T) {
 		WithCacheMetrics(metrics),
 		withCacheClock(mockClock),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -576,7 +576,7 @@ func TestClientCache_ConcurrentAccess(t *testing.T) {
 		}),
 		WithCacheLogger(logger),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -627,7 +627,7 @@ func TestClientCache_RaceCondition(t *testing.T) {
 			CleanupInterval: 50 * time.Millisecond,
 		}),
 	)
-	defer cache.Close()
+	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -739,7 +739,7 @@ func TestDefaultCacheConfig(t *testing.T) {
 
 func BenchmarkClientCache_Get(b *testing.B) {
 	cache := NewClientCache()
-	defer cache.Close()
+	b.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -767,7 +767,7 @@ func BenchmarkClientCache_Set(b *testing.B) {
 			CleanupInterval: 1 * time.Hour,
 		}),
 	)
-	defer cache.Close()
+	b.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()
@@ -782,7 +782,7 @@ func BenchmarkClientCache_Set(b *testing.B) {
 
 func BenchmarkClientCache_GetOrCreate(b *testing.B) {
 	cache := NewClientCache()
-	defer cache.Close()
+	b.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
 	fakeClient := fake.NewSimpleClientset()

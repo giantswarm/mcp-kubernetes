@@ -1,8 +1,68 @@
 package federation
 
 import (
+	"context"
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
+
+// ClientProvider creates Kubernetes clients scoped to a specific user's identity.
+// This interface enables per-request client creation when OAuth downstream is enabled,
+// ensuring that each user's RBAC permissions are enforced on the Management Cluster.
+//
+// # Security Model
+//
+// When OAuth downstream is enabled:
+//   - Each request carries the user's OAuth access token
+//   - GetClientsForUser creates clients authenticated as that user
+//   - All Management Cluster operations (including kubeconfig secret retrieval)
+//     are performed with the user's identity, enforcing their RBAC permissions
+//
+// This provides defense in depth: users must have RBAC permission to read
+// kubeconfig secrets on the Management Cluster, AND their impersonated identity
+// must have permissions on the Workload Cluster.
+type ClientProvider interface {
+	// GetClientsForUser returns Kubernetes clients authenticated as the specified user.
+	// The returned clients use the user's OAuth token for authentication, ensuring
+	// all operations are performed with the user's RBAC permissions.
+	//
+	// Parameters:
+	//   - ctx: Context for the request (may contain OAuth token)
+	//   - user: User identity information from OAuth claims
+	//
+	// Returns:
+	//   - kubernetes.Interface: Clientset for typed API access
+	//   - dynamic.Interface: Dynamic client for CRD access (e.g., CAPI resources)
+	//   - *rest.Config: REST config for creating additional clients
+	//   - error: Any error during client creation
+	GetClientsForUser(ctx context.Context, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error)
+}
+
+// StaticClientProvider is a simple ClientProvider that returns pre-configured clients.
+// This is useful for testing and for scenarios where per-user client creation is not needed
+// (e.g., when using service account authentication without OAuth downstream).
+//
+// Note: When using StaticClientProvider, all users share the same client, so RBAC
+// differentiation between users is not enforced at the client level. Use this only
+// when appropriate for your security model.
+type StaticClientProvider struct {
+	Clientset     kubernetes.Interface
+	DynamicClient dynamic.Interface
+	RestConfig    *rest.Config
+}
+
+// GetClientsForUser returns the static clients regardless of user.
+// This implementation ignores the user parameter - all users get the same clients.
+func (p *StaticClientProvider) GetClientsForUser(_ context.Context, _ *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	return p.Clientset, p.DynamicClient, p.RestConfig, nil
+}
+
+// Ensure StaticClientProvider implements ClientProvider.
+var _ ClientProvider = (*StaticClientProvider)(nil)
 
 // UserInfo contains the authenticated user's identity information
 // extracted from the OAuth token. This information is used to configure
@@ -102,13 +162,27 @@ const (
 	ClusterPhaseUnknown ClusterPhase = "Unknown"
 )
 
+// CAPI resource identifiers and conventions for cluster lookup.
+var (
+	// CAPIClusterGVR is the GroupVersionResource for CAPI Cluster objects.
+	CAPIClusterGVR = schema.GroupVersionResource{
+		Group:    "cluster.x-k8s.io",
+		Version:  "v1beta1",
+		Resource: "clusters",
+	}
+)
+
 // CAPISecretSuffix is the suffix used by CAPI for kubeconfig secrets.
 // The full secret name is: ${CLUSTER_NAME}-kubeconfig
 const CAPISecretSuffix = "-kubeconfig"
 
 // CAPISecretKey is the key within the kubeconfig secret that contains
-// the actual kubeconfig YAML data.
+// the actual kubeconfig YAML data (standard CAPI convention).
 const CAPISecretKey = "value"
+
+// CAPISecretKeyAlternate is an alternate key used by some CAPI providers
+// for storing kubeconfig data in secrets.
+const CAPISecretKeyAlternate = "kubeconfig"
 
 // ImpersonationHeaders contains the header names used for Kubernetes
 // user impersonation.

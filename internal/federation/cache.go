@@ -304,7 +304,7 @@ func (c *ClientCache) setAndReturn(ctx context.Context, clusterName, userEmail s
 
 	c.logger.Debug("Cached client",
 		"cluster", clusterName,
-		"user_hash", AnonymizeEmail(userEmail),
+		UserHashAttr(userEmail),
 		"expiry", c.config.TTL)
 
 	return client
@@ -372,7 +372,7 @@ func (c *ClientCache) Delete(ctx context.Context, clusterName, userEmail string)
 
 		c.logger.Debug("Deleted cached client",
 			"cluster", clusterName,
-			"user_hash", AnonymizeEmail(userEmail))
+			UserHashAttr(userEmail))
 	}
 }
 

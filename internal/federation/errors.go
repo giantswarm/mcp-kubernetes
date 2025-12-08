@@ -33,6 +33,11 @@ var (
 	ErrManagerClosed = errors.New("federation manager is closed")
 )
 
+// userFacingClusterError is the standardized message returned to users for all
+// cluster-related errors. Using a single message prevents error response
+// differentiation attacks that could leak cluster existence information.
+const userFacingClusterError = "cluster access denied or unavailable"
+
 // ClusterNotFoundError provides detailed context about a cluster lookup failure.
 type ClusterNotFoundError struct {
 	ClusterName string
@@ -55,11 +60,33 @@ func (e *ClusterNotFoundError) Unwrap() error {
 
 // UserFacingError returns a sanitized error message safe for end users.
 // This prevents leaking internal cluster names and namespace structure.
+//
+// Security: Returns a generic message that doesn't reveal whether the cluster
+// exists, preventing cluster enumeration attacks.
 func (e *ClusterNotFoundError) UserFacingError() string {
-	return "cluster not found or access denied"
+	return userFacingClusterError
 }
 
 // KubeconfigError provides detailed context about kubeconfig retrieval failures.
+//
+// # Error Matching Semantics
+//
+// This error type implements both Is() and Unwrap() with distinct behaviors:
+//
+//   - Is() matches against sentinel errors (ErrKubeconfigSecretNotFound, ErrKubeconfigInvalid)
+//     based on the NotFound field. This allows callers to use errors.Is() to distinguish
+//     between "secret not found" and "secret found but invalid" scenarios.
+//
+//   - Unwrap() returns the underlying cause (Err field), allowing errors.Is() to also match
+//     against the root cause (e.g., a Kubernetes API error).
+//
+// Example usage:
+//
+//	if errors.Is(err, federation.ErrKubeconfigSecretNotFound) {
+//	    // Handle missing secret
+//	} else if errors.Is(err, federation.ErrKubeconfigInvalid) {
+//	    // Handle malformed kubeconfig
+//	}
 type KubeconfigError struct {
 	ClusterName string
 	SecretName  string
@@ -67,7 +94,7 @@ type KubeconfigError struct {
 	Reason      string
 	Err         error
 	// NotFound indicates the kubeconfig secret was not found (vs other errors like invalid data).
-	// When true, Unwrap() returns ErrKubeconfigSecretNotFound instead of ErrKubeconfigInvalid.
+	// When true, Is() matches ErrKubeconfigSecretNotFound; otherwise it matches ErrKubeconfigInvalid.
 	NotFound bool
 }
 
@@ -83,22 +110,35 @@ func (e *KubeconfigError) Error() string {
 
 // Unwrap returns the underlying error for use with errors.Is() and errors.As().
 func (e *KubeconfigError) Unwrap() error {
-	if e.Err != nil {
-		return e.Err
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+// This allows KubeconfigError to match against our sentinel errors:
+//   - ErrKubeconfigSecretNotFound: matches when NotFound is true
+//   - ErrKubeconfigInvalid: matches when NotFound is false (i.e., the secret
+//     exists but contains invalid data, missing keys, or unparseable content)
+//
+// Note: The underlying error (Err field) is matched via Unwrap(), not Is().
+func (e *KubeconfigError) Is(target error) bool {
+	switch target {
+	case ErrKubeconfigSecretNotFound:
+		return e.NotFound
+	case ErrKubeconfigInvalid:
+		return !e.NotFound
 	}
-	if e.NotFound {
-		return ErrKubeconfigSecretNotFound
-	}
-	return ErrKubeconfigInvalid
+	return false
 }
 
 // UserFacingError returns a sanitized error message safe for end users.
 // This prevents leaking internal secret names and namespace structure.
+//
+// Security: Returns a generic message regardless of whether the secret was
+// not found vs. invalid data. This prevents attackers from determining
+// cluster existence based on error response differentiation.
 func (e *KubeconfigError) UserFacingError() string {
-	if e.NotFound {
-		return "cluster credentials not available"
-	}
-	return "cluster configuration error"
+	// Always return the same message to prevent cluster existence leakage
+	return userFacingClusterError
 }
 
 // ConnectionError provides detailed context about cluster connection failures.
@@ -121,14 +161,20 @@ func (e *ConnectionError) Error() string {
 
 // Unwrap returns the underlying error for use with errors.Is() and errors.As().
 func (e *ConnectionError) Unwrap() error {
-	if e.Err != nil {
-		return e.Err
-	}
-	return ErrConnectionFailed
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+// This allows ConnectionError to match against ErrConnectionFailed.
+func (e *ConnectionError) Is(target error) bool {
+	return target == ErrConnectionFailed
 }
 
 // UserFacingError returns a sanitized error message safe for end users.
 // This prevents leaking internal host URLs and network topology.
+//
+// Security: Returns a generic message consistent with other cluster errors
+// to prevent error response differentiation attacks.
 func (e *ConnectionError) UserFacingError() string {
-	return "unable to connect to cluster"
+	return userFacingClusterError
 }

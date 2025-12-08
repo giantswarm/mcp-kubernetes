@@ -1,6 +1,6 @@
 ---
-description: 
-globs: 
+description: Debugging mcp-kubernetes via mcp-debug
+globs: **/*
 alwaysApply: true
 ---
 ## Debugging mcp-kubernetes via mcp-debug
