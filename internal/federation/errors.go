@@ -83,13 +83,20 @@ func (e *KubeconfigError) Error() string {
 
 // Unwrap returns the underlying error for use with errors.Is() and errors.As().
 func (e *KubeconfigError) Unwrap() error {
-	if e.Err != nil {
-		return e.Err
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+// This allows KubeconfigError to match against both the underlying error
+// and our sentinel errors (ErrKubeconfigSecretNotFound, ErrKubeconfigInvalid).
+func (e *KubeconfigError) Is(target error) bool {
+	switch target {
+	case ErrKubeconfigSecretNotFound:
+		return e.NotFound
+	case ErrKubeconfigInvalid:
+		return !e.NotFound
 	}
-	if e.NotFound {
-		return ErrKubeconfigSecretNotFound
-	}
-	return ErrKubeconfigInvalid
+	return false
 }
 
 // UserFacingError returns a sanitized error message safe for end users.
@@ -121,10 +128,13 @@ func (e *ConnectionError) Error() string {
 
 // Unwrap returns the underlying error for use with errors.Is() and errors.As().
 func (e *ConnectionError) Unwrap() error {
-	if e.Err != nil {
-		return e.Err
-	}
-	return ErrConnectionFailed
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+// This allows ConnectionError to match against ErrConnectionFailed.
+func (e *ConnectionError) Is(target error) bool {
+	return target == ErrConnectionFailed
 }
 
 // UserFacingError returns a sanitized error message safe for end users.

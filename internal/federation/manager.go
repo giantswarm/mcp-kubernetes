@@ -369,34 +369,69 @@ func (m *Manager) createImpersonatedLocalClient(_ context.Context, user *UserInf
 
 // getRemoteClientWithImpersonation returns a client for a remote workload cluster.
 // Note: user is guaranteed to be non-nil and validated by the public API methods.
-func (m *Manager) getRemoteClientWithImpersonation(_ context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
-	// This will be implemented in issues:
-	// - #106 (Client Caching)
-	// - #107 (Kubeconfig Secret Retrieval)
-	// - #109 (User Impersonation)
-	m.logger.Debug("getRemoteClientWithImpersonation - not yet implemented",
-		"cluster", clusterName,
-		"user_hash", AnonymizeEmail(user.Email),
-		"group_count", len(user.Groups))
-	return nil, &ClusterNotFoundError{
-		ClusterName: clusterName,
-		Reason:      "remote cluster client retrieval not yet implemented",
+func (m *Manager) getRemoteClientWithImpersonation(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
+	// Get client from cache or create new
+	clientset, _, err := m.cache.GetOrCreate(ctx, clusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+		return m.createRemoteClusterClient(ctx, clusterName, user)
+	})
+	if err != nil {
+		return nil, err
 	}
+
+	return clientset, nil
 }
 
 // getRemoteDynamicWithImpersonation returns a dynamic client for a remote workload cluster.
 // Note: user is guaranteed to be non-nil and validated by the public API methods.
-func (m *Manager) getRemoteDynamicWithImpersonation(_ context.Context, clusterName string, user *UserInfo) (dynamic.Interface, error) {
-	// This will be implemented in issues:
-	// - #106 (Client Caching)
-	// - #107 (Kubeconfig Secret Retrieval)
-	// - #109 (User Impersonation)
-	m.logger.Debug("getRemoteDynamicWithImpersonation - not yet implemented",
+func (m *Manager) getRemoteDynamicWithImpersonation(ctx context.Context, clusterName string, user *UserInfo) (dynamic.Interface, error) {
+	// Get client from cache or create new
+	_, dynamicClient, err := m.cache.GetOrCreate(ctx, clusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+		return m.createRemoteClusterClient(ctx, clusterName, user)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return dynamicClient, nil
+}
+
+// createRemoteClusterClient creates Kubernetes clients for a remote workload cluster.
+// This is called by the cache on cache miss.
+//
+// The method:
+//  1. Retrieves the kubeconfig from the CAPI secret
+//  2. Configures impersonation headers for the user
+//  3. Creates clientset and dynamic client with the impersonated config
+func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	m.logger.Debug("Creating remote cluster client",
 		"cluster", clusterName,
 		"user_hash", AnonymizeEmail(user.Email),
 		"group_count", len(user.Groups))
-	return nil, &ClusterNotFoundError{
-		ClusterName: clusterName,
-		Reason:      "remote cluster dynamic client retrieval not yet implemented",
+
+	// Retrieve the kubeconfig for the cluster
+	baseConfig, err := m.GetKubeconfigForCluster(ctx, clusterName)
+	if err != nil {
+		return nil, nil, nil, err
 	}
+
+	// Configure impersonation for the user
+	impersonatedConfig := ConfigWithImpersonation(baseConfig, user)
+
+	// Create the clientset
+	clientset, err := kubernetes.NewForConfig(impersonatedConfig)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create clientset for cluster %s: %w", clusterName, err)
+	}
+
+	// Create the dynamic client
+	dynClient, err := dynamic.NewForConfig(impersonatedConfig)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create dynamic client for cluster %s: %w", clusterName, err)
+	}
+
+	m.logger.Debug("Successfully created remote cluster client",
+		"cluster", clusterName,
+		"user_hash", AnonymizeEmail(user.Email))
+
+	return clientset, dynClient, impersonatedConfig, nil
 }

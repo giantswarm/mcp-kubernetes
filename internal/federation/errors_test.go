@@ -52,10 +52,11 @@ func TestClusterNotFoundError_Unwrap(t *testing.T) {
 
 func TestKubeconfigError(t *testing.T) {
 	tests := []struct {
-		name           string
-		err            *KubeconfigError
-		expectedString string
-		unwrapsTo      error
+		name            string
+		err             *KubeconfigError
+		expectedString  string
+		unwrapsTo       error // The underlying error that Unwrap() returns
+		matchesSentinel error // The sentinel error that Is() matches
 	}{
 		{
 			name: "with underlying error",
@@ -66,8 +67,8 @@ func TestKubeconfigError(t *testing.T) {
 				Reason:      "failed to parse",
 				Err:         fmt.Errorf("invalid YAML"),
 			},
-			expectedString: `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): failed to parse: invalid YAML`,
-			unwrapsTo:      fmt.Errorf("invalid YAML"),
+			expectedString:  `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): failed to parse: invalid YAML`,
+			matchesSentinel: ErrKubeconfigInvalid, // NotFound is false by default
 		},
 		{
 			name: "secret not found",
@@ -78,8 +79,8 @@ func TestKubeconfigError(t *testing.T) {
 				Reason:      "secret not found",
 				NotFound:    true,
 			},
-			expectedString: `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): secret not found`,
-			unwrapsTo:      ErrKubeconfigSecretNotFound,
+			expectedString:  `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): secret not found`,
+			matchesSentinel: ErrKubeconfigSecretNotFound,
 		},
 		{
 			name: "invalid kubeconfig",
@@ -89,8 +90,8 @@ func TestKubeconfigError(t *testing.T) {
 				Namespace:   "org-acme",
 				Reason:      "invalid data",
 			},
-			expectedString: `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): invalid data`,
-			unwrapsTo:      ErrKubeconfigInvalid,
+			expectedString:  `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): invalid data`,
+			matchesSentinel: ErrKubeconfigInvalid,
 		},
 	}
 
@@ -98,12 +99,12 @@ func TestKubeconfigError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expectedString, tt.err.Error())
 
+			// Unwrap returns the underlying error (may be nil)
 			unwrapped := tt.err.Unwrap()
-			if tt.err.Err != nil {
-				assert.Equal(t, tt.err.Err, unwrapped)
-			} else {
-				assert.Equal(t, tt.unwrapsTo, unwrapped)
-			}
+			assert.Equal(t, tt.err.Err, unwrapped)
+
+			// Is() matches the sentinel error
+			assert.True(t, errors.Is(tt.err, tt.matchesSentinel))
 		})
 	}
 }
