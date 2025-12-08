@@ -37,11 +37,19 @@ type Metrics struct {
 
 	// OAuth authentication metrics
 	oauthDownstreamAuthTotal metric.Int64Counter
+
+	// Configuration
+	// detailedLabels controls whether high-cardinality labels (namespace, resource_type)
+	// are included in Kubernetes operation metrics
+	detailedLabels bool
 }
 
 // NewMetrics creates a new Metrics instance with all metrics initialized.
-func NewMetrics(meter metric.Meter) (*Metrics, error) {
-	m := &Metrics{}
+// The detailedLabels parameter controls whether high-cardinality labels are included.
+func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
+	m := &Metrics{
+		detailedLabels: detailedLabels,
+	}
 
 	var err error
 
@@ -146,22 +154,28 @@ func (m *Metrics) RecordHTTPRequest(ctx context.Context, method, path string, st
 // RecordK8sOperation records a Kubernetes operation with operation type, resource type,
 // namespace, status, and duration.
 //
-// CARDINALITY WARNING: Recording namespace and resource_type as labels can create
-// high cardinality in large clusters with thousands of namespaces and resource types.
-// In production with >1000 namespaces, consider:
-// 1. Using sampling for detailed labels
-// 2. Aggregating by operation and status only
-// 3. Using traces for per-namespace/resource debugging instead of metrics
+// CARDINALITY NOTE: When detailedLabels is false (default), only operation and status
+// labels are recorded to avoid cardinality explosion in large clusters.
+// When detailedLabels is true, namespace and resource_type are also included.
+// For large clusters with >1000 namespaces, keep detailedLabels disabled and use
+// traces for per-namespace/resource debugging instead.
 func (m *Metrics) RecordK8sOperation(ctx context.Context, operation, resourceType, namespace, status string, duration time.Duration) {
 	if m.k8sOperationsTotal == nil || m.k8sOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
+	// Always include operation and status (low cardinality)
 	attrs := []attribute.KeyValue{
 		attribute.String(attrOperation, operation),
-		attribute.String(attrResourceType, resourceType),
-		attribute.String(attrNamespace, namespace),
 		attribute.String(attrStatus, status),
+	}
+
+	// Only add high-cardinality labels if explicitly enabled
+	if m.detailedLabels {
+		attrs = append(attrs,
+			attribute.String(attrResourceType, resourceType),
+			attribute.String(attrNamespace, namespace),
+		)
 	}
 
 	m.k8sOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
@@ -171,17 +185,23 @@ func (m *Metrics) RecordK8sOperation(ctx context.Context, operation, resourceTyp
 // RecordPodOperation records a Kubernetes pod operation with operation type, namespace,
 // status, and duration.
 //
-// CARDINALITY WARNING: Recording namespace as a label can create high cardinality
-// in large clusters with thousands of namespaces.
+// CARDINALITY NOTE: When detailedLabels is false (default), only operation and status
+// labels are recorded to avoid cardinality explosion in large clusters.
+// When detailedLabels is true, namespace is also included.
 func (m *Metrics) RecordPodOperation(ctx context.Context, operation, namespace, status string, duration time.Duration) {
 	if m.k8sPodOperationsTotal == nil || m.k8sPodOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
+	// Always include operation and status (low cardinality)
 	attrs := []attribute.KeyValue{
 		attribute.String(attrOperation, operation),
-		attribute.String(attrNamespace, namespace),
 		attribute.String(attrStatus, status),
+	}
+
+	// Only add high-cardinality labels if explicitly enabled
+	if m.detailedLabels {
+		attrs = append(attrs, attribute.String(attrNamespace, namespace))
 	}
 
 	m.k8sPodOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))

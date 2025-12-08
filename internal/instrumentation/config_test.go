@@ -15,8 +15,9 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected ServiceName to be 'mcp-kubernetes', got %s", config.ServiceName)
 	}
 
-	if config.Enabled {
-		t.Error("expected Enabled to be false by default for zero overhead")
+	// Note: Default is now true for production-ready observability
+	if !config.Enabled {
+		t.Error("expected Enabled to be true by default for production-ready observability")
 	}
 
 	if config.MetricsExporter != "prometheus" {
@@ -29,6 +30,11 @@ func TestDefaultConfig(t *testing.T) {
 
 	if config.TraceSamplingRate != 0.1 {
 		t.Errorf("expected TraceSamplingRate to be 0.1, got %f", config.TraceSamplingRate)
+	}
+
+	// Verify new configuration defaults
+	if config.DetailedLabels {
+		t.Error("expected DetailedLabels to be false by default to avoid cardinality issues")
 	}
 }
 
@@ -114,9 +120,23 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	// Test OTLP tracing with endpoint (valid)
-	config.OTLPEndpoint = "http://localhost:4318"
+	config.OTLPEndpoint = "localhost:4318"
 	if err := config.Validate(); err != nil {
 		t.Errorf("expected no error for valid OTLP config, got %v", err)
+	}
+
+	// Test OTLP metrics without endpoint
+	config.TracingExporter = "none"
+	config.MetricsExporter = "otlp"
+	config.OTLPEndpoint = ""
+	if err := config.Validate(); err == nil {
+		t.Error("expected error for OTLP metrics without endpoint")
+	}
+
+	// Test OTLP metrics with endpoint (valid)
+	config.OTLPEndpoint = "localhost:4318"
+	if err := config.Validate(); err != nil {
+		t.Errorf("expected no error for valid OTLP metrics config, got %v", err)
 	}
 }
 

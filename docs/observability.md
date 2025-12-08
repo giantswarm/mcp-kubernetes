@@ -9,6 +9,8 @@ This document provides a comprehensive guide to the observability features of `m
 - **Metrics**: Prometheus-compatible metrics for HTTP requests, Kubernetes operations, and sessions
 - **Distributed Tracing**: OpenTelemetry traces for request flows and Kubernetes API calls
 - **Prometheus Integration**: `/metrics` endpoint for Prometheus scraping
+- **Health Checks**: `/healthz` (liveness) and `/readyz` (readiness) endpoints for Kubernetes probes
+- **ServiceMonitor**: Optional Prometheus Operator ServiceMonitor CRD
 
 ## Configuration
 
@@ -26,14 +28,27 @@ METRICS_EXPORTER=prometheus
 # Options: otlp, stdout, none
 TRACING_EXPORTER=otlp
 
-# OTLP endpoint for traces/metrics
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+# OTLP endpoint for traces/metrics (required for otlp exporters)
+# Format: hostname:port (without protocol prefix)
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4318
+
+# Use insecure (HTTP) transport for OTLP (default: false, uses HTTPS)
+# WARNING: Only enable for local development/testing
+OTEL_EXPORTER_OTLP_INSECURE=false
 
 # Sampling rate (0.0 to 1.0, default: 0.1)
 OTEL_TRACES_SAMPLER_ARG=0.1
 
 # Service name (default: mcp-kubernetes)
 OTEL_SERVICE_NAME=mcp-kubernetes
+
+# Enable detailed labels (namespace, resource_type) in K8s metrics
+# WARNING: Can cause high cardinality in large clusters (>1000 namespaces)
+METRICS_DETAILED_LABELS=false
+
+# Kubernetes metadata (automatically set by Helm chart)
+K8S_NAMESPACE=default
+K8S_POD_NAME=mcp-kubernetes-abc123
 ```
 
 ## Available Metrics
@@ -356,14 +371,84 @@ Traces include the following attributes:
 service:mcp-kubernetes operation:kubernetes_get
 ```
 
+## Health Endpoints
+
+`mcp-kubernetes` exposes standard Kubernetes health check endpoints:
+
+### Liveness Probe (`/healthz`)
+
+Returns `200 OK` if the server process is running. Use for Kubernetes liveness probes.
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+### Readiness Probe (`/readyz`)
+
+Returns `200 OK` if the server is ready to receive traffic. Checks:
+- Server is not shutting down
+- Required components are initialized
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+## Cardinality Management
+
+### Detailed Labels
+
+By default, Kubernetes operation metrics only include low-cardinality labels (`operation`, `status`) to prevent cardinality explosion in large clusters.
+
+To enable detailed labels (`namespace`, `resource_type`):
+
+```bash
+METRICS_DETAILED_LABELS=true
+```
+
+**Warning**: In clusters with >1000 namespaces, detailed labels can cause:
+- Prometheus memory issues
+- Slow queries
+- Storage bloat
+
+For large clusters, use traces instead of detailed metrics for per-namespace debugging.
+
+### Recommended Prometheus Settings for Large Clusters
+
+```yaml
+# prometheus.yml
+global:
+  # Limit samples per scrape
+  sample_limit: 10000
+
+scrape_configs:
+  - job_name: 'mcp-kubernetes'
+    scrape_interval: 30s  # Increase interval
+    metric_relabel_configs:
+      # Drop high-cardinality labels if needed
+      - source_labels: [namespace]
+        regex: '.*'
+        action: labeldrop
+```
+
 ## Best Practices
 
 1. **Sampling**: Set `OTEL_TRACES_SAMPLER_ARG` to an appropriate value (e.g., 0.1 for 10% sampling)
-2. **Cardinality**: Be mindful of high-cardinality labels (e.g., pod names)
+2. **Cardinality**: Keep `METRICS_DETAILED_LABELS=false` in large clusters
 3. **Retention**: Configure appropriate retention policies for metrics and traces
 4. **Alerting**: Set up alerts for critical metrics (error rates, latency)
 5. **Dashboards**: Create Grafana dashboards for key metrics
 6. **Monitoring**: Monitor the instrumentation overhead itself
+7. **Health Checks**: Use `/healthz` and `/readyz` for Kubernetes probes
 
 ## Troubleshooting
 

@@ -18,7 +18,7 @@ func mockMeterProvider() metric.Meter {
 
 func TestNewMetrics(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false) // false = no detailed labels
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -52,11 +52,28 @@ func TestNewMetrics(t *testing.T) {
 	if metrics.oauthDownstreamAuthTotal == nil {
 		t.Error("expected oauthDownstreamAuthTotal to be initialized")
 	}
+
+	// Verify detailedLabels is set correctly
+	if metrics.detailedLabels != false {
+		t.Error("expected detailedLabels to be false")
+	}
+}
+
+func TestNewMetrics_DetailedLabels(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, true) // true = detailed labels
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	if metrics.detailedLabels != true {
+		t.Error("expected detailedLabels to be true")
+	}
 }
 
 func TestMetrics_RecordHTTPRequest(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -83,7 +100,7 @@ func TestMetrics_RecordHTTPRequest_NilMetrics(t *testing.T) {
 
 func TestMetrics_RecordK8sOperation(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -104,7 +121,7 @@ func TestMetrics_RecordK8sOperation_NilMetrics(t *testing.T) {
 
 func TestMetrics_RecordPodOperation(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -124,7 +141,7 @@ func TestMetrics_RecordPodOperation_NilMetrics(t *testing.T) {
 
 func TestMetrics_RecordOAuthDownstreamAuth(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -145,7 +162,7 @@ func TestMetrics_RecordOAuthDownstreamAuth_NilMetrics(t *testing.T) {
 
 func TestMetrics_ActiveSessions(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -214,7 +231,7 @@ func TestMetricConstants(t *testing.T) {
 
 func TestMetrics_ConcurrentHTTPRecording(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -246,7 +263,7 @@ func TestMetrics_ConcurrentHTTPRecording(t *testing.T) {
 
 func TestMetrics_ConcurrentK8sOperationRecording(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -277,7 +294,7 @@ func TestMetrics_ConcurrentK8sOperationRecording(t *testing.T) {
 
 func TestMetrics_ConcurrentPodOperationRecording(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -304,7 +321,7 @@ func TestMetrics_ConcurrentPodOperationRecording(t *testing.T) {
 
 func TestMetrics_ConcurrentOAuthRecording(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}
@@ -333,7 +350,7 @@ func TestMetrics_ConcurrentOAuthRecording(t *testing.T) {
 
 func TestMetrics_ConcurrentSessionTracking(t *testing.T) {
 	meter := mockMeterProvider()
-	metrics, err := NewMetrics(meter)
+	metrics, err := NewMetrics(meter, false)
 	if err != nil {
 		t.Fatalf("expected no error creating metrics, got %v", err)
 	}

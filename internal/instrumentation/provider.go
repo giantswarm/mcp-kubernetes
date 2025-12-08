@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
@@ -38,12 +41,29 @@ func NewProvider(ctx context.Context, config Config) (*Provider, error) {
 		}, nil
 	}
 
-	// Create resource with service information
+	// Create resource with service information and Kubernetes metadata
+	resourceAttrs := []attribute.KeyValue{
+		semconv.ServiceName(config.ServiceName),
+		semconv.ServiceVersion(config.ServiceVersion),
+	}
+
+	// Add service instance ID (defaults to hostname/pod name)
+	if config.ServiceInstanceID != "" {
+		resourceAttrs = append(resourceAttrs, semconv.ServiceInstanceID(config.ServiceInstanceID))
+	} else if hostname, err := os.Hostname(); err == nil {
+		resourceAttrs = append(resourceAttrs, semconv.ServiceInstanceID(hostname))
+	}
+
+	// Add Kubernetes metadata if available
+	if config.K8sNamespace != "" {
+		resourceAttrs = append(resourceAttrs, semconv.K8SNamespaceName(config.K8sNamespace))
+	}
+	if config.K8sPodName != "" {
+		resourceAttrs = append(resourceAttrs, semconv.K8SPodName(config.K8sPodName))
+	}
+
 	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceName(config.ServiceName),
-			semconv.ServiceVersion(config.ServiceVersion),
-		),
+		resource.WithAttributes(resourceAttrs...),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
@@ -74,7 +94,7 @@ func NewProvider(ctx context.Context, config Config) (*Provider, error) {
 
 	// Create metrics recorder
 	meter := provider.meterProvider.Meter(config.ServiceName)
-	provider.metrics, err = NewMetrics(meter)
+	provider.metrics, err = NewMetrics(meter, config.DetailedLabels)
 	if err != nil {
 		// Clean up on error
 		_ = provider.Shutdown(ctx)
@@ -100,17 +120,31 @@ func (p *Provider) initMeterProvider(ctx context.Context, res *resource.Resource
 		reader = promExporter
 
 	case "otlp":
-		// OTLP exporter for metrics is not directly available in this version
-		// Fall back to stdout for now or use prometheus
-		exporter, err := stdoutmetric.New()
+		// OTLP metrics exporter requires endpoint configuration
+		if p.config.OTLPEndpoint == "" {
+			return fmt.Errorf("OTLP endpoint is required for OTLP metrics exporter; set OTEL_EXPORTER_OTLP_ENDPOINT or use 'prometheus' exporter")
+		}
+
+		opts := []otlpmetrichttp.Option{
+			otlpmetrichttp.WithEndpoint(p.config.OTLPEndpoint),
+		}
+
+		if p.config.OTLPInsecure {
+			opts = append(opts, otlpmetrichttp.WithInsecure())
+		}
+
+		exporter, err := otlpmetrichttp.New(ctx, opts...)
 		if err != nil {
-			return fmt.Errorf("failed to create stdout metrics exporter: %w", err)
+			return fmt.Errorf("failed to create OTLP metrics exporter: %w", err)
 		}
 		reader = metric.NewPeriodicReader(exporter)
 
 	case "stdout":
 		// DEVELOPMENT ONLY WARNING
-		fmt.Fprint(os.Stderr, "⚠️  [mcp-kubernetes] Stdout metrics exporter enabled - for development/debugging only, not for production\n")
+		slog.Warn("stdout metrics exporter enabled - for development/debugging only, not for production",
+			"component", "instrumentation",
+			"exporter", "stdout",
+		)
 		exporter, err := stdoutmetric.New()
 		if err != nil {
 			return fmt.Errorf("failed to create stdout metrics exporter: %w", err)
@@ -157,7 +191,11 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 		if p.config.OTLPInsecure {
 			// SECURITY WARNING: Traces may contain sensitive metadata
 			// Only use insecure transport for local development/testing
-			fmt.Fprint(os.Stderr, "⚠️  [mcp-kubernetes] OTLP insecure transport enabled - use only for development\n")
+			slog.Warn("OTLP insecure transport enabled - traces may contain sensitive metadata, use only for development",
+				"component", "instrumentation",
+				"exporter", "otlp",
+				"endpoint", p.config.OTLPEndpoint,
+			)
 			opts = append(opts, otlptracehttp.WithInsecure())
 		}
 		// If not insecure, the exporter will use TLS by default
@@ -169,7 +207,10 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 
 	case "stdout":
 		// DEVELOPMENT ONLY WARNING
-		fmt.Fprint(os.Stderr, "⚠️  [mcp-kubernetes] Stdout traces exporter enabled - for development/debugging only, not for production\n")
+		slog.Warn("stdout traces exporter enabled - for development/debugging only, not for production",
+			"component", "instrumentation",
+			"exporter", "stdout",
+		)
 		exporter, err = stdouttrace.New()
 		if err != nil {
 			return fmt.Errorf("failed to create stdout trace exporter: %w", err)

@@ -14,7 +14,7 @@ import (
 )
 
 // runStreamableHTTPServer runs the server with Streamable HTTP transport
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider) error {
+func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext) error {
 	// Create a custom HTTP server with metrics endpoint
 	mux := http.NewServeMux()
 
@@ -31,6 +31,11 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 		mux.Handle("/metrics", promhttp.Handler())
 		fmt.Printf("  Metrics endpoint: /metrics\n")
 	}
+
+	// Add health check endpoints
+	healthChecker := server.NewHealthChecker(sc)
+	healthChecker.RegisterHealthEndpoints(mux)
+	fmt.Printf("  Health endpoints: /healthz, /readyz\n")
 
 	fmt.Printf("Streamable HTTP server starting on %s\n", addr)
 	fmt.Printf("  HTTP endpoint: %s\n", endpoint)
@@ -75,16 +80,24 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 }
 
 // runOAuthHTTPServer runs the server with OAuth 2.1 authentication
-func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Context, config server.OAuthConfig) error {
+func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Context, config server.OAuthConfig, sc *server.ServerContext) error {
 	// Create OAuth HTTP server
 	oauthServer, err := server.NewOAuthHTTPServer(mcpSrv, "streamable-http", config)
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
 
+	// Set up health checker
+	healthChecker := server.NewHealthChecker(sc)
+	oauthServer.SetHealthChecker(healthChecker)
+
 	fmt.Printf("OAuth-enabled HTTP server starting on %s\n", addr)
 	fmt.Printf("  Base URL: %s\n", config.BaseURL)
 	fmt.Printf("  MCP endpoint: /mcp (requires OAuth Bearer token)\n")
+	fmt.Printf("  Health endpoints: /healthz, /readyz\n")
+	if config.InstrumentationProvider != nil && config.InstrumentationProvider.Enabled() {
+		fmt.Printf("  Metrics endpoint: /metrics\n")
+	}
 	fmt.Printf("  OAuth endpoints:\n")
 	fmt.Printf("    - Authorization Server Metadata: /.well-known/oauth-authorization-server\n")
 	fmt.Printf("    - Protected Resource Metadata: /.well-known/oauth-protected-resource\n")

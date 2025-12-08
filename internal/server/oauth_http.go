@@ -152,6 +152,7 @@ type OAuthHTTPServer struct {
 	serverType              string // "streamable-http"
 	disableStreaming        bool
 	instrumentationProvider *instrumentation.Provider
+	healthChecker           *HealthChecker
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -422,6 +423,11 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		}
 	}
 
+	// Setup health check endpoints
+	if s.healthChecker != nil {
+		s.healthChecker.RegisterHealthEndpoints(mux)
+	}
+
 	// Create HTTP server with security and CORS middleware
 	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
 
@@ -466,6 +472,11 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauth.Handler {
 // GetTokenStore returns the token store for downstream OAuth passthrough
 func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
 	return s.tokenStore
+}
+
+// SetHealthChecker sets the health checker for health check endpoints.
+func (s *OAuthHTTPServer) SetHealthChecker(hc *HealthChecker) {
+	s.healthChecker = hc
 }
 
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's

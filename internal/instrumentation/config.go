@@ -15,8 +15,18 @@ type Config struct {
 	// ServiceVersion is the version of the service
 	ServiceVersion string
 
-	// Enabled determines if instrumentation is active (default: false for zero overhead)
-	// Set to true via INSTRUMENTATION_ENABLED=true to enable metrics and tracing
+	// ServiceInstanceID is the unique instance identifier (default: hostname)
+	// In Kubernetes, this is typically the pod name
+	ServiceInstanceID string
+
+	// K8sNamespace is the Kubernetes namespace where the service is running
+	K8sNamespace string
+
+	// K8sPodName is the Kubernetes pod name
+	K8sPodName string
+
+	// Enabled determines if instrumentation is active (default: true)
+	// Set to false via INSTRUMENTATION_ENABLED=false to disable metrics and tracing
 	Enabled bool
 
 	// MetricsExporter specifies the metrics exporter type
@@ -28,7 +38,7 @@ type Config struct {
 	TracingExporter string
 
 	// OTLPEndpoint is the OTLP collector endpoint
-	// Example: "http://localhost:4318"
+	// Example: "localhost:4318" (without protocol prefix)
 	OTLPEndpoint string
 
 	// OTLPInsecure controls whether to use insecure HTTP for OTLP export
@@ -43,6 +53,13 @@ type Config struct {
 
 	// PrometheusEndpoint is the path for the Prometheus metrics endpoint (default: "/metrics")
 	PrometheusEndpoint string
+
+	// DetailedLabels controls whether high-cardinality labels (namespace, resource_type)
+	// are included in Kubernetes operation metrics.
+	// When false (default), only operation and status labels are included.
+	// When true, namespace and resource_type labels are added (can cause cardinality issues in large clusters).
+	// For large clusters with >1000 namespaces, consider keeping this false and using traces for detailed debugging.
+	DetailedLabels bool
 }
 
 // DefaultConfig returns a Config with sensible defaults based on environment variables.
@@ -50,13 +67,17 @@ func DefaultConfig() Config {
 	config := Config{
 		ServiceName:        getEnvOrDefault("OTEL_SERVICE_NAME", "mcp-kubernetes"),
 		ServiceVersion:     "unknown",
-		Enabled:            getEnvBoolOrDefault("INSTRUMENTATION_ENABLED", false),
+		ServiceInstanceID:  getEnvOrDefault("OTEL_SERVICE_INSTANCE_ID", ""),
+		K8sNamespace:       getEnvOrDefault("K8S_NAMESPACE", getEnvOrDefault("POD_NAMESPACE", "")),
+		K8sPodName:         getEnvOrDefault("K8S_POD_NAME", getEnvOrDefault("HOSTNAME", "")),
+		Enabled:            getEnvBoolOrDefault("INSTRUMENTATION_ENABLED", true),
 		MetricsExporter:    getEnvOrDefault("METRICS_EXPORTER", "prometheus"),
 		TracingExporter:    getEnvOrDefault("TRACING_EXPORTER", "none"),
 		OTLPEndpoint:       getEnvOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		OTLPInsecure:       getEnvBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", false),
 		TraceSamplingRate:  getEnvFloatOrDefault("OTEL_TRACES_SAMPLER_ARG", 0.1),
 		PrometheusEndpoint: getEnvOrDefault("PROMETHEUS_ENDPOINT", "/metrics"),
+		DetailedLabels:     getEnvBoolOrDefault("METRICS_DETAILED_LABELS", false),
 	}
 
 	return config
@@ -81,9 +102,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid tracing exporter %q, must be one of: otlp, stdout, none", c.TracingExporter)
 	}
 
-	// OTLP endpoint required when using OTLP tracing exporter
+	// OTLP endpoint required when using OTLP exporters
 	if c.TracingExporter == "otlp" && c.OTLPEndpoint == "" {
 		return fmt.Errorf("OTLP endpoint is required when using OTLP tracing exporter")
+	}
+	if c.MetricsExporter == "otlp" && c.OTLPEndpoint == "" {
+		return fmt.Errorf("OTLP endpoint is required when using OTLP metrics exporter")
 	}
 
 	return nil
