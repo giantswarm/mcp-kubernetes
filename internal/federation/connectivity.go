@@ -13,6 +13,9 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// defaultHealthCheckPath is the standard Kubernetes health endpoint.
+const defaultHealthCheckPath = "/healthz"
+
 // ConnectivityConfig holds configuration options for cluster connectivity.
 // These settings control how the federation manager establishes and validates
 // connections to workload clusters.
@@ -84,7 +87,7 @@ func DefaultConnectivityConfig() ConnectivityConfig {
 		RequestTimeout:    30 * time.Second,
 		RetryAttempts:     3,
 		RetryBackoff:      1 * time.Second,
-		HealthCheckPath:   "/healthz",
+		HealthCheckPath:   defaultHealthCheckPath,
 		QPS:               50,
 		Burst:             100,
 	}
@@ -98,7 +101,7 @@ func HighLatencyConnectivityConfig() ConnectivityConfig {
 		RequestTimeout:    60 * time.Second,
 		RetryAttempts:     5,
 		RetryBackoff:      2 * time.Second,
-		HealthCheckPath:   "/healthz",
+		HealthCheckPath:   defaultHealthCheckPath,
 		QPS:               30,
 		Burst:             60,
 	}
@@ -183,7 +186,7 @@ func CheckConnectivity(ctx context.Context, clusterName string, config *rest.Con
 	// Determine health check path
 	healthPath := cc.HealthCheckPath
 	if healthPath == "" {
-		healthPath = "/healthz"
+		healthPath = defaultHealthCheckPath
 	}
 
 	// Perform the health check
@@ -208,6 +211,15 @@ func CheckConnectivity(ctx context.Context, clusterName string, config *rest.Con
 //
 // Returns the last error if all retry attempts fail.
 func CheckConnectivityWithRetry(ctx context.Context, clusterName string, config *rest.Config, cc ConnectivityConfig) error {
+	// Early nil check to prevent panics
+	if config == nil {
+		return &ConnectionError{
+			ClusterName: clusterName,
+			Host:        "<nil config>",
+			Reason:      "config is nil",
+		}
+	}
+
 	attempts := cc.RetryAttempts
 	if attempts <= 0 {
 		attempts = 1
@@ -337,18 +349,27 @@ func isTLSError(err error) bool {
 		return false
 	}
 
+	// Check for tls.RecordHeaderError or similar typed errors first
+	var tlsRecordErr tls.RecordHeaderError
+	if errors.As(err, &tlsRecordErr) {
+		return true
+	}
+
 	errStr := err.Error()
 
-	// Check for common TLS error patterns
+	// Check for specific TLS/x509 error patterns
+	// These patterns are more specific to avoid false positives
 	tlsPatterns := []string{
 		"tls:",
-		"certificate",
 		"x509:",
-		"handshake",
-		"TLS",
-		"SSL",
+		"certificate signed by",
+		"certificate has expired",
+		"certificate is not valid",
+		"certificate is valid for",
+		"handshake failure",
 		"unknown authority",
-		"expired",
+		"bad certificate",
+		"unsupported protocol",
 	}
 
 	for _, pattern := range tlsPatterns {
@@ -357,9 +378,7 @@ func isTLSError(err error) bool {
 		}
 	}
 
-	// Check for tls.RecordHeaderError or similar
-	var tlsRecordErr tls.RecordHeaderError
-	return errors.As(err, &tlsRecordErr)
+	return false
 }
 
 // isTimeoutError checks if the error is a timeout error.
@@ -404,7 +423,7 @@ func extractTLSReason(err error) string {
 	switch {
 	case strings.Contains(errStr, "unknown authority"):
 		return "certificate signed by unknown authority"
-	case strings.Contains(errStr, "expired"):
+	case strings.Contains(errStr, "has expired"):
 		return "certificate has expired"
 	case strings.Contains(errStr, "not valid yet"):
 		return "certificate is not yet valid"
@@ -440,19 +459,12 @@ func GetEndpointType(host string) string {
 	}
 
 	// Extract host/IP from URL
-	hostPart := host
-	if strings.HasPrefix(host, "https://") {
-		hostPart = strings.TrimPrefix(host, "https://")
-	} else if strings.HasPrefix(host, "http://") {
-		hostPart = strings.TrimPrefix(host, "http://")
-	}
+	hostPart := strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
 
-	// Remove port if present
-	if colonIdx := strings.LastIndex(hostPart, ":"); colonIdx > 0 {
-		// Check if it's an IPv6 address
-		if !strings.Contains(hostPart, "[") {
-			hostPart = hostPart[:colonIdx]
-		}
+	// Use net.SplitHostPort for proper handling of IPv4 and IPv6 addresses
+	// This correctly handles cases like "[::1]:6443" and "10.0.0.1:6443"
+	if h, _, err := net.SplitHostPort(hostPart); err == nil {
+		hostPart = h
 	}
 
 	// Try to parse as IP
@@ -464,18 +476,16 @@ func GetEndpointType(host string) string {
 		return "public"
 	}
 
-	// It's a hostname - check for common private patterns
-	privatePatterns := []string{
+	// It's a hostname - check for common private DNS patterns
+	// Note: We only check DNS-based patterns here since IP parsing failed
+	privateHostnamePatterns := []string{
 		".internal",
 		".local",
 		".svc",
 		".cluster.local",
-		"10.",
-		"192.168.",
-		"172.",
 	}
 
-	for _, pattern := range privatePatterns {
+	for _, pattern := range privateHostnamePatterns {
 		if strings.Contains(hostPart, pattern) {
 			return "private"
 		}
@@ -485,36 +495,21 @@ func GetEndpointType(host string) string {
 }
 
 // isPrivateIP checks if an IP address is in a private range.
+// Uses Go's built-in IsPrivate() for RFC 1918 and RFC 4193 (IPv6) addresses,
+// plus checks for link-local addresses.
 func isPrivateIP(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
 
-	// RFC 1918 private ranges
-	privateRanges := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
+	// Go 1.17+ provides IsPrivate() which handles:
+	// - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+	// - RFC 4193: fc00::/7 (IPv6 unique local addresses)
+	if ip.IsPrivate() {
+		return true
 	}
 
-	for _, cidr := range privateRanges {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		if network.Contains(ip) {
-			return true
-		}
-	}
-
-	// Check for link-local
-	linkLocal := net.ParseIP("169.254.0.0")
-	if linkLocal != nil {
-		_, linkLocalNet, _ := net.ParseCIDR("169.254.0.0/16")
-		if linkLocalNet != nil && linkLocalNet.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
+	// Also check for link-local addresses (169.254.0.0/16 for IPv4, fe80::/10 for IPv6)
+	// These are used in some network configurations
+	return ip.IsLinkLocalUnicast()
 }

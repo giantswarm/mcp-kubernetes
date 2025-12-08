@@ -266,6 +266,16 @@ func TestCheckConnectivityWithRetry(t *testing.T) {
 		err := CheckConnectivityWithRetry(context.Background(), "test-cluster", config, cc)
 		require.Error(t, err)
 	})
+
+	t.Run("returns error for nil config", func(t *testing.T) {
+		err := CheckConnectivityWithRetry(context.Background(), "test-cluster", nil, DefaultConnectivityConfig())
+		require.Error(t, err)
+
+		var connErr *ConnectionError
+		assert.True(t, errors.As(err, &connErr))
+		assert.Equal(t, "test-cluster", connErr.ClusterName)
+		assert.Equal(t, "<nil config>", connErr.Host)
+	})
 }
 
 func TestIsRetryableError(t *testing.T) {
@@ -554,6 +564,21 @@ func TestGetEndpointType(t *testing.T) {
 			host:     "http://10.0.1.50:6443",
 			expected: "private",
 		},
+		{
+			name:     "IPv6 loopback with port",
+			host:     "https://[::1]:6443",
+			expected: "public", // loopback is not private per IsPrivate()
+		},
+		{
+			name:     "IPv6 private address (fc00::/7)",
+			host:     "https://[fd00::1]:6443",
+			expected: "private",
+		},
+		{
+			name:     "hostname with IP-like substring should be public",
+			host:     "https://app172.example.com:6443",
+			expected: "public", // should NOT match as private
+		},
 	}
 
 	for _, tt := range tests {
@@ -613,6 +638,21 @@ func TestIsPrivateIP(t *testing.T) {
 		{
 			name:     "link-local",
 			ip:       "169.254.1.1",
+			expected: true,
+		},
+		{
+			name:     "IPv6 unique local address (fc00::/7)",
+			ip:       "fd00::1",
+			expected: true,
+		},
+		{
+			name:     "IPv6 public address",
+			ip:       "2001:db8::1",
+			expected: false,
+		},
+		{
+			name:     "IPv6 link-local",
+			ip:       "fe80::1",
 			expected: true,
 		},
 	}
