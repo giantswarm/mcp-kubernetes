@@ -14,6 +14,7 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
@@ -219,9 +220,30 @@ func runServe(config ServeConfig) error {
 		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// Initialize OpenTelemetry instrumentation provider
+	instrumentationConfig := instrumentation.DefaultConfig()
+	instrumentationConfig.ServiceVersion = rootCmd.Version
+	instrumentationProvider, err := instrumentation.NewProvider(shutdownCtx, instrumentationConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create instrumentation provider: %w", err)
+	}
+	defer func() {
+		if shutdownErr := instrumentationProvider.Shutdown(context.Background()); shutdownErr != nil {
+			if config.Transport != "stdio" {
+				log.Printf("Error during instrumentation shutdown: %v", shutdownErr)
+			}
+		}
+	}()
+
+	if instrumentationProvider.Enabled() {
+		log.Printf("OpenTelemetry instrumentation enabled (metrics: %s, tracing: %s)",
+			instrumentationConfig.MetricsExporter, instrumentationConfig.TracingExporter)
+	}
+
 	// Create server context with kubernetes client and shutdown context
 	var serverContextOptions []server.Option
 	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
+	serverContextOptions = append(serverContextOptions, server.WithInstrumentationProvider(instrumentationProvider))
 
 	// Create client factory for downstream OAuth if enabled
 	if config.DownstreamOAuth {
@@ -276,7 +298,7 @@ func runServe(config ServeConfig) error {
 		return runStdioServer(mcpSrv)
 	case "sse":
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
-		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode)
+		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider)
 	case "streamable-http":
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
 		if config.OAuth.Enabled {
@@ -381,9 +403,10 @@ func runServe(config ServeConfig) error {
 				EncryptionKey:                 encryptionKey,
 				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == "true",
 				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
-			})
+				InstrumentationProvider:       instrumentationProvider,
+			}, serverContext)
 		}
-		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}

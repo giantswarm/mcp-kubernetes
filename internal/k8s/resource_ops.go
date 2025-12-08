@@ -715,24 +715,44 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 
 // Shared helper functions
 
+// groupsMatch determines if a requested API group matches an actual group value.
+// It treats "core" and "" (empty string) as equivalent for core resources.
+func groupsMatch(requested, actual string) bool {
+	if requested == actual {
+		return true
+	}
+
+	// Treat "core" and empty string as equivalent for the core API group.
+	if (requested == "core" && actual == "") || (requested == "" && actual == "core") {
+		return true
+	}
+
+	return false
+}
+
+// parseAPIGroup parses an apiGroup string into group and optional preferred version.
+// Supports formats: "group" or "group/version" (e.g., "apps" or "apps/v1").
+func parseAPIGroup(apiGroup string) (group, preferredVersion string) {
+	apiGroup = strings.ToLower(apiGroup)
+	if apiGroup == "" {
+		return "", ""
+	}
+
+	parts := strings.SplitN(apiGroup, "/", 2)
+	group = parts[0]
+	if len(parts) == 2 {
+		preferredVersion = parts[1]
+	}
+	return group, preferredVersion
+}
+
 // resolveResourceTypeShared determines the GroupVersionResource for a given resource type.
 // It supports optional apiGroup hints in the form "group" or "group/version", similar to resolveResourceType.
 func resolveResourceTypeShared(resourceType, apiGroup string, builtinResources map[string]schema.GroupVersionResource,
 	discoveryClient discovery.DiscoveryInterface) (schema.GroupVersionResource, bool, error) {
 
 	resourceType = strings.ToLower(resourceType)
-	apiGroup = strings.ToLower(apiGroup)
-
-	// Parse apiGroup into group and optional preferred version (supports "group" or "group/version")
-	requestedGroup := ""
-	preferredVersion := ""
-	if apiGroup != "" {
-		parts := strings.SplitN(apiGroup, "/", 2)
-		requestedGroup = parts[0]
-		if len(parts) == 2 {
-			preferredVersion = parts[1]
-		}
-	}
+	requestedGroup, preferredVersion := parseAPIGroup(apiGroup)
 
 	// Check built-in resources first
 	if builtinResources != nil {

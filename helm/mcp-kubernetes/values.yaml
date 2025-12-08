@@ -166,6 +166,47 @@ mcpKubernetes:
     # The secret should contain keys: google-client-id, google-client-secret, dex-client-secret, registration-token, oauth-encryption-key (optional)
     existingSecret: ""
 
+  # OpenTelemetry Instrumentation configuration
+  instrumentation:
+    # Enable OpenTelemetry instrumentation (default: true)
+    enabled: true
+    # Metrics exporter type: prometheus, otlp, stdout (default: prometheus)
+    metricsExporter: "prometheus"
+    # Tracing exporter type: otlp, stdout, none (default: none)
+    tracingExporter: "none"
+    # OTLP endpoint for traces/metrics (required for otlp exporters)
+    # Format: hostname:port (without protocol prefix)
+    otlpEndpoint: ""
+    # Use insecure (HTTP) transport for OTLP (default: false, uses HTTPS)
+    # WARNING: Only enable for local development/testing
+    otlpInsecure: false
+    # Trace sampling rate (0.0 to 1.0, default: 0.1)
+    traceSamplingRate: 0.1
+    # Enable detailed labels (namespace, resource_type) in metrics
+    # WARNING: Can cause high cardinality in large clusters (>1000 namespaces)
+    # When disabled, only operation and status labels are recorded
+    detailedLabels: false
+    # ServiceMonitor for Prometheus Operator
+    serviceMonitor:
+      # Enable ServiceMonitor creation (requires Prometheus Operator CRDs)
+      enabled: false
+      # Additional labels for the ServiceMonitor (e.g., for Prometheus selection)
+      labels: {}
+      # Additional annotations for the ServiceMonitor
+      annotations: {}
+      # Scrape interval (default: Prometheus default)
+      interval: ""
+      # Scrape timeout (default: Prometheus default)
+      scrapeTimeout: ""
+      # Relabelings for the ServiceMonitor
+      relabelings: []
+      # Metric relabelings for the ServiceMonitor
+      metricRelabelings: []
+
+  # Service configuration
+  service:
+    port: 8080
+
   # Additional environment variables
   env: []
   # - name: EXAMPLE_VAR
