@@ -47,6 +47,38 @@ type ClusterClientManager interface {
 	// doesn't have permission to access it.
 	GetClusterSummary(ctx context.Context, clusterName string, user *UserInfo) (*ClusterSummary, error)
 
+	// CheckAccess verifies if the user can perform the specified action on a cluster.
+	// This performs a SelfSubjectAccessReview to check permissions without actually
+	// attempting the operation.
+	//
+	// Pre-flight checks improve user experience by failing fast with clear error
+	// messages and reduce noise in Kubernetes audit logs from failed requests.
+	//
+	// Parameters:
+	//   - ctx: Context for the request
+	//   - clusterName: Target cluster (empty for local/management cluster)
+	//   - user: Authenticated user info for impersonation
+	//   - check: Describes the action to check (verb, resource, namespace, etc.)
+	//
+	// Returns:
+	//   - *AccessCheckResult: Contains Allowed/Denied status and reason
+	//   - error: Non-nil if the check itself failed (not the same as denied)
+	//
+	// Example:
+	//
+	//	result, err := manager.CheckAccess(ctx, "prod-cluster", user, &AccessCheck{
+	//		Verb:      "delete",
+	//		Resource:  "pods",
+	//		Namespace: "production",
+	//	})
+	//	if err != nil {
+	//		return err // Check failed
+	//	}
+	//	if !result.Allowed {
+	//		return fmt.Errorf("permission denied: %s", result.Reason)
+	//	}
+	CheckAccess(ctx context.Context, clusterName string, user *UserInfo, check *AccessCheck) (*AccessCheckResult, error)
+
 	// Close releases all cached clients and resources.
 	// After Close is called, all other methods will return ErrManagerClosed.
 	Close() error

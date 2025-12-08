@@ -202,6 +202,9 @@ func TestSentinelErrors(t *testing.T) {
 		ErrConnectionFailed,
 		ErrImpersonationFailed,
 		ErrManagerClosed,
+		ErrAccessDenied,
+		ErrAccessCheckFailed,
+		ErrInvalidAccessCheck,
 	}
 
 	for i, err1 := range sentinels {
@@ -388,4 +391,252 @@ func TestUserFacingErrors(t *testing.T) {
 		assert.Equal(t, expectedMsg, kubeconfigInvalid.UserFacingError())
 		assert.Equal(t, expectedMsg, connectionError.UserFacingError())
 	})
+}
+
+func TestAccessDeniedError(t *testing.T) {
+	tests := []struct {
+		name          string
+		err           *AccessDeniedError
+		containsVerb  string
+		containsRes   string
+		containsNS    string
+		containsClust string
+		containsName  string
+	}{
+		{
+			name: "namespace-scoped resource",
+			err: &AccessDeniedError{
+				ClusterName: "prod-cluster",
+				UserEmail:   "test@example.com",
+				Verb:        "delete",
+				Resource:    "pods",
+				APIGroup:    "",
+				Namespace:   "production",
+				Reason:      "RBAC: delete denied",
+			},
+			containsVerb:  "delete",
+			containsRes:   "pods",
+			containsNS:    "production",
+			containsClust: "prod-cluster",
+		},
+		{
+			name: "cluster-scoped resource",
+			err: &AccessDeniedError{
+				ClusterName: "prod-cluster",
+				UserEmail:   "admin@example.com",
+				Verb:        "create",
+				Resource:    "namespaces",
+				APIGroup:    "",
+				Namespace:   "",
+				Reason:      "no permission",
+			},
+			containsVerb:  "create",
+			containsRes:   "namespaces",
+			containsNS:    "cluster-wide",
+			containsClust: "prod-cluster",
+		},
+		{
+			name: "with API group",
+			err: &AccessDeniedError{
+				ClusterName: "prod-cluster",
+				UserEmail:   "dev@example.com",
+				Verb:        "patch",
+				Resource:    "deployments",
+				APIGroup:    "apps",
+				Namespace:   "default",
+				Reason:      "insufficient permissions",
+			},
+			containsVerb:  "patch",
+			containsRes:   "apps/deployments",
+			containsNS:    "default",
+			containsClust: "prod-cluster",
+		},
+		{
+			name: "specific resource name",
+			err: &AccessDeniedError{
+				ClusterName: "prod-cluster",
+				UserEmail:   "user@example.com",
+				Verb:        "delete",
+				Resource:    "pods",
+				Namespace:   "default",
+				Name:        "my-pod",
+				Reason:      "denied",
+			},
+			containsVerb:  "delete",
+			containsRes:   "pods/my-pod",
+			containsNS:    "default",
+			containsClust: "prod-cluster",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errStr := tt.err.Error()
+			assert.Contains(t, errStr, "access denied")
+			assert.Contains(t, errStr, tt.containsVerb)
+			assert.Contains(t, errStr, tt.containsRes)
+			assert.Contains(t, errStr, tt.containsNS)
+			assert.Contains(t, errStr, tt.containsClust)
+			// Email should be anonymized (contains "user:")
+			assert.Contains(t, errStr, "user:")
+			assert.True(t, errors.Is(tt.err, ErrAccessDenied))
+			assert.Nil(t, tt.err.Unwrap())
+		})
+	}
+}
+
+func TestAccessDeniedError_UserFacingError(t *testing.T) {
+	t.Run("namespace-scoped", func(t *testing.T) {
+		err := &AccessDeniedError{
+			ClusterName: "secret-cluster",
+			UserEmail:   "secret-user@internal.corp",
+			Verb:        "delete",
+			Resource:    "pods",
+			APIGroup:    "",
+			Namespace:   "production",
+			Reason:      "RBAC: internal policy xyz-123 denied",
+		}
+
+		userFacing := err.UserFacingError()
+
+		// Should not contain sensitive internal details
+		assert.NotContains(t, userFacing, "secret-cluster")
+		assert.NotContains(t, userFacing, "secret-user")
+		assert.NotContains(t, userFacing, "internal.corp")
+		assert.NotContains(t, userFacing, "xyz-123")
+
+		// Should contain actionable information
+		assert.Contains(t, userFacing, "delete")
+		assert.Contains(t, userFacing, "pods")
+		assert.Contains(t, userFacing, "production")
+		assert.Contains(t, userFacing, "administrator")
+	})
+
+	t.Run("cluster-scoped", func(t *testing.T) {
+		err := &AccessDeniedError{
+			ClusterName: "prod",
+			UserEmail:   "user@example.com",
+			Verb:        "create",
+			Resource:    "namespaces",
+		}
+
+		userFacing := err.UserFacingError()
+		assert.Contains(t, userFacing, "create")
+		assert.Contains(t, userFacing, "namespaces")
+		// Should not contain "in namespace" phrase - cluster-scoped doesn't have namespace location
+		assert.NotContains(t, userFacing, "in namespace")
+	})
+
+	t.Run("with API group", func(t *testing.T) {
+		err := &AccessDeniedError{
+			ClusterName: "prod",
+			UserEmail:   "user@example.com",
+			Verb:        "patch",
+			Resource:    "deployments",
+			APIGroup:    "apps",
+			Namespace:   "default",
+		}
+
+		userFacing := err.UserFacingError()
+		assert.Contains(t, userFacing, "patch")
+		assert.Contains(t, userFacing, "apps/deployments")
+	})
+}
+
+func TestAccessCheckError(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            *AccessCheckError
+		expectedString string
+	}{
+		{
+			name: "with underlying error",
+			err: &AccessCheckError{
+				ClusterName: "prod-cluster",
+				Check:       &AccessCheck{Verb: "get", Resource: "pods"},
+				Reason:      "API server unavailable",
+				Err:         fmt.Errorf("connection timeout"),
+			},
+			expectedString: `access check failed for cluster "prod-cluster" (get pods): API server unavailable: connection timeout`,
+		},
+		{
+			name: "without underlying error",
+			err: &AccessCheckError{
+				ClusterName: "prod-cluster",
+				Check:       &AccessCheck{Verb: "delete", Resource: "secrets"},
+				Reason:      "SAR request rejected",
+			},
+			expectedString: `access check failed for cluster "prod-cluster" (delete secrets): SAR request rejected`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedString, tt.err.Error())
+			assert.True(t, errors.Is(tt.err, ErrAccessCheckFailed))
+		})
+	}
+}
+
+func TestAccessCheckError_Unwrap(t *testing.T) {
+	baseErr := fmt.Errorf("underlying error")
+	err := &AccessCheckError{
+		ClusterName: "test",
+		Check:       &AccessCheck{Verb: "get", Resource: "pods"},
+		Reason:      "failed",
+		Err:         baseErr,
+	}
+
+	assert.Equal(t, baseErr, err.Unwrap())
+}
+
+func TestAccessCheckError_UserFacingError(t *testing.T) {
+	err := &AccessCheckError{
+		ClusterName: "secret-internal-cluster",
+		Check:       &AccessCheck{Verb: "get", Resource: "pods"},
+		Reason:      "internal server error 500",
+		Err:         fmt.Errorf("TLS handshake failed: cert invalid"),
+	}
+
+	userFacing := err.UserFacingError()
+
+	// Should not contain internal details
+	assert.NotContains(t, userFacing, "secret-internal-cluster")
+	assert.NotContains(t, userFacing, "500")
+	assert.NotContains(t, userFacing, "TLS")
+	assert.NotContains(t, userFacing, "cert")
+
+	// Should contain generic actionable message
+	assert.Contains(t, userFacing, "verify permissions")
+	assert.Contains(t, userFacing, "administrator")
+}
+
+func TestAccessDeniedError_ErrorsAs(t *testing.T) {
+	err := fmt.Errorf("operation failed: %w", &AccessDeniedError{
+		ClusterName: "test-cluster",
+		UserEmail:   "user@example.com",
+		Verb:        "delete",
+		Resource:    "pods",
+		Namespace:   "default",
+		Reason:      "no permission",
+	})
+
+	var accessErr *AccessDeniedError
+	assert.True(t, errors.As(err, &accessErr))
+	assert.Equal(t, "test-cluster", accessErr.ClusterName)
+	assert.Equal(t, "delete", accessErr.Verb)
+	assert.Equal(t, "pods", accessErr.Resource)
+}
+
+func TestAccessCheckError_ErrorsAs(t *testing.T) {
+	err := fmt.Errorf("operation failed: %w", &AccessCheckError{
+		ClusterName: "test-cluster",
+		Check:       &AccessCheck{Verb: "get", Resource: "pods"},
+		Reason:      "API error",
+	})
+
+	var checkErr *AccessCheckError
+	assert.True(t, errors.As(err, &checkErr))
+	assert.Equal(t, "test-cluster", checkErr.ClusterName)
+	assert.Equal(t, "get", checkErr.Check.Verb)
 }
