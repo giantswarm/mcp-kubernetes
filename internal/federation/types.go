@@ -196,3 +196,14 @@ const (
 	// ImpersonateExtraHeaderPrefix is the prefix for extra impersonation headers.
 	ImpersonateExtraHeaderPrefix = "Impersonate-Extra-"
 )
+
+// Impersonation agent identification for audit trails.
+const (
+	// ImpersonationAgentName is the identifier used in Impersonate-Extra-agent headers.
+	// This allows audit logs to identify that operations were performed via mcp-kubernetes.
+	ImpersonationAgentName = "mcp-kubernetes"
+
+	// ImpersonationAgentExtraKey is the key used for the agent identifier in extra headers.
+	// This appears as "Impersonate-Extra-agent: mcp-kubernetes" in HTTP requests.
+	ImpersonationAgentExtraKey = "agent"
+)

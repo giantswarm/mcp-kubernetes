@@ -178,3 +178,71 @@ func (e *ConnectionError) Is(target error) bool {
 func (e *ConnectionError) UserFacingError() string {
 	return userFacingClusterError
 }
+
+// ImpersonationError provides detailed context about impersonation failures.
+// This error is returned when the MCP server cannot impersonate a user on a
+// target cluster, typically due to RBAC configuration issues.
+//
+// # Common Causes
+//
+// 1. Missing impersonation RBAC permissions on the workload cluster:
+//
+//	The admin credentials used by the MCP server need permission to
+//	impersonate users and groups on the target cluster.
+//
+// 2. Invalid user identity data:
+//
+//	The OAuth-derived user info contains data that cannot be used
+//	for impersonation (e.g., malformed email, invalid group names).
+//
+// 3. Cluster API server rejecting impersonation:
+//
+//	The workload cluster's API server may have policies that prevent
+//	impersonation of certain users or groups.
+type ImpersonationError struct {
+	// ClusterName is the target cluster where impersonation failed.
+	ClusterName string
+
+	// UserEmail is the email of the user being impersonated (for logging only).
+	UserEmail string
+
+	// GroupCount is the number of groups in the impersonation request.
+	GroupCount int
+
+	// Reason describes what went wrong.
+	Reason string
+
+	// Err is the underlying error that caused the failure.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *ImpersonationError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("impersonation failed for cluster %q (user %s, %d groups): %s: %v",
+			e.ClusterName, AnonymizeEmail(e.UserEmail), e.GroupCount, e.Reason, e.Err)
+	}
+	return fmt.Sprintf("impersonation failed for cluster %q (user %s, %d groups): %s",
+		e.ClusterName, AnonymizeEmail(e.UserEmail), e.GroupCount, e.Reason)
+}
+
+// Unwrap returns the underlying error for use with errors.Is() and errors.As().
+func (e *ImpersonationError) Unwrap() error {
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+// This allows ImpersonationError to match against ErrImpersonationFailed.
+func (e *ImpersonationError) Is(target error) bool {
+	return target == ErrImpersonationFailed
+}
+
+// UserFacingError returns a sanitized error message safe for end users.
+// This provides actionable guidance without exposing internal details.
+//
+// Unlike cluster-related errors that use a generic message to prevent
+// enumeration, impersonation errors indicate a configuration issue that
+// the user's administrator needs to address.
+func (e *ImpersonationError) UserFacingError() string {
+	return "insufficient permissions to access this cluster - please contact your administrator to verify your RBAC configuration"
+}

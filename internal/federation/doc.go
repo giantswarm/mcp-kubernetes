@@ -83,6 +83,80 @@
 // All operations in this package are thread-safe. The ClusterClientManager uses
 // internal synchronization to handle concurrent access from multiple tool handlers.
 //
+// # User Impersonation
+//
+// The package implements Kubernetes User Impersonation to propagate authenticated user
+// identity to Workload Clusters. Instead of executing operations with admin credentials,
+// all API calls include impersonation headers that cause the Kubernetes API server to
+// evaluate RBAC policies for the authenticated user.
+//
+// The impersonation configuration sets the following headers:
+//
+//	Impersonate-User: <user-email>           (e.g., "jane@giantswarm.io")
+//	Impersonate-Group: <group-1>             (e.g., "github:org:giantswarm")
+//	Impersonate-Group: <group-2>             (e.g., "platform-team")
+//	Impersonate-Extra-agent: mcp-kubernetes  (audit trail identifier)
+//	Impersonate-Extra-sub: <subject-id>      (OAuth subject claim)
+//
+// The "agent: mcp-kubernetes" extra header is automatically added to all impersonated
+// requests. This enables audit log correlation to identify operations performed via
+// the MCP server, distinguishing them from direct kubectl access.
+//
+// # Group Mapping Behavior
+//
+// OAuth groups are passed through to Kubernetes impersonation headers WITHOUT
+// transformation. This ensures consistency between MCP-mediated access and direct
+// kubectl access with the same identity. Common group formats:
+//
+//   - GitHub: "github:org:myorg", "github:team:platform"
+//   - Azure AD: "azure:group:abc123-def456"
+//   - LDAP: "ldap:group:cn=admins,dc=example,dc=com"
+//   - System: "system:authenticated", "system:masters"
+//
+// Administrators should configure Workload Cluster RBAC policies to match the exact
+// group strings provided by their identity provider through Dex.
+//
+// # OAuth Provider Trust Boundary
+//
+// The OAuth provider (e.g., Dex with GitHub/Azure AD/LDAP connectors) is a critical
+// trust boundary in this architecture. The MCP server trusts the OAuth provider to:
+//
+//   - Accurately identify users (email claim)
+//   - Correctly enumerate group memberships (groups claim)
+//   - Not return privileged system groups unless the user is actually a member
+//
+// Security implications:
+//
+//   - If an OAuth provider is compromised and returns false group claims (e.g.,
+//     "system:masters"), users could gain unintended cluster-admin privileges.
+//   - This is consistent with direct kubectl access: the same risk exists when
+//     users authenticate directly to clusters via OIDC.
+//   - Defense: Configure your OAuth provider with appropriate access controls,
+//     audit logs, and avoid mapping external groups directly to "system:masters".
+//
+// The agent header ("Impersonate-Extra-agent: mcp-kubernetes") is immutable and
+// cannot be overridden by user-supplied OAuth claims. This ensures the audit trail
+// always correctly identifies MCP-mediated access, even if other claims are manipulated.
+//
+// # RBAC Requirements for Impersonation
+//
+// For impersonation to work, the admin credentials in the CAPI kubeconfig secret
+// must have permission to impersonate users and groups on the Workload Cluster:
+//
+//	apiVersion: rbac.authorization.k8s.io/v1
+//	kind: ClusterRole
+//	metadata:
+//	  name: impersonate-all
+//	rules:
+//	  - apiGroups: [""]
+//	    resources: ["users", "groups", "serviceaccounts"]
+//	    verbs: ["impersonate"]
+//	  - apiGroups: ["authentication.k8s.io"]
+//	    resources: ["userextras/agent"]
+//	    verbs: ["impersonate"]
+//
+// CAPI-generated admin credentials typically have these permissions by default.
+//
 // # Error Handling
 //
 // The package defines specific error types for common failure scenarios:
@@ -90,6 +164,7 @@
 //   - ErrKubeconfigSecretNotFound: CAPI kubeconfig secret is missing
 //   - ErrKubeconfigInvalid: Secret contains malformed kubeconfig data
 //   - ErrConnectionFailed: Network or TLS issues connecting to the cluster
+//   - ErrImpersonationFailed: User impersonation could not be configured
 //
 // All user-facing errors return a generic message ("cluster access denied or unavailable")
 // to prevent information leakage that could enable cluster enumeration attacks.
