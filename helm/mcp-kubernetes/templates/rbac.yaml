@@ -72,3 +72,136 @@ subjects:
     name: {{ include "mcp-kubernetes.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
+
+{{/*
+CAPI Mode RBAC - Only created when CAPI mode is enabled
+*/}}
+{{- if and .Values.serviceAccount.create .Values.capiMode.enabled .Values.capiMode.rbac.create }}
+---
+# ClusterRole for CAPI resource discovery and authentication
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-capi
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+rules:
+  # CAPI cluster discovery (read-only)
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources:
+      - clusters
+      - clusters/status
+      - machinepools
+      - machinepools/status
+      - machinedeployments
+      - machinedeployments/status
+      - machines
+      - machines/status
+    verbs: ["get", "list", "watch"]
+
+  # Infrastructure provider resources (read-only, for cluster details)
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+
+  # TokenReviews for validating tokens
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+
+  # SubjectAccessReviews for pre-flight permission checks
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews", "selfsubjectaccessreviews"]
+    verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-capi
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mcp-kubernetes.fullname" . }}-capi
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+
+{{/*
+Cluster-wide secret access (only if explicitly enabled - NOT RECOMMENDED)
+WARNING: This grants access to ALL secrets in the cluster
+*/}}
+{{- if .Values.capiMode.rbac.clusterWideSecrets }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-secrets
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+  annotations:
+    # Security warning annotation
+    security.kubernetes.io/warning: "This role grants cluster-wide secret access. Use namespace-scoped roles instead."
+rules:
+  # HIGH PRIVILEGE - grants access to ALL secrets cluster-wide
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-secrets
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mcp-kubernetes.fullname" . }}-secrets
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+
+{{/*
+Namespace-scoped secret access (recommended)
+Creates Role and RoleBinding for each allowed namespace
+*/}}
+{{- range .Values.capiMode.rbac.allowedNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-secrets
+  namespace: {{ . }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+rules:
+  # Access to kubeconfig secrets in this namespace
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-secrets
+  namespace: {{ . }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "mcp-kubernetes.fullname" $ }}-secrets
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

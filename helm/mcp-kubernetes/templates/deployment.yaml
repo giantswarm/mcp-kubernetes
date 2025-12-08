@@ -170,6 +170,42 @@ spec:
               value: "true"
             {{- end }}
             {{- end }}
+            # CAPI Mode Configuration
+            {{- if .Values.capiMode.enabled }}
+            - name: CAPI_MODE_ENABLED
+              value: "true"
+            # Cache Configuration
+            - name: CLIENT_CACHE_TTL
+              value: {{ .Values.capiMode.cache.ttl | quote }}
+            - name: CLIENT_CACHE_MAX_ENTRIES
+              value: {{ .Values.capiMode.cache.maxEntries | quote }}
+            - name: CLIENT_CACHE_CLEANUP_INTERVAL
+              value: {{ .Values.capiMode.cache.cleanupInterval | quote }}
+            # Connectivity Configuration
+            - name: CONNECTIVITY_TIMEOUT
+              value: {{ .Values.capiMode.connectivity.timeout | quote }}
+            - name: CONNECTIVITY_RETRY_ATTEMPTS
+              value: {{ .Values.capiMode.connectivity.retryAttempts | quote }}
+            - name: CONNECTIVITY_RETRY_BACKOFF
+              value: {{ .Values.capiMode.connectivity.retryBackoff | quote }}
+            - name: CONNECTIVITY_REQUEST_TIMEOUT
+              value: {{ .Values.capiMode.connectivity.requestTimeout | quote }}
+            - name: CONNECTIVITY_QPS
+              value: {{ .Values.capiMode.connectivity.qps | quote }}
+            - name: CONNECTIVITY_BURST
+              value: {{ .Values.capiMode.connectivity.burst | quote }}
+            # Output Processing Configuration
+            - name: OUTPUT_MAX_ITEMS
+              value: {{ .Values.capiMode.output.maxItems | quote }}
+            - name: OUTPUT_MAX_CLUSTERS
+              value: {{ .Values.capiMode.output.maxClusters | quote }}
+            - name: OUTPUT_MAX_RESPONSE_BYTES
+              value: {{ .Values.capiMode.output.maxResponseBytes | quote }}
+            - name: OUTPUT_SLIM_MODE
+              value: {{ .Values.capiMode.output.slimOutput | quote }}
+            - name: OUTPUT_MASK_SECRETS
+              value: {{ .Values.capiMode.output.maskSecrets | quote }}
+            {{- end }}
             # Kubernetes metadata for OpenTelemetry resource attributes
             - name: K8S_NAMESPACE
               valueFrom:
