@@ -8,6 +8,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ValidKubernetesVerbs is the set of valid Kubernetes API verbs that can be used
+// in access checks. This is exported for use in validation and UI components.
+var ValidKubernetesVerbs = map[string]bool{
+	"get":              true,
+	"list":             true,
+	"watch":            true,
+	"create":           true,
+	"update":           true,
+	"patch":            true,
+	"delete":           true,
+	"deletecollection": true,
+	"impersonate":      true,
+	"bind":             true,
+	"escalate":         true,
+	"*":                true, // wildcard
+}
+
 // CheckAccess verifies if the user can perform the specified action on a cluster.
 // This performs a SelfSubjectAccessReview to check permissions without actually
 // attempting the operation.
@@ -142,22 +159,7 @@ func ValidateAccessCheck(check *AccessCheck) error {
 	}
 
 	// Validate verb is a known Kubernetes verb
-	validVerbs := map[string]bool{
-		"get":              true,
-		"list":             true,
-		"watch":            true,
-		"create":           true,
-		"update":           true,
-		"patch":            true,
-		"delete":           true,
-		"deletecollection": true,
-		"impersonate":      true,
-		"bind":             true,
-		"escalate":         true,
-		"*":                true, // wildcard
-	}
-
-	if !validVerbs[check.Verb] {
+	if !ValidKubernetesVerbs[check.Verb] {
 		return fmt.Errorf("%w: unknown verb %q", ErrInvalidAccessCheck, check.Verb)
 	}
 

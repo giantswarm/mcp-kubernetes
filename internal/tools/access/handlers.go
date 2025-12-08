@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -147,14 +148,16 @@ func HandleCanI(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 }
 
 // isValidationError checks if the error is a validation error that should be
-// shown directly to the user.
+// shown directly to the user. Only specific validation errors are considered
+// safe to display; other errors may contain sensitive information.
 func isValidationError(err error) bool {
-	// Check for specific validation error types
 	if err == nil {
 		return false
 	}
-	// ErrInvalidAccessCheck and ErrUserInfoRequired are validation errors
-	return true // Be conservative - show validation messages
+	// Check for specific validation error types that are safe to show to users
+	return errors.Is(err, federation.ErrInvalidAccessCheck) ||
+		errors.Is(err, federation.ErrUserInfoRequired) ||
+		errors.Is(err, federation.ErrInvalidClusterName)
 }
 
 // clusterDisplayName returns a display name for the cluster.

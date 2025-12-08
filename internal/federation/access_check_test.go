@@ -3,6 +3,7 @@ package federation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,7 +126,7 @@ func TestValidateAccessCheck(t *testing.T) {
 				if !errors.Is(err, ErrInvalidAccessCheck) {
 					t.Errorf("ValidateAccessCheck() error = %v, want ErrInvalidAccessCheck", err)
 				}
-				if tt.errMsg != "" && !containsString(err.Error(), tt.errMsg) {
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
 					t.Errorf("ValidateAccessCheck() error = %v, want to contain %q", err, tt.errMsg)
 				}
 			} else {
@@ -437,20 +438,6 @@ func TestManager_CheckAccessAllowed(t *testing.T) {
 			}
 		})
 	}
-}
-
-// containsString checks if substr is in s.
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStringHelper(s, substr))
-}
-
-func containsStringHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestAccessCheck_SARRequestVerification(t *testing.T) {

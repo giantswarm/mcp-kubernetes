@@ -174,6 +174,7 @@ var (
 
 // CAPISecretSuffix is the suffix used by CAPI for kubeconfig secrets.
 // The full secret name is: ${CLUSTER_NAME}-kubeconfig
+// nolint:gosec // G101: This is not a hardcoded credential, it's a suffix for secret naming convention
 const CAPISecretSuffix = "-kubeconfig"
 
 // CAPISecretKey is the key within the kubeconfig secret that contains

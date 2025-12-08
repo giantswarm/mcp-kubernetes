@@ -1,13 +1,19 @@
 package access
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	mcpoauth "github.com/giantswarm/mcp-oauth"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
+	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
+	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/access/testdata"
 )
 
 func TestCanIResponse_JSONFormat(t *testing.T) {
@@ -151,9 +157,24 @@ func TestIsValidationError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "any other error",
-			err:      federation.ErrAccessDenied,
+			name:     "ErrInvalidClusterName",
+			err:      federation.ErrInvalidClusterName,
 			expected: true,
+		},
+		{
+			name:     "ErrAccessDenied is not a validation error",
+			err:      federation.ErrAccessDenied,
+			expected: false,
+		},
+		{
+			name:     "ErrAccessCheckFailed is not a validation error",
+			err:      federation.ErrAccessCheckFailed,
+			expected: false,
+		},
+		{
+			name:     "generic error is not a validation error",
+			err:      federation.ErrClusterNotFound,
+			expected: false,
 		},
 	}
 
@@ -286,4 +307,381 @@ func TestCanIResponse_OmitEmpty(t *testing.T) {
 
 	// But cluster should show "local" by default from the handler (test the raw struct here)
 	// In handler, empty cluster is converted to "local"
+}
+
+func TestHandleCanI_MissingVerb(t *testing.T) {
+	ctx := context.Background()
+
+	// Create server context with mock federation manager
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(&testdata.MockFederationManager{}),
+	)
+	require.NoError(t, err)
+
+	// Create request without verb
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resource": "pods",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "verb is required")
+}
+
+func TestHandleCanI_MissingResource(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(&testdata.MockFederationManager{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb": "get",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "resource is required")
+}
+
+func TestHandleCanI_NoFederationManager(t *testing.T) {
+	ctx := context.Background()
+
+	// Create server context WITHOUT federation manager
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":     "get",
+		"resource": "pods",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "federation mode")
+}
+
+func TestHandleCanI_NoUserInfo(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(&testdata.MockFederationManager{}),
+	)
+	require.NoError(t, err)
+
+	// Context without user info
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":     "get",
+		"resource": "pods",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "authentication required")
+}
+
+func TestHandleCanI_Allowed(t *testing.T) {
+	ctx := context.Background()
+
+	// Add user info to context using mcp-oauth library function
+	userInfo := &oauth.UserInfo{
+		Email:  "test@example.com",
+		Groups: []string{"developers"},
+	}
+	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+
+	mockManager := &testdata.MockFederationManager{
+		CheckAccessResult: &federation.AccessCheckResult{
+			Allowed: true,
+			Reason:  "RBAC: allowed by ClusterRoleBinding",
+		},
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":      "get",
+		"resource":  "pods",
+		"namespace": "default",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	// Parse the response JSON
+	var response CanIResponse
+	err = json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &response)
+	require.NoError(t, err)
+
+	assert.True(t, response.Allowed)
+	assert.False(t, response.Denied)
+	assert.Equal(t, "test@example.com", response.User)
+	assert.Equal(t, "local", response.Cluster)
+	assert.Equal(t, "get", response.Check.Verb)
+	assert.Equal(t, "pods", response.Check.Resource)
+	assert.Equal(t, "default", response.Check.Namespace)
+}
+
+func TestHandleCanI_Denied(t *testing.T) {
+	ctx := context.Background()
+
+	userInfo := &oauth.UserInfo{
+		Email:  "dev@example.com",
+		Groups: []string{"developers"},
+	}
+	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+
+	mockManager := &testdata.MockFederationManager{
+		CheckAccessResult: &federation.AccessCheckResult{
+			Allowed: false,
+			Denied:  true,
+			Reason:  "RBAC: delete denied",
+		},
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":      "delete",
+		"resource":  "pods",
+		"namespace": "production",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var response CanIResponse
+	err = json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &response)
+	require.NoError(t, err)
+
+	assert.False(t, response.Allowed)
+	assert.True(t, response.Denied)
+	assert.Equal(t, "RBAC: delete denied", response.Reason)
+}
+
+func TestHandleCanI_WithCluster(t *testing.T) {
+	ctx := context.Background()
+
+	userInfo := &oauth.UserInfo{
+		Email:  "test@example.com",
+		Groups: []string{"developers"},
+	}
+	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+
+	mockManager := &testdata.MockFederationManager{
+		CheckAccessResult: &federation.AccessCheckResult{
+			Allowed: true,
+		},
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":     "get",
+		"resource": "pods",
+		"cluster":  "prod-cluster",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var response CanIResponse
+	err = json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &response)
+	require.NoError(t, err)
+
+	assert.Equal(t, "prod-cluster", response.Cluster)
+}
+
+func TestHandleCanI_WithEvaluationError(t *testing.T) {
+	ctx := context.Background()
+
+	userInfo := &oauth.UserInfo{
+		Email:  "test@example.com",
+		Groups: []string{"developers"},
+	}
+	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+
+	mockManager := &testdata.MockFederationManager{
+		CheckAccessResult: &federation.AccessCheckResult{
+			Allowed:         false,
+			EvaluationError: "unable to find resource definition",
+		},
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":     "get",
+		"resource": "customresources",
+		"apiGroup": "custom.io",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var response CanIResponse
+	err = json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &response)
+	require.NoError(t, err)
+
+	assert.Contains(t, response.Reason, "evaluation error")
+}
+
+func TestHandleCanI_ValidationError(t *testing.T) {
+	ctx := context.Background()
+
+	userInfo := &oauth.UserInfo{
+		Email:  "test@example.com",
+		Groups: []string{"developers"},
+	}
+	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+
+	mockManager := &testdata.MockFederationManager{
+		CheckAccessErr: federation.ErrInvalidAccessCheck,
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":     "get",
+		"resource": "pods",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "invalid request")
+}
+
+func TestHandleCanI_NonValidationError(t *testing.T) {
+	ctx := context.Background()
+
+	userInfo := &oauth.UserInfo{
+		Email:  "test@example.com",
+		Groups: []string{"developers"},
+	}
+	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+
+	mockManager := &testdata.MockFederationManager{
+		CheckAccessErr: federation.ErrAccessCheckFailed,
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":     "get",
+		"resource": "pods",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	// Non-validation errors should show a generic message
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "failed to check permissions")
+}
+
+func TestHandleCanI_AllOptionalParams(t *testing.T) {
+	ctx := context.Background()
+
+	userInfo := &oauth.UserInfo{
+		Email:  "test@example.com",
+		Groups: []string{"developers"},
+	}
+	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+
+	mockManager := &testdata.MockFederationManager{
+		CheckAccessResult: &federation.AccessCheckResult{
+			Allowed: true,
+		},
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"verb":        "create",
+		"resource":    "pods",
+		"apiGroup":    "",
+		"namespace":   "default",
+		"name":        "my-pod",
+		"subresource": "exec",
+		"cluster":     "prod-cluster",
+	}
+
+	result, err := HandleCanI(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var response CanIResponse
+	err = json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &response)
+	require.NoError(t, err)
+
+	assert.Equal(t, "create", response.Check.Verb)
+	assert.Equal(t, "pods", response.Check.Resource)
+	assert.Equal(t, "default", response.Check.Namespace)
+	assert.Equal(t, "my-pod", response.Check.Name)
+	assert.Equal(t, "exec", response.Check.Subresource)
+	assert.Equal(t, "prod-cluster", response.Cluster)
 }
