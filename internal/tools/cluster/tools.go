@@ -7,16 +7,20 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // RegisterClusterTools registers all cluster management tools with the MCP server
 func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
+	// Get cluster/context parameters based on server mode
+	clusterContextParams := tools.AddClusterContextParams(sc)
+
 	// kubernetes_api_resources tool
-	apiResourcesTool := mcp.NewTool("kubernetes_api_resources",
+	apiResourcesOpts := []mcp.ToolOption{
 		mcp.WithDescription("List available API resources in the cluster"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	apiResourcesOpts = append(apiResourcesOpts, clusterContextParams...)
+	apiResourcesOpts = append(apiResourcesOpts,
 		mcp.WithString("apiGroup",
 			mcp.Description("Filter by API group (optional)"),
 		),
@@ -33,18 +37,18 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 			mcp.Description("Number of items to skip (optional, for simple offset-based pagination)"),
 		),
 	)
+	apiResourcesTool := mcp.NewTool("kubernetes_api_resources", apiResourcesOpts...)
 
 	s.AddTool(apiResourcesTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleGetAPIResources(ctx, request, sc)
 	})
 
 	// kubernetes_cluster_health tool
-	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health",
+	clusterHealthOpts := []mcp.ToolOption{
 		mcp.WithDescription("Check the health status of cluster components"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
-	)
+	}
+	clusterHealthOpts = append(clusterHealthOpts, clusterContextParams...)
+	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health", clusterHealthOpts...)
 
 	s.AddTool(clusterHealthTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleGetClusterHealth(ctx, request, sc)

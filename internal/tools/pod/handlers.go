@@ -56,6 +56,9 @@ func decrementActiveSessions(ctx context.Context, sc *server.ServerContext) {
 func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
+
 	kubeContext, _ := args["kubeContext"].(string)
 
 	namespace, ok := args["namespace"].(string)
@@ -105,8 +108,12 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 		MaxLines:   maxLines,
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	logs, err := k8sClient.GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
@@ -164,6 +171,9 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
+
 	kubeContext, _ := args["kubeContext"].(string)
 
 	namespace, ok := args["namespace"].(string)
@@ -205,8 +215,12 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 		TTY: tty,
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	result, err := k8sClient.Exec(ctx, kubeContext, namespace, podName, containerName, command, opts)
@@ -235,6 +249,9 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 // handlePortForward handles kubectl port-forward operations
 func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
+
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
 
 	kubeContext, _ := args["kubeContext"].(string)
 
@@ -292,8 +309,12 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	setupCtx, setupCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer setupCancel()
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	// Handle port forwarding based on resource type
 	switch resourceType {

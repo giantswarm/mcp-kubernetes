@@ -26,6 +26,11 @@ type ServerContext struct {
 	clientFactory   k8s.ClientFactory
 	downstreamOAuth bool
 
+	// inCluster indicates whether the server is running inside a Kubernetes cluster
+	// using in-cluster authentication (service account token).
+	// When true, kubeconfig-based context switching is not available.
+	inCluster bool
+
 	// Federation manager for multi-cluster support
 	// When set, enables operations across multiple Kubernetes clusters via CAPI.
 	federationManager federation.ClusterClientManager
@@ -139,6 +144,14 @@ func (sc *ServerContext) DownstreamOAuthEnabled() bool {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.downstreamOAuth
+}
+
+// InClusterMode returns true if the server is running inside a Kubernetes cluster.
+// When true, kubeconfig-based context switching is not available.
+func (sc *ServerContext) InClusterMode() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.inCluster
 }
 
 // ClientFactory returns the client factory for creating per-user clients.

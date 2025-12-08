@@ -7,6 +7,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // GetResourceArgs defines the arguments for kubectl get operations
@@ -89,12 +90,15 @@ type ScaleResourceArgs struct {
 
 // RegisterResourceTools registers all resource management tools with the MCP server
 func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
+	// Get cluster/context parameters based on server mode
+	clusterContextParams := tools.AddClusterContextParams(sc)
+
 	// kubernetes_get tool
-	getResourceTool := mcp.NewTool("kubernetes_get",
+	getResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Get a specific Kubernetes resource by name and namespace"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	getResourceOpts = append(getResourceOpts, clusterContextParams...)
+	getResourceOpts = append(getResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource is located"),
@@ -111,17 +115,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Name of the resource to get"),
 		),
 	)
+	getResourceTool := mcp.NewTool("kubernetes_get", getResourceOpts...)
 
 	s.AddTool(getResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleGetResource(ctx, request, sc)
 	})
 
 	// kubernetes_list tool
-	listResourceTool := mcp.NewTool("kubernetes_list",
+	listResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("List Kubernetes resources with optional filtering. Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios like filtering nodes by taints, which native Kubernetes selectors don't support."),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	listResourceOpts = append(listResourceOpts, clusterContextParams...)
+	listResourceOpts = append(listResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace to list resources from"),
@@ -161,17 +166,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Continue token from previous paginated request (optional)"),
 		),
 	)
+	listResourceTool := mcp.NewTool("kubernetes_list", listResourceOpts...)
 
 	s.AddTool(listResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleListResources(ctx, request, sc)
 	})
 
 	// kubernetes_describe tool
-	describeResourceTool := mcp.NewTool("kubernetes_describe",
+	describeResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Get detailed information about a Kubernetes resource including events"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	describeResourceOpts = append(describeResourceOpts, clusterContextParams...)
+	describeResourceOpts = append(describeResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource is located"),
@@ -188,17 +194,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Name of the resource to describe"),
 		),
 	)
+	describeResourceTool := mcp.NewTool("kubernetes_describe", describeResourceOpts...)
 
 	s.AddTool(describeResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleDescribeResource(ctx, request, sc)
 	})
 
 	// kubernetes_create tool
-	createResourceTool := mcp.NewTool("kubernetes_create",
+	createResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Create a new Kubernetes resource from a manifest"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	createResourceOpts = append(createResourceOpts, clusterContextParams...)
+	createResourceOpts = append(createResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource should be created"),
@@ -208,17 +215,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Kubernetes manifest as JSON object"),
 		),
 	)
+	createResourceTool := mcp.NewTool("kubernetes_create", createResourceOpts...)
 
 	s.AddTool(createResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleCreateResource(ctx, request, sc)
 	})
 
 	// kubernetes_apply tool
-	applyResourceTool := mcp.NewTool("kubernetes_apply",
+	applyResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Apply a Kubernetes manifest (create or update)"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	applyResourceOpts = append(applyResourceOpts, clusterContextParams...)
+	applyResourceOpts = append(applyResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource should be applied"),
@@ -228,17 +236,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Kubernetes manifest as JSON object"),
 		),
 	)
+	applyResourceTool := mcp.NewTool("kubernetes_apply", applyResourceOpts...)
 
 	s.AddTool(applyResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleApplyResource(ctx, request, sc)
 	})
 
 	// kubernetes_delete tool
-	deleteResourceTool := mcp.NewTool("kubernetes_delete",
+	deleteResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Delete a Kubernetes resource"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	deleteResourceOpts = append(deleteResourceOpts, clusterContextParams...)
+	deleteResourceOpts = append(deleteResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource is located"),
@@ -255,17 +264,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Name of the resource to delete"),
 		),
 	)
+	deleteResourceTool := mcp.NewTool("kubernetes_delete", deleteResourceOpts...)
 
 	s.AddTool(deleteResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleDeleteResource(ctx, request, sc)
 	})
 
 	// kubernetes_patch tool
-	patchResourceTool := mcp.NewTool("kubernetes_patch",
+	patchResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Patch a Kubernetes resource with specific changes"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	patchResourceOpts = append(patchResourceOpts, clusterContextParams...)
+	patchResourceOpts = append(patchResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource is located"),
@@ -291,17 +301,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Patch data as JSON object"),
 		),
 	)
+	patchResourceTool := mcp.NewTool("kubernetes_patch", patchResourceOpts...)
 
 	s.AddTool(patchResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handlePatchResource(ctx, request, sc)
 	})
 
 	// kubernetes_scale tool
-	scaleResourceTool := mcp.NewTool("kubernetes_scale",
+	scaleResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Scale a Kubernetes resource (deployment, replicaset, etc.)"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	scaleResourceOpts = append(scaleResourceOpts, clusterContextParams...)
+	scaleResourceOpts = append(scaleResourceOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource is located"),
@@ -322,6 +333,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Number of replicas to scale to"),
 		),
 	)
+	scaleResourceTool := mcp.NewTool("kubernetes_scale", scaleResourceOpts...)
 
 	s.AddTool(scaleResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleScaleResource(ctx, request, sc)

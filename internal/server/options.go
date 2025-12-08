@@ -153,6 +153,16 @@ func WithDownstreamOAuth(enabled bool) Option {
 	}
 }
 
+// WithInCluster enables in-cluster mode.
+// When enabled, the server uses service account token authentication instead of kubeconfig.
+// This disables kubeContext-related functionality as it's not applicable in-cluster.
+func WithInCluster(enabled bool) Option {
+	return func(sc *ServerContext) error {
+		sc.inCluster = enabled
+		return nil
+	}
+}
+
 // WithInstrumentationProvider sets the OpenTelemetry instrumentation provider.
 // This enables production-grade observability including metrics and tracing.
 func WithInstrumentationProvider(provider *instrumentation.Provider) Option {
