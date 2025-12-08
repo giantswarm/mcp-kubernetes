@@ -16,6 +16,60 @@ import (
 // defaultHealthCheckPath is the standard Kubernetes health endpoint.
 const defaultHealthCheckPath = "/healthz"
 
+// ErrInvalidHealthCheckPath indicates that the health check path is invalid.
+var ErrInvalidHealthCheckPath = errors.New("invalid health check path")
+
+// validateHealthCheckPath validates a health check path to prevent path injection attacks.
+// This ensures the path is safe to use with the REST client's AbsPath method.
+//
+// # Security Considerations
+//
+// The health check path is used with the Kubernetes REST client's AbsPath method.
+// Without validation, a malicious path could potentially:
+//   - Access unintended API endpoints via path traversal (e.g., "/../secrets")
+//   - Cause unexpected behavior with special characters
+//
+// # Validation Rules
+//
+// The path must:
+//   - Start with "/" (absolute path)
+//   - Not contain path traversal sequences ("../", "..")
+//   - Not contain query strings or fragments
+//   - Not be empty (use defaultHealthCheckPath instead)
+//
+// Valid examples: "/healthz", "/readyz", "/livez", "/api/v1/health"
+// Invalid examples: "../secrets", "/healthz?foo=bar", "healthz", ""
+func validateHealthCheckPath(path string) error {
+	// Empty path should use default
+	if path == "" {
+		return nil // Will use default in CheckConnectivity
+	}
+
+	// Must start with /
+	if !strings.HasPrefix(path, "/") {
+		return ErrInvalidHealthCheckPath
+	}
+
+	// Check for path traversal patterns
+	if strings.Contains(path, "..") {
+		return ErrInvalidHealthCheckPath
+	}
+
+	// Check for query strings or fragments (not allowed in health check paths)
+	if strings.ContainsAny(path, "?#") {
+		return ErrInvalidHealthCheckPath
+	}
+
+	// Check for null bytes or other control characters
+	for _, r := range path {
+		if r < 32 || r == 127 {
+			return ErrInvalidHealthCheckPath
+		}
+	}
+
+	return nil
+}
+
 // ConnectivityConfig holds configuration options for cluster connectivity.
 // These settings control how the federation manager establishes and validates
 // connections to workload clusters.
@@ -63,24 +117,61 @@ type ConnectivityConfig struct {
 	RetryBackoff time.Duration
 
 	// HealthCheckPath is the API path used for health checks.
+	// This path is validated to prevent path injection attacks.
 	// Default: "/healthz" (standard Kubernetes health endpoint).
 	HealthCheckPath string
 
 	// QPS is the queries per second limit for the Kubernetes client.
-	// This controls client-side rate limiting.
+	// This controls client-side rate limiting to prevent overwhelming the
+	// target cluster's API server.
 	//
-	// Default: 50 (reasonable for AI workloads).
+	// # Operational Considerations
+	//
+	// The default value of 50 QPS is tuned for AI agent workloads, which
+	// typically make burst requests when exploring cluster resources.
+	// Consider adjusting this value based on:
+	//   - Number of concurrent users/agents
+	//   - Target cluster API server capacity
+	//   - Workload patterns (batch operations vs. interactive queries)
+	//
+	// For shared clusters with many users, consider lowering this value
+	// to ensure fair resource allocation.
+	//
+	// Default: 50 (suitable for single-user AI agent workloads).
 	QPS float32
 
-	// Burst is the maximum burst for throttled requests.
-	// Allows short bursts of requests above QPS.
+	// Burst is the maximum burst size for throttled requests.
+	// This allows short bursts of requests above the QPS limit, which is
+	// useful for AI agents that often need to fetch multiple resources
+	// in quick succession (e.g., listing pods then fetching their logs).
 	//
-	// Default: 100.
+	// # Operational Considerations
+	//
+	// The default value of 100 allows agents to handle burst scenarios
+	// like initial cluster exploration or responding to user queries
+	// that require multiple API calls.
+	//
+	// The burst value should typically be 2x the QPS value. Lower values
+	// may cause request throttling during legitimate burst scenarios.
+	// Higher values may impact cluster API server performance.
+	//
+	// Default: 100 (allows burst operations while protecting API servers).
 	Burst int
 }
 
 // DefaultConnectivityConfig returns a ConnectivityConfig with sensible defaults.
-// These defaults are suitable for typical VPC-peered deployments.
+// These defaults are suitable for typical VPC-peered deployments with
+// single-user AI agent workloads.
+//
+// # Rate Limiting Defaults
+//
+// The default rate limiting values (QPS: 50, Burst: 100) are chosen to:
+//   - Allow efficient AI agent operations without throttling
+//   - Protect target cluster API servers from excessive load
+//   - Support burst scenarios like initial cluster exploration
+//
+// For multi-tenant deployments or shared clusters, consider using lower
+// values to ensure fair resource allocation across users.
 func DefaultConnectivityConfig() ConnectivityConfig {
 	return ConnectivityConfig{
 		ConnectionTimeout: 5 * time.Second,
@@ -183,10 +274,20 @@ func CheckConnectivity(ctx context.Context, clusterName string, config *rest.Con
 		return wrapConnectivityError(clusterName, config.Host, "failed to create REST client", err)
 	}
 
-	// Determine health check path
+	// Determine and validate health check path
 	healthPath := cc.HealthCheckPath
 	if healthPath == "" {
 		healthPath = defaultHealthCheckPath
+	}
+
+	// Validate the health check path to prevent path injection
+	if err := validateHealthCheckPath(healthPath); err != nil {
+		return &ConnectionError{
+			ClusterName: clusterName,
+			Host:        sanitizeHost(config.Host),
+			Reason:      "invalid health check path",
+			Err:         err,
+		}
 	}
 
 	// Perform the health check

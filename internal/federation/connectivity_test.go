@@ -165,6 +165,46 @@ func TestCheckConnectivity(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, customPath, pathReceived)
 	})
+
+	t.Run("rejects invalid health check path with path traversal", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		config := &rest.Config{
+			Host: server.URL,
+			TLSClientConfig: rest.TLSClientConfig{
+				Insecure: true,
+			},
+		}
+		cc := DefaultConnectivityConfig()
+		cc.HealthCheckPath = "/../api/v1/secrets"
+
+		err := CheckConnectivity(context.Background(), "test-cluster", config, cc)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrConnectionFailed))
+	})
+
+	t.Run("rejects health check path without leading slash", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		config := &rest.Config{
+			Host: server.URL,
+			TLSClientConfig: rest.TLSClientConfig{
+				Insecure: true,
+			},
+		}
+		cc := DefaultConnectivityConfig()
+		cc.HealthCheckPath = "healthz"
+
+		err := CheckConnectivity(context.Background(), "test-cluster", config, cc)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrConnectionFailed))
+	})
 }
 
 func TestCheckConnectivityWithRetry(t *testing.T) {
@@ -325,6 +365,97 @@ func TestIsRetryableError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := isRetryableError(tt.err)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidateHealthCheckPath(t *testing.T) {
+	tests := []struct {
+		name      string
+		path      string
+		expectErr bool
+	}{
+		{
+			name:      "empty path is valid (uses default)",
+			path:      "",
+			expectErr: false,
+		},
+		{
+			name:      "default healthz path is valid",
+			path:      "/healthz",
+			expectErr: false,
+		},
+		{
+			name:      "readyz path is valid",
+			path:      "/readyz",
+			expectErr: false,
+		},
+		{
+			name:      "livez path is valid",
+			path:      "/livez",
+			expectErr: false,
+		},
+		{
+			name:      "nested path is valid",
+			path:      "/api/v1/health",
+			expectErr: false,
+		},
+		{
+			name:      "path without leading slash is invalid",
+			path:      "healthz",
+			expectErr: true,
+		},
+		{
+			name:      "path traversal with .. is invalid",
+			path:      "/../secrets",
+			expectErr: true,
+		},
+		{
+			name:      "path traversal in middle is invalid",
+			path:      "/api/../secrets",
+			expectErr: true,
+		},
+		{
+			name:      "path with query string is invalid",
+			path:      "/healthz?foo=bar",
+			expectErr: true,
+		},
+		{
+			name:      "path with fragment is invalid",
+			path:      "/healthz#section",
+			expectErr: true,
+		},
+		{
+			name:      "path with null byte is invalid",
+			path:      "/health\x00z",
+			expectErr: true,
+		},
+		{
+			name:      "path with newline is invalid",
+			path:      "/health\nz",
+			expectErr: true,
+		},
+		{
+			name:      "path with carriage return is invalid",
+			path:      "/health\rz",
+			expectErr: true,
+		},
+		{
+			name:      "double dots without slash is invalid",
+			path:      "/health..z",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateHealthCheckPath(tt.path)
+			if tt.expectErr {
+				assert.Error(t, err)
+				assert.True(t, errors.Is(err, ErrInvalidHealthCheckPath))
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

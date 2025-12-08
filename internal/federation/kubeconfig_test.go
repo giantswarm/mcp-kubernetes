@@ -485,9 +485,74 @@ func TestSanitizeHost(t *testing.T) {
 			expected: "<empty>",
 		},
 		{
-			name:     "valid host is returned as-is",
+			name:     "hostname is returned as-is",
 			host:     "https://api.example.com:6443",
 			expected: "https://api.example.com:6443",
+		},
+		{
+			name:     "IPv4 address is redacted",
+			host:     "https://10.0.1.50:6443",
+			expected: "https://[redacted-ip]:6443",
+		},
+		{
+			name:     "IPv4 address without port is redacted",
+			host:     "https://192.168.1.100",
+			expected: "https://[redacted-ip]",
+		},
+		{
+			name:     "IPv4 address without scheme is redacted",
+			host:     "10.0.1.50:6443",
+			expected: "[redacted-ip]:6443",
+		},
+		{
+			name:     "IPv6 address is redacted",
+			host:     "https://[2001:db8::1]:6443",
+			expected: "https://[redacted-ip]:6443",
+		},
+		{
+			name:     "private IPv4 10.x range is redacted",
+			host:     "https://10.255.255.255:6443",
+			expected: "https://[redacted-ip]:6443",
+		},
+		{
+			name:     "private IPv4 172.16.x range is redacted",
+			host:     "https://172.16.0.1:6443",
+			expected: "https://[redacted-ip]:6443",
+		},
+		{
+			name:     "private IPv4 192.168.x range is redacted",
+			host:     "https://192.168.0.1:6443",
+			expected: "https://[redacted-ip]:6443",
+		},
+		{
+			name:     "public IP is also redacted for consistency",
+			host:     "https://203.0.113.50:6443",
+			expected: "https://[redacted-ip]:6443",
+		},
+		{
+			name:     "hostname with internal suffix is preserved",
+			host:     "https://api.internal.example.com:6443",
+			expected: "https://api.internal.example.com:6443",
+		},
+		{
+			name:     "hostname without port is preserved",
+			host:     "https://api.example.com",
+			expected: "https://api.example.com",
+		},
+		{
+			name:     "http scheme is handled",
+			host:     "http://10.0.1.50:8080",
+			expected: "http://[redacted-ip]:8080",
+		},
+		{
+			name:     "localhost IPv4 is redacted",
+			host:     "https://127.0.0.1:6443",
+			expected: "https://[redacted-ip]:6443",
+		},
+		{
+			name:     "localhost IPv6 is redacted",
+			host:     "https://[::1]:6443",
+			expected: "https://[redacted-ip]:6443",
 		},
 	}
 
