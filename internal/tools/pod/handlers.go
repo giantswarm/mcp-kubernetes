@@ -10,6 +10,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
@@ -31,6 +32,30 @@ type PortForwardResponse struct {
 type PortMapping struct {
 	LocalPort  int `json:"localPort"`
 	RemotePort int `json:"remotePort"`
+}
+
+// recordPodOperation records metrics for a pod operation if instrumentation is enabled.
+func recordPodOperation(ctx context.Context, sc *server.ServerContext, operation, namespace, status string, duration time.Duration) {
+	provider := sc.InstrumentationProvider()
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().RecordPodOperation(ctx, operation, namespace, status, duration)
+	}
+}
+
+// incrementActiveSessions increments the active port-forward sessions counter.
+func incrementActiveSessions(ctx context.Context, sc *server.ServerContext) {
+	provider := sc.InstrumentationProvider()
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().IncrementActiveSessions(ctx)
+	}
+}
+
+// decrementActiveSessions decrements the active port-forward sessions counter.
+func decrementActiveSessions(ctx context.Context, sc *server.ServerContext) {
+	provider := sc.InstrumentationProvider()
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().DecrementActiveSessions(ctx)
+	}
 }
 
 // handleGetLogs handles kubectl logs operations
@@ -88,11 +113,18 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	logs, err := k8sClient.GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: %v", err)), nil
 	}
 	defer logs.Close()
+
+	recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusSuccess, duration)
 
 	// Read logs and apply pagination if needed
 	logData, err := io.ReadAll(logs)
@@ -181,10 +213,17 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	result, err := k8sClient.Exec(ctx, kubeContext, namespace, podName, containerName, command, opts)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordPodOperation(ctx, sc, instrumentation.OperationExec, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to execute command: %v", err)), nil
 	}
+
+	recordPodOperation(ctx, sc, instrumentation.OperationExec, namespace, instrumentation.StatusSuccess, duration)
 
 	// Format the result
 	var output strings.Builder
@@ -285,6 +324,9 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	// Register the session for cleanup during shutdown
 	sc.RegisterPortForwardSession(sessionID, session)
 
+	// Increment active sessions metric
+	incrementActiveSessions(ctx, sc)
+
 	// Create port mappings
 	var portMappings []PortMapping
 	for i, localPort := range session.LocalPorts {
@@ -356,6 +398,9 @@ func handleStopPortForwardSession(ctx context.Context, request mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to stop session: %v", err)), nil
 	}
 
+	// Decrement active sessions metric
+	decrementActiveSessions(ctx, sc)
+
 	return mcp.NewToolResultText(fmt.Sprintf("Port forwarding session %s stopped successfully.", sessionID)), nil
 }
 
@@ -365,6 +410,11 @@ func handleStopAllPortForwardSessions(ctx context.Context, request mcp.CallToolR
 
 	if count == 0 {
 		return mcp.NewToolResultText("No active port forwarding sessions to stop."), nil
+	}
+
+	// Decrement active sessions metric for all stopped sessions
+	for range count {
+		decrementActiveSessions(ctx, sc)
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Stopped %d port forwarding session(s) successfully.", count)), nil

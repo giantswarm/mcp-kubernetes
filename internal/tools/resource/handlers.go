@@ -4,15 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
+
+// recordK8sOperation records metrics for a Kubernetes operation if instrumentation is enabled.
+func recordK8sOperation(ctx context.Context, sc *server.ServerContext, operation, resourceType, namespace, status string, duration time.Duration) {
+	provider := sc.InstrumentationProvider()
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
+	}
+}
 
 // handleGetResource handles kubectl get operations
 func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
@@ -38,10 +48,17 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 
 	// Use the appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	obj, err := k8sClient.Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the resource to JSON for output
 	jsonData, err := json.MarshalIndent(obj, "", "  ")
@@ -97,15 +114,26 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		Continue:      continueToken,
 	}
 
+	// Track namespace for metrics (use "all" for cluster-wide operations)
+	metricsNamespace := namespace
 	if allNamespaces || resourceType == "namespace" {
 		namespace = ""
+		metricsNamespace = "all"
 	}
+
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	paginatedResponse, err := k8sClient.List(ctx, kubeContext, namespace, resourceType, apiGroup, opts)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, duration)
 
 	if fullOutput {
 		// Return full paginated output
@@ -157,10 +185,17 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	description, err := k8sClient.Describe(ctx, kubeContext, namespace, resourceType, apiGroup, name)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to describe resource: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the description to JSON for output
 	jsonData, err := json.MarshalIndent(description, "", "  ")
@@ -213,10 +248,25 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	createdObj, err := k8sClient.Create(ctx, kubeContext, namespace, obj)
+	duration := time.Since(start)
+
+	// Extract resource type from manifest for metrics (use "unknown" if not available)
+	resourceType := "unknown"
+	if m, ok := manifestData.(map[string]interface{}); ok {
+		if kind, ok := m["kind"].(string); ok {
+			resourceType = kind
+		}
+	}
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to create resource: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the created resource to JSON for output
 	jsonData, err := json.MarshalIndent(createdObj, "", "  ")
@@ -269,10 +319,25 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	appliedObj, err := k8sClient.Apply(ctx, kubeContext, namespace, obj)
+	duration := time.Since(start)
+
+	// Extract resource type from manifest for metrics (use "unknown" if not available)
+	resourceType := "unknown"
+	if m, ok := manifestData.(map[string]interface{}); ok {
+		if kind, ok := m["kind"].(string); ok {
+			resourceType = kind
+		}
+	}
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to apply resource: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the applied resource to JSON for output
 	jsonData, err := json.MarshalIndent(appliedObj, "", "  ")
@@ -320,10 +385,17 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	err = k8sClient.Delete(ctx, kubeContext, namespace, resourceType, apiGroup, name)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to delete resource: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s deleted successfully", resourceType, name)), nil
 }
@@ -394,10 +466,17 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	patchedObj, err := k8sClient.Patch(ctx, kubeContext, namespace, resourceType, apiGroup, name, patchType, patchBytes)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to patch resource: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the patched resource to JSON for output
 	jsonData, err := json.MarshalIndent(patchedObj, "", "  ")
@@ -450,10 +529,17 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
 	k8sClient := tools.GetK8sClient(ctx, sc)
+
+	start := time.Now()
 	err = k8sClient.Scale(ctx, kubeContext, namespace, resourceType, apiGroup, name, int32(replicas))
+	duration := time.Since(start)
+
 	if err != nil {
+		recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to scale resource: %v", err)), nil
 	}
+
+	recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s scaled to %d replicas successfully", resourceType, name, int32(replicas))), nil
 }

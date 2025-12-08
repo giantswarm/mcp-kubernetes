@@ -3,28 +3,52 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
 // runStreamableHTTPServer runs the server with Streamable HTTP transport
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool) error {
-	// Create Streamable HTTP server with custom endpoint
-	httpServer := mcpserver.NewStreamableHTTPServer(mcpSrv,
+func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider) error {
+	// Create a custom HTTP server with metrics endpoint
+	mux := http.NewServeMux()
+
+	// Create Streamable HTTP handler
+	mcpHandler := mcpserver.NewStreamableHTTPServer(mcpSrv,
 		mcpserver.WithEndpointPath(endpoint),
 	)
 
+	// Add MCP endpoint
+	mux.Handle(endpoint, mcpHandler)
+
+	// Add metrics endpoint if instrumentation is enabled
+	if provider != nil && provider.Enabled() {
+		mux.Handle("/metrics", promhttp.Handler())
+		fmt.Printf("  Metrics endpoint: /metrics\n")
+	}
+
 	fmt.Printf("Streamable HTTP server starting on %s\n", addr)
 	fmt.Printf("  HTTP endpoint: %s\n", endpoint)
+
+	// Create HTTP server with security timeouts
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	// Start server in goroutine
 	serverDone := make(chan error, 1)
 	go func() {
 		defer close(serverDone)
-		if err := httpServer.Start(addr); err != nil {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverDone <- err
 		}
 	}()
@@ -33,7 +57,7 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	select {
 	case <-ctx.Done():
 		fmt.Println("Shutdown signal received, stopping HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("error shutting down HTTP server: %w", err)

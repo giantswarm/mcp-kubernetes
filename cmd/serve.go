@@ -298,7 +298,7 @@ func runServe(config ServeConfig) error {
 		return runStdioServer(mcpSrv)
 	case "sse":
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
-		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode)
+		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider)
 	case "streamable-http":
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
 		if config.OAuth.Enabled {
@@ -406,7 +406,7 @@ func runServe(config ServeConfig) error {
 				InstrumentationProvider:       instrumentationProvider,
 			})
 		}
-		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}
