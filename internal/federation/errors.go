@@ -3,6 +3,8 @@ package federation
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 )
 
 // Sentinel errors for common federation failure scenarios.
@@ -43,6 +45,27 @@ var (
 
 	// ErrInvalidAccessCheck indicates that the AccessCheck parameters are invalid.
 	ErrInvalidAccessCheck = errors.New("invalid access check parameters")
+
+	// ErrClusterUnreachable indicates that the cluster API server is not reachable.
+	// This typically occurs due to network issues such as:
+	//   - VPC peering not configured
+	//   - Security group rules blocking access
+	//   - DNS resolution failures
+	ErrClusterUnreachable = errors.New("cluster unreachable")
+
+	// ErrTLSHandshakeFailed indicates that the TLS handshake with the cluster failed.
+	// Common causes include:
+	//   - Certificate signed by unknown authority
+	//   - Expired certificate
+	//   - Certificate hostname mismatch
+	ErrTLSHandshakeFailed = errors.New("TLS handshake failed")
+
+	// ErrConnectionTimeout indicates that the connection to the cluster timed out.
+	// This can happen when:
+	//   - The cluster is behind a firewall
+	//   - Network latency is too high
+	//   - The cluster is not running
+	ErrConnectionTimeout = errors.New("connection timeout")
 )
 
 // userFacingClusterError is the standardized message returned to users for all
@@ -399,4 +422,144 @@ func (e *AccessCheckError) Is(target error) bool {
 // UserFacingError returns a message suitable for displaying to end users.
 func (e *AccessCheckError) UserFacingError() string {
 	return "unable to verify permissions - please try again or contact your administrator"
+}
+
+// ConnectivityTimeoutError provides detailed context about a connection timeout.
+// This error indicates that the TCP connection or HTTP request timed out before
+// completing. It's typically caused by network issues such as:
+//   - Firewall rules blocking the connection
+//   - No route to the target network
+//   - High network latency
+//   - Target cluster not running
+//
+// # Troubleshooting
+//
+// When encountering this error, verify:
+//  1. VPC peering or Transit Gateway is properly configured
+//  2. Security group rules allow traffic on port 6443
+//  3. The target cluster is healthy and running
+//  4. DNS resolution is working correctly
+type ConnectivityTimeoutError struct {
+	// ClusterName is the target cluster that timed out.
+	ClusterName string
+
+	// Host is the API server endpoint that couldn't be reached.
+	Host string
+
+	// Timeout is the duration waited before giving up (if known).
+	Timeout time.Duration
+
+	// Err is the underlying error that caused the timeout.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *ConnectivityTimeoutError) Error() string {
+	if e.Timeout > 0 {
+		return fmt.Sprintf("connection to cluster %q (%s) timed out after %s",
+			e.ClusterName, e.Host, e.Timeout)
+	}
+	if e.Err != nil {
+		return fmt.Sprintf("connection to cluster %q (%s) timed out: %v",
+			e.ClusterName, e.Host, e.Err)
+	}
+	return fmt.Sprintf("connection to cluster %q (%s) timed out", e.ClusterName, e.Host)
+}
+
+// Unwrap returns the underlying error.
+func (e *ConnectivityTimeoutError) Unwrap() error {
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+func (e *ConnectivityTimeoutError) Is(target error) bool {
+	switch target {
+	case ErrConnectionTimeout:
+		return true
+	case ErrClusterUnreachable:
+		return true
+	case ErrConnectionFailed:
+		return true
+	}
+	return false
+}
+
+// UserFacingError returns a message suitable for displaying to end users.
+// This provides actionable guidance without exposing internal network details.
+func (e *ConnectivityTimeoutError) UserFacingError() string {
+	return "connection to cluster timed out - please verify the cluster is reachable from the management cluster"
+}
+
+// TLSError provides detailed context about a TLS/certificate failure.
+// This error indicates that the TLS handshake failed, which can happen due to:
+//   - Certificate signed by unknown authority
+//   - Expired certificate
+//   - Certificate hostname mismatch
+//   - TLS protocol version mismatch
+//
+// # Security Note
+//
+// TLS errors should NOT be bypassed by disabling certificate verification.
+// Instead, ensure the CA certificate is properly configured in the kubeconfig.
+//
+// # Troubleshooting
+//
+// When encountering this error:
+//  1. Verify the kubeconfig contains the correct CA certificate
+//  2. Check if the cluster certificate has expired
+//  3. Ensure the certificate SANs include the endpoint hostname/IP
+type TLSError struct {
+	// ClusterName is the target cluster where TLS failed.
+	ClusterName string
+
+	// Host is the API server endpoint.
+	Host string
+
+	// Reason describes what went wrong in the TLS handshake.
+	Reason string
+
+	// Err is the underlying TLS error.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *TLSError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("TLS handshake with cluster %q (%s) failed: %s: %v",
+			e.ClusterName, e.Host, e.Reason, e.Err)
+	}
+	return fmt.Sprintf("TLS handshake with cluster %q (%s) failed: %s",
+		e.ClusterName, e.Host, e.Reason)
+}
+
+// Unwrap returns the underlying error.
+func (e *TLSError) Unwrap() error {
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+func (e *TLSError) Is(target error) bool {
+	switch target {
+	case ErrTLSHandshakeFailed:
+		return true
+	case ErrConnectionFailed:
+		return true
+	}
+	return false
+}
+
+// UserFacingError returns a message suitable for displaying to end users.
+// This provides actionable guidance while maintaining security (not suggesting
+// to bypass certificate verification).
+func (e *TLSError) UserFacingError() string {
+	switch {
+	case strings.Contains(e.Reason, "expired"):
+		return "cluster certificate has expired - please contact your administrator to renew the certificate"
+	case strings.Contains(e.Reason, "unknown authority"):
+		return "cluster certificate not trusted - please verify the kubeconfig contains the correct CA certificate"
+	case strings.Contains(e.Reason, "mismatch") || strings.Contains(e.Reason, "doesn't match"):
+		return "cluster certificate doesn't match the hostname - please contact your administrator"
+	default:
+		return "secure connection to cluster failed - please contact your administrator"
+	}
 }

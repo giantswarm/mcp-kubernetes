@@ -101,6 +101,13 @@ type Manager struct {
 	// Connection validation timeout for workload cluster health checks
 	connectionValidationTimeout time.Duration
 
+	// Connectivity configuration for network topology handling
+	connectivityConfig *ConnectivityConfig
+
+	// validateConnectivity enables connectivity validation before caching clients.
+	// When enabled, CheckConnectivityWithRetry is called before caching a new client.
+	validateConnectivity bool
+
 	// Logger for operational messages
 	logger *slog.Logger
 
@@ -147,6 +154,44 @@ func WithManagerCacheMetrics(metrics CacheMetricsRecorder) ManagerOption {
 func WithManagerConnectionValidationTimeout(timeout time.Duration) ManagerOption {
 	return func(m *Manager) {
 		m.connectionValidationTimeout = timeout
+	}
+}
+
+// WithConnectivityConfig sets the connectivity configuration for the Manager.
+// This controls how the manager establishes and validates connections to
+// workload clusters, including timeouts and retry behavior.
+//
+// # Network Topology Considerations
+//
+// Configure this based on your network topology:
+//   - For VPC-peered clusters: use DefaultConnectivityConfig()
+//   - For cross-region or konnectivity: use HighLatencyConnectivityConfig()
+//
+// Example:
+//
+//	manager, err := federation.NewManager(provider,
+//	    federation.WithConnectivityConfig(federation.HighLatencyConnectivityConfig()),
+//	)
+func WithConnectivityConfig(config ConnectivityConfig) ManagerOption {
+	return func(m *Manager) {
+		m.connectivityConfig = &config
+	}
+}
+
+// WithConnectivityValidation enables connectivity validation before caching clients.
+// When enabled, the manager will verify that a workload cluster is reachable before
+// caching the client. This catches network issues early but adds latency to the
+// first request for each cluster.
+//
+// # Trade-offs
+//
+//   - Enabled: Catches network issues early, better error messages, slight latency increase
+//   - Disabled: Faster first request, but network errors surface during actual operations
+//
+// Default: false (disabled)
+func WithConnectivityValidation(enabled bool) ManagerOption {
+	return func(m *Manager) {
+		m.validateConnectivity = enabled
 	}
 }
 
@@ -435,12 +480,20 @@ func (m *Manager) getRemoteDynamicWithImpersonation(ctx context.Context, cluster
 //
 // The method uses the user's credentials for ALL operations:
 //  1. Retrieves the kubeconfig secret using user's MC RBAC permissions
-//  2. Configures impersonation headers for WC operations
-//  3. Creates clientset and dynamic client with the impersonated config
+//  2. Optionally validates connectivity to the cluster
+//  3. Configures impersonation headers for WC operations
+//  4. Creates clientset and dynamic client with the impersonated config
 //
 // This ensures defense in depth: the user must have permission to read the
 // kubeconfig secret on the MC, AND their impersonated identity must have
 // permissions on the WC.
+//
+// # Network Topology
+//
+// When connectivity validation is enabled (WithConnectivityValidation(true)),
+// this method verifies the cluster is reachable before caching the client.
+// This is useful for detecting network issues early, especially in complex
+// topologies with VPC peering, Transit Gateway, or konnectivity.
 func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
 	m.logger.Debug("Creating remote cluster client",
 		"cluster", clusterName,
@@ -452,6 +505,18 @@ func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName str
 	baseConfig, err := m.GetKubeconfigForCluster(ctx, clusterName, user)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	// Apply connectivity configuration if specified
+	if m.connectivityConfig != nil {
+		ApplyConnectivityConfig(baseConfig, *m.connectivityConfig)
+	}
+
+	// Optionally validate connectivity before caching
+	if m.validateConnectivity {
+		if err := m.checkClusterConnectivity(ctx, clusterName, baseConfig); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	// Configure impersonation for WC operations
@@ -472,7 +537,80 @@ func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName str
 
 	m.logger.Debug("Successfully created remote cluster client",
 		"cluster", clusterName,
+		"endpoint_type", GetEndpointType(baseConfig.Host),
 		UserHashAttr(user.Email))
 
 	return clientset, dynClient, impersonatedConfig, nil
+}
+
+// checkClusterConnectivity validates connectivity to a workload cluster.
+// This is a helper method that uses the configured ConnectivityConfig.
+func (m *Manager) checkClusterConnectivity(ctx context.Context, clusterName string, config *rest.Config) error {
+	cc := DefaultConnectivityConfig()
+	if m.connectivityConfig != nil {
+		cc = *m.connectivityConfig
+	}
+
+	m.logger.Debug("Validating cluster connectivity",
+		"cluster", clusterName,
+		"host", sanitizeHost(config.Host),
+		"endpoint_type", GetEndpointType(config.Host),
+		"timeout", cc.ConnectionTimeout,
+		"retry_attempts", cc.RetryAttempts)
+
+	err := CheckConnectivityWithRetry(ctx, clusterName, config, cc)
+	if err != nil {
+		m.logger.Debug("Cluster connectivity check failed",
+			"cluster", clusterName,
+			"host", sanitizeHost(config.Host),
+			"error", err)
+		return err
+	}
+
+	m.logger.Debug("Cluster connectivity validated",
+		"cluster", clusterName,
+		"host", sanitizeHost(config.Host))
+	return nil
+}
+
+// CheckClusterConnectivity validates connectivity to a workload cluster.
+// This is a public method that allows callers to explicitly check connectivity
+// without caching the client.
+//
+// # Use Cases
+//
+// This method is useful for:
+//   - Debugging network issues between MC and WC
+//   - Implementing health checks for cluster lists
+//   - Pre-validating clusters before batch operations
+//
+// Example:
+//
+//	err := manager.CheckClusterConnectivity(ctx, "prod-cluster", user)
+//	if err != nil {
+//	    log.Printf("Cluster unreachable: %v", err)
+//	}
+func (m *Manager) CheckClusterConnectivity(ctx context.Context, clusterName string, user *UserInfo) error {
+	if err := m.checkClosed(); err != nil {
+		return err
+	}
+
+	// Validate user info
+	if err := ValidateUserInfo(user); err != nil {
+		return err
+	}
+
+	// Validate cluster name
+	if err := ValidateClusterName(clusterName); err != nil {
+		return err
+	}
+
+	// Get the kubeconfig for the cluster
+	config, err := m.GetKubeconfigForCluster(ctx, clusterName, user)
+	if err != nil {
+		return err
+	}
+
+	// Check connectivity
+	return m.checkClusterConnectivity(ctx, clusterName, config)
 }

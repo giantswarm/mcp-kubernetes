@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -639,4 +640,271 @@ func TestAccessCheckError_ErrorsAs(t *testing.T) {
 	assert.True(t, errors.As(err, &checkErr))
 	assert.Equal(t, "test-cluster", checkErr.ClusterName)
 	assert.Equal(t, "get", checkErr.Check.Verb)
+}
+
+func TestConnectivityTimeoutError(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            *ConnectivityTimeoutError
+		expectedString string
+	}{
+		{
+			name: "with timeout duration",
+			err: &ConnectivityTimeoutError{
+				ClusterName: "prod-cluster",
+				Host:        "https://api.prod.example.com:6443",
+				Timeout:     5 * time.Second,
+			},
+			expectedString: `connection to cluster "prod-cluster" (https://api.prod.example.com:6443) timed out after 5s`,
+		},
+		{
+			name: "with underlying error",
+			err: &ConnectivityTimeoutError{
+				ClusterName: "prod-cluster",
+				Host:        "https://api.prod.example.com:6443",
+				Err:         fmt.Errorf("i/o timeout"),
+			},
+			expectedString: `connection to cluster "prod-cluster" (https://api.prod.example.com:6443) timed out: i/o timeout`,
+		},
+		{
+			name: "minimal info",
+			err: &ConnectivityTimeoutError{
+				ClusterName: "prod-cluster",
+				Host:        "https://api.prod.example.com:6443",
+			},
+			expectedString: `connection to cluster "prod-cluster" (https://api.prod.example.com:6443) timed out`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedString, tt.err.Error())
+		})
+	}
+}
+
+func TestConnectivityTimeoutError_Is(t *testing.T) {
+	err := &ConnectivityTimeoutError{
+		ClusterName: "test",
+		Host:        "https://test:6443",
+	}
+
+	// Should match all relevant sentinel errors
+	assert.True(t, errors.Is(err, ErrConnectionTimeout))
+	assert.True(t, errors.Is(err, ErrClusterUnreachable))
+	assert.True(t, errors.Is(err, ErrConnectionFailed))
+
+	// Should not match unrelated errors
+	assert.False(t, errors.Is(err, ErrTLSHandshakeFailed))
+	assert.False(t, errors.Is(err, ErrClusterNotFound))
+}
+
+func TestConnectivityTimeoutError_Unwrap(t *testing.T) {
+	baseErr := fmt.Errorf("underlying timeout")
+	err := &ConnectivityTimeoutError{
+		ClusterName: "test",
+		Host:        "https://test:6443",
+		Err:         baseErr,
+	}
+
+	assert.Equal(t, baseErr, err.Unwrap())
+}
+
+func TestConnectivityTimeoutError_UserFacingError(t *testing.T) {
+	err := &ConnectivityTimeoutError{
+		ClusterName: "secret-internal-cluster",
+		Host:        "https://10.0.1.50:6443",
+		Timeout:     5 * time.Second,
+	}
+
+	userFacing := err.UserFacingError()
+
+	// Should not contain internal details
+	assert.NotContains(t, userFacing, "secret-internal-cluster")
+	assert.NotContains(t, userFacing, "10.0.1.50")
+	assert.NotContains(t, userFacing, "5s")
+
+	// Should contain actionable message
+	assert.Contains(t, userFacing, "timed out")
+	assert.Contains(t, userFacing, "verify")
+}
+
+func TestConnectivityTimeoutError_ErrorsAs(t *testing.T) {
+	err := fmt.Errorf("operation failed: %w", &ConnectivityTimeoutError{
+		ClusterName: "test-cluster",
+		Host:        "https://test:6443",
+		Timeout:     10 * time.Second,
+	})
+
+	var timeoutErr *ConnectivityTimeoutError
+	assert.True(t, errors.As(err, &timeoutErr))
+	assert.Equal(t, "test-cluster", timeoutErr.ClusterName)
+	assert.Equal(t, 10*time.Second, timeoutErr.Timeout)
+}
+
+func TestTLSError(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            *TLSError
+		expectedString string
+	}{
+		{
+			name: "with underlying error",
+			err: &TLSError{
+				ClusterName: "prod-cluster",
+				Host:        "https://api.prod.example.com:6443",
+				Reason:      "certificate has expired",
+				Err:         fmt.Errorf("x509: certificate has expired"),
+			},
+			expectedString: `TLS handshake with cluster "prod-cluster" (https://api.prod.example.com:6443) failed: certificate has expired: x509: certificate has expired`,
+		},
+		{
+			name: "without underlying error",
+			err: &TLSError{
+				ClusterName: "prod-cluster",
+				Host:        "https://api.prod.example.com:6443",
+				Reason:      "certificate signed by unknown authority",
+			},
+			expectedString: `TLS handshake with cluster "prod-cluster" (https://api.prod.example.com:6443) failed: certificate signed by unknown authority`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedString, tt.err.Error())
+		})
+	}
+}
+
+func TestTLSError_Is(t *testing.T) {
+	err := &TLSError{
+		ClusterName: "test",
+		Host:        "https://test:6443",
+		Reason:      "cert expired",
+	}
+
+	// Should match TLS sentinel error
+	assert.True(t, errors.Is(err, ErrTLSHandshakeFailed))
+	assert.True(t, errors.Is(err, ErrConnectionFailed))
+
+	// Should not match unrelated errors
+	assert.False(t, errors.Is(err, ErrConnectionTimeout))
+	assert.False(t, errors.Is(err, ErrClusterNotFound))
+}
+
+func TestTLSError_Unwrap(t *testing.T) {
+	baseErr := fmt.Errorf("x509: certificate has expired")
+	err := &TLSError{
+		ClusterName: "test",
+		Host:        "https://test:6443",
+		Reason:      "expired",
+		Err:         baseErr,
+	}
+
+	assert.Equal(t, baseErr, err.Unwrap())
+}
+
+func TestTLSError_UserFacingError(t *testing.T) {
+	tests := []struct {
+		name            string
+		reason          string
+		expectedContain string
+		hasAdmin        bool // whether it should contain "administrator"
+	}{
+		{
+			name:            "expired certificate",
+			reason:          "certificate has expired",
+			expectedContain: "expired",
+			hasAdmin:        true,
+		},
+		{
+			name:            "unknown authority",
+			reason:          "certificate signed by unknown authority",
+			expectedContain: "not trusted",
+			hasAdmin:        false, // This message says "verify the kubeconfig" instead
+		},
+		{
+			name:            "hostname mismatch",
+			reason:          "certificate hostname mismatch",
+			expectedContain: "doesn't match",
+			hasAdmin:        true,
+		},
+		{
+			name:            "generic TLS error",
+			reason:          "some other TLS error",
+			expectedContain: "secure connection",
+			hasAdmin:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := &TLSError{
+				ClusterName: "secret-cluster",
+				Host:        "https://internal.example.com:6443",
+				Reason:      tt.reason,
+			}
+
+			userFacing := err.UserFacingError()
+
+			// Should not contain internal details
+			assert.NotContains(t, userFacing, "secret-cluster")
+			assert.NotContains(t, userFacing, "internal.example.com")
+
+			// Should contain expected message
+			assert.Contains(t, userFacing, tt.expectedContain)
+			if tt.hasAdmin {
+				assert.Contains(t, userFacing, "administrator")
+			}
+		})
+	}
+}
+
+func TestTLSError_ErrorsAs(t *testing.T) {
+	err := fmt.Errorf("operation failed: %w", &TLSError{
+		ClusterName: "test-cluster",
+		Host:        "https://test:6443",
+		Reason:      "cert expired",
+	})
+
+	var tlsErr *TLSError
+	assert.True(t, errors.As(err, &tlsErr))
+	assert.Equal(t, "test-cluster", tlsErr.ClusterName)
+	assert.Equal(t, "cert expired", tlsErr.Reason)
+}
+
+func TestNewSentinelErrors(t *testing.T) {
+	// Verify the new sentinel errors are distinct from existing ones
+	newSentinels := []error{
+		ErrClusterUnreachable,
+		ErrTLSHandshakeFailed,
+		ErrConnectionTimeout,
+	}
+
+	existingSentinels := []error{
+		ErrClusterNotFound,
+		ErrKubeconfigSecretNotFound,
+		ErrKubeconfigInvalid,
+		ErrConnectionFailed,
+		ErrImpersonationFailed,
+		ErrManagerClosed,
+	}
+
+	// New sentinels should be distinct from each other
+	for i, err1 := range newSentinels {
+		for j, err2 := range newSentinels {
+			if i == j {
+				assert.True(t, errors.Is(err1, err2), "error should equal itself")
+			} else {
+				assert.False(t, errors.Is(err1, err2), "different new errors should not be equal: %v vs %v", err1, err2)
+			}
+		}
+	}
+
+	// New sentinels should be distinct from existing ones
+	for _, newErr := range newSentinels {
+		for _, existingErr := range existingSentinels {
+			assert.False(t, errors.Is(newErr, existingErr), "new error %v should not match existing error %v", newErr, existingErr)
+		}
+	}
 }

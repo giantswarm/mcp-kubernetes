@@ -3,6 +3,8 @@ package federation
 import (
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -328,12 +330,59 @@ func isNotFoundError(err error) bool {
 	return apierrors.IsNotFound(err)
 }
 
-// sanitizeHost returns the host for logging purposes.
-// Returns "<empty>" for empty hosts to make logs more readable.
+// sanitizeHost returns a sanitized version of the host for logging purposes.
+// This function redacts IP addresses to prevent sensitive network topology
+// information from appearing in logs, while preserving enough context for debugging.
+//
+// # Security Considerations
+//
+// IP addresses can reveal internal network topology, VPC CIDR ranges, and
+// infrastructure details. This function replaces IP addresses with a redacted
+// placeholder while preserving:
+//   - The URL scheme (https://)
+//   - The port number (useful for debugging connectivity issues)
+//   - Hostnames (generally safe and needed for debugging)
+//
+// Examples:
+//   - "https://10.0.1.50:6443" -> "https://[redacted-ip]:6443"
+//   - "https://api.cluster.example.com:6443" -> "https://api.cluster.example.com:6443"
+//   - "" -> "<empty>"
 func sanitizeHost(host string) string {
 	if host == "" {
 		return "<empty>"
 	}
+
+	// Extract scheme if present
+	scheme := ""
+	hostPart := host
+	if strings.HasPrefix(host, "https://") {
+		scheme = "https://"
+		hostPart = strings.TrimPrefix(host, "https://")
+	} else if strings.HasPrefix(host, "http://") {
+		scheme = "http://"
+		hostPart = strings.TrimPrefix(host, "http://")
+	}
+
+	// Split host and port using net.SplitHostPort for proper IPv4/IPv6 handling
+	hostOnly, port, err := net.SplitHostPort(hostPart)
+	if err != nil {
+		// No port in the host, try to parse the whole thing as IP
+		hostOnly = hostPart
+		port = ""
+	}
+
+	// Check if the host is an IP address
+	ip := net.ParseIP(hostOnly)
+	if ip != nil {
+		// Redact the IP address
+		redacted := "[redacted-ip]"
+		if port != "" {
+			return scheme + redacted + ":" + port
+		}
+		return scheme + redacted
+	}
+
+	// Not an IP address, return the original (hostnames are generally safe)
 	return host
 }
 
