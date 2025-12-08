@@ -100,6 +100,9 @@ rules:
     verbs: ["get", "list", "watch"]
 
   # Infrastructure provider resources (read-only, for cluster details)
+  # Note: Uses wildcard to support any CAPI infrastructure provider (AWS, Azure, GCP, vSphere, etc.)
+  # For single-provider deployments, consider restricting to specific resources.
+  # See docs/rbac-security.md for provider-specific resource lists.
   - apiGroups: ["infrastructure.cluster.x-k8s.io"]
     resources: ["*"]
     verbs: ["get", "list"]

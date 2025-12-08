@@ -89,6 +89,7 @@ rules:
     verbs: ["get", "list", "watch"]
 
   # Infrastructure provider resources (read-only)
+  # Default uses wildcard to support any provider
   - apiGroups: ["infrastructure.cluster.x-k8s.io"]
     resources: ["*"]
     verbs: ["get", "list"]
@@ -103,6 +104,60 @@ rules:
     resources: ["subjectaccessreviews", "selfsubjectaccessreviews"]
     verbs: ["create"]
 ```
+
+#### Provider-Specific Resource Restrictions
+
+The default CAPI ClusterRole uses a wildcard (`*`) for infrastructure provider resources to support any CAPI provider. For single-provider deployments, you can restrict permissions to specific resources.
+
+**AWS (CAPA):**
+```yaml
+- apiGroups: ["infrastructure.cluster.x-k8s.io"]
+  resources:
+    - awsclusters
+    - awsclusters/status
+    - awsmachines
+    - awsmachines/status
+    - awsmachinetemplates
+  verbs: ["get", "list"]
+```
+
+**Azure (CAPZ):**
+```yaml
+- apiGroups: ["infrastructure.cluster.x-k8s.io"]
+  resources:
+    - azureclusters
+    - azureclusters/status
+    - azuremachines
+    - azuremachines/status
+    - azuremachinetemplates
+  verbs: ["get", "list"]
+```
+
+**GCP (CAPG):**
+```yaml
+- apiGroups: ["infrastructure.cluster.x-k8s.io"]
+  resources:
+    - gcpclusters
+    - gcpclusters/status
+    - gcpmachines
+    - gcpmachines/status
+    - gcpmachinetemplates
+  verbs: ["get", "list"]
+```
+
+**vSphere (CAPV):**
+```yaml
+- apiGroups: ["infrastructure.cluster.x-k8s.io"]
+  resources:
+    - vsphereclusters
+    - vsphereclusters/status
+    - vspheremachines
+    - vspheremachines/status
+    - vspheremachinetemplates
+  verbs: ["get", "list"]
+```
+
+To apply provider-specific restrictions, create a custom ClusterRole that overrides the default CAPI role, or modify the Helm chart values to disable RBAC creation and manage it externally.
 
 ### Namespace-Scoped Secret Access (Recommended)
 
@@ -420,21 +475,39 @@ kubectl auth can-i --list --as=system:serviceaccount:mcp-system:mcp-kubernetes
 
 The Helm chart configures secure ServiceAccount token handling:
 
-- Tokens are projected with a limited audience (`api://mcp-kubernetes`)
-- Token expiration is set to 1 hour
-- Tokens are automatically rotated by kubelet
+- Default ServiceAccount token automounting is **disabled** (`automountServiceAccountToken: false`)
+- Tokens are **projected** with a 1-hour expiration (automatically rotated by kubelet)
+- CA certificate and namespace are mounted separately for defense in depth
+- Tokens are mounted read-only at the standard path
 
 ```yaml
 # From deployment.yaml
-volumes:
-  - name: sa-token
-    projected:
-      sources:
-        - serviceAccountToken:
-            expirationSeconds: 3600
-            audience: api://mcp-kubernetes
-            path: token
+spec:
+  automountServiceAccountToken: false  # Disable default mounting
+  volumes:
+    - name: sa-token
+      projected:
+        sources:
+          - serviceAccountToken:
+              expirationSeconds: 3600  # 1 hour, auto-rotated
+              path: token
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    fieldPath: metadata.namespace
 ```
+
+**Security Benefits:**
+
+- **Automatic rotation**: kubelet rotates the token before expiration
+- **Reduced blast radius**: Short-lived tokens limit exposure window if compromised
+- **Explicit mounting**: Disabling automount ensures tokens are only available where explicitly configured
 
 ## Troubleshooting
 
