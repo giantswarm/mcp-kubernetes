@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
@@ -24,6 +25,10 @@ type ServerContext struct {
 	// create per-user Kubernetes clients using the user's OAuth token.
 	clientFactory   k8s.ClientFactory
 	downstreamOAuth bool
+
+	// Federation manager for multi-cluster support
+	// When set, enables operations across multiple Kubernetes clusters via CAPI.
+	federationManager federation.ClusterClientManager
 
 	// OpenTelemetry instrumentation provider
 	instrumentationProvider *instrumentation.Provider
@@ -148,6 +153,21 @@ func (sc *ServerContext) InstrumentationProvider() *instrumentation.Provider {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.instrumentationProvider
+}
+
+// FederationManager returns the multi-cluster federation manager.
+// Returns nil if federation is not enabled.
+func (sc *ServerContext) FederationManager() federation.ClusterClientManager {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.federationManager
+}
+
+// FederationEnabled returns true if multi-cluster federation is enabled.
+func (sc *ServerContext) FederationEnabled() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.federationManager != nil
 }
 
 // RecordK8sOperation records a Kubernetes operation metric if instrumentation is enabled.
@@ -322,6 +342,13 @@ func (sc *ServerContext) Shutdown() error {
 
 	// Clean up active port forwarding sessions
 	sc.cleanupPortForwardSessions()
+
+	// Shutdown federation manager
+	if sc.federationManager != nil {
+		if err := sc.federationManager.Close(); err != nil {
+			sc.logger.Error("Failed to close federation manager", "error", err)
+		}
+	}
 
 	// Shutdown instrumentation provider
 	if sc.instrumentationProvider != nil {

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 )
@@ -157,6 +158,17 @@ func WithDownstreamOAuth(enabled bool) Option {
 func WithInstrumentationProvider(provider *instrumentation.Provider) Option {
 	return func(sc *ServerContext) error {
 		sc.instrumentationProvider = provider
+		return nil
+	}
+}
+
+// WithFederationManager sets the multi-cluster federation manager.
+// This enables operations across multiple Kubernetes clusters via CAPI.
+// When set, the server can perform operations on both the Management Cluster
+// and Workload Clusters discovered through Cluster API resources.
+func WithFederationManager(manager federation.ClusterClientManager) Option {
+	return func(sc *ServerContext) error {
+		sc.federationManager = manager
 		return nil
 	}
 }
