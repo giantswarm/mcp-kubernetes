@@ -272,26 +272,30 @@ func (m *Manager) GetDynamicClient(ctx context.Context, clusterName string, user
 
 // ListClusters returns all available workload clusters.
 // Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
+//
+// The results are filtered based on the user's RBAC permissions - only clusters
+// in namespaces the user can access will be returned.
+//
+// This method queries CAPI Cluster resources (cluster.x-k8s.io/v1beta1) on the
+// Management Cluster and extracts metadata including:
+//   - Provider (AWS, Azure, vSphere, etc.)
+//   - Giant Swarm release version
+//   - Kubernetes version
+//   - Cluster status and readiness
+//
+// Returns ClusterDiscoveryError if CAPI CRDs are not installed.
 func (m *Manager) ListClusters(ctx context.Context, user *UserInfo) ([]ClusterSummary, error) {
-	if err := m.checkClosed(); err != nil {
-		return nil, err
-	}
-
-	// Validate user info (required to prevent privilege escalation)
-	if err := ValidateUserInfo(user); err != nil {
-		return nil, err
-	}
-
-	// This will be implemented in a separate issue (#111 - CAPI Cluster Discovery)
-	// For now, return an empty list
-	m.logger.Debug("ListClusters called - CAPI discovery not yet implemented",
-		UserHashAttr(user.Email))
-	return []ClusterSummary{}, nil
+	return m.listClustersWithOptions(ctx, user, nil)
 }
 
 // GetClusterSummary returns information about a specific cluster.
 // Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
 // Returns ErrInvalidClusterName if the cluster name fails validation.
+// Returns ErrClusterNotFound if the cluster doesn't exist or the user
+// doesn't have permission to access it.
+//
+// The method queries CAPI Cluster resources and returns detailed metadata
+// including provider, release, Kubernetes version, and status information.
 func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, user *UserInfo) (*ClusterSummary, error) {
 	if err := m.checkClosed(); err != nil {
 		return nil, err
@@ -307,14 +311,35 @@ func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, use
 		return nil, err
 	}
 
-	// This will be implemented in a separate issue (#111 - CAPI Cluster Discovery)
-	// For now, return not found
-	m.logger.Debug("GetClusterSummary called - CAPI discovery not yet implemented",
+	// Get user's dynamic client for Management Cluster
+	dynamicClient, err := m.GetDynamicClient(ctx, "", user)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dynamic client: %w", err)
+	}
+
+	// Discover all clusters (with user's RBAC)
+	clusters, err := m.discoverClusters(ctx, dynamicClient, user)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the cluster by exact name
+	for i := range clusters {
+		if clusters[i].Name == clusterName {
+			m.logger.Debug("Found cluster",
+				"cluster", clusterName,
+				"namespace", clusters[i].Namespace,
+				UserHashAttr(user.Email))
+			return &clusters[i], nil
+		}
+	}
+
+	m.logger.Debug("Cluster not found",
 		"cluster", clusterName,
 		UserHashAttr(user.Email))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
-		Reason:      "CAPI cluster discovery not yet implemented",
+		Reason:      "no CAPI Cluster resource found with this name",
 	}
 }
 

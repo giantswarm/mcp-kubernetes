@@ -292,7 +292,7 @@ func TestManager_ListClusters(t *testing.T) {
 		checkResult   func(*testing.T, []ClusterSummary)
 	}{
 		{
-			name: "returns empty list (not yet implemented)",
+			name: "returns empty list when no clusters exist",
 			user: &UserInfo{
 				Email: "user@example.com",
 			},
@@ -381,7 +381,7 @@ func TestManager_GetClusterSummary(t *testing.T) {
 			expectedError: ErrInvalidClusterName,
 		},
 		{
-			name:        "cluster not found (not yet implemented)",
+			name:        "cluster not found when no clusters exist",
 			clusterName: "my-cluster",
 			user: &UserInfo{
 				Email: "user@example.com",
