@@ -1,0 +1,207 @@
+suite: RBAC template tests
+templates:
+  - templates/rbac.yaml
+tests:
+  - it: should create basic ClusterRole and ClusterRoleBinding
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+
+  - it: should not create any RBAC when serviceAccount.create is false
+    set:
+      serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create CAPI ClusterRole when capiMode is enabled
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces: []
+      capiMode.rbac.clusterWideSecrets: false
+    asserts:
+      - hasDocuments:
+          count: 4
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+      - isKind:
+          of: ClusterRole
+        documentIndex: 2
+      - matchRegex:
+          path: metadata.name
+          pattern: -capi$
+        documentIndex: 2
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 3
+
+  - it: should create namespace-scoped Roles for allowed namespaces
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces:
+        - org-acme
+        - org-beta
+      capiMode.rbac.clusterWideSecrets: false
+    asserts:
+      - hasDocuments:
+          count: 8
+      - isKind:
+          of: Role
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: org-acme
+        documentIndex: 4
+      - isKind:
+          of: RoleBinding
+        documentIndex: 5
+      - equal:
+          path: metadata.namespace
+          value: org-acme
+        documentIndex: 5
+      - isKind:
+          of: Role
+        documentIndex: 6
+      - equal:
+          path: metadata.namespace
+          value: org-beta
+        documentIndex: 6
+      - isKind:
+          of: RoleBinding
+        documentIndex: 7
+      - equal:
+          path: metadata.namespace
+          value: org-beta
+        documentIndex: 7
+
+  - it: should create cluster-wide secret ClusterRole when clusterWideSecrets is enabled
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces: []
+      capiMode.rbac.clusterWideSecrets: true
+    asserts:
+      - hasDocuments:
+          count: 6
+      - isKind:
+          of: ClusterRole
+        documentIndex: 4
+      - matchRegex:
+          path: metadata.name
+          pattern: -secrets$
+        documentIndex: 4
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["get"]
+        documentIndex: 4
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 5
+      - matchRegex:
+          path: metadata.name
+          pattern: -secrets$
+        documentIndex: 5
+
+  - it: should have security warning annotation on cluster-wide secrets ClusterRole
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.clusterWideSecrets: true
+    asserts:
+      - isNotEmpty:
+          path: metadata.annotations["security.kubernetes.io/warning"]
+        documentIndex: 4
+
+  - it: should not create CAPI RBAC when capiMode.rbac.create is false
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: false
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should grant CAPI resource discovery permissions
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["cluster.x-k8s.io"]
+            resources:
+              - clusters
+              - clusters/status
+              - machinepools
+              - machinepools/status
+              - machinedeployments
+              - machinedeployments/status
+              - machines
+              - machines/status
+            verbs: ["get", "list", "watch"]
+        documentIndex: 2
+
+  - it: should grant TokenReview and SubjectAccessReview permissions
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["authentication.k8s.io"]
+            resources: ["tokenreviews"]
+            verbs: ["create"]
+        documentIndex: 2
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["authorization.k8s.io"]
+            resources: ["subjectaccessreviews", "selfsubjectaccessreviews"]
+            verbs: ["create"]
+        documentIndex: 2
+
+  - it: should reference correct ServiceAccount in RoleBinding subjects
+    set:
+      serviceAccount.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces:
+        - org-test
+    release:
+      name: test-release
+      namespace: mcp-system
+    asserts:
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+        documentIndex: 5
+      - equal:
+          path: subjects[0].namespace
+          value: mcp-system
+        documentIndex: 5
