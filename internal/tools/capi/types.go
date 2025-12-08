@@ -1,6 +1,7 @@
 package capi
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
@@ -242,23 +243,7 @@ func formatAge(d time.Duration) string {
 // formatDuration formats a duration with the given unit.
 func formatDuration(d time.Duration, unit time.Duration, suffix string) string {
 	count := int(d / unit)
-	return formatInt(count) + suffix
-}
-
-// formatInt converts an int to a string without importing strconv.
-func formatInt(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + formatInt(-n)
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(count) + suffix
 }
 
 // clusterSummaryToListItem converts a federation.ClusterSummary to a ClusterListItem.
@@ -357,7 +342,7 @@ func buildNodesHealth(c *federation.ClusterSummary) ComponentHealth {
 			Status:  ComponentStatusHealthy,
 			Ready:   c.NodeCount,
 			Total:   c.NodeCount,
-			Message: formatInt(c.NodeCount) + " node(s) ready",
+			Message: strconv.Itoa(c.NodeCount) + " node(s) ready",
 		}
 	}
 	return ComponentHealth{
@@ -453,7 +438,7 @@ func buildHealthChecks(c *federation.ClusterSummary) []HealthCheck {
 	nodeCheck := HealthCheck{Name: "nodes"}
 	if c.NodeCount > 0 {
 		nodeCheck.Status = CheckStatusPass
-		nodeCheck.Message = formatInt(c.NodeCount) + " worker node(s) detected"
+		nodeCheck.Message = strconv.Itoa(c.NodeCount) + " worker node(s) detected"
 	} else {
 		nodeCheck.Status = CheckStatusWarn
 		nodeCheck.Message = "No worker node information available"

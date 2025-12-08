@@ -8,11 +8,15 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
+
+// errFederationNotEnabled is the error message when federation mode is not enabled.
+const errFederationNotEnabled = "federation mode is not enabled"
 
 // handleListClusters handles the capi_list_clusters tool request.
 // It lists all CAPI clusters the user has access to, with optional filtering.
@@ -20,13 +24,13 @@ func handleListClusters(ctx context.Context, request mcp.CallToolRequest, sc *se
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError("federation mode is not enabled"), nil
+		return mcp.NewToolResultError(errFederationNotEnabled), nil
 	}
 
 	// Get authenticated user
-	user, errMsg := getUserFromContext(ctx)
-	if errMsg != "" {
-		return mcp.NewToolResultError(errMsg), nil
+	user, err := getUserFromContext(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	// Extract filter parameters
@@ -77,13 +81,13 @@ func handleGetCluster(ctx context.Context, request mcp.CallToolRequest, sc *serv
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError("federation mode is not enabled"), nil
+		return mcp.NewToolResultError(errFederationNotEnabled), nil
 	}
 
 	// Get authenticated user
-	user, errMsg := getUserFromContext(ctx)
-	if errMsg != "" {
-		return mcp.NewToolResultError(errMsg), nil
+	user, err := getUserFromContext(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	// Extract required name parameter
@@ -111,13 +115,13 @@ func handleResolveCluster(ctx context.Context, request mcp.CallToolRequest, sc *
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError("federation mode is not enabled"), nil
+		return mcp.NewToolResultError(errFederationNotEnabled), nil
 	}
 
 	// Get authenticated user
-	user, errMsg := getUserFromContext(ctx)
-	if errMsg != "" {
-		return mcp.NewToolResultError(errMsg), nil
+	user, err := getUserFromContext(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	// Extract required pattern parameter
@@ -167,20 +171,19 @@ func handleResolveCluster(ctx context.Context, request mcp.CallToolRequest, sc *
 
 // resolveClusterPattern resolves a pattern to cluster(s).
 // Returns the exact match (if found) and all matching clusters.
+// An exact match takes priority over partial matches.
 func resolveClusterPattern(clusters []federation.ClusterSummary, pattern string) (*federation.ClusterSummary, []federation.ClusterSummary) {
-	// Try exact match first
+	patternLower := strings.ToLower(pattern)
+	var matches []federation.ClusterSummary
+
 	for i := range clusters {
+		// Exact match takes priority - return immediately
 		if clusters[i].Name == pattern {
 			return &clusters[i], []federation.ClusterSummary{clusters[i]}
 		}
-	}
-
-	// Try partial match (case-insensitive contains)
-	patternLower := strings.ToLower(pattern)
-	var matches []federation.ClusterSummary
-	for _, cluster := range clusters {
-		if strings.Contains(strings.ToLower(cluster.Name), patternLower) {
-			matches = append(matches, cluster)
+		// Collect partial matches (case-insensitive)
+		if strings.Contains(strings.ToLower(clusters[i].Name), patternLower) {
+			matches = append(matches, clusters[i])
 		}
 	}
 
@@ -196,13 +199,13 @@ func handleClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError("federation mode is not enabled"), nil
+		return mcp.NewToolResultError(errFederationNotEnabled), nil
 	}
 
 	// Get authenticated user
-	user, errMsg := getUserFromContext(ctx)
-	if errMsg != "" {
-		return mcp.NewToolResultError(errMsg), nil
+	user, err := getUserFromContext(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	// Extract required name parameter
@@ -225,35 +228,33 @@ func handleClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc *s
 }
 
 // getUserFromContext extracts the authenticated user from the context.
-// Returns the federation.UserInfo and an empty string on success,
-// or nil and an error message on failure.
-func getUserFromContext(ctx context.Context) (*federation.UserInfo, string) {
+// Returns the federation.UserInfo on success, or an error on failure.
+func getUserFromContext(ctx context.Context) (*federation.UserInfo, error) {
 	oauthUser, ok := oauth.UserInfoFromContext(ctx)
 	if !ok || oauthUser == nil {
-		return nil, "authentication required: no user info in context"
+		return nil, errors.New("authentication required: no user info in context")
 	}
 
 	// Validate user info for impersonation
 	if err := oauth.ValidateUserInfoForImpersonation(oauthUser); err != nil {
-		return nil, fmt.Sprintf("authentication error: %v", err)
+		return nil, fmt.Errorf("authentication error: %w", err)
 	}
 
 	// Convert to federation user info
 	user := oauth.ToFederationUserInfo(oauthUser)
 	if user == nil {
-		return nil, "failed to convert user info for federation"
+		return nil, errors.New("failed to convert user info for federation")
 	}
 
-	return user, ""
+	return user, nil
 }
 
 // listClustersWithOptions lists clusters with optional filtering.
 // This is a helper that wraps the federation manager's ListClusters method
-// with support for the ClusterListOptions filtering.
+// with support for the ClusterListOptions filtering. The Manager has filtering
+// support internally, but the ClusterClientManager interface only exposes
+// ListClusters, so we apply additional filters client-side.
 func listClustersWithOptions(ctx context.Context, fedManager federation.ClusterClientManager, user *federation.UserInfo, opts *federation.ClusterListOptions) ([]federation.ClusterSummary, error) {
-	// Use the federation manager's ListClusters method
-	// Note: The federation manager already supports filtering via ListClustersWithOptions
-	// but that method is internal. We use ListClusters and apply additional filters client-side.
 	clusters, err := fedManager.ListClusters(ctx, user)
 	if err != nil {
 		return nil, err
@@ -262,6 +263,16 @@ func listClustersWithOptions(ctx context.Context, fedManager federation.ClusterC
 	// If no options, return all clusters
 	if opts == nil {
 		return clusters, nil
+	}
+
+	// Parse label selector if provided
+	var labelSel labels.Selector
+	if opts.LabelSelector != "" {
+		var parseErr error
+		labelSel, parseErr = labels.Parse(opts.LabelSelector)
+		if parseErr != nil {
+			return nil, fmt.Errorf("invalid label selector: %w", parseErr)
+		}
 	}
 
 	// Apply client-side filters
@@ -287,6 +298,11 @@ func listClustersWithOptions(ctx context.Context, fedManager federation.ClusterC
 			continue
 		}
 
+		// Filter by label selector
+		if labelSel != nil && !labelSel.Matches(labels.Set(cluster.Labels)) {
+			continue
+		}
+
 		filtered = append(filtered, cluster)
 	}
 
@@ -294,9 +310,11 @@ func listClustersWithOptions(ctx context.Context, fedManager federation.ClusterC
 }
 
 // handleFederationError converts federation errors to user-friendly tool results.
+// This function should only be called with non-nil errors. Passing nil is a
+// programming error and will cause a panic to catch bugs early.
 func handleFederationError(err error, operation string) (*mcp.CallToolResult, error) {
 	if err == nil {
-		return nil, nil
+		panic("handleFederationError called with nil error")
 	}
 
 	// Handle specific federation error types

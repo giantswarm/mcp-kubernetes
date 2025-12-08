@@ -18,11 +18,6 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/capi/testdata"
 )
 
-// createTestClusters creates a set of test clusters using the testdata package.
-func createTestClusters() []federation.ClusterSummary {
-	return testdata.CreateTestClusters()
-}
-
 // contextWithUserInfo creates a context with user info for testing.
 func contextWithUserInfo(email string, groups []string) context.Context {
 	userInfo := &oauth.UserInfo{
@@ -33,7 +28,7 @@ func contextWithUserInfo(email string, groups []string) context.Context {
 }
 
 func TestListClustersWithOptions(t *testing.T) {
-	clusters := createTestClusters()
+	clusters := testdata.CreateTestClusters()
 
 	tests := []struct {
 		name          string
@@ -104,6 +99,24 @@ func TestListClustersWithOptions(t *testing.T) {
 			},
 			expectedCount: 0,
 			expectedNames: []string{},
+		},
+		{
+			name:     "filter by label selector",
+			clusters: clusters,
+			opts: &federation.ClusterListOptions{
+				LabelSelector: "environment=production",
+			},
+			expectedCount: 1,
+			expectedNames: []string{"prod-wc-01"},
+		},
+		{
+			name:     "filter by label selector with multiple labels",
+			clusters: clusters,
+			opts: &federation.ClusterListOptions{
+				LabelSelector: "giantswarm.io/organization=acme",
+			},
+			expectedCount: 2,
+			expectedNames: []string{"prod-wc-01", "staging-wc"},
 		},
 	}
 
@@ -370,6 +383,26 @@ func TestHandleFederationError(t *testing.T) {
 	}
 }
 
+func TestHandleFederationError_PanicsOnNil(t *testing.T) {
+	assert.Panics(t, func() {
+		_, _ = handleFederationError(nil, "test operation")
+	})
+}
+
+func TestListClustersWithOptions_InvalidLabelSelector(t *testing.T) {
+	clusters := testdata.CreateTestClusters()
+	mock := &testdata.MockFederationManager{Clusters: clusters}
+	user := &federation.UserInfo{Email: "test@example.com"}
+
+	opts := &federation.ClusterListOptions{
+		LabelSelector: "!!invalid", // Invalid: double negation
+	}
+
+	_, err := listClustersWithOptions(context.Background(), mock, user, opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid label selector")
+}
+
 func TestFormatJSONResult(t *testing.T) {
 	output := ClusterListOutput{
 		Clusters: []ClusterListItem{
@@ -404,7 +437,7 @@ func TestHandleListClustersNoFederation(t *testing.T) {
 }
 
 func TestResolveClusterPattern(t *testing.T) {
-	clusters := createTestClusters()
+	clusters := testdata.CreateTestClusters()
 
 	tests := []struct {
 		name           string
@@ -517,26 +550,6 @@ func TestDetermineOverallHealth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			status, _ := determineOverallHealth(tt.cluster, tt.components)
 			assert.Equal(t, tt.expectedStatus, status)
-		})
-	}
-}
-
-func TestFormatInt(t *testing.T) {
-	tests := []struct {
-		input    int
-		expected string
-	}{
-		{0, "0"},
-		{1, "1"},
-		{10, "10"},
-		{123, "123"},
-		{1000, "1000"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			result := formatInt(tt.input)
-			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -1094,16 +1107,17 @@ func TestHandleClusterHealth_NotFound(t *testing.T) {
 func TestGetUserFromContext_NoUser(t *testing.T) {
 	ctx := context.Background()
 
-	user, errMsg := getUserFromContext(ctx)
+	user, err := getUserFromContext(ctx)
 	assert.Nil(t, user)
-	assert.Contains(t, errMsg, "authentication required")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication required")
 }
 
 func TestGetUserFromContext_WithUser(t *testing.T) {
 	ctx := contextWithUserInfo("test@example.com", []string{"developers"})
 
-	user, errMsg := getUserFromContext(ctx)
-	require.Empty(t, errMsg)
+	user, err := getUserFromContext(ctx)
+	require.NoError(t, err)
 	require.NotNil(t, user)
 	assert.Equal(t, "test@example.com", user.Email)
 	assert.Contains(t, user.Groups, "developers")
