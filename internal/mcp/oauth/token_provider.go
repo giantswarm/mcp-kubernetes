@@ -3,6 +3,7 @@ package oauth
 import (
 	"context"
 
+	mcpoauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
 )
@@ -22,12 +23,13 @@ const (
 	accessTokenKey contextKey = "oauth_access_token"
 )
 
-// UserInfo represents Google user information.
+// UserInfo represents user information from an OAuth provider.
 // This is a type alias for the library's providers.UserInfo type.
+// It includes fields like Email, Groups, ID, Name, etc.
 type UserInfo = providers.UserInfo
 
 // ContextWithAccessToken creates a context with the given OAuth ID token.
-// This is used to pass the user's Google OAuth ID token for downstream
+// This is used to pass the user's OAuth ID token for downstream
 // Kubernetes OIDC authentication.
 // Note: Kubernetes OIDC requires the ID token, not the access token.
 func ContextWithAccessToken(ctx context.Context, idToken string) context.Context {
@@ -35,7 +37,7 @@ func ContextWithAccessToken(ctx context.Context, idToken string) context.Context
 }
 
 // GetAccessTokenFromContext retrieves the OAuth ID token from the context.
-// This returns the user's Google OAuth ID token that can be used for
+// This returns the user's OAuth ID token that can be used for
 // downstream Kubernetes OIDC authentication.
 // Returns the ID token and true if present, or empty string and false if not available.
 func GetAccessTokenFromContext(ctx context.Context) (string, bool) {
@@ -43,8 +45,55 @@ func GetAccessTokenFromContext(ctx context.Context) (string, bool) {
 	return token, ok && token != ""
 }
 
+// UserInfoFromContext retrieves the authenticated user's info from the context.
+// This is a wrapper around the mcp-oauth library's UserInfoFromContext function.
+// The user info is set by the OAuth ValidateToken middleware after successful
+// JWT validation.
+//
+// Returns the UserInfo pointer and true if present, or nil and false if not available.
+//
+// Usage in tool handlers:
+//
+//	user, ok := oauth.UserInfoFromContext(ctx)
+//	if !ok {
+//	    return nil, fmt.Errorf("access denied: no authenticated user")
+//	}
+//	// Use user.Email, user.Groups, user.ID, etc.
+func UserInfoFromContext(ctx context.Context) (*UserInfo, bool) {
+	return mcpoauth.UserInfoFromContext(ctx)
+}
+
+// HasUserInfo checks if the context contains authenticated user information.
+// This is a convenience function that returns true if a valid UserInfo is present.
+func HasUserInfo(ctx context.Context) bool {
+	user, ok := UserInfoFromContext(ctx)
+	return ok && user != nil
+}
+
+// GetUserEmailFromContext extracts just the email address from the context.
+// This is a convenience function for common use cases where only the email is needed.
+// Returns empty string if no user info is available.
+func GetUserEmailFromContext(ctx context.Context) string {
+	user, ok := UserInfoFromContext(ctx)
+	if !ok || user == nil {
+		return ""
+	}
+	return user.Email
+}
+
+// GetUserGroupsFromContext extracts the user's group memberships from the context.
+// This is a convenience function for RBAC-related operations.
+// Returns nil if no user info is available.
+func GetUserGroupsFromContext(ctx context.Context) []string {
+	user, ok := UserInfoFromContext(ctx)
+	if !ok || user == nil {
+		return nil
+	}
+	return user.Groups
+}
+
 // GetIDToken extracts the ID token from an OAuth2 token.
-// Google OAuth responses include an id_token in the Extra data.
+// OIDC providers include an id_token in the Extra data.
 // Kubernetes OIDC authentication requires the ID token, not the access token.
 func GetIDToken(token *oauth2.Token) string {
 	if token == nil {

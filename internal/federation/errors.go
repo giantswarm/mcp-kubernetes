@@ -31,6 +31,10 @@ var (
 	// ErrManagerClosed indicates that the ClusterClientManager has been closed
 	// and can no longer be used.
 	ErrManagerClosed = errors.New("federation manager is closed")
+
+	// ErrUserEmailRequired indicates that the user's email is required but not present.
+	// The email is used as the Impersonate-User header value for Kubernetes RBAC.
+	ErrUserEmailRequired = errors.New("user email is required for impersonation")
 )
 
 // userFacingClusterError is the standardized message returned to users for all
