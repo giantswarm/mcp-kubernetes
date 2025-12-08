@@ -35,6 +35,34 @@
 //   - User impersonation: All cluster operations use Impersonate-User headers
 //   - RBAC delegation: Authorization is delegated to each cluster's RBAC policies
 //   - No credential exposure: Admin credentials are only used for TLS establishment
+//   - User isolation in caching: Cached clients are keyed by (cluster, user) pairs
+//
+// # Client Caching
+//
+// The package implements a thread-safe client cache with TTL-based eviction to
+// optimize performance. Key security properties:
+//
+//   - User Isolation: Each cached client is keyed by both cluster name AND user email,
+//     ensuring user A can never retrieve a client configured for user B.
+//
+//   - TTL Expiration: Cached clients expire after a configurable TTL (default: 10 minutes).
+//     Set this to be less than or equal to your OAuth token lifetime.
+//
+//   - Manual Invalidation: Use DeleteByCluster() when cluster credentials are rotated,
+//     or implement token revocation callbacks to remove specific user entries.
+//
+//   - PII Protection: User emails are anonymized in logs using SHA-256 hashing.
+//
+// # Metrics
+//
+// The cache exposes the following metrics for monitoring:
+//   - mcp_client_cache_hits_total: Cache hit count (by cluster)
+//   - mcp_client_cache_misses_total: Cache miss count (by cluster)
+//   - mcp_client_cache_evictions_total: Eviction count (by reason: expired, lru, manual)
+//   - mcp_client_cache_entries: Current cache size (gauge)
+//
+// Note: The "cluster" label on hit/miss metrics may have high cardinality in
+// environments with many clusters. Monitor your metrics backend capacity.
 //
 // # Thread Safety
 //

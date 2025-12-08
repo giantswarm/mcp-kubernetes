@@ -15,17 +15,48 @@ import (
 )
 
 // CacheConfig holds configuration options for the ClientCache.
+//
+// # Security Considerations
+//
+// The TTL setting has security implications: cached clients may persist after a
+// user's OAuth token is invalidated or revoked. To mitigate this:
+//   - Set TTL to be less than or equal to your OAuth token lifetime
+//   - Use DeleteByCluster() when cluster credentials are rotated
+//   - Use Delete() when a user's access should be immediately revoked
+//
+// # Capacity Planning
+//
+// Cache entries are keyed by (clusterName, userEmail) pairs. With the default
+// MaxEntries of 1000, this could represent:
+//   - 1000 users accessing 1 cluster each, or
+//   - 100 users accessing 10 clusters each, or
+//   - 10 users accessing 100 clusters each
+//
+// Monitor the mcp_client_cache_entries metric and adjust MaxEntries based on
+// your actual usage patterns. LRU eviction ensures the most active users/clusters
+// are retained when capacity is exceeded.
 type CacheConfig struct {
 	// TTL is the time-to-live for cached clients. After this duration,
-	// entries are eligible for eviction. Default: 10 minutes.
+	// entries are eligible for eviction.
+	//
+	// Security note: Set this to be less than or equal to your OAuth token
+	// lifetime to ensure cached clients don't outlive user authorization.
+	//
+	// Default: 10 minutes.
 	TTL time.Duration
 
 	// MaxEntries is the maximum number of entries the cache can hold.
 	// When exceeded, least recently accessed entries are evicted.
+	//
+	// Each unique (clusterName, userEmail) pair creates one cache entry.
+	// Monitor the mcp_client_cache_entries metric to tune this value.
+	//
 	// Default: 1000.
 	MaxEntries int
 
-	// CleanupInterval is how often the background cleanup runs.
+	// CleanupInterval is how often the background cleanup runs to remove
+	// expired entries.
+	//
 	// Default: 1 minute.
 	CleanupInterval time.Duration
 }

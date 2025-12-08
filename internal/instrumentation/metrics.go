@@ -141,9 +141,13 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	}
 
 	// Client Cache Metrics
+	//
+	// Note on cardinality: The "cluster" label on cache hit/miss metrics may have
+	// high cardinality in environments with many clusters. Monitor your metrics
+	// backend capacity and consider aggregating by cluster if needed.
 	m.clientCacheHitsTotal, err = meter.Int64Counter(
 		"mcp_client_cache_hits_total",
-		metric.WithDescription("Total number of client cache hits"),
+		metric.WithDescription("Total number of client cache hits. Label: cluster (may be high cardinality)"),
 		metric.WithUnit("{hit}"),
 	)
 	if err != nil {
@@ -152,7 +156,7 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 
 	m.clientCacheMissesTotal, err = meter.Int64Counter(
 		"mcp_client_cache_misses_total",
-		metric.WithDescription("Total number of client cache misses"),
+		metric.WithDescription("Total number of client cache misses. Label: cluster (may be high cardinality)"),
 		metric.WithUnit("{miss}"),
 	)
 	if err != nil {
@@ -161,7 +165,7 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 
 	m.clientCacheEvictionsTotal, err = meter.Int64Counter(
 		"mcp_client_cache_evictions_total",
-		metric.WithDescription("Total number of client cache evictions"),
+		metric.WithDescription("Total number of client cache evictions. Label: reason (expired, lru, manual)"),
 		metric.WithUnit("{eviction}"),
 	)
 	if err != nil {
@@ -286,6 +290,10 @@ func (m *Metrics) DecrementActiveSessions(ctx context.Context) {
 }
 
 // RecordCacheHit records a cache hit event with optional cluster name.
+//
+// Note: The cluster label may have high cardinality in environments with many
+// clusters. Monitor your metrics backend capacity and consider aggregating
+// by cluster if needed.
 func (m *Metrics) RecordCacheHit(ctx context.Context, clusterName string) {
 	if m.clientCacheHitsTotal == nil {
 		return // Instrumentation not initialized
@@ -300,6 +308,10 @@ func (m *Metrics) RecordCacheHit(ctx context.Context, clusterName string) {
 }
 
 // RecordCacheMiss records a cache miss event with optional cluster name.
+//
+// Note: The cluster label may have high cardinality in environments with many
+// clusters. Monitor your metrics backend capacity and consider aggregating
+// by cluster if needed.
 func (m *Metrics) RecordCacheMiss(ctx context.Context, clusterName string) {
 	if m.clientCacheMissesTotal == nil {
 		return // Instrumentation not initialized
