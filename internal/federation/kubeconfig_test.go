@@ -21,6 +21,59 @@ import (
 // and test kubeconfig constants (testValidKubeconfig, testInvalidKubeconfig) are defined
 // in testing_helpers_test.go
 
+func TestGetKubeconfigForCluster_Validation(t *testing.T) {
+	// These tests verify that GetKubeconfigForCluster validates inputs at the API boundary
+	// as a defense-in-depth measure.
+
+	t.Run("returns error when user is nil", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), "test-cluster", nil)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrUserInfoRequired),
+			"expected ErrUserInfoRequired, got %v", err)
+		assert.Nil(t, config)
+	})
+
+	t.Run("returns error when cluster name is invalid", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+		user := testUser()
+
+		// Test path traversal attempt
+		config, err := manager.GetKubeconfigForCluster(context.Background(), "../secret-cluster", user)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidClusterName),
+			"expected ErrInvalidClusterName for path traversal, got %v", err)
+		assert.Nil(t, config)
+	})
+
+	t.Run("returns error when cluster name is empty", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+		user := testUser()
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), "", user)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidClusterName),
+			"expected ErrInvalidClusterName for empty name, got %v", err)
+		assert.Nil(t, config)
+	})
+
+	t.Run("returns error when cluster name contains slash", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+		user := testUser()
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), "cluster/name", user)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidClusterName),
+			"expected ErrInvalidClusterName for slash in name, got %v", err)
+		assert.Nil(t, config)
+	})
+}
+
 func TestGetKubeconfigForCluster(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -317,78 +370,74 @@ func TestExtractKubeconfigData(t *testing.T) {
 }
 
 func TestConfigWithImpersonation(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   *rest.Config
-		user     *UserInfo
-		expected func(*testing.T, *rest.Config)
-	}{
-		{
-			name: "configures impersonation correctly",
-			config: &rest.Config{
-				Host: "https://test.example.com",
+	t.Run("configures impersonation correctly", func(t *testing.T) {
+		config := &rest.Config{
+			Host: "https://test.example.com",
+		}
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"dev", "ops"},
+			Extra: map[string][]string{
+				"department": {"engineering"},
 			},
-			user: &UserInfo{
-				Email:  "user@example.com",
-				Groups: []string{"dev", "ops"},
-				Extra: map[string][]string{
-					"department": {"engineering"},
-				},
-			},
-			expected: func(t *testing.T, config *rest.Config) {
-				assert.Equal(t, "user@example.com", config.Impersonate.UserName)
-				assert.Equal(t, []string{"dev", "ops"}, config.Impersonate.Groups)
-				assert.Equal(t, map[string][]string{"department": {"engineering"}}, config.Impersonate.Extra)
-			},
-		},
-		{
-			name: "returns original config when user is nil",
-			config: &rest.Config{
-				Host: "https://test.example.com",
-			},
-			user: nil,
-			expected: func(t *testing.T, config *rest.Config) {
-				assert.Equal(t, "https://test.example.com", config.Host)
-				assert.Empty(t, config.Impersonate.UserName)
-			},
-		},
-		{
-			name:   "returns nil when config is nil",
-			config: nil,
-			user: &UserInfo{
-				Email: "user@example.com",
-			},
-			expected: func(t *testing.T, config *rest.Config) {
-				assert.Nil(t, config)
-			},
-		},
-		{
-			name: "does not modify original config",
-			config: &rest.Config{
-				Host: "https://original.example.com",
-			},
-			user: &UserInfo{
-				Email: "user@example.com",
-			},
-			expected: func(t *testing.T, config *rest.Config) {
-				// This test verifies the original is unchanged
-				assert.Equal(t, "https://original.example.com", config.Host)
-			},
-		},
-	}
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ConfigWithImpersonation(tt.config, tt.user)
-			tt.expected(t, result)
+		result := ConfigWithImpersonation(config, user)
 
-			// Verify original config wasn't modified
-			if tt.config != nil && tt.user != nil {
-				assert.Empty(t, tt.config.Impersonate.UserName,
-					"original config should not be modified")
-			}
-		})
-	}
+		assert.Equal(t, "user@example.com", result.Impersonate.UserName)
+		assert.Equal(t, []string{"dev", "ops"}, result.Impersonate.Groups)
+		assert.Equal(t, map[string][]string{"department": {"engineering"}}, result.Impersonate.Extra)
+
+		// Verify original config wasn't modified
+		assert.Empty(t, config.Impersonate.UserName, "original config should not be modified")
+	})
+
+	t.Run("panics when user is nil with non-nil config (security)", func(t *testing.T) {
+		// Security: ConfigWithImpersonation must panic if user is nil but config is non-nil.
+		// Silently returning a non-impersonated config would be a privilege escalation bug.
+		config := &rest.Config{
+			Host: "https://test.example.com",
+		}
+
+		assert.PanicsWithValue(t,
+			"federation: ConfigWithImpersonation called with nil user - this is a programming error; validate user with ValidateUserInfo before calling",
+			func() {
+				ConfigWithImpersonation(config, nil)
+			},
+			"should panic when user is nil to prevent privilege escalation")
+	})
+
+	t.Run("returns nil when config is nil", func(t *testing.T) {
+		user := &UserInfo{
+			Email: "user@example.com",
+		}
+
+		result := ConfigWithImpersonation(nil, user)
+
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil when both config and user are nil", func(t *testing.T) {
+		result := ConfigWithImpersonation(nil, nil)
+		assert.Nil(t, result)
+	})
+
+	t.Run("does not modify original config", func(t *testing.T) {
+		config := &rest.Config{
+			Host: "https://original.example.com",
+		}
+		user := &UserInfo{
+			Email: "user@example.com",
+		}
+
+		result := ConfigWithImpersonation(config, user)
+
+		// Result should have impersonation
+		assert.Equal(t, "user@example.com", result.Impersonate.UserName)
+		// Original should be unchanged
+		assert.Equal(t, "https://original.example.com", config.Host)
+		assert.Empty(t, config.Impersonate.UserName, "original config should not be modified")
+	})
 }
 
 func TestIsNotFoundError(t *testing.T) {

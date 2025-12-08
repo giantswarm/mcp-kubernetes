@@ -49,6 +49,15 @@ type ClusterInfo struct {
 //   - Never logs kubeconfig contents (sensitive credential data)
 //   - All user-facing errors are sanitized to prevent information leakage
 func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName string, user *UserInfo) (*rest.Config, error) {
+	// Validate inputs at API boundary (defense in depth)
+	// This ensures validation even if called directly, not just via GetClient/GetDynamicClient
+	if err := ValidateUserInfo(user); err != nil {
+		return nil, err
+	}
+	if err := ValidateClusterName(clusterName); err != nil {
+		return nil, err
+	}
+
 	// Fail fast if context is already cancelled or expired
 	if err := ctx.Err(); err != nil {
 		return nil, &ClusterNotFoundError{
@@ -341,15 +350,24 @@ func getSecretKeys(data map[string][]byte) []string {
 // ConfigWithImpersonation returns a copy of the config with impersonation configured.
 // This is used to create per-user clients from the base kubeconfig credentials.
 //
+// # Security
+//
+// This function panics if config is non-nil but user is nil. This is a deliberate
+// security measure: silently returning a non-impersonated config when impersonation
+// was expected could lead to privilege escalation. The panic indicates a programming
+// error that must be fixed.
+//
 // Nil handling:
 //   - If config is nil, returns nil (nothing to configure)
-//   - If user is nil, returns the original config unchanged. This allows callers to
-//     optionally apply impersonation without nil checks. The caller is responsible for
-//     ensuring user is non-nil when impersonation is required (enforced by Manager's
-//     public API methods via ValidateUserInfo).
+//   - If user is nil with non-nil config, panics (programming error - use ValidateUserInfo first)
 func ConfigWithImpersonation(config *rest.Config, user *UserInfo) *rest.Config {
-	if config == nil || user == nil {
-		return config
+	if config == nil {
+		return nil
+	}
+	if user == nil {
+		// Security: Do not silently skip impersonation. This would return a config
+		// with elevated (admin) privileges instead of user-scoped access.
+		panic("federation: ConfigWithImpersonation called with nil user - this is a programming error; validate user with ValidateUserInfo before calling")
 	}
 
 	impersonatedConfig := rest.CopyConfig(config)
