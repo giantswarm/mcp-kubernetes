@@ -75,6 +75,28 @@ func TestToFederationUserInfo(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Empty(t, result.Groups)
 	})
+
+	t.Run("creates defensive copy of groups slice", func(t *testing.T) {
+		originalGroups := []string{"group1", "group2"}
+		user := &UserInfo{
+			ID:     "user-123",
+			Email:  "user@example.com",
+			Groups: originalGroups,
+		}
+
+		result := ToFederationUserInfo(user)
+
+		require.NotNil(t, result)
+		assert.Equal(t, []string{"group1", "group2"}, result.Groups)
+
+		// Modify original slice - should NOT affect the result
+		originalGroups[0] = "modified-group"
+
+		// Result should still have original values
+		assert.Equal(t, []string{"group1", "group2"}, result.Groups)
+		// Original user's groups should be modified
+		assert.Equal(t, []string{"modified-group", "group2"}, user.Groups)
+	})
 }
 
 // TestToFederationUserInfoWithExtra tests conversion with additional extra claims.
@@ -222,6 +244,71 @@ func TestValidateUserInfoForImpersonation(t *testing.T) {
 		err := ValidateUserInfoForImpersonation(user)
 
 		assert.NoError(t, err)
+	})
+
+	// Tests for enhanced validation (federation.ValidateUserInfo integration)
+	t.Run("returns error for invalid email format", func(t *testing.T) {
+		user := &UserInfo{
+			Email: "not-a-valid-email",
+		}
+
+		err := ValidateUserInfoForImpersonation(user)
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, federation.ErrInvalidEmail)
+	})
+
+	t.Run("returns error for email with control characters", func(t *testing.T) {
+		user := &UserInfo{
+			Email: "user\x00@example.com", // null byte
+		}
+
+		err := ValidateUserInfoForImpersonation(user)
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, federation.ErrInvalidEmail)
+	})
+
+	t.Run("returns error for group with control characters", func(t *testing.T) {
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"valid-group", "invalid\ngroup"}, // newline in group name
+		}
+
+		err := ValidateUserInfoForImpersonation(user)
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, federation.ErrInvalidGroupName)
+	})
+
+	t.Run("returns error for empty group name", func(t *testing.T) {
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"valid-group", ""}, // empty group name
+		}
+
+		err := ValidateUserInfoForImpersonation(user)
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, federation.ErrInvalidGroupName)
+	})
+
+	t.Run("returns error for too many groups", func(t *testing.T) {
+		// Create more groups than allowed (max is 100)
+		groups := make([]string, 101)
+		for i := range groups {
+			groups[i] = "group"
+		}
+
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: groups,
+		}
+
+		err := ValidateUserInfoForImpersonation(user)
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, federation.ErrInvalidGroupName)
 	})
 }
 
