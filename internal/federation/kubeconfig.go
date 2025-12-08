@@ -13,8 +13,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// ConnectionValidationTimeout is the timeout for validating cluster connectivity.
-const ConnectionValidationTimeout = 10 * time.Second
+// DefaultConnectionValidationTimeout is the default timeout for validating cluster connectivity.
+// This can be overridden using WithManagerConnectionValidationTimeout.
+const DefaultConnectionValidationTimeout = 10 * time.Second
 
 // ClusterInfo contains information about a CAPI cluster needed for kubeconfig retrieval.
 type ClusterInfo struct {
@@ -73,9 +74,28 @@ func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterN
 // findClusterInfo locates a CAPI Cluster resource by name and returns its namespace.
 // This performs a cluster-wide search since we don't know the namespace upfront.
 //
-// Note: This uses the admin localDynamic client since CAPI Cluster resources
-// may be in namespaces the user doesn't have direct access to. The user's
-// permissions are checked when they attempt to use the returned kubeconfig.
+// # Security Considerations
+//
+// This method uses the admin localDynamic client (not impersonated) because:
+//
+//  1. CAPI Cluster resources may be in namespaces the user doesn't have direct
+//     access to on the Management Cluster.
+//
+//  2. The actual authorization is deferred to the workload cluster via
+//     impersonation headers. When the user attempts operations on the workload
+//     cluster, the Kubernetes RBAC on that cluster will enforce permissions.
+//
+//  3. Knowing a cluster name exists is not considered a security risk in most
+//     deployment models. However, if cluster enumeration is a concern:
+//     - Consider implementing namespace-scoped RBAC for Cluster resources
+//     - Use ListClusters() with user impersonation for user-facing listings
+//     - This internal method should only be called after input validation
+//
+// The cluster name must be validated using ValidateClusterName() before calling
+// this method to prevent path traversal or injection attacks.
+//
+// All user-facing errors are sanitized via UserFacingError() to prevent
+// cluster existence leakage through error response differentiation.
 func (m *Manager) findClusterInfo(ctx context.Context, clusterName string) (*ClusterInfo, error) {
 	// List all CAPI Cluster resources across all namespaces
 	// Note: We don't use FieldSelector because the fake dynamic client doesn't support it well
@@ -207,8 +227,8 @@ func (m *Manager) extractKubeconfigData(data map[string][]byte, info *ClusterInf
 // validateClusterConnection attempts to connect to the cluster API server
 // to verify the kubeconfig is valid and the cluster is reachable.
 func (m *Manager) validateClusterConnection(ctx context.Context, clusterName string, config *rest.Config) error {
-	// Create a validation context with timeout
-	validationCtx, cancel := context.WithTimeout(ctx, ConnectionValidationTimeout)
+	// Create a validation context with timeout (configurable via WithManagerConnectionValidationTimeout)
+	validationCtx, cancel := context.WithTimeout(ctx, m.connectionValidationTimeout)
 	defer cancel()
 
 	// Set up the config for REST client creation

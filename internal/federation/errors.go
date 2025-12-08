@@ -33,6 +33,11 @@ var (
 	ErrManagerClosed = errors.New("federation manager is closed")
 )
 
+// userFacingClusterError is the standardized message returned to users for all
+// cluster-related errors. Using a single message prevents error response
+// differentiation attacks that could leak cluster existence information.
+const userFacingClusterError = "cluster access denied or unavailable"
+
 // ClusterNotFoundError provides detailed context about a cluster lookup failure.
 type ClusterNotFoundError struct {
 	ClusterName string
@@ -55,8 +60,11 @@ func (e *ClusterNotFoundError) Unwrap() error {
 
 // UserFacingError returns a sanitized error message safe for end users.
 // This prevents leaking internal cluster names and namespace structure.
+//
+// Security: Returns a generic message that doesn't reveal whether the cluster
+// exists, preventing cluster enumeration attacks.
 func (e *ClusterNotFoundError) UserFacingError() string {
-	return "cluster not found or access denied"
+	return userFacingClusterError
 }
 
 // KubeconfigError provides detailed context about kubeconfig retrieval failures.
@@ -105,11 +113,13 @@ func (e *KubeconfigError) Is(target error) bool {
 
 // UserFacingError returns a sanitized error message safe for end users.
 // This prevents leaking internal secret names and namespace structure.
+//
+// Security: Returns a generic message regardless of whether the secret was
+// not found vs. invalid data. This prevents attackers from determining
+// cluster existence based on error response differentiation.
 func (e *KubeconfigError) UserFacingError() string {
-	if e.NotFound {
-		return "cluster credentials not available"
-	}
-	return "cluster configuration error"
+	// Always return the same message to prevent cluster existence leakage
+	return userFacingClusterError
 }
 
 // ConnectionError provides detailed context about cluster connection failures.
@@ -143,6 +153,9 @@ func (e *ConnectionError) Is(target error) bool {
 
 // UserFacingError returns a sanitized error message safe for end users.
 // This prevents leaking internal host URLs and network topology.
+//
+// Security: Returns a generic message consistent with other cluster errors
+// to prevent error response differentiation attacks.
 func (e *ConnectionError) UserFacingError() string {
-	return "unable to connect to cluster"
+	return userFacingClusterError
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -67,6 +68,9 @@ type Manager struct {
 	cacheConfig  *CacheConfig
 	cacheMetrics CacheMetricsRecorder
 
+	// Connection validation timeout for workload cluster health checks
+	connectionValidationTimeout time.Duration
+
 	// Logger for operational messages
 	logger *slog.Logger
 
@@ -104,6 +108,18 @@ func WithManagerCacheMetrics(metrics CacheMetricsRecorder) ManagerOption {
 	}
 }
 
+// WithManagerConnectionValidationTimeout sets the timeout for validating
+// connections to workload clusters. This is useful for high-latency environments
+// where the default timeout (10s) may be insufficient.
+//
+// The timeout applies to health checks performed when using
+// GetKubeconfigForClusterValidated.
+func WithManagerConnectionValidationTimeout(timeout time.Duration) ManagerOption {
+	return func(m *Manager) {
+		m.connectionValidationTimeout = timeout
+	}
+}
+
 // NewManager creates a new ClusterClientManager with the provided local clients.
 //
 // Parameters:
@@ -128,10 +144,11 @@ func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface
 	}
 
 	m := &Manager{
-		localClient:     localClient,
-		localDynamic:    localDynamic,
-		localRestConfig: localRestConfig,
-		logger:          slog.Default(),
+		localClient:                 localClient,
+		localDynamic:                localDynamic,
+		localRestConfig:             localRestConfig,
+		connectionValidationTimeout: DefaultConnectionValidationTimeout,
+		logger:                      slog.Default(),
 	}
 
 	// Apply options
