@@ -8,6 +8,7 @@ import (
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // ClusterClientManager manages Kubernetes clients for multi-cluster operations.
@@ -52,9 +53,15 @@ type ClusterClientManager interface {
 
 // Manager implements ClusterClientManager for CAPI-based multi-cluster federation.
 type Manager struct {
-	// Local Management Cluster clients
+	// Local Management Cluster clients (with admin privileges for kubeconfig retrieval)
 	localClient  kubernetes.Interface
 	localDynamic dynamic.Interface
+
+	// Local Management Cluster REST config (for creating impersonated clients)
+	localRestConfig *rest.Config
+
+	// Client cache for remote and impersonated local clients
+	cache *ClientCache
 
 	// Logger for operational messages
 	logger *slog.Logger
@@ -67,12 +74,49 @@ type Manager struct {
 // Ensure Manager implements ClusterClientManager.
 var _ ClusterClientManager = (*Manager)(nil)
 
+// ManagerOption is a functional option for configuring Manager.
+type ManagerOption func(*Manager)
+
+// WithManagerLogger sets the logger for the Manager.
+func WithManagerLogger(logger *slog.Logger) ManagerOption {
+	return func(m *Manager) {
+		m.logger = logger
+	}
+}
+
+// WithManagerCacheConfig sets the cache configuration for the Manager.
+func WithManagerCacheConfig(config CacheConfig) ManagerOption {
+	return func(m *Manager) {
+		if m.cache != nil {
+			return // Cache already created
+		}
+		m.cache = NewClientCache(
+			WithCacheConfig(config),
+			WithCacheLogger(m.logger),
+		)
+	}
+}
+
+// WithManagerCacheMetrics sets the metrics recorder for the cache.
+func WithManagerCacheMetrics(metrics CacheMetricsRecorder) ManagerOption {
+	return func(m *Manager) {
+		if m.cache != nil {
+			return // Cache already created
+		}
+		m.cache = NewClientCache(
+			WithCacheLogger(m.logger),
+			WithCacheMetrics(metrics),
+		)
+	}
+}
+
 // NewManager creates a new ClusterClientManager with the provided local clients.
 //
 // Parameters:
 //   - localClient: Kubernetes clientset for the Management Cluster
 //   - localDynamic: Dynamic client for the Management Cluster (for CAPI CRDs)
-//   - logger: Structured logger for operational messages (can be nil)
+//   - localRestConfig: REST config for the Management Cluster (optional, enables client caching)
+//   - opts: Functional options for configuration
 //
 // The local clients should be configured with admin credentials for the
 // Management Cluster. These credentials are only used to:
@@ -81,7 +125,7 @@ var _ ClusterClientManager = (*Manager)(nil)
 //   - Establish TLS connections to Workload Clusters
 //
 // All actual operations are executed under user impersonation.
-func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface, logger *slog.Logger) (*Manager, error) {
+func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface, localRestConfig *rest.Config, opts ...ManagerOption) (*Manager, error) {
 	if localClient == nil {
 		return nil, fmt.Errorf("local client is required")
 	}
@@ -89,15 +133,30 @@ func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface
 		return nil, fmt.Errorf("local dynamic client is required")
 	}
 
-	if logger == nil {
-		logger = slog.Default()
+	m := &Manager{
+		localClient:     localClient,
+		localDynamic:    localDynamic,
+		localRestConfig: localRestConfig,
+		logger:          slog.Default(),
 	}
 
-	return &Manager{
-		localClient:  localClient,
-		localDynamic: localDynamic,
-		logger:       logger,
-	}, nil
+	// Apply options
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	// Create cache with default config if not already created
+	if m.cache == nil {
+		m.cache = NewClientCache(
+			WithCacheLogger(m.logger),
+		)
+	}
+
+	m.logger.Info("Federation manager initialized",
+		"cache_enabled", m.cache != nil,
+		"rest_config_available", localRestConfig != nil)
+
+	return m, nil
 }
 
 // checkClosed returns ErrManagerClosed if the manager has been closed.
@@ -225,34 +284,90 @@ func (m *Manager) Close() error {
 	m.logger.Info("Closing federation manager")
 	m.closed = true
 
-	// Future: clean up cached clients and connections
-	// This will be implemented in issue #106 (Client Caching)
+	// Close the client cache
+	if m.cache != nil {
+		if err := m.cache.Close(); err != nil {
+			m.logger.Error("Error closing client cache", "error", err)
+			return fmt.Errorf("failed to close client cache: %w", err)
+		}
+	}
 
 	return nil
 }
 
 // getLocalClientWithImpersonation returns the local client configured for user impersonation.
-// The ctx parameter is reserved for future use when impersonation is implemented.
 // Note: user is guaranteed to be non-nil and validated by the public API methods.
-func (m *Manager) getLocalClientWithImpersonation(_ context.Context, user *UserInfo) (kubernetes.Interface, error) {
-	// Impersonation will be implemented in issue #109
-	// For now, return the local client directly
-	m.logger.Debug("getLocalClientWithImpersonation - impersonation not yet implemented",
-		"user_hash", AnonymizeEmail(user.Email),
-		"group_count", len(user.Groups))
-	return m.localClient, nil
+func (m *Manager) getLocalClientWithImpersonation(ctx context.Context, user *UserInfo) (kubernetes.Interface, error) {
+	// Use empty string for local cluster
+	const localClusterName = ""
+
+	// Try to get from cache or create new
+	clientset, _, err := m.cache.GetOrCreate(ctx, localClusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+		return m.createImpersonatedLocalClient(ctx, user)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get impersonated local client: %w", err)
+	}
+
+	return clientset, nil
 }
 
 // getLocalDynamicWithImpersonation returns the local dynamic client configured for user impersonation.
-// The ctx parameter is reserved for future use when impersonation is implemented.
 // Note: user is guaranteed to be non-nil and validated by the public API methods.
-func (m *Manager) getLocalDynamicWithImpersonation(_ context.Context, user *UserInfo) (dynamic.Interface, error) {
-	// Impersonation will be implemented in issue #109
-	// For now, return the local dynamic client directly
-	m.logger.Debug("getLocalDynamicWithImpersonation - impersonation not yet implemented",
+func (m *Manager) getLocalDynamicWithImpersonation(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
+	// Use empty string for local cluster
+	const localClusterName = ""
+
+	// Try to get from cache or create new
+	_, dynamicClient, err := m.cache.GetOrCreate(ctx, localClusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+		return m.createImpersonatedLocalClient(ctx, user)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get impersonated local dynamic client: %w", err)
+	}
+
+	return dynamicClient, nil
+}
+
+// createImpersonatedLocalClient creates new Kubernetes clients with impersonation configured.
+// This is called by the cache on cache miss.
+func (m *Manager) createImpersonatedLocalClient(_ context.Context, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	// If no REST config available, fall back to returning direct clients
+	// (impersonation will be implemented in issue #109)
+	if m.localRestConfig == nil {
+		m.logger.Debug("No REST config available, returning direct clients",
+			"user_hash", AnonymizeEmail(user.Email))
+		return m.localClient, m.localDynamic, nil, nil
+	}
+
+	// Clone the config to avoid mutating the original
+	impersonatedConfig := rest.CopyConfig(m.localRestConfig)
+
+	// Configure impersonation headers
+	// This will be fully implemented in issue #109
+	impersonatedConfig.Impersonate = rest.ImpersonationConfig{
+		UserName: user.Email,
+		Groups:   user.Groups,
+		Extra:    user.Extra,
+	}
+
+	m.logger.Debug("Creating impersonated client",
 		"user_hash", AnonymizeEmail(user.Email),
 		"group_count", len(user.Groups))
-	return m.localDynamic, nil
+
+	// Create clientset with impersonation
+	clientset, err := kubernetes.NewForConfig(impersonatedConfig)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create impersonated clientset: %w", err)
+	}
+
+	// Create dynamic client with impersonation
+	dynClient, err := dynamic.NewForConfig(impersonatedConfig)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create impersonated dynamic client: %w", err)
+	}
+
+	return clientset, dynClient, impersonatedConfig, nil
 }
 
 // getRemoteClientWithImpersonation returns a client for a remote workload cluster.

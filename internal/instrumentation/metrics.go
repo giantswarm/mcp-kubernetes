@@ -20,6 +20,8 @@ const (
 	attrResourceType = "resource_type"
 	attrNamespace    = "namespace"
 	attrResult       = "result"
+	attrCluster      = "cluster"
+	attrReason       = "reason"
 )
 
 // Metrics provides methods for recording observability metrics.
@@ -37,6 +39,12 @@ type Metrics struct {
 
 	// OAuth authentication metrics
 	oauthDownstreamAuthTotal metric.Int64Counter
+
+	// Client cache metrics
+	clientCacheHitsTotal      metric.Int64Counter
+	clientCacheMissesTotal    metric.Int64Counter
+	clientCacheEvictionsTotal metric.Int64Counter
+	clientCacheSize           metric.Int64Gauge
 
 	// Configuration
 	// detailedLabels controls whether high-cardinality labels (namespace, resource_type)
@@ -130,6 +138,43 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create oauth_downstream_auth_total counter: %w", err)
+	}
+
+	// Client Cache Metrics
+	m.clientCacheHitsTotal, err = meter.Int64Counter(
+		"mcp_client_cache_hits_total",
+		metric.WithDescription("Total number of client cache hits"),
+		metric.WithUnit("{hit}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_client_cache_hits_total counter: %w", err)
+	}
+
+	m.clientCacheMissesTotal, err = meter.Int64Counter(
+		"mcp_client_cache_misses_total",
+		metric.WithDescription("Total number of client cache misses"),
+		metric.WithUnit("{miss}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_client_cache_misses_total counter: %w", err)
+	}
+
+	m.clientCacheEvictionsTotal, err = meter.Int64Counter(
+		"mcp_client_cache_evictions_total",
+		metric.WithDescription("Total number of client cache evictions"),
+		metric.WithUnit("{eviction}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_client_cache_evictions_total counter: %w", err)
+	}
+
+	m.clientCacheSize, err = meter.Int64Gauge(
+		"mcp_client_cache_entries",
+		metric.WithDescription("Current number of entries in the client cache"),
+		metric.WithUnit("{entry}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_client_cache_entries gauge: %w", err)
 	}
 
 	return m, nil
@@ -238,4 +283,55 @@ func (m *Metrics) DecrementActiveSessions(ctx context.Context) {
 	}
 
 	m.activeSessions.Add(ctx, -1)
+}
+
+// RecordCacheHit records a cache hit event with optional cluster name.
+func (m *Metrics) RecordCacheHit(ctx context.Context, clusterName string) {
+	if m.clientCacheHitsTotal == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{}
+	if clusterName != "" {
+		attrs = append(attrs, attribute.String(attrCluster, clusterName))
+	}
+
+	m.clientCacheHitsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// RecordCacheMiss records a cache miss event with optional cluster name.
+func (m *Metrics) RecordCacheMiss(ctx context.Context, clusterName string) {
+	if m.clientCacheMissesTotal == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{}
+	if clusterName != "" {
+		attrs = append(attrs, attribute.String(attrCluster, clusterName))
+	}
+
+	m.clientCacheMissesTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// RecordCacheEviction records a cache eviction event with the reason.
+// Common reasons: "expired", "lru", "manual"
+func (m *Metrics) RecordCacheEviction(ctx context.Context, reason string) {
+	if m.clientCacheEvictionsTotal == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(attrReason, reason),
+	}
+
+	m.clientCacheEvictionsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// SetCacheSize sets the current cache size gauge.
+func (m *Metrics) SetCacheSize(ctx context.Context, size int) {
+	if m.clientCacheSize == nil {
+		return // Instrumentation not initialized
+	}
+
+	m.clientCacheSize.Record(ctx, int64(size))
 }

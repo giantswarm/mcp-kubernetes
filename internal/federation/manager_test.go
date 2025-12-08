@@ -27,42 +27,42 @@ func TestNewManager(t *testing.T) {
 		name          string
 		localClient   kubernetes.Interface
 		localDynamic  dynamic.Interface
-		logger        *slog.Logger
+		opts          []ManagerOption
 		expectedError string
 	}{
 		{
 			name:          "valid inputs",
 			localClient:   fakeClient,
 			localDynamic:  fakeDynamic,
-			logger:        logger,
+			opts:          []ManagerOption{WithManagerLogger(logger)},
 			expectedError: "",
 		},
 		{
-			name:          "nil logger uses default",
+			name:          "no logger uses default",
 			localClient:   fakeClient,
 			localDynamic:  fakeDynamic,
-			logger:        nil,
+			opts:          nil,
 			expectedError: "",
 		},
 		{
 			name:          "nil local client",
 			localClient:   nil,
 			localDynamic:  fakeDynamic,
-			logger:        logger,
+			opts:          []ManagerOption{WithManagerLogger(logger)},
 			expectedError: "local client is required",
 		},
 		{
 			name:          "nil dynamic client",
 			localClient:   fakeClient,
 			localDynamic:  nil,
-			logger:        logger,
+			opts:          []ManagerOption{WithManagerLogger(logger)},
 			expectedError: "local dynamic client is required",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(tt.localClient, tt.localDynamic, tt.logger)
+			manager, err := NewManager(tt.localClient, tt.localDynamic, nil, tt.opts...)
 
 			if tt.expectedError != "" {
 				require.Error(t, err)
@@ -71,6 +71,8 @@ func TestNewManager(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, manager)
+				// Clean up
+				defer manager.Close()
 			}
 		})
 	}
@@ -157,8 +159,9 @@ func TestManager_GetClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, logger)
+			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 			require.NoError(t, err)
+			defer manager.Close()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -241,8 +244,9 @@ func TestManager_GetDynamicClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, logger)
+			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 			require.NoError(t, err)
+			defer manager.Close()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -302,8 +306,9 @@ func TestManager_ListClusters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, logger)
+			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 			require.NoError(t, err)
+			defer manager.Close()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -380,8 +385,9 @@ func TestManager_GetClusterSummary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, logger)
+			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 			require.NoError(t, err)
+			defer manager.Close()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -408,7 +414,7 @@ func TestManager_Close(t *testing.T) {
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
 	t.Run("close succeeds", func(t *testing.T) {
-		manager, err := NewManager(fakeClient, fakeDynamic, logger)
+		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 		require.NoError(t, err)
 
 		err = manager.Close()
@@ -416,7 +422,7 @@ func TestManager_Close(t *testing.T) {
 	})
 
 	t.Run("close is idempotent", func(t *testing.T) {
-		manager, err := NewManager(fakeClient, fakeDynamic, logger)
+		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 		require.NoError(t, err)
 
 		err = manager.Close()
@@ -427,7 +433,7 @@ func TestManager_Close(t *testing.T) {
 	})
 
 	t.Run("methods fail after close", func(t *testing.T) {
-		manager, err := NewManager(fakeClient, fakeDynamic, logger)
+		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 		require.NoError(t, err)
 
 		err = manager.Close()
@@ -455,8 +461,9 @@ func TestManager_Concurrency(t *testing.T) {
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
-	manager, err := NewManager(fakeClient, fakeDynamic, logger)
+	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 	require.NoError(t, err)
+	defer manager.Close()
 
 	// Test concurrent access
 	var wg sync.WaitGroup
