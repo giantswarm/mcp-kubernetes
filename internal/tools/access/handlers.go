@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -129,13 +130,19 @@ func HandleCanI(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 		},
 	}
 
-	// If there was an evaluation error, include it in the reason
+	// If there was an evaluation error, include a sanitized version in the reason
+	// to prevent leaking internal resource naming conventions or system details.
 	if result.EvaluationError != "" {
+		sanitizedError := sanitizeEvaluationError(result.EvaluationError)
 		if response.Reason != "" {
-			response.Reason = fmt.Sprintf("%s (evaluation error: %s)", response.Reason, result.EvaluationError)
+			response.Reason = fmt.Sprintf("%s (evaluation issue: %s)", response.Reason, sanitizedError)
 		} else {
-			response.Reason = fmt.Sprintf("evaluation error: %s", result.EvaluationError)
+			response.Reason = fmt.Sprintf("evaluation issue: %s", sanitizedError)
 		}
+		// Log the full error for debugging purposes
+		sc.Logger().Debug("Access check evaluation error",
+			"sanitized", sanitizedError,
+			"original", result.EvaluationError)
 	}
 
 	// Marshal the response to JSON
@@ -166,4 +173,51 @@ func clusterDisplayName(clusterName string) string {
 		return "local"
 	}
 	return clusterName
+}
+
+// sanitizeEvaluationError transforms Kubernetes API evaluation errors into
+// user-safe messages that don't leak internal system details.
+//
+// # Security Rationale
+//
+// Evaluation errors from the Kubernetes API server may contain:
+// - Internal resource names and paths
+// - API group naming conventions
+// - Custom resource definitions
+// - Webhook or policy engine details
+//
+// This function maps known error patterns to generic messages while preserving
+// actionable information for the user.
+func sanitizeEvaluationError(evalError string) string {
+	if evalError == "" {
+		return ""
+	}
+
+	// Map common evaluation errors to user-friendly messages
+	// These patterns are based on common Kubernetes API server responses
+	switch {
+	case containsAny(evalError, "unable to find", "not found", "no matches"):
+		return "resource type not recognized"
+	case containsAny(evalError, "webhook", "admission"):
+		return "policy evaluation failed"
+	case containsAny(evalError, "timeout", "deadline"):
+		return "permission check timed out"
+	case containsAny(evalError, "internal error", "server error"):
+		return "internal evaluation error"
+	default:
+		// For unrecognized errors, return a generic message
+		// rather than potentially leaking sensitive information
+		return "unable to evaluate permissions"
+	}
+}
+
+// containsAny checks if the string contains any of the substrings (case-insensitive).
+func containsAny(s string, substrings ...string) bool {
+	lower := strings.ToLower(s)
+	for _, sub := range substrings {
+		if strings.Contains(lower, strings.ToLower(sub)) {
+			return true
+		}
+	}
+	return false
 }

@@ -186,12 +186,194 @@ func TestIsValidationError(t *testing.T) {
 	}
 }
 
+func TestSanitizeEvaluationError(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "unable to find resource",
+			input:    "unable to find resource definition for custom.io/v1/myresources",
+			expected: "resource type not recognized",
+		},
+		{
+			name:     "not found error",
+			input:    "resource mygroup.io/v1beta1 not found in discovery",
+			expected: "resource type not recognized",
+		},
+		{
+			name:     "no matches for kind",
+			input:    "no matches for kind \"CustomThing\" in version \"v1\"",
+			expected: "resource type not recognized",
+		},
+		{
+			name:     "webhook failure",
+			input:    "webhook \"validating.policy.io\" denied request: internal error",
+			expected: "policy evaluation failed",
+		},
+		{
+			name:     "admission controller",
+			input:    "admission controller denied: policy xyz-internal-123 rejected",
+			expected: "policy evaluation failed",
+		},
+		{
+			name:     "timeout error",
+			input:    "timeout waiting for policy engine response",
+			expected: "permission check timed out",
+		},
+		{
+			name:     "deadline exceeded",
+			input:    "context deadline exceeded during evaluation",
+			expected: "permission check timed out",
+		},
+		{
+			name:     "internal server error",
+			input:    "internal error: rbac cache failed to sync",
+			expected: "internal evaluation error",
+		},
+		{
+			name:     "server error",
+			input:    "server error during policy evaluation",
+			expected: "internal evaluation error",
+		},
+		{
+			name:     "unknown error - should not leak details",
+			input:    "failed to evaluate RBAC for user admin@internal.corp on namespace secret-project-xyz",
+			expected: "unable to evaluate permissions",
+		},
+		{
+			name:     "case insensitive - UNABLE TO FIND",
+			input:    "UNABLE TO FIND resource",
+			expected: "resource type not recognized",
+		},
+		{
+			name:     "case insensitive - Webhook",
+			input:    "Webhook validation failed",
+			expected: "policy evaluation failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeEvaluationError(tt.input)
+			assert.Equal(t, tt.expected, result)
+
+			// Security verification: ensure the original error is not in the output
+			if tt.input != "" && tt.expected != "" {
+				// The sanitized output should not contain any part of the original
+				// that could leak internal details (except common words)
+				assert.NotContains(t, result, "internal.corp")
+				assert.NotContains(t, result, "secret-project")
+				assert.NotContains(t, result, "xyz-internal")
+				assert.NotContains(t, result, "custom.io")
+				assert.NotContains(t, result, "mygroup.io")
+			}
+		})
+	}
+}
+
+func TestSanitizeEvaluationError_SecurityProperties(t *testing.T) {
+	// These tests verify that sensitive information is never leaked
+	sensitiveInputs := []string{
+		"unable to find resource definition for acme-corp.internal.io/v1/secretresources",
+		"webhook \"validating.acme-corp.io\" denied request: user admin@acme-corp.com not authorized",
+		"admission controller denied: policy prod-secrets-policy rejected request from 192.168.1.100",
+		"internal error: failed to connect to authz service at https://authz.internal:8443",
+		"server error: LDAP lookup failed for user cn=admin,ou=users,dc=acme,dc=corp",
+	}
+
+	for _, input := range sensitiveInputs {
+		t.Run("no leak: "+input[:30]+"...", func(t *testing.T) {
+			result := sanitizeEvaluationError(input)
+
+			// Verify none of the potentially sensitive patterns appear in output
+			sensitivePatterns := []string{
+				"acme-corp",
+				"internal.io",
+				"admin@",
+				"192.168",
+				"authz.internal",
+				"8443",
+				"LDAP",
+				"cn=admin",
+				"dc=acme",
+			}
+
+			for _, pattern := range sensitivePatterns {
+				assert.NotContains(t, result, pattern,
+					"sanitized output should not contain sensitive pattern: %s", pattern)
+			}
+		})
+	}
+}
+
+func TestContainsAny(t *testing.T) {
+	tests := []struct {
+		name       string
+		s          string
+		substrings []string
+		expected   bool
+	}{
+		{
+			name:       "contains first substring",
+			s:          "hello world",
+			substrings: []string{"hello", "foo"},
+			expected:   true,
+		},
+		{
+			name:       "contains second substring",
+			s:          "hello world",
+			substrings: []string{"foo", "world"},
+			expected:   true,
+		},
+		{
+			name:       "contains none",
+			s:          "hello world",
+			substrings: []string{"foo", "bar"},
+			expected:   false,
+		},
+		{
+			name:       "case insensitive match",
+			s:          "HELLO WORLD",
+			substrings: []string{"hello"},
+			expected:   true,
+		},
+		{
+			name:       "empty string",
+			s:          "",
+			substrings: []string{"hello"},
+			expected:   false,
+		},
+		{
+			name:       "empty substrings",
+			s:          "hello",
+			substrings: []string{},
+			expected:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := containsAny(tt.s, tt.substrings...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestCanIResponse_WithEvaluationError(t *testing.T) {
 	// Test that evaluation errors are properly included in the response
+	// Note: The actual reason shown here would be sanitized in the handler,
+	// this test just verifies JSON serialization of the response structure
 	response := &CanIResponse{
 		Allowed: false,
 		Denied:  false,
-		Reason:  "evaluation error: unable to find resource definition for custom.io/v1",
+		Reason:  "evaluation issue: resource type not recognized",
 		User:    "test@example.com",
 		Cluster: "local",
 		Check: &AccessCheckInfo{
@@ -206,8 +388,11 @@ func TestCanIResponse_WithEvaluationError(t *testing.T) {
 
 	t.Logf("Evaluation error response JSON:\n%s", string(data))
 
-	assert.Contains(t, string(data), "evaluation error")
-	assert.Contains(t, string(data), "custom.io")
+	// Verify sanitized error format is used
+	assert.Contains(t, string(data), "evaluation issue")
+	assert.Contains(t, string(data), "resource type not recognized")
+	// The internal details (custom.io/v1) should NOT be in the reason
+	assert.NotContains(t, string(data), "custom.io/v1")
 }
 
 func TestCanIResponse_ClusterScoped(t *testing.T) {
@@ -543,7 +728,7 @@ func TestHandleCanI_WithEvaluationError(t *testing.T) {
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessResult: &federation.AccessCheckResult{
 			Allowed:         false,
-			EvaluationError: "unable to find resource definition",
+			EvaluationError: "unable to find resource definition for internal.acme-corp.io/v1",
 		},
 	}
 
@@ -569,7 +754,12 @@ func TestHandleCanI_WithEvaluationError(t *testing.T) {
 	err = json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &response)
 	require.NoError(t, err)
 
-	assert.Contains(t, response.Reason, "evaluation error")
+	// Verify sanitized output is used
+	assert.Contains(t, response.Reason, "evaluation issue")
+	assert.Contains(t, response.Reason, "resource type not recognized")
+	// Verify internal details are NOT leaked
+	assert.NotContains(t, response.Reason, "acme-corp")
+	assert.NotContains(t, response.Reason, "internal.acme-corp.io")
 }
 
 func TestHandleCanI_ValidationError(t *testing.T) {
