@@ -3,28 +3,57 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
 // runStreamableHTTPServer runs the server with Streamable HTTP transport
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool) error {
-	// Create Streamable HTTP server with custom endpoint
-	httpServer := mcpserver.NewStreamableHTTPServer(mcpSrv,
+func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext) error {
+	// Create a custom HTTP server with metrics endpoint
+	mux := http.NewServeMux()
+
+	// Create Streamable HTTP handler
+	mcpHandler := mcpserver.NewStreamableHTTPServer(mcpSrv,
 		mcpserver.WithEndpointPath(endpoint),
 	)
 
+	// Add MCP endpoint
+	mux.Handle(endpoint, mcpHandler)
+
+	// Add metrics endpoint if instrumentation is enabled
+	if provider != nil && provider.Enabled() {
+		mux.Handle("/metrics", promhttp.Handler())
+		fmt.Printf("  Metrics endpoint: /metrics\n")
+	}
+
+	// Add health check endpoints
+	healthChecker := server.NewHealthChecker(sc)
+	healthChecker.RegisterHealthEndpoints(mux)
+	fmt.Printf("  Health endpoints: /healthz, /readyz\n")
+
 	fmt.Printf("Streamable HTTP server starting on %s\n", addr)
 	fmt.Printf("  HTTP endpoint: %s\n", endpoint)
+
+	// Create HTTP server with security timeouts
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	// Start server in goroutine
 	serverDone := make(chan error, 1)
 	go func() {
 		defer close(serverDone)
-		if err := httpServer.Start(addr); err != nil {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverDone <- err
 		}
 	}()
@@ -33,7 +62,7 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	select {
 	case <-ctx.Done():
 		fmt.Println("Shutdown signal received, stopping HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("error shutting down HTTP server: %w", err)
@@ -51,16 +80,24 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 }
 
 // runOAuthHTTPServer runs the server with OAuth 2.1 authentication
-func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Context, config server.OAuthConfig) error {
+func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Context, config server.OAuthConfig, sc *server.ServerContext) error {
 	// Create OAuth HTTP server
 	oauthServer, err := server.NewOAuthHTTPServer(mcpSrv, "streamable-http", config)
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
 
+	// Set up health checker
+	healthChecker := server.NewHealthChecker(sc)
+	oauthServer.SetHealthChecker(healthChecker)
+
 	fmt.Printf("OAuth-enabled HTTP server starting on %s\n", addr)
 	fmt.Printf("  Base URL: %s\n", config.BaseURL)
 	fmt.Printf("  MCP endpoint: /mcp (requires OAuth Bearer token)\n")
+	fmt.Printf("  Health endpoints: /healthz, /readyz\n")
+	if config.InstrumentationProvider != nil && config.InstrumentationProvider.Enabled() {
+		fmt.Printf("  Metrics endpoint: /metrics\n")
+	}
 	fmt.Printf("  OAuth endpoints:\n")
 	fmt.Printf("    - Authorization Server Metadata: /.well-known/oauth-authorization-server\n")
 	fmt.Printf("    - Protected Resource Metadata: /.well-known/oauth-protected-resource\n")

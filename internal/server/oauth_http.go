@@ -18,7 +18,9 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage"
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	mcpoauth "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
@@ -135,17 +137,22 @@ type OAuthConfig struct {
 	// Interstitial configures the OAuth success page for custom URL schemes
 	// If nil, uses the default mcp-oauth interstitial page
 	Interstitial *oauthserver.InterstitialConfig
+
+	// InstrumentationProvider is the OpenTelemetry instrumentation provider for metrics/tracing
+	InstrumentationProvider *instrumentation.Provider
 }
 
 // OAuthHTTPServer wraps an MCP server with OAuth 2.1 authentication
 type OAuthHTTPServer struct {
-	mcpServer        *mcpserver.MCPServer
-	oauthServer      *oauth.Server
-	oauthHandler     *oauth.Handler
-	tokenStore       storage.TokenStore
-	httpServer       *http.Server
-	serverType       string // "streamable-http"
-	disableStreaming bool
+	mcpServer               *mcpserver.MCPServer
+	oauthServer             *oauth.Server
+	oauthHandler            *oauth.Handler
+	tokenStore              storage.TokenStore
+	httpServer              *http.Server
+	serverType              string // "streamable-http"
+	disableStreaming        bool
+	instrumentationProvider *instrumentation.Provider
+	healthChecker           *HealthChecker
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -283,12 +290,13 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
 
 	return &OAuthHTTPServer{
-		mcpServer:        mcpServer,
-		oauthServer:      oauthServer,
-		oauthHandler:     oauthHandler,
-		tokenStore:       tokenStore,
-		serverType:       serverType,
-		disableStreaming: config.DisableStreaming,
+		mcpServer:               mcpServer,
+		oauthServer:             oauthServer,
+		oauthHandler:            oauthHandler,
+		tokenStore:              tokenStore,
+		serverType:              serverType,
+		disableStreaming:        config.DisableStreaming,
+		instrumentationProvider: config.InstrumentationProvider,
 	}, nil
 }
 
@@ -406,6 +414,20 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		return err
 	}
 
+	// Setup Prometheus metrics endpoint if instrumentation is enabled
+	if s.instrumentationProvider != nil && s.instrumentationProvider.Enabled() {
+		if prometheusHandler := s.instrumentationProvider.PrometheusHandler(); prometheusHandler != nil {
+			// The prometheus exporter is registered with the global prometheus registry
+			// Use promhttp.Handler() to expose metrics
+			mux.Handle("/metrics", promhttp.Handler())
+		}
+	}
+
+	// Setup health check endpoints
+	if s.healthChecker != nil {
+		s.healthChecker.RegisterHealthEndpoints(mux)
+	}
+
 	// Create HTTP server with security and CORS middleware
 	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
 
@@ -450,6 +472,11 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauth.Handler {
 // GetTokenStore returns the token store for downstream OAuth passthrough
 func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
 	return s.tokenStore
+}
+
+// SetHealthChecker sets the health checker for health check endpoints.
+func (s *OAuthHTTPServer) SetHealthChecker(hc *HealthChecker) {
+	s.healthChecker = hc
 }
 
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's

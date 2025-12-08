@@ -30,9 +30,9 @@ import (
 
 // getResource retrieves a specific resource by name and namespace.
 func getResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, name string) (runtime.Object, error) {
+	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +54,9 @@ func getResource(ctx context.Context, dynamicClient dynamic.Interface, discovery
 
 // listResources retrieves resources with pagination support.
 func listResources(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error) {
+	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
@@ -107,9 +107,9 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 
 // describeResource provides detailed information about a resource.
 func describeResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	clientset kubernetes.Interface, builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, name string) (*ResourceDescription, error) {
+	clientset kubernetes.Interface, builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error) {
 
-	resource, err := getResource(ctx, dynamicClient, discoveryClient, builtinResources, namespace, resourceType, name)
+	resource, err := getResource(ctx, dynamicClient, discoveryClient, builtinResources, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return nil, err
 	}
@@ -227,9 +227,9 @@ func applyResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 
 // deleteResource removes a resource by name and namespace.
 func deleteResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, name string, dryRun bool) error {
+	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string, dryRun bool) error {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
 	if err != nil {
 		return err
 	}
@@ -256,10 +256,10 @@ func deleteResource(ctx context.Context, dynamicClient dynamic.Interface, discov
 
 // patchResource updates specific fields of a resource.
 func patchResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, name string,
+	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string,
 	patchType types.PatchType, data []byte, dryRun bool) (runtime.Object, error) {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func patchResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 
 // scaleResource changes the number of replicas for scalable resources.
 func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, name string,
+	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string,
 	replicas int32, dryRun bool) error {
 
 	// For scale operations, we need to use a different approach with the dynamic client
@@ -298,7 +298,7 @@ func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 		patchOpts.DryRun = []string{metav1.DryRunAll}
 	}
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
 	if err != nil {
 		return err
 	}
@@ -715,15 +715,53 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 
 // Shared helper functions
 
+// groupsMatch determines if a requested API group matches an actual group value.
+// It treats "core" and "" (empty string) as equivalent for core resources.
+func groupsMatch(requested, actual string) bool {
+	if requested == actual {
+		return true
+	}
+
+	// Treat "core" and empty string as equivalent for the core API group.
+	if (requested == "core" && actual == "") || (requested == "" && actual == "core") {
+		return true
+	}
+
+	return false
+}
+
+// parseAPIGroup parses an apiGroup string into group and optional preferred version.
+// Supports formats: "group" or "group/version" (e.g., "apps" or "apps/v1").
+func parseAPIGroup(apiGroup string) (group, preferredVersion string) {
+	apiGroup = strings.ToLower(apiGroup)
+	if apiGroup == "" {
+		return "", ""
+	}
+
+	parts := strings.SplitN(apiGroup, "/", 2)
+	group = parts[0]
+	if len(parts) == 2 {
+		preferredVersion = parts[1]
+	}
+	return group, preferredVersion
+}
+
 // resolveResourceTypeShared determines the GroupVersionResource for a given resource type.
-func resolveResourceTypeShared(resourceType string, builtinResources map[string]schema.GroupVersionResource,
+// It supports optional apiGroup hints in the form "group" or "group/version", similar to resolveResourceType.
+func resolveResourceTypeShared(resourceType, apiGroup string, builtinResources map[string]schema.GroupVersionResource,
 	discoveryClient discovery.DiscoveryInterface) (schema.GroupVersionResource, bool, error) {
 
 	resourceType = strings.ToLower(resourceType)
+	requestedGroup, preferredVersion := parseAPIGroup(apiGroup)
 
-	if gvr, exists := builtinResources[resourceType]; exists {
-		namespaced := isResourceNamespacedShared(gvr)
-		return gvr, namespaced, nil
+	// Check built-in resources first
+	if builtinResources != nil {
+		if gvr, exists := builtinResources[resourceType]; exists {
+			if requestedGroup == "" || groupsMatch(requestedGroup, gvr.Group) {
+				namespaced := isResourceNamespacedShared(gvr)
+				return gvr, namespaced, nil
+			}
+		}
 	}
 
 	// Set up timeout for discovery API call
@@ -750,34 +788,65 @@ func resolveResourceTypeShared(resourceType string, builtinResources map[string]
 		return schema.GroupVersionResource{}, false, fmt.Errorf("API discovery timed out after 30 seconds")
 	}
 
-	for _, resourceList := range resourceLists {
-		if resourceList == nil {
-			continue
-		}
-
-		gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
-		if err != nil {
-			continue
-		}
-
-		for _, resource := range resourceList.APIResources {
-			matches := []string{
-				strings.ToLower(resource.Name),
-				strings.ToLower(resource.Kind),
-				strings.ToLower(resource.SingularName),
+	// Helper to search API resources with optional group/version preference
+	searchResources := func(preferVersion string) (schema.GroupVersionResource, bool, bool) {
+		for _, resourceList := range resourceLists {
+			if resourceList == nil {
+				continue
 			}
 
-			for _, shortName := range resource.ShortNames {
-				matches = append(matches, strings.ToLower(shortName))
+			gv, err := parseGroupVersionShared(resourceList.GroupVersion)
+			if err != nil {
+				continue
 			}
 
-			for _, match := range matches {
-				if match == resourceType {
-					gvr := gv.WithResource(resource.Name)
-					return gvr, resource.Namespaced, nil
+			// Filter by requested group if provided
+			if requestedGroup != "" && !groupsMatch(requestedGroup, gv.Group) {
+				continue
+			}
+
+			// Optionally filter by preferred version
+			if preferVersion != "" && gv.Version != preferVersion {
+				continue
+			}
+
+			for _, resource := range resourceList.APIResources {
+				matches := []string{
+					strings.ToLower(resource.Name),
+					strings.ToLower(resource.Kind),
+					strings.ToLower(resource.SingularName),
+				}
+
+				for _, shortName := range resource.ShortNames {
+					matches = append(matches, strings.ToLower(shortName))
+				}
+
+				for _, match := range matches {
+					if match == resourceType {
+						gvr := schema.GroupVersionResource{
+							Group:    gv.Group,
+							Version:  gv.Version,
+							Resource: resource.Name,
+						}
+						return gvr, resource.Namespaced, true
+					}
 				}
 			}
 		}
+
+		return schema.GroupVersionResource{}, false, false
+	}
+
+	// First, if a preferred version was specified (via apiGroup like "apps/v1"), search with that preference
+	if preferredVersion != "" {
+		if gvr, namespaced, found := searchResources(preferredVersion); found {
+			return gvr, namespaced, nil
+		}
+	}
+
+	// Fallback: search without version preference (still honoring requested group if provided)
+	if gvr, namespaced, found := searchResources(""); found {
+		return gvr, namespaced, nil
 	}
 
 	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", resourceType)
@@ -816,7 +885,7 @@ func resolveGVRFromObjectShared(obj *unstructured.Unstructured, discoveryClient 
 		return schema.GroupVersionResource{}, false, fmt.Errorf("failed to parse API version: %w", err)
 	}
 
-	return resolveResourceTypeShared(obj.GetKind(), nil, discoveryClient)
+	return resolveResourceTypeShared(obj.GetKind(), "", nil, discoveryClient)
 }
 
 // getResourceEventsShared retrieves events related to a specific resource.

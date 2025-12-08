@@ -14,6 +14,7 @@ type GetResourceArgs struct {
 	KubeContext  string `json:"kubeContext,omitempty"`
 	Namespace    string `json:"namespace"`
 	ResourceType string `json:"resourceType"`
+	APIGroup     string `json:"apiGroup,omitempty"`
 	Name         string `json:"name"`
 }
 
@@ -22,6 +23,7 @@ type ListResourceArgs struct {
 	KubeContext        string `json:"kubeContext,omitempty"`
 	Namespace          string `json:"namespace"`
 	ResourceType       string `json:"resourceType"`
+	APIGroup           string `json:"apiGroup,omitempty"`
 	LabelSelector      string `json:"labelSelector,omitempty"`
 	FieldSelector      string `json:"fieldSelector,omitempty"`
 	AllNamespaces      bool   `json:"allNamespaces,omitempty"`
@@ -37,6 +39,7 @@ type DescribeResourceArgs struct {
 	KubeContext  string `json:"kubeContext,omitempty"`
 	Namespace    string `json:"namespace"`
 	ResourceType string `json:"resourceType"`
+	APIGroup     string `json:"apiGroup,omitempty"`
 	Name         string `json:"name"`
 }
 
@@ -59,6 +62,7 @@ type DeleteResourceArgs struct {
 	KubeContext  string `json:"kubeContext,omitempty"`
 	Namespace    string `json:"namespace"`
 	ResourceType string `json:"resourceType"`
+	APIGroup     string `json:"apiGroup,omitempty"`
 	Name         string `json:"name"`
 }
 
@@ -67,6 +71,7 @@ type PatchResourceArgs struct {
 	KubeContext  string      `json:"kubeContext,omitempty"`
 	Namespace    string      `json:"namespace"`
 	ResourceType string      `json:"resourceType"`
+	APIGroup     string      `json:"apiGroup,omitempty"`
 	Name         string      `json:"name"`
 	PatchType    string      `json:"patchType"`
 	Patch        interface{} `json:"patch"`
@@ -77,6 +82,7 @@ type ScaleResourceArgs struct {
 	KubeContext  string `json:"kubeContext,omitempty"`
 	Namespace    string `json:"namespace"`
 	ResourceType string `json:"resourceType"`
+	APIGroup     string `json:"apiGroup,omitempty"`
 	Name         string `json:"name"`
 	Replicas     int32  `json:"replicas"`
 }
@@ -96,6 +102,9 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		mcp.WithString("resourceType",
 			mcp.Required(),
 			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
 		mcp.WithString("name",
 			mcp.Required(),
@@ -120,6 +129,9 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		mcp.WithString("resourceType",
 			mcp.Required(),
 			mcp.Description("Type of Kubernetes resource to list (e.g., pods, services, deployments, nodes)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
 		mcp.WithString("labelSelector",
 			mcp.Description("Server-side label selector for efficient filtering (e.g., 'app=nginx,env=prod'). Use this when possible for better performance."),
@@ -167,6 +179,9 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		mcp.WithString("resourceType",
 			mcp.Required(),
 			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
 		mcp.WithString("name",
 			mcp.Required(),
@@ -232,6 +247,9 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Required(),
 			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
 		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
+		),
 		mcp.WithString("name",
 			mcp.Required(),
 			mcp.Description("Name of the resource to delete"),
@@ -255,6 +273,9 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		mcp.WithString("resourceType",
 			mcp.Required(),
 			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
 		mcp.WithString("name",
 			mcp.Required(),
@@ -288,6 +309,9 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 		mcp.WithString("resourceType",
 			mcp.Required(),
 			mcp.Description("Type of scalable Kubernetes resource (deployment, replicaset, statefulset)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
 		mcp.WithString("name",
 			mcp.Required(),
