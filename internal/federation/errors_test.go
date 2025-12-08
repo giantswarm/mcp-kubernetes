@@ -286,3 +286,86 @@ func TestErrorsAs(t *testing.T) {
 		assert.Equal(t, "https://api.test:6443", connErr.Host)
 	})
 }
+
+func TestUserFacingErrors(t *testing.T) {
+	t.Run("ClusterNotFoundError user facing error hides details", func(t *testing.T) {
+		err := &ClusterNotFoundError{
+			ClusterName: "secret-production-cluster",
+			Namespace:   "org-internal-acme",
+			Reason:      "RBAC denied access due to missing role binding",
+		}
+
+		userFacing := err.UserFacingError()
+
+		// Should not contain internal details
+		assert.NotContains(t, userFacing, "secret-production-cluster")
+		assert.NotContains(t, userFacing, "org-internal-acme")
+		assert.NotContains(t, userFacing, "RBAC")
+		assert.NotContains(t, userFacing, "role binding")
+
+		// Should contain generic message
+		assert.Contains(t, userFacing, "not found")
+	})
+
+	t.Run("KubeconfigError user facing error hides secret details", func(t *testing.T) {
+		err := &KubeconfigError{
+			ClusterName: "production-cluster",
+			SecretName:  "production-cluster-kubeconfig",
+			Namespace:   "org-internal",
+			Reason:      "secret data corrupted",
+			NotFound:    false,
+		}
+
+		userFacing := err.UserFacingError()
+
+		// Should not contain internal details
+		assert.NotContains(t, userFacing, "production-cluster")
+		assert.NotContains(t, userFacing, "kubeconfig")
+		assert.NotContains(t, userFacing, "org-internal")
+		assert.NotContains(t, userFacing, "corrupted")
+
+		// Should contain generic message
+		assert.Contains(t, userFacing, "configuration error")
+	})
+
+	t.Run("KubeconfigError not found user facing error", func(t *testing.T) {
+		err := &KubeconfigError{
+			ClusterName: "production-cluster",
+			SecretName:  "production-cluster-kubeconfig",
+			Namespace:   "org-internal",
+			Reason:      "secret not found in namespace",
+			NotFound:    true,
+		}
+
+		userFacing := err.UserFacingError()
+
+		// Should not contain internal details
+		assert.NotContains(t, userFacing, "production-cluster")
+		assert.NotContains(t, userFacing, "secret")
+		assert.NotContains(t, userFacing, "namespace")
+
+		// Should contain generic message
+		assert.Contains(t, userFacing, "credentials not available")
+	})
+
+	t.Run("ConnectionError user facing error hides host", func(t *testing.T) {
+		err := &ConnectionError{
+			ClusterName: "internal-cluster",
+			Host:        "https://api.internal.192-168-1-100.nip.io:6443",
+			Reason:      "TLS certificate signed by unknown authority",
+			Err:         fmt.Errorf("x509: certificate signed by unknown authority"),
+		}
+
+		userFacing := err.UserFacingError()
+
+		// Should not contain internal details
+		assert.NotContains(t, userFacing, "internal-cluster")
+		assert.NotContains(t, userFacing, "192-168-1-100")
+		assert.NotContains(t, userFacing, "api.internal")
+		assert.NotContains(t, userFacing, "x509")
+		assert.NotContains(t, userFacing, "certificate")
+
+		// Should contain generic message
+		assert.Contains(t, userFacing, "unable to connect")
+	})
+}

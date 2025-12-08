@@ -53,6 +53,12 @@ func (e *ClusterNotFoundError) Unwrap() error {
 	return ErrClusterNotFound
 }
 
+// UserFacingError returns a sanitized error message safe for end users.
+// This prevents leaking internal cluster names and namespace structure.
+func (e *ClusterNotFoundError) UserFacingError() string {
+	return "cluster not found or access denied"
+}
+
 // KubeconfigError provides detailed context about kubeconfig retrieval failures.
 type KubeconfigError struct {
 	ClusterName string
@@ -86,6 +92,15 @@ func (e *KubeconfigError) Unwrap() error {
 	return ErrKubeconfigInvalid
 }
 
+// UserFacingError returns a sanitized error message safe for end users.
+// This prevents leaking internal secret names and namespace structure.
+func (e *KubeconfigError) UserFacingError() string {
+	if e.NotFound {
+		return "cluster credentials not available"
+	}
+	return "cluster configuration error"
+}
+
 // ConnectionError provides detailed context about cluster connection failures.
 type ConnectionError struct {
 	ClusterName string
@@ -110,4 +125,10 @@ func (e *ConnectionError) Unwrap() error {
 		return e.Err
 	}
 	return ErrConnectionFailed
+}
+
+// UserFacingError returns a sanitized error message safe for end users.
+// This prevents leaking internal host URLs and network topology.
+func (e *ConnectionError) UserFacingError() string {
+	return "unable to connect to cluster"
 }

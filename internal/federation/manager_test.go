@@ -91,18 +91,27 @@ func TestManager_GetClient(t *testing.T) {
 		checkResult   func(*testing.T, kubernetes.Interface)
 	}{
 		{
-			name:        "empty cluster name returns local client",
+			name:          "nil user returns ErrUserInfoRequired",
+			clusterName:   "",
+			user:          nil,
+			expectedError: ErrUserInfoRequired,
+		},
+		{
+			name:        "empty cluster name with valid user returns local client",
 			clusterName: "",
-			user:        nil,
+			user: &UserInfo{
+				Email:  "user@example.com",
+				Groups: []string{"developers"},
+			},
 			checkResult: func(t *testing.T, client kubernetes.Interface) {
 				assert.NotNil(t, client)
 			},
 		},
 		{
-			name:        "empty cluster name with user returns local client",
+			name:        "valid user with empty email returns local client",
 			clusterName: "",
 			user: &UserInfo{
-				Email:  "user@example.com",
+				Email:  "",
 				Groups: []string{"developers"},
 			},
 			checkResult: func(t *testing.T, client kubernetes.Interface) {
@@ -118,9 +127,27 @@ func TestManager_GetClient(t *testing.T) {
 			expectedError: ErrClusterNotFound,
 		},
 		{
+			name:        "invalid cluster name returns validation error",
+			clusterName: "../etc/passwd",
+			user: &UserInfo{
+				Email: "user@example.com",
+			},
+			expectedError: ErrInvalidClusterName,
+		},
+		{
+			name:        "invalid email returns validation error",
+			clusterName: "",
+			user: &UserInfo{
+				Email: "not-an-email",
+			},
+			expectedError: ErrInvalidEmail,
+		},
+		{
 			name:        "closed manager returns error",
 			clusterName: "",
-			user:        nil,
+			user: &UserInfo{
+				Email: "user@example.com",
+			},
 			setupManager: func(m *Manager) {
 				m.Close()
 			},
@@ -167,15 +194,13 @@ func TestManager_GetDynamicClient(t *testing.T) {
 		checkResult   func(*testing.T, dynamic.Interface)
 	}{
 		{
-			name:        "empty cluster name returns local dynamic client",
-			clusterName: "",
-			user:        nil,
-			checkResult: func(t *testing.T, client dynamic.Interface) {
-				assert.NotNil(t, client)
-			},
+			name:          "nil user returns ErrUserInfoRequired",
+			clusterName:   "",
+			user:          nil,
+			expectedError: ErrUserInfoRequired,
 		},
 		{
-			name:        "empty cluster name with user returns local dynamic client",
+			name:        "empty cluster name with valid user returns local dynamic client",
 			clusterName: "",
 			user: &UserInfo{
 				Email:  "user@example.com",
@@ -194,9 +219,19 @@ func TestManager_GetDynamicClient(t *testing.T) {
 			expectedError: ErrClusterNotFound,
 		},
 		{
+			name:        "invalid cluster name returns validation error",
+			clusterName: "My-Cluster",
+			user: &UserInfo{
+				Email: "user@example.com",
+			},
+			expectedError: ErrInvalidClusterName,
+		},
+		{
 			name:        "closed manager returns error",
 			clusterName: "",
-			user:        nil,
+			user: &UserInfo{
+				Email: "user@example.com",
+			},
 			setupManager: func(m *Manager) {
 				m.Close()
 			},
@@ -251,11 +286,9 @@ func TestManager_ListClusters(t *testing.T) {
 			},
 		},
 		{
-			name: "nil user returns empty list",
-			user: nil,
-			checkResult: func(t *testing.T, clusters []ClusterSummary) {
-				assert.Empty(t, clusters)
-			},
+			name:          "nil user returns ErrUserInfoRequired",
+			user:          nil,
+			expectedError: ErrUserInfoRequired,
 		},
 		{
 			name: "closed manager returns error",
@@ -305,12 +338,26 @@ func TestManager_GetClusterSummary(t *testing.T) {
 		expectedError error
 	}{
 		{
-			name:        "empty cluster name returns error",
+			name:          "nil user returns ErrUserInfoRequired",
+			clusterName:   "my-cluster",
+			user:          nil,
+			expectedError: ErrUserInfoRequired,
+		},
+		{
+			name:        "empty cluster name returns validation error",
 			clusterName: "",
 			user: &UserInfo{
 				Email: "user@example.com",
 			},
-			expectedError: ErrClusterNotFound,
+			expectedError: ErrInvalidClusterName,
+		},
+		{
+			name:        "invalid cluster name returns validation error",
+			clusterName: "INVALID_CLUSTER",
+			user: &UserInfo{
+				Email: "user@example.com",
+			},
+			expectedError: ErrInvalidClusterName,
 		},
 		{
 			name:        "cluster not found (not yet implemented)",
@@ -386,16 +433,18 @@ func TestManager_Close(t *testing.T) {
 		err = manager.Close()
 		require.NoError(t, err)
 
-		_, err = manager.GetClient(context.Background(), "", nil)
+		user := &UserInfo{Email: "user@example.com"}
+
+		_, err = manager.GetClient(context.Background(), "", user)
 		assert.True(t, errors.Is(err, ErrManagerClosed))
 
-		_, err = manager.GetDynamicClient(context.Background(), "", nil)
+		_, err = manager.GetDynamicClient(context.Background(), "", user)
 		assert.True(t, errors.Is(err, ErrManagerClosed))
 
-		_, err = manager.ListClusters(context.Background(), nil)
+		_, err = manager.ListClusters(context.Background(), user)
 		assert.True(t, errors.Is(err, ErrManagerClosed))
 
-		_, err = manager.GetClusterSummary(context.Background(), "test", nil)
+		_, err = manager.GetClusterSummary(context.Background(), "test", user)
 		assert.True(t, errors.Is(err, ErrManagerClosed))
 	})
 }
@@ -427,14 +476,15 @@ func TestManager_Concurrency(t *testing.T) {
 			_, _ = manager.GetClient(context.Background(), "", user)
 			_, _ = manager.GetDynamicClient(context.Background(), "", user)
 			_, _ = manager.ListClusters(context.Background(), user)
-			_, _ = manager.GetClusterSummary(context.Background(), "test", user)
+			_, _ = manager.GetClusterSummary(context.Background(), "test-cluster", user)
 		}(i)
 	}
 
 	wg.Wait()
 
-	// Manager should still be usable
-	client, err := manager.GetClient(context.Background(), "", nil)
+	// Manager should still be usable with valid user
+	user := &UserInfo{Email: "user@example.com"}
+	client, err := manager.GetClient(context.Background(), "", user)
 	assert.NoError(t, err)
 	assert.NotNil(t, client)
 }
@@ -442,37 +492,4 @@ func TestManager_Concurrency(t *testing.T) {
 func TestManager_Interface(t *testing.T) {
 	// Verify that Manager implements ClusterClientManager
 	var _ ClusterClientManager = (*Manager)(nil)
-}
-
-func TestUserEmail(t *testing.T) {
-	tests := []struct {
-		name     string
-		user     *UserInfo
-		expected string
-	}{
-		{
-			name:     "nil user returns empty string",
-			user:     nil,
-			expected: "",
-		},
-		{
-			name: "user with email returns email",
-			user: &UserInfo{
-				Email: "user@example.com",
-			},
-			expected: "user@example.com",
-		},
-		{
-			name:     "user with empty email returns empty string",
-			user:     &UserInfo{},
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := userEmail(tt.user)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
 }

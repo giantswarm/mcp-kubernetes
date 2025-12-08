@@ -112,8 +112,15 @@ func (m *Manager) checkClosed() error {
 }
 
 // GetClient returns a Kubernetes client for the target cluster.
+// Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
+// Returns ErrInvalidClusterName if the cluster name fails validation.
 func (m *Manager) GetClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
 	if err := m.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// Validate user info (required to prevent privilege escalation)
+	if err := ValidateUserInfo(user); err != nil {
 		return nil, err
 	}
 
@@ -122,13 +129,25 @@ func (m *Manager) GetClient(ctx context.Context, clusterName string, user *UserI
 		return m.getLocalClientWithImpersonation(ctx, user)
 	}
 
+	// Validate cluster name
+	if err := ValidateClusterName(clusterName); err != nil {
+		return nil, err
+	}
+
 	// Get remote cluster client with impersonation
 	return m.getRemoteClientWithImpersonation(ctx, clusterName, user)
 }
 
 // GetDynamicClient returns a dynamic client for the target cluster.
+// Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
+// Returns ErrInvalidClusterName if the cluster name fails validation.
 func (m *Manager) GetDynamicClient(ctx context.Context, clusterName string, user *UserInfo) (dynamic.Interface, error) {
 	if err := m.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// Validate user info (required to prevent privilege escalation)
+	if err := ValidateUserInfo(user); err != nil {
 		return nil, err
 	}
 
@@ -137,39 +156,57 @@ func (m *Manager) GetDynamicClient(ctx context.Context, clusterName string, user
 		return m.getLocalDynamicWithImpersonation(ctx, user)
 	}
 
+	// Validate cluster name
+	if err := ValidateClusterName(clusterName); err != nil {
+		return nil, err
+	}
+
 	// Get remote cluster dynamic client with impersonation
 	return m.getRemoteDynamicWithImpersonation(ctx, clusterName, user)
 }
 
 // ListClusters returns all available workload clusters.
+// Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
 func (m *Manager) ListClusters(ctx context.Context, user *UserInfo) ([]ClusterSummary, error) {
 	if err := m.checkClosed(); err != nil {
 		return nil, err
 	}
 
+	// Validate user info (required to prevent privilege escalation)
+	if err := ValidateUserInfo(user); err != nil {
+		return nil, err
+	}
+
 	// This will be implemented in a separate issue (#111 - CAPI Cluster Discovery)
 	// For now, return an empty list
-	m.logger.Debug("ListClusters called - CAPI discovery not yet implemented")
+	m.logger.Debug("ListClusters called - CAPI discovery not yet implemented",
+		"user_hash", AnonymizeEmail(user.Email))
 	return []ClusterSummary{}, nil
 }
 
 // GetClusterSummary returns information about a specific cluster.
+// Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
+// Returns ErrInvalidClusterName if the cluster name fails validation.
 func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, user *UserInfo) (*ClusterSummary, error) {
 	if err := m.checkClosed(); err != nil {
 		return nil, err
 	}
 
-	if clusterName == "" {
-		return nil, &ClusterNotFoundError{
-			ClusterName: clusterName,
-			Reason:      "cluster name cannot be empty",
-		}
+	// Validate user info (required to prevent privilege escalation)
+	if err := ValidateUserInfo(user); err != nil {
+		return nil, err
+	}
+
+	// Validate cluster name
+	if err := ValidateClusterName(clusterName); err != nil {
+		return nil, err
 	}
 
 	// This will be implemented in a separate issue (#111 - CAPI Cluster Discovery)
 	// For now, return not found
 	m.logger.Debug("GetClusterSummary called - CAPI discovery not yet implemented",
-		"cluster", clusterName)
+		"cluster", clusterName,
+		"user_hash", AnonymizeEmail(user.Email))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "CAPI cluster discovery not yet implemented",
@@ -196,43 +233,39 @@ func (m *Manager) Close() error {
 
 // getLocalClientWithImpersonation returns the local client configured for user impersonation.
 // The ctx parameter is reserved for future use when impersonation is implemented.
+// Note: user is guaranteed to be non-nil and validated by the public API methods.
 func (m *Manager) getLocalClientWithImpersonation(_ context.Context, user *UserInfo) (kubernetes.Interface, error) {
-	if user == nil {
-		// No impersonation needed, return the local client as-is
-		return m.localClient, nil
-	}
-
 	// Impersonation will be implemented in issue #109
 	// For now, return the local client directly
 	m.logger.Debug("getLocalClientWithImpersonation - impersonation not yet implemented",
-		"user", userEmail(user))
+		"user_hash", AnonymizeEmail(user.Email),
+		"group_count", len(user.Groups))
 	return m.localClient, nil
 }
 
 // getLocalDynamicWithImpersonation returns the local dynamic client configured for user impersonation.
 // The ctx parameter is reserved for future use when impersonation is implemented.
+// Note: user is guaranteed to be non-nil and validated by the public API methods.
 func (m *Manager) getLocalDynamicWithImpersonation(_ context.Context, user *UserInfo) (dynamic.Interface, error) {
-	if user == nil {
-		// No impersonation needed, return the local dynamic client as-is
-		return m.localDynamic, nil
-	}
-
 	// Impersonation will be implemented in issue #109
 	// For now, return the local dynamic client directly
 	m.logger.Debug("getLocalDynamicWithImpersonation - impersonation not yet implemented",
-		"user", userEmail(user))
+		"user_hash", AnonymizeEmail(user.Email),
+		"group_count", len(user.Groups))
 	return m.localDynamic, nil
 }
 
 // getRemoteClientWithImpersonation returns a client for a remote workload cluster.
-func (m *Manager) getRemoteClientWithImpersonation(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
+// Note: user is guaranteed to be non-nil and validated by the public API methods.
+func (m *Manager) getRemoteClientWithImpersonation(_ context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
 	// This will be implemented in issues:
 	// - #106 (Client Caching)
 	// - #107 (Kubeconfig Secret Retrieval)
 	// - #109 (User Impersonation)
 	m.logger.Debug("getRemoteClientWithImpersonation - not yet implemented",
 		"cluster", clusterName,
-		"user", userEmail(user))
+		"user_hash", AnonymizeEmail(user.Email),
+		"group_count", len(user.Groups))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "remote cluster client retrieval not yet implemented",
@@ -240,24 +273,18 @@ func (m *Manager) getRemoteClientWithImpersonation(ctx context.Context, clusterN
 }
 
 // getRemoteDynamicWithImpersonation returns a dynamic client for a remote workload cluster.
-func (m *Manager) getRemoteDynamicWithImpersonation(ctx context.Context, clusterName string, user *UserInfo) (dynamic.Interface, error) {
+// Note: user is guaranteed to be non-nil and validated by the public API methods.
+func (m *Manager) getRemoteDynamicWithImpersonation(_ context.Context, clusterName string, user *UserInfo) (dynamic.Interface, error) {
 	// This will be implemented in issues:
 	// - #106 (Client Caching)
 	// - #107 (Kubeconfig Secret Retrieval)
 	// - #109 (User Impersonation)
 	m.logger.Debug("getRemoteDynamicWithImpersonation - not yet implemented",
 		"cluster", clusterName,
-		"user", userEmail(user))
+		"user_hash", AnonymizeEmail(user.Email),
+		"group_count", len(user.Groups))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "remote cluster dynamic client retrieval not yet implemented",
 	}
-}
-
-// userEmail safely extracts the email from UserInfo, returning an empty string if user is nil.
-func userEmail(user *UserInfo) string {
-	if user == nil {
-		return ""
-	}
-	return user.Email
 }
