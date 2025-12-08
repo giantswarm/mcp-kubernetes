@@ -17,6 +17,7 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/capi"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
 	contexttools "github.com/giantswarm/mcp-kubernetes/internal/tools/context"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/pod"
@@ -294,6 +295,11 @@ func runServe(config ServeConfig) error {
 
 	if err := cluster.RegisterClusterTools(mcpSrv, serverContext); err != nil {
 		return fmt.Errorf("failed to register cluster tools: %w", err)
+	}
+
+	// Register CAPI discovery tools (only registers when federation is enabled)
+	if err := capi.RegisterCAPITools(mcpSrv, serverContext); err != nil {
+		return fmt.Errorf("failed to register CAPI tools: %w", err)
 	}
 
 	// Start the appropriate server based on transport type
