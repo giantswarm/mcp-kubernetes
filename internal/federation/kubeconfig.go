@@ -354,8 +354,11 @@ func getSecretKeys(data map[string][]byte) []string {
 //
 // This function automatically adds the "agent: mcp-kubernetes" extra header to all
 // impersonated requests. This allows Kubernetes audit logs to identify that operations
-// were performed via the MCP server, providing a clear audit trail. The agent header
-// is merged with any existing extra headers from the UserInfo.
+// were performed via the MCP server, providing a clear audit trail.
+//
+// Security: The agent header is immutable and added AFTER user extras. Any attempt
+// by a user to override it via OAuth extra claims will be ignored. This ensures
+// audit trail integrity even if other user claims are manipulated.
 //
 // The resulting HTTP headers will include:
 //
@@ -403,18 +406,24 @@ func ConfigWithImpersonation(config *rest.Config, user *UserInfo) *rest.Config {
 // mergeExtraWithAgent creates a new extra map that includes the agent identifier.
 // The agent identifier is always added to provide an audit trail in Kubernetes logs.
 // If the user already has extra headers, they are preserved and the agent is added.
-// The user's extra values take precedence if they specify a custom agent value.
+//
+// # Security: Immutable Audit Trail
+//
+// The agent identifier is added AFTER user extras, making it immutable.
+// This ensures the audit trail cannot be tampered with, even if a user
+// attempts to override it via OAuth extra claims. Any user-specified
+// "agent" value will be overwritten with the canonical "mcp-kubernetes" value.
 func mergeExtraWithAgent(userExtra map[string][]string) map[string][]string {
 	// Pre-allocate map with expected capacity (user extras + agent)
 	extra := make(map[string][]string, len(userExtra)+1)
 
-	// Start with the agent identifier
-	extra[ImpersonationAgentExtraKey] = []string{ImpersonationAgentName}
-
-	// Merge user's extra headers (user values take precedence)
+	// Copy user's extra headers first
 	for k, v := range userExtra {
 		extra[k] = v
 	}
+
+	// Add agent identifier LAST to ensure it cannot be overridden (immutable audit trail)
+	extra[ImpersonationAgentExtraKey] = []string{ImpersonationAgentName}
 
 	return extra
 }

@@ -116,6 +116,28 @@
 // Administrators should configure Workload Cluster RBAC policies to match the exact
 // group strings provided by their identity provider through Dex.
 //
+// # OAuth Provider Trust Boundary
+//
+// The OAuth provider (e.g., Dex with GitHub/Azure AD/LDAP connectors) is a critical
+// trust boundary in this architecture. The MCP server trusts the OAuth provider to:
+//
+//   - Accurately identify users (email claim)
+//   - Correctly enumerate group memberships (groups claim)
+//   - Not return privileged system groups unless the user is actually a member
+//
+// Security implications:
+//
+//   - If an OAuth provider is compromised and returns false group claims (e.g.,
+//     "system:masters"), users could gain unintended cluster-admin privileges.
+//   - This is consistent with direct kubectl access: the same risk exists when
+//     users authenticate directly to clusters via OIDC.
+//   - Defense: Configure your OAuth provider with appropriate access controls,
+//     audit logs, and avoid mapping external groups directly to "system:masters".
+//
+// The agent header ("Impersonate-Extra-agent: mcp-kubernetes") is immutable and
+// cannot be overridden by user-supplied OAuth claims. This ensures the audit trail
+// always correctly identifies MCP-mediated access, even if other claims are manipulated.
+//
 // # RBAC Requirements for Impersonation
 //
 // For impersonation to work, the admin credentials in the CAPI kubeconfig secret

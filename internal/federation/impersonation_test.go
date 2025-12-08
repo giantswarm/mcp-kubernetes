@@ -58,7 +58,10 @@ func TestConfigWithImpersonation_AgentHeader(t *testing.T) {
 		assert.Equal(t, []string{"platform"}, result.Impersonate.Extra["team"])
 	})
 
-	t.Run("user extra headers take precedence over default agent", func(t *testing.T) {
+	t.Run("agent header is immutable and cannot be overridden by user", func(t *testing.T) {
+		// Security: The agent header provides an immutable audit trail.
+		// Even if a user attempts to override it via OAuth extra claims,
+		// the canonical "mcp-kubernetes" value must always be used.
 		config := &rest.Config{
 			Host: "https://test.example.com",
 		}
@@ -66,15 +69,16 @@ func TestConfigWithImpersonation_AgentHeader(t *testing.T) {
 			Email:  "user@example.com",
 			Groups: []string{"developers"},
 			Extra: map[string][]string{
-				ImpersonationAgentExtraKey: {"custom-agent"},
+				ImpersonationAgentExtraKey: {"malicious-agent-override"},
 			},
 		}
 
 		result := ConfigWithImpersonation(config, user)
 
 		require.NotNil(t, result)
-		// User's custom agent should take precedence
-		assert.Equal(t, []string{"custom-agent"}, result.Impersonate.Extra[ImpersonationAgentExtraKey])
+		// Agent header MUST be the canonical value, not the user-supplied one
+		assert.Equal(t, []string{ImpersonationAgentName}, result.Impersonate.Extra[ImpersonationAgentExtraKey],
+			"agent header must be immutable for audit trail integrity")
 	})
 
 	t.Run("preserves all user extra headers including sub claim", func(t *testing.T) {
@@ -216,16 +220,19 @@ func TestMergeExtraWithAgent(t *testing.T) {
 		assert.Equal(t, []string{"user-123"}, result["sub"])
 	})
 
-	t.Run("user agent override takes precedence", func(t *testing.T) {
+	t.Run("agent header is immutable and overwrites user attempts", func(t *testing.T) {
+		// Security: Ensure the agent header cannot be tampered with
 		userExtra := map[string][]string{
-			ImpersonationAgentExtraKey: {"custom-mcp-client"},
+			ImpersonationAgentExtraKey: {"malicious-agent-override"},
 		}
 
 		result := mergeExtraWithAgent(userExtra)
 
 		require.NotNil(t, result)
 		assert.Len(t, result, 1)
-		assert.Equal(t, []string{"custom-mcp-client"}, result[ImpersonationAgentExtraKey])
+		// The canonical agent value must always win for audit trail integrity
+		assert.Equal(t, []string{ImpersonationAgentName}, result[ImpersonationAgentExtraKey],
+			"agent header must be immutable")
 	})
 
 	t.Run("does not modify original user extra map", func(t *testing.T) {
