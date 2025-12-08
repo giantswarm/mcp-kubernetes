@@ -80,6 +80,14 @@ func (cc *ClusterClient) IsFederated() bool {
 func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName string) (*ClusterClient, string) {
 	fedManager := sc.FederationManager()
 
+	// If a cluster is specified, validate it early to provide fast feedback
+	// and prevent unnecessary processing with invalid input
+	if clusterName != "" {
+		if err := federation.ValidateClusterName(clusterName); err != nil {
+			return nil, "invalid cluster name provided"
+		}
+	}
+
 	// If a cluster is specified but federation isn't enabled, return an error
 	if clusterName != "" && fedManager == nil {
 		return nil, "multi-cluster operations require federation mode to be enabled"
@@ -204,8 +212,9 @@ func FormatClusterError(err error, clusterName string) string {
 		return "invalid cluster name provided"
 	}
 
-	// For unhandled errors, return a generic message
-	return fmt.Sprintf("failed to access cluster: %v", err)
+	// For unhandled errors, return a generic message that doesn't leak internal details.
+	// The actual error should be logged server-side for debugging purposes.
+	return "failed to access cluster: an unexpected error occurred"
 }
 
 // ValidateClusterParam validates that the cluster parameter can be used.

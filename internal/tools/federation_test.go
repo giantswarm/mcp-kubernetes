@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -425,6 +426,68 @@ func TestGetClusterClientWithOAuth(t *testing.T) {
 		}
 		if errMsg != errMsgFederationRequired {
 			t.Errorf("Expected error message %q, got %q", errMsgFederationRequired, errMsg)
+		}
+	})
+
+	t.Run("with invalid cluster name returns validation error", func(t *testing.T) {
+		ctx := context.Background()
+
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(&mockK8sClient{}),
+			server.WithLogger(&mockLogger{}),
+		)
+		if err != nil {
+			t.Fatalf("Failed to create server context: %v", err)
+		}
+		defer func() { _ = sc.Shutdown() }()
+
+		// Invalid cluster names should be rejected early
+		invalidNames := []string{
+			"../escape",          // path traversal
+			"cluster/with/slash", // path characters
+			"UPPERCASE",          // must be lowercase
+			"cluster_underscore", // underscores not allowed
+			"-starts-with-dash",  // must start with alphanumeric
+		}
+
+		for _, invalidName := range invalidNames {
+			client, errMsg := GetClusterClient(ctx, sc, invalidName)
+			if errMsg == "" {
+				t.Errorf("GetClusterClient with invalid name %q should fail", invalidName)
+			}
+			if client != nil {
+				t.Errorf("GetClusterClient should not return a client for invalid name %q", invalidName)
+			}
+			if !strings.Contains(errMsg, "invalid cluster name") {
+				t.Errorf("Error message for %q should mention 'invalid cluster name', got: %s", invalidName, errMsg)
+			}
+		}
+	})
+}
+
+func TestFormatClusterError_GenericFallback(t *testing.T) {
+	// Test that the generic error fallback doesn't leak internal error details
+	t.Run("unhandled error returns generic message", func(t *testing.T) {
+		// Create a custom error that doesn't match any known federation error types
+		customErr := fmt.Errorf("internal database connection failed: host=10.0.0.5 password=secret123")
+
+		result := FormatClusterError(customErr, "test-cluster")
+
+		// Should NOT contain the internal error details
+		if strings.Contains(result, "database") {
+			t.Errorf("Generic error should not leak 'database', got: %s", result)
+		}
+		if strings.Contains(result, "10.0.0.5") {
+			t.Errorf("Generic error should not leak IP address, got: %s", result)
+		}
+		if strings.Contains(result, "secret123") {
+			t.Errorf("Generic error should not leak password, got: %s", result)
+		}
+
+		// Should contain the expected generic message
+		expectedMsg := "failed to access cluster: an unexpected error occurred"
+		if result != expectedMsg {
+			t.Errorf("Expected generic message %q, got %q", expectedMsg, result)
 		}
 	})
 }
