@@ -40,6 +40,10 @@ var (
 	// ErrUserInfoRequired indicates that user information is required but was not provided.
 	ErrUserInfoRequired = fmt.Errorf("user information is required for cluster operations")
 
+	// ErrUserEmailRequired indicates that the user's email is required but not present.
+	// The email is used as the Impersonate-User header value for Kubernetes RBAC.
+	ErrUserEmailRequired = fmt.Errorf("user email is required for impersonation")
+
 	// ErrInvalidEmail indicates that the email address format is invalid.
 	ErrInvalidEmail = fmt.Errorf("invalid email address format")
 

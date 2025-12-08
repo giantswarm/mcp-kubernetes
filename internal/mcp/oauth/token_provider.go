@@ -20,6 +20,7 @@ const (
 	// This token can be used for downstream Kubernetes API authentication.
 	// The custom contextKey type ensures this key cannot collide with string keys
 	// from other packages.
+	//nolint:gosec // G101 false positive - this is a context key name, not a credential
 	accessTokenKey contextKey = "oauth_access_token"
 )
 

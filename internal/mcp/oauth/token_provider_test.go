@@ -89,6 +89,7 @@ func TestGetIDToken(t *testing.T) {
 	})
 
 	t.Run("returns id_token when present as string", func(t *testing.T) {
+		//nolint:gosec // G101 false positive - this is a fake JWT token for testing, not a real credential
 		expectedIDToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.test"
 		token := &oauth2.Token{
 			AccessToken: "access-token",
