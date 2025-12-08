@@ -10,8 +10,16 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
-// RegisterContextTools registers all context management tools with the MCP server
+// RegisterContextTools registers all context management tools with the MCP server.
+// These tools are only registered when NOT running in in-cluster mode, as
+// kubeconfig context switching is not applicable when using service account authentication.
 func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
+	// Skip registering context tools when running in-cluster mode
+	// as context switching is not applicable with service account authentication
+	if sc.InClusterMode() {
+		return nil
+	}
+
 	// kubernetes_context_list tool
 	listContextsTool := mcp.NewTool("kubernetes_context_list",
 		mcp.WithDescription("List all available Kubernetes contexts"),

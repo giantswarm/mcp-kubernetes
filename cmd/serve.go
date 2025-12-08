@@ -245,6 +245,11 @@ func runServe(config ServeConfig) error {
 	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
 	serverContextOptions = append(serverContextOptions, server.WithInstrumentationProvider(instrumentationProvider))
 
+	// Set in-cluster mode flag
+	if config.InCluster {
+		serverContextOptions = append(serverContextOptions, server.WithInCluster(true))
+	}
+
 	// Create client factory for downstream OAuth if enabled
 	if config.DownstreamOAuth {
 		clientFactory, err := k8s.NewBearerTokenClientFactory(k8sConfig)

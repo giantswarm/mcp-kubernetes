@@ -27,6 +27,9 @@ func recordK8sOperation(ctx context.Context, sc *server.ServerContext, operation
 func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
+
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
@@ -45,8 +48,12 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-	// Use the appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	obj, err := k8sClient.Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
@@ -71,6 +78,9 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 // handleListResources handles kubectl list operations
 func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
+
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
 
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
@@ -130,8 +140,12 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		metricsNamespace = "all"
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	paginatedResponse, err := k8sClient.List(ctx, kubeContext, namespace, resourceType, apiGroup, opts)
@@ -189,6 +203,9 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
+
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
@@ -207,8 +224,12 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	description, err := k8sClient.Describe(ctx, kubeContext, namespace, resourceType, apiGroup, name)
@@ -248,6 +269,9 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 		}
 	}
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(request.GetArguments())
+
 	kubeContext := request.GetString("kubeContext", "")
 	namespace, err := request.RequireString("namespace")
 	if err != nil {
@@ -270,8 +294,12 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse manifest: %v", err)), nil
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	createdObj, err := k8sClient.Create(ctx, kubeContext, namespace, obj)
@@ -319,6 +347,9 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		}
 	}
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(request.GetArguments())
+
 	kubeContext := request.GetString("kubeContext", "")
 	namespace, err := request.RequireString("namespace")
 	if err != nil {
@@ -341,8 +372,12 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse manifest: %v", err)), nil
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	appliedObj, err := k8sClient.Apply(ctx, kubeContext, namespace, obj)
@@ -390,6 +425,9 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 		}
 	}
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(request.GetArguments())
+
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
 	namespace, err := request.RequireString("namespace")
@@ -407,8 +445,12 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	err = k8sClient.Delete(ctx, kubeContext, namespace, resourceType, apiGroup, name)
@@ -441,6 +483,9 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 			return mcp.NewToolResultError("Patch operations are not allowed in non-destructive mode"), nil
 		}
 	}
+
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(request.GetArguments())
 
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
@@ -488,8 +533,12 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal patch data: %v", err)), nil
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	patchedObj, err := k8sClient.Patch(ctx, kubeContext, namespace, resourceType, apiGroup, name, patchType, patchBytes)
@@ -529,6 +578,9 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		}
 	}
 
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(request.GetArguments())
+
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
 	namespace, err := request.RequireString("namespace")
@@ -551,8 +603,12 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError("replicas is required"), nil
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	start := time.Now()
 	err = k8sClient.Scale(ctx, kubeContext, namespace, resourceType, apiGroup, name, int32(replicas))
