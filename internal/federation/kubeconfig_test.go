@@ -3,8 +3,6 @@ package federation
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,106 +11,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
 )
 
-// validKubeconfig is a minimal valid kubeconfig for testing.
-// Uses insecure-skip-tls-verify to avoid certificate validation issues in tests.
-const validKubeconfig = `
-apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    server: https://test-cluster.example.com:6443
-    insecure-skip-tls-verify: true
-  name: test-cluster
-contexts:
-- context:
-    cluster: test-cluster
-    user: test-user
-  name: test-context
-current-context: test-context
-users:
-- name: test-user
-  user:
-    token: test-token-for-testing
-`
-
-// invalidKubeconfig is an invalid kubeconfig for testing error handling.
-const invalidKubeconfig = `
-not-valid-yaml: [[[
-`
-
-// createTestCAPICluster creates an unstructured CAPI Cluster resource for testing.
-func createTestCAPICluster(name, namespace string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cluster.x-k8s.io/v1beta1",
-			"kind":       "Cluster",
-			"metadata": map[string]interface{}{
-				"name":      name,
-				"namespace": namespace,
-			},
-			"spec": map[string]interface{}{
-				"paused": false,
-			},
-			"status": map[string]interface{}{
-				"phase": "Provisioned",
-			},
-		},
-	}
-}
-
-// createTestKubeconfigSecret creates a Secret with kubeconfig data for testing.
-func createTestKubeconfigSecret(clusterName, namespace, key, kubeconfigData string) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterName + CAPISecretSuffix,
-			Namespace: namespace,
-		},
-		Data: map[string][]byte{
-			key: []byte(kubeconfigData),
-		},
-	}
-}
-
-// setupTestManager creates a Manager with fake clients for testing.
-func setupTestManager(t *testing.T, clusters []*unstructured.Unstructured, secrets []*corev1.Secret) *Manager {
-	t.Helper()
-
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-
-	// Create fake Kubernetes client with secrets
-	fakeClient := fake.NewSimpleClientset()
-	for _, secret := range secrets {
-		_, err := fakeClient.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{})
-		require.NoError(t, err)
-	}
-
-	// Create fake dynamic client with custom list kinds
-	// The dynamic fake client requires explicit registration of list kinds
-	scheme := runtime.NewScheme()
-	gvrToListKind := map[schema.GroupVersionResource]string{
-		CAPIClusterGVR: "ClusterList",
-	}
-
-	// Convert clusters to runtime.Objects for the fake client
-	var objects []runtime.Object
-	for _, cluster := range clusters {
-		objects = append(objects, cluster)
-	}
-
-	fakeDynamic := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objects...)
-
-	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
-	require.NoError(t, err)
-
-	return manager
-}
+// Note: Test helpers (createTestCAPICluster, createTestKubeconfigSecret, setupTestManager)
+// and test kubeconfig constants (testValidKubeconfig, testInvalidKubeconfig) are defined
+// in testing_helpers_test.go
 
 func TestGetKubeconfigForCluster(t *testing.T) {
 	tests := []struct {
@@ -130,7 +36,7 @@ func TestGetKubeconfigForCluster(t *testing.T) {
 				createTestCAPICluster("test-cluster", "org-acme"),
 			},
 			secrets: []*corev1.Secret{
-				createTestKubeconfigSecret("test-cluster", "org-acme", CAPISecretKey, validKubeconfig),
+				createTestKubeconfigSecret("test-cluster", "org-acme", CAPISecretKey, testValidKubeconfig),
 			},
 			checkResult: func(t *testing.T, config *rest.Config) {
 				assert.NotNil(t, config)
@@ -144,7 +50,7 @@ func TestGetKubeconfigForCluster(t *testing.T) {
 				createTestCAPICluster("alt-cluster", "org-acme"),
 			},
 			secrets: []*corev1.Secret{
-				createTestKubeconfigSecret("alt-cluster", "org-acme", CAPISecretKeyAlternate, validKubeconfig),
+				createTestKubeconfigSecret("alt-cluster", "org-acme", CAPISecretKeyAlternate, testValidKubeconfig),
 			},
 			checkResult: func(t *testing.T, config *rest.Config) {
 				assert.NotNil(t, config)
@@ -174,7 +80,7 @@ func TestGetKubeconfigForCluster(t *testing.T) {
 				createTestCAPICluster("invalid-kubeconfig", "org-acme"),
 			},
 			secrets: []*corev1.Secret{
-				createTestKubeconfigSecret("invalid-kubeconfig", "org-acme", CAPISecretKey, invalidKubeconfig),
+				createTestKubeconfigSecret("invalid-kubeconfig", "org-acme", CAPISecretKey, testInvalidKubeconfig),
 			},
 			expectedError: ErrKubeconfigInvalid,
 		},
@@ -191,7 +97,7 @@ func TestGetKubeconfigForCluster(t *testing.T) {
 						Namespace: "org-acme",
 					},
 					Data: map[string][]byte{
-						"wrong-key": []byte(validKubeconfig),
+						"wrong-key": []byte(testValidKubeconfig),
 					},
 				},
 			},
@@ -246,7 +152,7 @@ func TestGetKubeconfigForClusterValidated(t *testing.T) {
 			createTestCAPICluster("unreachable-cluster", "org-acme"),
 		}
 		secrets := []*corev1.Secret{
-			createTestKubeconfigSecret("unreachable-cluster", "org-acme", CAPISecretKey, validKubeconfig),
+			createTestKubeconfigSecret("unreachable-cluster", "org-acme", CAPISecretKey, testValidKubeconfig),
 		}
 		manager := setupTestManager(t, clusters, secrets)
 		defer manager.Close()
@@ -320,12 +226,12 @@ func TestFindClusterInfo(t *testing.T) {
 }
 
 func TestExtractKubeconfigData(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	logger := newTestLogger()
 
 	// Create minimal manager just for testing extractKubeconfigData
 	fakeClient := fake.NewSimpleClientset()
-	scheme := runtime.NewScheme()
-	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
+	testScheme := runtime.NewScheme()
+	fakeDynamic := createTestFakeDynamicClient(testScheme)
 	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 	require.NoError(t, err)
 	defer manager.Close()
@@ -605,7 +511,7 @@ func TestRemoteClientWithKubeconfig(t *testing.T) {
 			createTestCAPICluster("remote-cluster", "org-acme"),
 		}
 		secrets := []*corev1.Secret{
-			createTestKubeconfigSecret("remote-cluster", "org-acme", CAPISecretKey, validKubeconfig),
+			createTestKubeconfigSecret("remote-cluster", "org-acme", CAPISecretKey, testValidKubeconfig),
 		}
 		manager := setupTestManager(t, clusters, secrets)
 		defer manager.Close()
@@ -627,7 +533,7 @@ func TestRemoteClientWithKubeconfig(t *testing.T) {
 			createTestCAPICluster("remote-cluster", "org-acme"),
 		}
 		secrets := []*corev1.Secret{
-			createTestKubeconfigSecret("remote-cluster", "org-acme", CAPISecretKey, validKubeconfig),
+			createTestKubeconfigSecret("remote-cluster", "org-acme", CAPISecretKey, testValidKubeconfig),
 		}
 		manager := setupTestManager(t, clusters, secrets)
 		defer manager.Close()
@@ -681,14 +587,11 @@ func TestCAPISecretConstants(t *testing.T) {
 }
 
 func TestFindClusterInfoWithDynamicClientError(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	logger := newTestLogger()
 
 	fakeClient := fake.NewSimpleClientset()
-	scheme := runtime.NewScheme()
-	gvrToListKind := map[schema.GroupVersionResource]string{
-		CAPIClusterGVR: "ClusterList",
-	}
-	fakeDynamic := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind)
+	testScheme := runtime.NewScheme()
+	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
 	// Add reactor to simulate API error
 	fakeDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
@@ -707,7 +610,7 @@ func TestFindClusterInfoWithDynamicClientError(t *testing.T) {
 }
 
 func TestGetKubeconfigFromSecretWithClientError(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	logger := newTestLogger()
 
 	fakeClient := fake.NewSimpleClientset()
 
@@ -716,8 +619,8 @@ func TestGetKubeconfigFromSecretWithClientError(t *testing.T) {
 		return true, nil, errors.New("permission denied")
 	})
 
-	scheme := runtime.NewScheme()
-	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
+	testScheme := runtime.NewScheme()
+	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
 	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 	require.NoError(t, err)
@@ -743,11 +646,11 @@ func TestClusterInfoStruct(t *testing.T) {
 }
 
 func TestValidateClusterConnectionError(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	logger := newTestLogger()
 
 	fakeClient := fake.NewSimpleClientset()
-	scheme := runtime.NewScheme()
-	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
+	testScheme := runtime.NewScheme()
+	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
 	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 	require.NoError(t, err)

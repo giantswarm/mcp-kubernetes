@@ -13,20 +13,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// CAPI resource identifiers for cluster lookup.
-var (
-	// CAPIClusterGVR is the GroupVersionResource for CAPI Cluster objects.
-	CAPIClusterGVR = schema.GroupVersionResource{
-		Group:    "cluster.x-k8s.io",
-		Version:  "v1beta1",
-		Resource: "clusters",
-	}
-)
-
-// CAPISecretKeyAlternate is an alternate key used by some CAPI providers
-// for storing kubeconfig data in secrets.
-const CAPISecretKeyAlternate = "kubeconfig"
-
 // ConnectionValidationTimeout is the timeout for validating cluster connectivity.
 const ConnectionValidationTimeout = 10 * time.Second
 
@@ -277,14 +263,12 @@ func isNotFoundError(err error) bool {
 	return apierrors.IsNotFound(err)
 }
 
-// sanitizeHost returns a sanitized version of the host for logging.
-// It masks sensitive parts of the URL to prevent information leakage.
+// sanitizeHost returns the host for logging purposes.
+// Returns "<empty>" for empty hosts to make logs more readable.
 func sanitizeHost(host string) string {
 	if host == "" {
 		return "<empty>"
 	}
-	// Just return the host as-is for now; the host URL itself is not
-	// considered sensitive in most deployments
 	return host
 }
 

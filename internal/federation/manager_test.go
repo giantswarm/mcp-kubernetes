@@ -12,27 +12,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-// createFakeDynamicClient creates a fake dynamic client with CAPI cluster GVR registered.
-// This is required because the dynamic fake client needs explicit registration of list kinds.
-func createFakeDynamicClient(scheme *runtime.Scheme, objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
-	gvrToListKind := map[schema.GroupVersionResource]string{
-		CAPIClusterGVR: "ClusterList",
-	}
-	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objects...)
-}
+// Note: createTestFakeDynamicClient is defined in testing_helpers_test.go
 
 func TestNewManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 
 	tests := []struct {
 		name          string
@@ -93,7 +84,7 @@ func TestManager_GetClient(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 
 	tests := []struct {
 		name          string
@@ -197,7 +188,7 @@ func TestManager_GetDynamicClient(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 
 	tests := []struct {
 		name          string
@@ -282,7 +273,7 @@ func TestManager_ListClusters(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 
 	tests := []struct {
 		name          string
@@ -344,7 +335,7 @@ func TestManager_GetClusterSummary(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 
 	tests := []struct {
 		name          string
@@ -422,7 +413,7 @@ func TestManager_Close(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 
 	t.Run("close succeeds", func(t *testing.T) {
 		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
@@ -470,7 +461,7 @@ func TestManager_Concurrency(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 
 	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
 	require.NoError(t, err)
@@ -516,7 +507,7 @@ func TestManager_OptionsComposition(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
-	fakeDynamic := createFakeDynamicClient(scheme)
+	fakeDynamic := createTestFakeDynamicClient(scheme)
 	metrics := newMockMetricsRecorder()
 
 	// Test that WithManagerCacheConfig and WithManagerCacheMetrics can be combined

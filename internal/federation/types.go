@@ -2,6 +2,8 @@ package federation
 
 import (
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // UserInfo contains the authenticated user's identity information
@@ -102,13 +104,27 @@ const (
 	ClusterPhaseUnknown ClusterPhase = "Unknown"
 )
 
+// CAPI resource identifiers and conventions for cluster lookup.
+var (
+	// CAPIClusterGVR is the GroupVersionResource for CAPI Cluster objects.
+	CAPIClusterGVR = schema.GroupVersionResource{
+		Group:    "cluster.x-k8s.io",
+		Version:  "v1beta1",
+		Resource: "clusters",
+	}
+)
+
 // CAPISecretSuffix is the suffix used by CAPI for kubeconfig secrets.
 // The full secret name is: ${CLUSTER_NAME}-kubeconfig
 const CAPISecretSuffix = "-kubeconfig"
 
 // CAPISecretKey is the key within the kubeconfig secret that contains
-// the actual kubeconfig YAML data.
+// the actual kubeconfig YAML data (standard CAPI convention).
 const CAPISecretKey = "value"
+
+// CAPISecretKeyAlternate is an alternate key used by some CAPI providers
+// for storing kubeconfig data in secrets.
+const CAPISecretKeyAlternate = "kubeconfig"
 
 // ImpersonationHeaders contains the header names used for Kubernetes
 // user impersonation.

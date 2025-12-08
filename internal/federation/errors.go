@@ -87,8 +87,12 @@ func (e *KubeconfigError) Unwrap() error {
 }
 
 // Is implements custom error matching for errors.Is().
-// This allows KubeconfigError to match against both the underlying error
-// and our sentinel errors (ErrKubeconfigSecretNotFound, ErrKubeconfigInvalid).
+// This allows KubeconfigError to match against our sentinel errors:
+//   - ErrKubeconfigSecretNotFound: matches when NotFound is true
+//   - ErrKubeconfigInvalid: matches when NotFound is false (i.e., the secret
+//     exists but contains invalid data, missing keys, or unparseable content)
+//
+// Note: The underlying error (Err field) is matched via Unwrap(), not Is().
 func (e *KubeconfigError) Is(target error) bool {
 	switch target {
 	case ErrKubeconfigSecretNotFound:
