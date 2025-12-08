@@ -21,6 +21,16 @@ check: lint-yaml ## Run YAML linter
 
 ##@ Testing
 
+.PHONY: helm-lint
+helm-lint: ## Lint Helm chart
+	@echo "Linting Helm chart..."
+	@helm lint ./helm/mcp-kubernetes
+
+.PHONY: helm-test
+helm-test: ## Run Helm chart unit tests (requires helm-unittest plugin)
+	@echo "Running Helm unit tests..."
+	@helm unittest ./helm/mcp-kubernetes
+
 .PHONY: test-vet
 test-vet: ## Run go test and go vet
 	@echo "Running Go tests (with NO_COLOR=true)..."
