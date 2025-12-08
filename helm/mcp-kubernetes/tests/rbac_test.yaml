@@ -1,3 +1,13 @@
+# RBAC template tests for mcp-kubernetes Helm chart
+#
+# These tests verify the RBAC resources created by the Helm chart:
+# - Basic ClusterRole/ClusterRoleBinding (standard mode)
+# - CAPI mode ClusterRole for cluster discovery and auth
+# - Namespace-scoped Roles for kubeconfig secret access (recommended)
+# - Cluster-wide secret access ClusterRole (not recommended, requires explicit opt-in)
+#
+# Run with: helm unittest ./helm/mcp-kubernetes
+
 suite: RBAC template tests
 templates:
   - templates/rbac.yaml

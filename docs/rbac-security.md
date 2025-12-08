@@ -28,8 +28,8 @@ The MCP server implements a **Hub-and-Spoke** identity model that preserves user
 │                     mcp-kubernetes Server                           │
 │                                                                     │
 │  1. Validate OAuth token                                            │
-│  2. Extract user identity (email, groups)                          │
-│  3. Build impersonation headers                                    │
+│  2. Extract user identity (email, groups)                           │
+│  3. Build impersonation headers                                     │
 └─────────────────────────────────┬───────────────────────────────────┘
                                   │
                                   ▼
@@ -37,11 +37,11 @@ The MCP server implements a **Hub-and-Spoke** identity model that preserves user
 │                    Workload Cluster API Server                      │
 │                                                                     │
 │  Request Headers:                                                   │
-│  - Impersonate-User: user@example.com                              │
-│  - Impersonate-Group: team-alpha                                   │
-│  - Impersonate-Extra-Agent: mcp-kubernetes                         │
+│  - Impersonate-User: user@example.com                               │
+│  - Impersonate-Group: team-alpha                                    │
+│  - Impersonate-Extra-Agent: mcp-kubernetes                          │
 │                                                                     │
-│  → RBAC evaluated as if user@example.com made the request          │
+│  → RBAC evaluated as if user@example.com made the request           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
