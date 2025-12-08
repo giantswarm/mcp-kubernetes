@@ -31,6 +31,18 @@ var (
 	// ErrManagerClosed indicates that the ClusterClientManager has been closed
 	// and can no longer be used.
 	ErrManagerClosed = errors.New("federation manager is closed")
+
+	// ErrAccessDenied indicates that the user does not have permission to
+	// perform the requested operation. This is returned after a SubjectAccessReview
+	// determines the user lacks the required RBAC permissions.
+	ErrAccessDenied = errors.New("access denied")
+
+	// ErrAccessCheckFailed indicates that the access check itself failed
+	// (e.g., due to API server errors), not that access was denied.
+	ErrAccessCheckFailed = errors.New("access check failed")
+
+	// ErrInvalidAccessCheck indicates that the AccessCheck parameters are invalid.
+	ErrInvalidAccessCheck = errors.New("invalid access check parameters")
 )
 
 // userFacingClusterError is the standardized message returned to users for all
@@ -245,4 +257,146 @@ func (e *ImpersonationError) Is(target error) bool {
 // the user's administrator needs to address.
 func (e *ImpersonationError) UserFacingError() string {
 	return "insufficient permissions to access this cluster - please contact your administrator to verify your RBAC configuration"
+}
+
+// AccessDeniedError provides detailed context about a permission denial.
+// This error is returned when a SubjectAccessReview determines the user
+// lacks permission to perform an operation.
+//
+// # Usage
+//
+// AccessDeniedError provides actionable information about what permission is missing:
+//
+//	if errors.Is(err, federation.ErrAccessDenied) {
+//		var accessErr *federation.AccessDeniedError
+//		if errors.As(err, &accessErr) {
+//			fmt.Printf("You need %s permission on %s/%s in namespace %s\n",
+//				accessErr.Verb, accessErr.APIGroup, accessErr.Resource, accessErr.Namespace)
+//		}
+//	}
+type AccessDeniedError struct {
+	// ClusterName is the cluster where the permission check was performed.
+	ClusterName string
+
+	// UserEmail is the email of the user (for logging only, anonymized in Error()).
+	UserEmail string
+
+	// Verb is the action that was denied (e.g., "delete", "create").
+	Verb string
+
+	// Resource is the resource type for which access was denied.
+	Resource string
+
+	// APIGroup is the API group of the resource.
+	APIGroup string
+
+	// Namespace is the namespace where access was denied (empty for cluster-scoped).
+	Namespace string
+
+	// Name is the specific resource name if checked (empty for type-level checks).
+	Name string
+
+	// Reason provides details about why access was denied (from Kubernetes).
+	Reason string
+}
+
+// Error implements the error interface.
+func (e *AccessDeniedError) Error() string {
+	var resource string
+	if e.APIGroup != "" {
+		resource = e.APIGroup + "/" + e.Resource
+	} else {
+		resource = e.Resource
+	}
+
+	location := "cluster-wide"
+	if e.Namespace != "" {
+		location = "namespace " + e.Namespace
+	}
+
+	target := resource
+	if e.Name != "" {
+		target = resource + "/" + e.Name
+	}
+
+	return fmt.Sprintf("access denied: user %s cannot %s %s in %s on cluster %q: %s",
+		AnonymizeEmail(e.UserEmail), e.Verb, target, location, e.ClusterName, e.Reason)
+}
+
+// Unwrap returns nil as there is no underlying error.
+func (e *AccessDeniedError) Unwrap() error {
+	return nil
+}
+
+// Is implements custom error matching for errors.Is().
+// This allows AccessDeniedError to match against ErrAccessDenied.
+func (e *AccessDeniedError) Is(target error) bool {
+	return target == ErrAccessDenied
+}
+
+// UserFacingError returns a message suitable for displaying to end users.
+// This provides enough context for the user to understand what permission
+// they need without exposing internal system details.
+func (e *AccessDeniedError) UserFacingError() string {
+	var resource string
+	if e.APIGroup != "" {
+		resource = e.APIGroup + "/" + e.Resource
+	} else {
+		resource = e.Resource
+	}
+
+	target := resource
+	if e.Name != "" {
+		target = resource + "/" + e.Name
+	}
+
+	location := ""
+	if e.Namespace != "" {
+		location = fmt.Sprintf(" in namespace %q", e.Namespace)
+	}
+
+	return fmt.Sprintf("permission denied: you cannot %s %s%s - please contact your administrator to request access",
+		e.Verb, target, location)
+}
+
+// AccessCheckError provides context when the access check itself fails.
+// This is different from AccessDeniedError: it means we couldn't determine
+// whether access is allowed, not that access is denied.
+type AccessCheckError struct {
+	// ClusterName is the cluster where the check was attempted.
+	ClusterName string
+
+	// Check contains the access check parameters.
+	Check *AccessCheck
+
+	// Reason describes what went wrong during the check.
+	Reason string
+
+	// Err is the underlying error.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *AccessCheckError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("access check failed for cluster %q (%s %s): %s: %v",
+			e.ClusterName, e.Check.Verb, e.Check.Resource, e.Reason, e.Err)
+	}
+	return fmt.Sprintf("access check failed for cluster %q (%s %s): %s",
+		e.ClusterName, e.Check.Verb, e.Check.Resource, e.Reason)
+}
+
+// Unwrap returns the underlying error.
+func (e *AccessCheckError) Unwrap() error {
+	return e.Err
+}
+
+// Is implements custom error matching for errors.Is().
+func (e *AccessCheckError) Is(target error) bool {
+	return target == ErrAccessCheckFailed
+}
+
+// UserFacingError returns a message suitable for displaying to end users.
+func (e *AccessCheckError) UserFacingError() string {
+	return "unable to verify permissions - please try again or contact your administrator"
 }

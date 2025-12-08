@@ -174,6 +174,7 @@ var (
 
 // CAPISecretSuffix is the suffix used by CAPI for kubeconfig secrets.
 // The full secret name is: ${CLUSTER_NAME}-kubeconfig
+// nolint:gosec // G101: This is not a hardcoded credential, it's a suffix for secret naming convention
 const CAPISecretSuffix = "-kubeconfig"
 
 // CAPISecretKey is the key within the kubeconfig secret that contains
@@ -207,3 +208,69 @@ const (
 	// This appears as "Impersonate-Extra-agent: mcp-kubernetes" in HTTP requests.
 	ImpersonationAgentExtraKey = "agent"
 )
+
+// AccessCheck describes a permission check to perform against a Kubernetes cluster.
+// This is used with SubjectAccessReview to verify if the authenticated user can
+// perform a specific action before attempting the operation.
+//
+// # Usage
+//
+// AccessCheck is typically used for pre-flight checks before destructive operations:
+//
+//	check := &AccessCheck{
+//		Verb:      "delete",
+//		Resource:  "pods",
+//		APIGroup:  "", // core API group
+//		Namespace: "production",
+//	}
+//	result, err := manager.CheckAccess(ctx, "my-cluster", user, check)
+//	if err != nil {
+//		return err
+//	}
+//	if !result.Allowed {
+//		return fmt.Errorf("permission denied: %s", result.Reason)
+//	}
+type AccessCheck struct {
+	// Verb is the Kubernetes API verb to check (e.g., "get", "list", "create", "delete", "patch", "watch").
+	// This is required.
+	Verb string
+
+	// Resource is the Kubernetes resource type to check (e.g., "pods", "deployments", "secrets").
+	// This is required.
+	Resource string
+
+	// APIGroup is the API group for the resource (e.g., "", "apps", "batch").
+	// Use "" for core API resources like pods and services.
+	APIGroup string
+
+	// Namespace is the namespace to check permissions in.
+	// Leave empty for cluster-scoped resources or cluster-wide checks.
+	Namespace string
+
+	// Name is the specific resource name to check.
+	// Leave empty to check permissions for all resources of the type.
+	Name string
+
+	// Subresource is the subresource to check (e.g., "logs", "exec", "portforward" for pods).
+	// Leave empty for the main resource.
+	Subresource string
+}
+
+// AccessCheckResult contains the result of a SubjectAccessReview check.
+type AccessCheckResult struct {
+	// Allowed indicates whether the requested action is permitted.
+	Allowed bool
+
+	// Denied indicates whether the requested action was explicitly denied.
+	// This is different from !Allowed - a request can be neither allowed nor denied
+	// (e.g., when no policy matches).
+	Denied bool
+
+	// Reason provides a human-readable explanation of the decision.
+	// This may include information about which RBAC rule matched or why access was denied.
+	Reason string
+
+	// EvaluationError contains any error that occurred during policy evaluation.
+	// A non-empty EvaluationError typically means the result is inconclusive.
+	EvaluationError string
+}

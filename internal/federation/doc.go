@@ -157,6 +157,34 @@
 //
 // CAPI-generated admin credentials typically have these permissions by default.
 //
+// # Pre-flight Access Checks
+//
+// The package provides SubjectAccessReview (SAR) pre-flight checks to verify user
+// permissions before attempting operations:
+//
+//	// Check if user can delete pods before attempting
+//	result, err := manager.CheckAccess(ctx, "prod-cluster", user, &AccessCheck{
+//		Verb:      "delete",
+//		Resource:  "pods",
+//		Namespace: "production",
+//	})
+//	if err != nil {
+//		return err // Check failed (API error, etc.)
+//	}
+//	if !result.Allowed {
+//		return fmt.Errorf("permission denied: %s", result.Reason)
+//	}
+//	// Proceed with delete...
+//
+// Or use the convenience method that returns an error if denied:
+//
+//	if err := manager.CheckAccessAllowed(ctx, cluster, user, check); err != nil {
+//		return err // Either check failed or access denied
+//	}
+//
+// The "can_i" tool (in internal/tools/access) exposes this functionality to AI agents,
+// allowing them to query permissions before attempting operations.
+//
 // # Error Handling
 //
 // The package defines specific error types for common failure scenarios:
@@ -165,6 +193,9 @@
 //   - ErrKubeconfigInvalid: Secret contains malformed kubeconfig data
 //   - ErrConnectionFailed: Network or TLS issues connecting to the cluster
 //   - ErrImpersonationFailed: User impersonation could not be configured
+//   - ErrAccessDenied: User lacks RBAC permissions for the operation
+//   - ErrAccessCheckFailed: The SAR check itself failed (not denied, but error)
+//   - ErrInvalidAccessCheck: Invalid AccessCheck parameters
 //
 // All user-facing errors return a generic message ("cluster access denied or unavailable")
 // to prevent information leakage that could enable cluster enumeration attacks.
