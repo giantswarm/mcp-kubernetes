@@ -27,6 +27,16 @@ var sensitiveAnnotations = map[string]bool{
 	"kubernetes.io/service-account-token": true,
 }
 
+// sensitiveConfigMapPatterns are name patterns that indicate a ConfigMap may contain secrets.
+var sensitiveConfigMapPatterns = []string{
+	"credentials",
+	"password",
+	"secret",
+	"auth",
+	"token",
+	"kubeconfig",
+}
+
 // MaskSecrets replaces secret data with redacted placeholders.
 // This prevents accidental exposure of sensitive data in tool responses.
 func MaskSecrets(obj map[string]interface{}) map[string]interface{} {
@@ -187,19 +197,22 @@ func ContainsSensitiveData(obj map[string]interface{}) bool {
 	case "secret":
 		return true
 	case "configmap":
-		// Some ConfigMaps contain sensitive data
+		// Some ConfigMaps contain sensitive data based on naming patterns
 		metadata, ok := obj["metadata"].(map[string]interface{})
-		if ok {
-			name, _ := metadata["name"].(string)
-			name = strings.ToLower(name)
-			// Common sensitive ConfigMap patterns
-			return strings.Contains(name, "credentials") ||
-				strings.Contains(name, "password") ||
-				strings.Contains(name, "secret") ||
-				strings.Contains(name, "auth") ||
-				strings.Contains(name, "token") ||
-				strings.Contains(name, "kubeconfig")
+		if !ok {
+			return false
 		}
+		name, ok := metadata["name"].(string)
+		if !ok {
+			return false
+		}
+		name = strings.ToLower(name)
+		for _, pattern := range sensitiveConfigMapPatterns {
+			if strings.Contains(name, pattern) {
+				return true
+			}
+		}
+		return false
 	case "serviceaccount":
 		// ServiceAccounts can contain token references
 		return true

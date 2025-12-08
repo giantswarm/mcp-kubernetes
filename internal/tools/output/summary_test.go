@@ -337,8 +337,8 @@ func TestGetNestedInt(t *testing.T) {
 		t.Errorf("getNestedInt(status.readyReplicas) = %d, %v, want 2, true", val, ok)
 	}
 
-	// Test missing path
-	val, ok = getNestedInt(obj, "missing", "path")
+	// Test missing path - use blank identifier since we only care about ok
+	_, ok = getNestedInt(obj, "missing", "path")
 	if ok {
 		t.Error("getNestedInt(missing.path) should return false")
 	}

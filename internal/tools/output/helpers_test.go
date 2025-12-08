@@ -7,11 +7,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// Test constants to avoid goconst warnings
+const (
+	testKindPod    = "Pod"
+	testKindSecret = "Secret"
+)
+
 func TestFromRuntimeObjects(t *testing.T) {
 	objects := []runtime.Object{
 		&unstructured.Unstructured{
 			Object: map[string]interface{}{
-				"kind": "Pod",
+				"kind": testKindPod,
 				"metadata": map[string]interface{}{
 					"name": "test-pod",
 				},
@@ -28,7 +34,7 @@ func TestFromRuntimeObjects(t *testing.T) {
 		t.Errorf("Expected 1 result, got %d", len(result))
 	}
 
-	if result[0]["kind"] != "Pod" {
+	if result[0]["kind"] != testKindPod {
 		t.Error("Kind should be Pod")
 	}
 }
@@ -47,7 +53,7 @@ func TestFromRuntimeObjects_Empty(t *testing.T) {
 func TestToRuntimeObjects(t *testing.T) {
 	maps := []map[string]interface{}{
 		{
-			"kind": "Pod",
+			"kind": testKindPod,
 			"metadata": map[string]interface{}{
 				"name": "test-pod",
 			},
@@ -65,7 +71,7 @@ func TestToRuntimeObjects(t *testing.T) {
 		t.Fatal("Expected unstructured.Unstructured")
 	}
 
-	if unstructuredObj.GetKind() != "Pod" {
+	if unstructuredObj.GetKind() != testKindPod {
 		t.Error("Kind should be Pod")
 	}
 }
@@ -81,7 +87,7 @@ func TestProcessRuntimeObjects(t *testing.T) {
 	objects := []runtime.Object{
 		&unstructured.Unstructured{
 			Object: map[string]interface{}{
-				"kind": "Secret",
+				"kind": testKindSecret,
 				"metadata": map[string]interface{}{
 					"name":          "test-secret",
 					"managedFields": []interface{}{"field"},
@@ -127,7 +133,7 @@ func TestProcessRuntimeObjectsWithLimit(t *testing.T) {
 	for i := range objects {
 		objects[i] = &unstructured.Unstructured{
 			Object: map[string]interface{}{
-				"kind": "Pod",
+				"kind": testKindPod,
 				"metadata": map[string]interface{}{
 					"name": "pod-" + string(rune('a'+i)),
 				},
@@ -159,7 +165,7 @@ func TestProcessSingleRuntimeObject(t *testing.T) {
 
 	obj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
-			"kind": "Secret",
+			"kind": testKindSecret,
 			"metadata": map[string]interface{}{
 				"name":          "test-secret",
 				"managedFields": []interface{}{"field"},

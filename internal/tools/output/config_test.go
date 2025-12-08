@@ -4,6 +4,11 @@ import (
 	"testing"
 )
 
+// Test constants to avoid goconst warnings
+const (
+	testModifiedValue = "modified"
+)
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
@@ -148,12 +153,12 @@ func TestConfigClone(t *testing.T) {
 
 	// Verify it's a deep copy - modifying clone shouldn't affect original
 	clone.MaxItems = 999
-	clone.ExcludedFields[0] = "modified"
+	clone.ExcludedFields[0] = testModifiedValue
 
 	if original.MaxItems == 999 {
 		t.Error("Modifying clone affected original MaxItems")
 	}
-	if original.ExcludedFields[0] == "modified" {
+	if original.ExcludedFields[0] == testModifiedValue {
 		t.Error("Modifying clone affected original ExcludedFields")
 	}
 }

@@ -135,7 +135,7 @@ func TestTruncateGeneric(t *testing.T) {
 		t.Errorf("Expected 3 items, got %d", len(result))
 	}
 	if warning == nil {
-		t.Error("Expected warning")
+		t.Fatal("Expected warning") // Use Fatal to stop execution and avoid nil dereference
 	}
 	if warning.Shown != 3 || warning.Total != 5 {
 		t.Errorf("Warning shows %d/%d, want 3/5", warning.Shown, warning.Total)
@@ -152,13 +152,13 @@ func TestTruncateClusters(t *testing.T) {
 		clusters[i] = cluster{Name: "cluster-" + string(rune('a'+i))}
 	}
 
-	// No truncation with default limit
+	// Truncation occurs since we have 30 clusters but limit is 20
 	result, warning := TruncateClusters(clusters, DefaultMaxClusters)
 	if len(result) != DefaultMaxClusters {
 		t.Errorf("Expected %d clusters, got %d", DefaultMaxClusters, len(result))
 	}
 	if warning == nil {
-		t.Error("Expected warning when truncating clusters")
+		t.Fatal("Expected warning when truncating clusters") // Use Fatal to stop execution
 	}
 
 	// Verify warning suggests filters

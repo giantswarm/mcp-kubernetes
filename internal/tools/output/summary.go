@@ -5,6 +5,19 @@ import (
 	"strings"
 )
 
+// Status constants for resource status extraction.
+// These provide consistent status values across different resource types.
+const (
+	statusUnknown        = "Unknown"
+	statusReady          = "Ready"
+	statusNotReady       = "NotReady"
+	statusPartiallyReady = "Partially Ready"
+	statusScaledToZero   = "Scaled to Zero"
+	statusSucceeded      = "Succeeded"
+	statusFailed         = "Failed"
+	statusRunning        = "Running"
+)
+
 // ResourceSummary provides aggregated counts for large query results.
 // This dramatically reduces response size while maintaining usefulness.
 type ResourceSummary struct {
@@ -197,7 +210,7 @@ func extractStatus(obj map[string]interface{}) string {
 func extractPodStatus(obj map[string]interface{}) string {
 	status, ok := obj["status"].(map[string]interface{})
 	if !ok {
-		return "Unknown"
+		return statusUnknown
 	}
 
 	phase, _ := status["phase"].(string)
@@ -205,14 +218,14 @@ func extractPodStatus(obj map[string]interface{}) string {
 		return phase
 	}
 
-	return "Unknown"
+	return statusUnknown
 }
 
 // extractWorkloadStatus extracts status from workload resources.
 func extractWorkloadStatus(obj map[string]interface{}) string {
 	status, ok := obj["status"].(map[string]interface{})
 	if !ok {
-		return "Unknown"
+		return statusUnknown
 	}
 
 	// Check if fully available
@@ -221,27 +234,27 @@ func extractWorkloadStatus(obj map[string]interface{}) string {
 	readyReplicas, _ := getNestedInt(status, "readyReplicas")
 
 	if replicas == 0 {
-		return "Scaled to Zero"
+		return statusScaledToZero
 	}
 	if readyReplicas >= replicas && availableReplicas >= replicas {
-		return "Ready"
+		return statusReady
 	}
 	if readyReplicas > 0 {
-		return "Partially Ready"
+		return statusPartiallyReady
 	}
-	return "Not Ready"
+	return statusNotReady
 }
 
 // extractNodeStatus extracts status from a Node resource.
 func extractNodeStatus(obj map[string]interface{}) string {
 	status, ok := obj["status"].(map[string]interface{})
 	if !ok {
-		return "Unknown"
+		return statusUnknown
 	}
 
 	conditions, ok := status["conditions"].([]interface{})
 	if !ok {
-		return "Unknown"
+		return statusUnknown
 	}
 
 	for _, cond := range conditions {
@@ -252,22 +265,22 @@ func extractNodeStatus(obj map[string]interface{}) string {
 		condType, _ := condMap["type"].(string)
 		condStatus, _ := condMap["status"].(string)
 
-		if condType == "Ready" {
+		if condType == statusReady {
 			if condStatus == "True" {
-				return "Ready"
+				return statusReady
 			}
-			return "NotReady"
+			return statusNotReady
 		}
 	}
 
-	return "Unknown"
+	return statusUnknown
 }
 
 // extractJobStatus extracts status from a Job resource.
 func extractJobStatus(obj map[string]interface{}) string {
 	status, ok := obj["status"].(map[string]interface{})
 	if !ok {
-		return "Unknown"
+		return statusUnknown
 	}
 
 	// Check conditions
@@ -284,9 +297,9 @@ func extractJobStatus(obj map[string]interface{}) string {
 			if condStatus == "True" {
 				switch condType {
 				case "Complete":
-					return "Succeeded"
-				case "Failed":
-					return "Failed"
+					return statusSucceeded
+				case statusFailed:
+					return statusFailed
 				}
 			}
 		}
@@ -297,13 +310,13 @@ func extractJobStatus(obj map[string]interface{}) string {
 	failed, _ := getNestedInt(status, "failed")
 
 	if succeeded > 0 {
-		return "Succeeded"
+		return statusSucceeded
 	}
 	if failed > 0 {
-		return "Failed"
+		return statusFailed
 	}
 
-	return "Running"
+	return statusRunning
 }
 
 // extractPhaseStatus extracts status.phase from a resource.

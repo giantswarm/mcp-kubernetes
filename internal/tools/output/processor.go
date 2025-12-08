@@ -22,6 +22,17 @@ func NewProcessor(config *Config) *Processor {
 // Process applies all configured transformations to a list of resources.
 // It returns the processed items and a result containing metadata and warnings.
 func (p *Processor) Process(items []map[string]interface{}) *ProcessingResult {
+	return p.processInternal(items, p.config.MaxItems)
+}
+
+// ProcessWithLimit applies transformations with a custom limit.
+// Useful when the limit is specified per-request.
+func (p *Processor) ProcessWithLimit(items []map[string]interface{}, limit int) *ProcessingResult {
+	return p.processInternal(items, EffectiveLimit(limit, p.config.MaxItems))
+}
+
+// processInternal contains the shared processing logic for Process and ProcessWithLimit.
+func (p *Processor) processInternal(items []map[string]interface{}, limit int) *ProcessingResult {
 	start := time.Now()
 	originalCount := len(items)
 
@@ -54,57 +65,7 @@ func (p *Processor) Process(items []map[string]interface{}) *ProcessingResult {
 	}
 
 	// Apply truncation last (so warnings reflect final count)
-	truncated, warning := TruncateResponse(processed, p.config.MaxItems)
-	if warning != nil {
-		result.Warnings = append(result.Warnings, *warning)
-		result.Metadata.Truncated = true
-	}
-
-	result.Items = truncated
-	result.Metadata.FinalCount = len(truncated)
-
-	return result
-}
-
-// ProcessWithLimit applies transformations with a custom limit.
-// Useful when the limit is specified per-request.
-func (p *Processor) ProcessWithLimit(items []map[string]interface{}, limit int) *ProcessingResult {
-	start := time.Now()
-	originalCount := len(items)
-
-	result := &ProcessingResult{
-		Items:    items,
-		Warnings: make([]TruncationWarning, 0),
-		Metadata: ProcessingMetadata{
-			ProcessedAt:   start,
-			OriginalCount: originalCount,
-		},
-	}
-
-	if len(items) == 0 {
-		result.Metadata.FinalCount = 0
-		return result
-	}
-
-	processed := items
-
-	// Apply secret masking first (security critical)
-	if p.config.MaskSecrets {
-		processed = MaskSecretsInList(processed)
-		result.Metadata.SecretsMasked = true
-	}
-
-	// Apply slim output (remove verbose fields)
-	if p.config.SlimOutput {
-		processed = SlimResources(processed, p.config.ExcludedFields)
-		result.Metadata.SlimApplied = true
-	}
-
-	// Use the provided limit, falling back to config limit
-	effectiveLimit := EffectiveLimit(limit, p.config.MaxItems)
-
-	// Apply truncation
-	truncated, warning := TruncateResponse(processed, effectiveLimit)
+	truncated, warning := TruncateResponse(processed, limit)
 	if warning != nil {
 		result.Warnings = append(result.Warnings, *warning)
 		result.Metadata.Truncated = true
