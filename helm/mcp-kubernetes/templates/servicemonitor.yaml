@@ -1,0 +1,40 @@
+{{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.instrumentation.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+    {{- with .Values.mcpKubernetes.instrumentation.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.mcpKubernetes.instrumentation.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: /metrics
+      {{- with .Values.mcpKubernetes.instrumentation.serviceMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with .Values.mcpKubernetes.instrumentation.serviceMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with .Values.mcpKubernetes.instrumentation.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mcpKubernetes.instrumentation.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
