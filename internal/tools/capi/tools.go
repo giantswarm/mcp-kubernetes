@@ -25,7 +25,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 
 	// capi_list_clusters tool
 	listClustersTool := mcp.NewTool("capi_list_clusters",
-		mcp.WithDescription("List all Workload Clusters managed by CAPI that you have access to. Returns cluster name, organization, provider, release version, status, and age."),
+		mcp.WithDescription("List all Workload Clusters managed by CAPI that you have access to. Returns cluster name, organization, provider, release version, status, and age. Results are limited by default; use filters or increase limit to see more."),
 		mcp.WithString("organization",
 			mcp.Description("Filter by organization namespace (e.g., 'org-acme')"),
 		),
@@ -40,6 +40,9 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 		mcp.WithString("labelSelector",
 			mcp.Description("Filter clusters by Kubernetes label selector (e.g., 'environment=production')"),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of clusters to return (default: 100, max: 500). Use filters to narrow results if truncated."),
 		),
 	)
 

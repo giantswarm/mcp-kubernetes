@@ -12,8 +12,15 @@ type ClusterListOutput struct {
 	// Clusters contains the list of cluster summaries.
 	Clusters []ClusterListItem `json:"clusters"`
 
-	// TotalCount is the total number of clusters returned.
+	// TotalCount is the total number of clusters available (before pagination).
 	TotalCount int `json:"totalCount"`
+
+	// ReturnedCount is the number of clusters returned in this response.
+	ReturnedCount int `json:"returnedCount"`
+
+	// Truncated indicates whether the results were truncated due to limit.
+	// If true, increase the limit parameter or use filters to see more results.
+	Truncated bool `json:"truncated,omitempty"`
 
 	// FilterApplied indicates whether any filtering was applied.
 	FilterApplied bool `json:"filterApplied,omitempty"`

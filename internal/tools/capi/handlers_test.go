@@ -355,13 +355,19 @@ func TestHandleFederationError(t *testing.T) {
 			name:            "user info required",
 			err:             federation.ErrUserInfoRequired,
 			operation:       "list clusters",
-			expectedMessage: "authentication required for CAPI operations",
+			expectedMessage: errAuthRequired, // Generic message
 		},
 		{
 			name:            "manager closed",
 			err:             federation.ErrManagerClosed,
 			operation:       "list clusters",
-			expectedMessage: "federation manager is unavailable",
+			expectedMessage: errServiceUnavailable, // Generic message
+		},
+		{
+			name:            "capi crd not installed",
+			err:             federation.ErrCAPICRDNotInstalled,
+			operation:       "list clusters",
+			expectedMessage: errOperationNotAvailable, // Generic message - don't reveal CAPI status
 		},
 		{
 			name:            "generic error",
@@ -583,7 +589,8 @@ func TestHandleListClusters_NoFederation(t *testing.T) {
 	result, err := handleListClusters(ctx, request, sc)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
-	assert.Contains(t, getResultText(result), "federation mode is not enabled")
+	// Security: Generic message doesn't reveal server configuration
+	assert.Contains(t, getResultText(result), errOperationNotAvailable)
 }
 
 func TestHandleListClusters_NoUserInfo(t *testing.T) {
@@ -636,7 +643,9 @@ func TestHandleListClusters_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 3, response.TotalCount)
+	assert.Equal(t, 3, response.ReturnedCount)
 	assert.Len(t, response.Clusters, 3)
+	assert.False(t, response.Truncated)
 }
 
 func TestHandleListClusters_WithFilters(t *testing.T) {
@@ -692,6 +701,7 @@ func TestHandleListClusters_Error(t *testing.T) {
 	result, err := handleListClusters(ctx, request, sc)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
+	// ClusterDiscoveryError uses its own UserFacingError method
 	assert.Contains(t, getResultText(result), "does not have CAPI installed")
 }
 
@@ -712,7 +722,8 @@ func TestHandleGetCluster_NoFederation(t *testing.T) {
 	result, err := handleGetCluster(ctx, request, sc)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
-	assert.Contains(t, getResultText(result), "federation mode is not enabled")
+	// Security: Generic message doesn't reveal server configuration
+	assert.Contains(t, getResultText(result), errOperationNotAvailable)
 }
 
 func TestHandleGetCluster_MissingName(t *testing.T) {
@@ -815,7 +826,8 @@ func TestHandleResolveCluster_NoFederation(t *testing.T) {
 	result, err := handleResolveCluster(ctx, request, sc)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
-	assert.Contains(t, getResultText(result), "federation mode is not enabled")
+	// Security: Generic message doesn't reveal server configuration
+	assert.Contains(t, getResultText(result), errOperationNotAvailable)
 }
 
 func TestHandleResolveCluster_MissingPattern(t *testing.T) {
@@ -987,7 +999,8 @@ func TestHandleClusterHealth_NoFederation(t *testing.T) {
 	result, err := handleClusterHealth(ctx, request, sc)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
-	assert.Contains(t, getResultText(result), "federation mode is not enabled")
+	// Security: Generic message doesn't reveal server configuration
+	assert.Contains(t, getResultText(result), errOperationNotAvailable)
 }
 
 func TestHandleClusterHealth_MissingName(t *testing.T) {
@@ -1121,4 +1134,219 @@ func TestGetUserFromContext_WithUser(t *testing.T) {
 	require.NotNil(t, user)
 	assert.Equal(t, "test@example.com", user.Email)
 	assert.Contains(t, user.Groups, "developers")
+}
+
+// Security Tests - Pagination and DoS Prevention
+
+func TestHandleListClusters_WithLimit(t *testing.T) {
+	ctx := contextWithUserInfo("test@example.com", []string{"developers"})
+
+	mockManager := &testdata.MockFederationManager{
+		Clusters: testdata.CreateTestClusters(), // 3 clusters
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"limit": float64(2), // Request only 2 clusters
+	}
+
+	result, err := handleListClusters(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var response ClusterListOutput
+	err = json.Unmarshal([]byte(getResultText(result)), &response)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, response.TotalCount)    // Total is 3
+	assert.Equal(t, 2, response.ReturnedCount) // Only 2 returned
+	assert.Len(t, response.Clusters, 2)
+	assert.True(t, response.Truncated)
+}
+
+func TestHandleListClusters_LimitExceedsMax(t *testing.T) {
+	ctx := contextWithUserInfo("test@example.com", []string{"developers"})
+
+	mockManager := &testdata.MockFederationManager{
+		Clusters: testdata.CreateTestClusters(),
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"limit": float64(9999), // Way above MaxResultsLimit
+	}
+
+	result, err := handleListClusters(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var response ClusterListOutput
+	err = json.Unmarshal([]byte(getResultText(result)), &response)
+	require.NoError(t, err)
+
+	// Should succeed but limit was capped at MaxResultsLimit
+	assert.Equal(t, 3, response.TotalCount)
+	assert.Equal(t, 3, response.ReturnedCount)
+	assert.False(t, response.Truncated)
+}
+
+func TestHandleListClusters_NegativeLimit(t *testing.T) {
+	ctx := contextWithUserInfo("test@example.com", []string{"developers"})
+
+	mockManager := &testdata.MockFederationManager{
+		Clusters: testdata.CreateTestClusters(),
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"limit": float64(-10), // Negative limit
+	}
+
+	result, err := handleListClusters(ctx, request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var response ClusterListOutput
+	err = json.Unmarshal([]byte(getResultText(result)), &response)
+	require.NoError(t, err)
+
+	// Negative limit should use default
+	assert.Equal(t, 3, response.TotalCount)
+	assert.Equal(t, 3, response.ReturnedCount)
+}
+
+// Security Tests - Error Message Information Disclosure
+
+func TestErrorMessagesDoNotLeakInternalDetails(t *testing.T) {
+	// These tests verify that error messages are generic and don't reveal
+	// internal architecture details that could be useful to attackers.
+	tests := []struct {
+		name        string
+		err         error
+		shouldMatch string
+		shouldNot   []string
+	}{
+		{
+			name:        "manager closed uses generic message",
+			err:         federation.ErrManagerClosed,
+			shouldMatch: errServiceUnavailable,
+			shouldNot:   []string{"federation", "manager", "closed"},
+		},
+		{
+			name:        "user info required uses generic message",
+			err:         federation.ErrUserInfoRequired,
+			shouldMatch: errAuthRequired,
+			shouldNot:   []string{"impersonation", "oauth", "token"},
+		},
+		{
+			name:        "capi crd not installed uses generic message",
+			err:         federation.ErrCAPICRDNotInstalled,
+			shouldMatch: errOperationNotAvailable,
+			shouldNot:   []string{"CRD", "CAPI", "installed"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := handleFederationError(tt.err, "test")
+			require.NoError(t, err)
+			require.NotNil(t, result)
+
+			text := getResultText(result)
+			assert.Contains(t, text, tt.shouldMatch)
+
+			for _, forbidden := range tt.shouldNot {
+				assert.NotContains(t, text, forbidden,
+					"Error message should not contain '%s' to prevent information disclosure", forbidden)
+			}
+		})
+	}
+}
+
+// Security Tests - User Impersonation Edge Cases
+
+func TestGetUserFromContext_EmptyEmail(t *testing.T) {
+	// Empty email should fail validation
+	userInfo := &oauth.UserInfo{
+		Email:  "", // Empty email
+		Groups: []string{"developers"},
+	}
+	ctx := mcpoauth.ContextWithUserInfo(context.Background(), userInfo)
+
+	user, err := getUserFromContext(ctx)
+	assert.Nil(t, user)
+	require.Error(t, err)
+	// Should fail with validation error
+	assert.Contains(t, err.Error(), "authentication error")
+}
+
+func TestGetUserFromContext_WithGroups(t *testing.T) {
+	// Verify groups are correctly passed through for impersonation
+	groups := []string{"system:authenticated", "org-acme", "team-platform"}
+	ctx := contextWithUserInfo("admin@example.com", groups)
+
+	user, err := getUserFromContext(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, user)
+
+	assert.Equal(t, "admin@example.com", user.Email)
+	assert.Len(t, user.Groups, 3)
+	assert.ElementsMatch(t, groups, user.Groups)
+}
+
+// Security Tests - Access Denied Scenarios
+
+func TestHandleGetCluster_AccessDenied(t *testing.T) {
+	ctx := contextWithUserInfo("test@example.com", []string{"developers"})
+
+	mockManager := &testdata.MockFederationManager{
+		GetClusterErr: &federation.AccessDeniedError{
+			ClusterName: "secret-cluster",
+			UserEmail:   "test@example.com",
+			Verb:        "get",
+			Resource:    "clusters",
+		},
+	}
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithFederationManager(mockManager),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"name": "secret-cluster",
+	}
+
+	result, err := handleGetCluster(ctx, request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+
+	// Error should be user-friendly and not reveal too much
+	text := getResultText(result)
+	assert.Contains(t, text, "permission denied")
+	assert.NotContains(t, text, "test@example.com") // Should not expose email
 }

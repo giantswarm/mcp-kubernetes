@@ -15,8 +15,27 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
-// errFederationNotEnabled is the error message when federation mode is not enabled.
-const errFederationNotEnabled = "federation mode is not enabled"
+// Generic error messages that don't reveal internal architecture details.
+// Security: Using generic messages prevents information disclosure about
+// server configuration and internal systems.
+const (
+	// errOperationNotAvailable is returned when federation mode is not enabled.
+	// Intentionally generic to avoid revealing server configuration details.
+	errOperationNotAvailable = "this operation is not available"
+
+	// errServiceUnavailable is returned when the federation manager is closed or unavailable.
+	errServiceUnavailable = "service temporarily unavailable"
+
+	// errAuthRequired is returned when authentication is missing or invalid.
+	errAuthRequired = "authentication required"
+
+	// DefaultMaxResults is the default maximum number of results returned by list operations.
+	// This prevents DoS attacks via unbounded result sets.
+	DefaultMaxResults = 100
+
+	// MaxResultsLimit is the absolute maximum number of results that can be requested.
+	MaxResultsLimit = 500
+)
 
 // handleListClusters handles the capi_list_clusters tool request.
 // It lists all CAPI clusters the user has access to, with optional filtering.
@@ -24,13 +43,13 @@ func handleListClusters(ctx context.Context, request mcp.CallToolRequest, sc *se
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError(errFederationNotEnabled), nil
+		return mcp.NewToolResultError(errOperationNotAvailable), nil
 	}
 
 	// Get authenticated user
 	user, err := getUserFromContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return mcp.NewToolResultError(errAuthRequired), nil
 	}
 
 	// Extract filter parameters
@@ -40,6 +59,15 @@ func handleListClusters(ctx context.Context, request mcp.CallToolRequest, sc *se
 	status, _ := args["status"].(string)
 	readyOnly, _ := args["readyOnly"].(bool)
 	labelSelector, _ := args["labelSelector"].(string)
+
+	// Extract pagination parameter with security limits
+	limit := DefaultMaxResults
+	if limitArg, ok := args["limit"].(float64); ok && limitArg > 0 {
+		limit = int(limitArg)
+		if limit > MaxResultsLimit {
+			limit = MaxResultsLimit
+		}
+	}
 
 	// Build list options from filter parameters
 	var opts *federation.ClusterListOptions
@@ -61,10 +89,20 @@ func handleListClusters(ctx context.Context, request mcp.CallToolRequest, sc *se
 		return handleFederationError(err, "list clusters")
 	}
 
+	// Apply pagination limit to prevent DoS via large result sets
+	totalCount := len(clusters)
+	truncated := false
+	if len(clusters) > limit {
+		clusters = clusters[:limit]
+		truncated = true
+	}
+
 	// Convert to output format
 	output := ClusterListOutput{
 		Clusters:      make([]ClusterListItem, 0, len(clusters)),
-		TotalCount:    len(clusters),
+		TotalCount:    totalCount,
+		ReturnedCount: len(clusters),
+		Truncated:     truncated,
 		FilterApplied: opts != nil,
 	}
 
@@ -81,13 +119,13 @@ func handleGetCluster(ctx context.Context, request mcp.CallToolRequest, sc *serv
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError(errFederationNotEnabled), nil
+		return mcp.NewToolResultError(errOperationNotAvailable), nil
 	}
 
 	// Get authenticated user
 	user, err := getUserFromContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return mcp.NewToolResultError(errAuthRequired), nil
 	}
 
 	// Extract required name parameter
@@ -115,13 +153,13 @@ func handleResolveCluster(ctx context.Context, request mcp.CallToolRequest, sc *
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError(errFederationNotEnabled), nil
+		return mcp.NewToolResultError(errOperationNotAvailable), nil
 	}
 
 	// Get authenticated user
 	user, err := getUserFromContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return mcp.NewToolResultError(errAuthRequired), nil
 	}
 
 	// Extract required pattern parameter
@@ -199,13 +237,13 @@ func handleClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// Get federation manager
 	fedManager := sc.FederationManager()
 	if fedManager == nil {
-		return mcp.NewToolResultError(errFederationNotEnabled), nil
+		return mcp.NewToolResultError(errOperationNotAvailable), nil
 	}
 
 	// Get authenticated user
 	user, err := getUserFromContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return mcp.NewToolResultError(errAuthRequired), nil
 	}
 
 	// Extract required name parameter
@@ -333,14 +371,16 @@ func handleFederationError(err error, operation string) (*mcp.CallToolResult, er
 		return mcp.NewToolResultError(accessDeniedErr.UserFacingError()), nil
 	}
 
-	// Handle sentinel errors
+	// Handle sentinel errors with generic messages to prevent information disclosure.
+	// Security: These messages intentionally don't reveal internal system details.
 	switch {
 	case errors.Is(err, federation.ErrUserInfoRequired):
-		return mcp.NewToolResultError("authentication required for CAPI operations"), nil
+		return mcp.NewToolResultError(errAuthRequired), nil
 	case errors.Is(err, federation.ErrManagerClosed):
-		return mcp.NewToolResultError("federation manager is unavailable"), nil
+		return mcp.NewToolResultError(errServiceUnavailable), nil
 	case errors.Is(err, federation.ErrCAPICRDNotInstalled):
-		return mcp.NewToolResultError("CAPI is not installed on this management cluster"), nil
+		// Intentionally generic - don't reveal whether CAPI is installed
+		return mcp.NewToolResultError(errOperationNotAvailable), nil
 	}
 
 	// Generic error message that doesn't leak internal details
