@@ -130,7 +130,8 @@ func TestGetKubeconfigForCluster(t *testing.T) {
 			manager := setupTestManager(t, tt.clusters, tt.secrets)
 			defer func() { _ = manager.Close() }()
 
-			config, err := manager.GetKubeconfigForCluster(context.Background(), tt.clusterName)
+			user := testUser()
+			config, err := manager.GetKubeconfigForCluster(context.Background(), tt.clusterName, user)
 
 			if tt.expectedError != nil {
 				require.Error(t, err)
@@ -158,9 +159,10 @@ func TestGetKubeconfigForClusterValidated(t *testing.T) {
 		manager := setupTestManager(t, clusters, secrets)
 		defer func() { _ = manager.Close() }()
 
+		user := testUser()
 		// GetKubeconfigForClusterValidated will try to connect to the cluster
 		// which will fail since we're using a test URL
-		config, err := manager.GetKubeconfigForClusterValidated(context.Background(), "unreachable-cluster")
+		config, err := manager.GetKubeconfigForClusterValidated(context.Background(), "unreachable-cluster", user)
 
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrConnectionFailed),
@@ -207,10 +209,19 @@ func TestFindClusterInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create fake dynamic client for this test
+			testScheme := runtime.NewScheme()
+			var objects []runtime.Object
+			for _, cluster := range tt.clusters {
+				objects = append(objects, cluster)
+			}
+			fakeDynamic := createTestFakeDynamicClient(testScheme, objects...)
+
 			manager := setupTestManager(t, tt.clusters, nil)
 			defer func() { _ = manager.Close() }()
 
-			info, err := manager.findClusterInfo(context.Background(), tt.clusterName)
+			user := testUser()
+			info, err := manager.findClusterInfo(context.Background(), tt.clusterName, fakeDynamic, user)
 
 			if tt.expectedError != nil {
 				require.Error(t, err)
@@ -233,7 +244,11 @@ func TestExtractKubeconfigData(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
-	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
 	defer func() { _ = manager.Close() }()
 
@@ -599,11 +614,16 @@ func TestFindClusterInfoWithDynamicClientError(t *testing.T) {
 		return true, nil, errors.New("API server unavailable")
 	})
 
-	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
 	defer func() { _ = manager.Close() }()
 
-	_, err = manager.findClusterInfo(context.Background(), "any-cluster")
+	user := testUser()
+	_, err = manager.findClusterInfo(context.Background(), "any-cluster", fakeDynamic, user)
 	require.Error(t, err)
 
 	var clusterErr *ClusterNotFoundError
@@ -623,12 +643,17 @@ func TestGetKubeconfigFromSecretWithClientError(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
-	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
 	defer func() { _ = manager.Close() }()
 
+	user := testUser()
 	info := &ClusterInfo{Name: "test-cluster", Namespace: "org-acme"}
-	_, err = manager.getKubeconfigFromSecret(context.Background(), info)
+	_, err = manager.getKubeconfigFromSecret(context.Background(), info, fakeClient, user)
 	require.Error(t, err)
 
 	var kubeconfigErr *KubeconfigError
@@ -653,7 +678,11 @@ func TestValidateClusterConnectionError(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
-	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
 	defer func() { _ = manager.Close() }()
 
@@ -677,8 +706,13 @@ func TestConnectionValidationTimeoutConfigurable(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+
 	t.Run("default timeout is used when not configured", func(t *testing.T) {
-		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+		manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 		require.NoError(t, err)
 		defer func() { _ = manager.Close() }()
 
@@ -687,7 +721,7 @@ func TestConnectionValidationTimeoutConfigurable(t *testing.T) {
 
 	t.Run("custom timeout is applied via option", func(t *testing.T) {
 		customTimeout := 30 * time.Second
-		manager, err := NewManager(fakeClient, fakeDynamic, nil,
+		manager, err := NewManager(clientProvider,
 			WithManagerLogger(logger),
 			WithManagerConnectionValidationTimeout(customTimeout),
 		)
@@ -700,7 +734,7 @@ func TestConnectionValidationTimeoutConfigurable(t *testing.T) {
 	t.Run("short timeout causes faster failure", func(t *testing.T) {
 		// Use a very short timeout to ensure the test runs quickly
 		shortTimeout := 100 * time.Millisecond
-		manager, err := NewManager(fakeClient, fakeDynamic, nil,
+		manager, err := NewManager(clientProvider,
 			WithManagerLogger(logger),
 			WithManagerConnectionValidationTimeout(shortTimeout),
 		)

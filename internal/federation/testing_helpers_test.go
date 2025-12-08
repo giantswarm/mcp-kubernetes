@@ -118,8 +118,23 @@ func setupTestManager(t *testing.T, clusters []*unstructured.Unstructured, secre
 
 	fakeDynamic := createTestFakeDynamicClient(scheme, objects...)
 
-	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+	// Use StaticClientProvider for testing - all users get the same clients
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+		RestConfig:    nil,
+	}
+
+	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
 
 	return manager
+}
+
+// testUser creates a test UserInfo for testing.
+func testUser() *UserInfo {
+	return &UserInfo{
+		Email:  "test@example.com",
+		Groups: []string{"developers"},
+	}
 }

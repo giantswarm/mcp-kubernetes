@@ -8,6 +8,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -29,27 +31,45 @@ type ClusterInfo struct {
 // GetKubeconfigForCluster retrieves the kubeconfig secret for a CAPI cluster
 // and returns a rest.Config suitable for creating clients.
 //
-// The method:
-//  1. Finds the Cluster resource to determine the namespace
-//  2. Constructs the secret name using CAPI convention (${CLUSTER_NAME}-kubeconfig)
-//  3. Fetches the secret from the Management Cluster
-//  4. Extracts kubeconfig data (supports both 'value' and 'kubeconfig' keys)
-//  5. Parses the kubeconfig into a rest.Config
-//  6. Optionally validates the connection
+// # Security Model
+//
+// This method uses the user's credentials for ALL Management Cluster operations:
+//  1. Finds the Cluster resource using user's dynamic client (RBAC enforced)
+//  2. Fetches the kubeconfig secret using user's client (RBAC enforced)
+//  3. Parses the kubeconfig into a rest.Config
+//
+// The user must have RBAC permission to:
+//   - List/Get Cluster resources (cluster.x-k8s.io/v1beta1)
+//   - Get Secrets in the cluster's namespace
+//
+// This provides defense in depth: users can only access kubeconfig secrets
+// they have permission to read on the Management Cluster.
 //
 // Security notes:
-//   - Requires 'get' permission on Secrets in the cluster's namespace
 //   - Never logs kubeconfig contents (sensitive credential data)
-//   - Uses the admin localClient for secret retrieval (not impersonated)
-func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName string) (*rest.Config, error) {
-	// Find the cluster to determine its namespace
-	clusterInfo, err := m.findClusterInfo(ctx, clusterName)
+//   - All user-facing errors are sanitized to prevent information leakage
+func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName string, user *UserInfo) (*rest.Config, error) {
+	// Get user-scoped clients for MC operations
+	clientset, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	if err != nil {
+		m.logger.Debug("Failed to get user clients for kubeconfig retrieval",
+			"cluster", clusterName,
+			"user_hash", AnonymizeEmail(user.Email),
+			"error", err)
+		return nil, &ClusterNotFoundError{
+			ClusterName: clusterName,
+			Reason:      "failed to create client for user",
+		}
+	}
+
+	// Find the cluster to determine its namespace (using user's RBAC)
+	clusterInfo, err := m.findClusterInfo(ctx, clusterName, dynamicClient, user)
 	if err != nil {
 		return nil, err
 	}
 
-	// Retrieve and parse the kubeconfig secret
-	return m.getKubeconfigFromSecret(ctx, clusterInfo)
+	// Retrieve and parse the kubeconfig secret (using user's RBAC)
+	return m.getKubeconfigFromSecret(ctx, clusterInfo, clientset, user)
 }
 
 // GetKubeconfigForClusterValidated retrieves the kubeconfig and validates
@@ -57,8 +77,8 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 //
 // This is useful when you want to ensure the credentials are valid before
 // caching or using them for operations.
-func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterName string) (*rest.Config, error) {
-	config, err := m.GetKubeconfigForCluster(ctx, clusterName)
+func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterName string, user *UserInfo) (*rest.Config, error) {
+	config, err := m.GetKubeconfigForCluster(ctx, clusterName, user)
 	if err != nil {
 		return nil, err
 	}
@@ -74,35 +94,26 @@ func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterN
 // findClusterInfo locates a CAPI Cluster resource by name and returns its namespace.
 // This performs a cluster-wide search since we don't know the namespace upfront.
 //
-// # Security Considerations
+// # Security Model
 //
-// This method uses the admin localDynamic client (not impersonated) because:
-//
-//  1. CAPI Cluster resources may be in namespaces the user doesn't have direct
-//     access to on the Management Cluster.
-//
-//  2. The actual authorization is deferred to the workload cluster via
-//     impersonation headers. When the user attempts operations on the workload
-//     cluster, the Kubernetes RBAC on that cluster will enforce permissions.
-//
-//  3. Knowing a cluster name exists is not considered a security risk in most
-//     deployment models. However, if cluster enumeration is a concern:
-//     - Consider implementing namespace-scoped RBAC for Cluster resources
-//     - Use ListClusters() with user impersonation for user-facing listings
-//     - This internal method should only be called after input validation
+// This method uses the user's dynamic client, ensuring:
+//   - User must have RBAC permission to list Cluster resources
+//   - Only clusters the user has access to will be found
+//   - Defense in depth: MC RBAC is enforced before any WC access
 //
 // The cluster name must be validated using ValidateClusterName() before calling
 // this method to prevent path traversal or injection attacks.
 //
 // All user-facing errors are sanitized via UserFacingError() to prevent
-// cluster existence leakage through error response differentiation.
-func (m *Manager) findClusterInfo(ctx context.Context, clusterName string) (*ClusterInfo, error) {
-	// List all CAPI Cluster resources across all namespaces
+// information leakage through error response differentiation.
+func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynamicClient dynamic.Interface, user *UserInfo) (*ClusterInfo, error) {
+	// List all CAPI Cluster resources across all namespaces (using user's RBAC)
 	// Note: We don't use FieldSelector because the fake dynamic client doesn't support it well
-	list, err := m.localDynamic.Resource(CAPIClusterGVR).List(ctx, metav1.ListOptions{})
+	list, err := dynamicClient.Resource(CAPIClusterGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		m.logger.Debug("Failed to list CAPI Cluster resources",
 			"cluster", clusterName,
+			"user_hash", AnonymizeEmail(user.Email),
 			"error", err)
 		return nil, &ClusterNotFoundError{
 			ClusterName: clusterName,
@@ -116,7 +127,8 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string) (*Clu
 			namespace := cluster.GetNamespace()
 			m.logger.Debug("Found CAPI Cluster",
 				"cluster", clusterName,
-				"namespace", namespace)
+				"namespace", namespace,
+				"user_hash", AnonymizeEmail(user.Email))
 			return &ClusterInfo{
 				Name:      clusterName,
 				Namespace: namespace,
@@ -125,7 +137,8 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string) (*Clu
 	}
 
 	m.logger.Debug("CAPI Cluster not found",
-		"cluster", clusterName)
+		"cluster", clusterName,
+		"user_hash", AnonymizeEmail(user.Email))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "no CAPI Cluster resource found with this name",
@@ -134,21 +147,29 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string) (*Clu
 
 // getKubeconfigFromSecret retrieves the kubeconfig data from the cluster's secret.
 //
+// # Security Model
+//
+// This method uses the user's client, ensuring:
+//   - User must have RBAC permission to get Secrets in the cluster's namespace
+//   - Only secrets the user has access to can be retrieved
+//   - Defense in depth: MC RBAC is enforced for secret access
+//
 // By CAPI convention, the secret is named ${CLUSTER_NAME}-kubeconfig and contains
 // the kubeconfig data in either the 'value' or 'kubeconfig' key.
-func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo) (*rest.Config, error) {
+func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo, clientset kubernetes.Interface, user *UserInfo) (*rest.Config, error) {
 	secretName := info.Name + CAPISecretSuffix
 
-	// Fetch the secret using the admin client (not impersonated)
-	secret, err := m.localClient.CoreV1().Secrets(info.Namespace).Get(ctx, secretName, metav1.GetOptions{})
+	// Fetch the secret using the user's client (RBAC enforced)
+	secret, err := clientset.CoreV1().Secrets(info.Namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		m.logger.Debug("Failed to fetch kubeconfig secret",
 			"cluster", info.Name,
 			"namespace", info.Namespace,
 			"secret", secretName,
+			"user_hash", AnonymizeEmail(user.Email),
 			"error", err)
 
-		// Determine if this is a "not found" error
+		// Determine if this is a "not found" or "forbidden" error
 		return nil, &KubeconfigError{
 			ClusterName: info.Name,
 			SecretName:  secretName,
@@ -171,6 +192,7 @@ func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo
 		m.logger.Debug("Failed to parse kubeconfig data",
 			"cluster", info.Name,
 			"namespace", info.Namespace,
+			"user_hash", AnonymizeEmail(user.Email),
 			"error", err)
 		return nil, &KubeconfigError{
 			ClusterName: info.Name,
@@ -186,6 +208,7 @@ func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo
 	m.logger.Debug("Successfully parsed kubeconfig",
 		"cluster", info.Name,
 		"namespace", info.Namespace,
+		"user_hash", AnonymizeEmail(user.Email),
 		"host", sanitizeHost(config.Host))
 
 	return config, nil

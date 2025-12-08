@@ -9,13 +9,16 @@
 // The federation package implements a "Hub-and-Spoke" model where:
 //   - The Management Cluster (MC) acts as the central hub containing CAPI resources
 //   - Workload Clusters (WC) are dynamically discovered and accessed through kubeconfig secrets
-//   - All operations are executed under the authenticated user's identity via Kubernetes impersonation
+//   - All operations are executed under the authenticated user's identity
 //
 // # Core Components
 //
 // ClusterClientManager is the primary interface for multi-cluster operations:
 //
-//	manager, err := federation.NewManager(localClient, localDynamic, restConfig,
+//	// Create a ClientProvider that returns per-user clients
+//	clientProvider := &OAuthClientProvider{factory: bearerTokenFactory}
+//
+//	manager, err := federation.NewManager(clientProvider,
 //		federation.WithManagerLogger(logger),
 //	)
 //	if err != nil {
@@ -31,11 +34,22 @@
 //
 // # Security Model
 //
-// The federation package enforces security through:
-//   - User impersonation: All cluster operations use Impersonate-User headers
-//   - RBAC delegation: Authorization is delegated to each cluster's RBAC policies
-//   - No credential exposure: Admin credentials are only used for TLS establishment
-//   - User isolation in caching: Cached clients are keyed by (cluster, user) pairs
+// The federation package enforces security through defense in depth:
+//
+//   - ClientProvider: Creates per-user Kubernetes clients for Management Cluster access.
+//     When OAuth downstream is enabled, each user's OAuth token is used for authentication.
+//
+//   - MC RBAC Enforcement: Users must have permission to list CAPI Cluster resources and
+//     read kubeconfig secrets on the Management Cluster.
+//
+//   - WC RBAC Enforcement: Operations on Workload Clusters use impersonation headers,
+//     delegating authorization to each cluster's RBAC policies.
+//
+//   - User Isolation in Caching: Cached clients are keyed by (cluster, user) pairs.
+//
+// This two-layer security model ensures that users can only access clusters they have
+// permission to see on the MC, AND they can only perform operations allowed by their
+// identity on each WC.
 //
 // # Client Caching
 //
@@ -77,10 +91,18 @@
 //   - ErrKubeconfigInvalid: Secret contains malformed kubeconfig data
 //   - ErrConnectionFailed: Network or TLS issues connecting to the cluster
 //
+// All user-facing errors return a generic message ("cluster access denied or unavailable")
+// to prevent information leakage that could enable cluster enumeration attacks.
+//
 // # Example Usage
 //
-//	// Initialize the manager with the Management Cluster client
-//	manager, err := federation.NewManager(localClient, localDynamic, restConfig,
+//	// Create a ClientProvider for OAuth downstream mode
+//	clientProvider := &OAuthClientProvider{
+//		factory: bearerTokenFactory,
+//	}
+//
+//	// Initialize the manager with the ClientProvider
+//	manager, err := federation.NewManager(clientProvider,
 //		federation.WithManagerLogger(logger),
 //		federation.WithManagerCacheConfig(federation.CacheConfig{
 //			TTL:        10 * time.Minute,

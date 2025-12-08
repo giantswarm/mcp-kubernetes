@@ -54,14 +54,12 @@ type ClusterClientManager interface {
 
 // Manager implements ClusterClientManager for CAPI-based multi-cluster federation.
 type Manager struct {
-	// Local Management Cluster clients (with admin privileges for kubeconfig retrieval)
-	localClient  kubernetes.Interface
-	localDynamic dynamic.Interface
+	// ClientProvider creates per-user clients for Management Cluster access.
+	// This ensures all operations (including kubeconfig secret retrieval) are
+	// performed with the user's RBAC permissions, not elevated admin privileges.
+	clientProvider ClientProvider
 
-	// Local Management Cluster REST config (for creating impersonated clients)
-	localRestConfig *rest.Config
-
-	// Client cache for remote and impersonated local clients
+	// Client cache for remote workload cluster clients (per user)
 	cache *ClientCache
 
 	// Cache configuration (set via options, applied during NewManager)
@@ -120,33 +118,36 @@ func WithManagerConnectionValidationTimeout(timeout time.Duration) ManagerOption
 	}
 }
 
-// NewManager creates a new ClusterClientManager with the provided local clients.
+// NewManager creates a new ClusterClientManager with the provided ClientProvider.
+//
+// # Security Model
+//
+// The ClientProvider is responsible for creating per-user Kubernetes clients.
+// This ensures that ALL Management Cluster operations (including kubeconfig
+// secret retrieval) are performed with the user's RBAC permissions.
+//
+// When OAuth downstream is enabled:
+//   - Each user's OAuth token is used to authenticate with the Management Cluster
+//   - Users can only access kubeconfig secrets they have RBAC permission to read
+//   - This provides defense in depth: MC RBAC + WC RBAC both enforced
 //
 // Parameters:
-//   - localClient: Kubernetes clientset for the Management Cluster
-//   - localDynamic: Dynamic client for the Management Cluster (for CAPI CRDs)
-//   - localRestConfig: REST config for the Management Cluster (optional, enables client caching)
+//   - clientProvider: Creates per-user clients for Management Cluster access
 //   - opts: Functional options for configuration
 //
-// The local clients should be configured with admin credentials for the
-// Management Cluster. These credentials are only used to:
-//   - Read CAPI Cluster resources for discovery
-//   - Read kubeconfig Secrets for Workload Cluster access
-//   - Establish TLS connections to Workload Clusters
+// Example with OAuth downstream:
 //
-// All actual operations are executed under user impersonation.
-func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface, localRestConfig *rest.Config, opts ...ManagerOption) (*Manager, error) {
-	if localClient == nil {
-		return nil, fmt.Errorf("local client is required")
-	}
-	if localDynamic == nil {
-		return nil, fmt.Errorf("local dynamic client is required")
+//	provider := &OAuthClientProvider{factory: bearerTokenFactory}
+//	manager, err := federation.NewManager(provider,
+//	    federation.WithManagerLogger(logger),
+//	)
+func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager, error) {
+	if clientProvider == nil {
+		return nil, fmt.Errorf("client provider is required")
 	}
 
 	m := &Manager{
-		localClient:                 localClient,
-		localDynamic:                localDynamic,
-		localRestConfig:             localRestConfig,
+		clientProvider:              clientProvider,
 		connectionValidationTimeout: DefaultConnectionValidationTimeout,
 		logger:                      slog.Default(),
 	}
@@ -167,8 +168,7 @@ func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface
 	m.cache = NewClientCache(cacheOpts...)
 
 	m.logger.Info("Federation manager initialized",
-		"cache_enabled", m.cache != nil,
-		"rest_config_available", localRestConfig != nil)
+		"cache_enabled", m.cache != nil)
 
 	return m, nil
 }
@@ -309,7 +309,8 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// getLocalClientWithImpersonation returns the local client configured for user impersonation.
+// getLocalClientWithImpersonation returns the local client for the user.
+// With OAuth downstream, the ClientProvider returns a client authenticated as the user.
 // Note: user is guaranteed to be non-nil and validated by the public API methods.
 func (m *Manager) getLocalClientWithImpersonation(ctx context.Context, user *UserInfo) (kubernetes.Interface, error) {
 	// Use empty string for local cluster
@@ -317,16 +318,17 @@ func (m *Manager) getLocalClientWithImpersonation(ctx context.Context, user *Use
 
 	// Try to get from cache or create new
 	clientset, _, err := m.cache.GetOrCreate(ctx, localClusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
-		return m.createImpersonatedLocalClient(ctx, user)
+		return m.clientProvider.GetClientsForUser(ctx, user)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get impersonated local client: %w", err)
+		return nil, fmt.Errorf("failed to get local client for user: %w", err)
 	}
 
 	return clientset, nil
 }
 
-// getLocalDynamicWithImpersonation returns the local dynamic client configured for user impersonation.
+// getLocalDynamicWithImpersonation returns the local dynamic client for the user.
+// With OAuth downstream, the ClientProvider returns a client authenticated as the user.
 // Note: user is guaranteed to be non-nil and validated by the public API methods.
 func (m *Manager) getLocalDynamicWithImpersonation(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
 	// Use empty string for local cluster
@@ -334,54 +336,13 @@ func (m *Manager) getLocalDynamicWithImpersonation(ctx context.Context, user *Us
 
 	// Try to get from cache or create new
 	_, dynamicClient, err := m.cache.GetOrCreate(ctx, localClusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
-		return m.createImpersonatedLocalClient(ctx, user)
+		return m.clientProvider.GetClientsForUser(ctx, user)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get impersonated local dynamic client: %w", err)
+		return nil, fmt.Errorf("failed to get local dynamic client for user: %w", err)
 	}
 
 	return dynamicClient, nil
-}
-
-// createImpersonatedLocalClient creates new Kubernetes clients with impersonation configured.
-// This is called by the cache on cache miss.
-func (m *Manager) createImpersonatedLocalClient(_ context.Context, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
-	// If no REST config available, fall back to returning direct clients
-	// (impersonation will be implemented in issue #109)
-	if m.localRestConfig == nil {
-		m.logger.Debug("No REST config available, returning direct clients",
-			"user_hash", AnonymizeEmail(user.Email))
-		return m.localClient, m.localDynamic, nil, nil
-	}
-
-	// Clone the config to avoid mutating the original
-	impersonatedConfig := rest.CopyConfig(m.localRestConfig)
-
-	// Configure impersonation headers
-	// This will be fully implemented in issue #109
-	impersonatedConfig.Impersonate = rest.ImpersonationConfig{
-		UserName: user.Email,
-		Groups:   user.Groups,
-		Extra:    user.Extra,
-	}
-
-	m.logger.Debug("Creating impersonated client",
-		"user_hash", AnonymizeEmail(user.Email),
-		"group_count", len(user.Groups))
-
-	// Create clientset with impersonation
-	clientset, err := kubernetes.NewForConfig(impersonatedConfig)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create impersonated clientset: %w", err)
-	}
-
-	// Create dynamic client with impersonation
-	dynClient, err := dynamic.NewForConfig(impersonatedConfig)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create impersonated dynamic client: %w", err)
-	}
-
-	return clientset, dynClient, impersonatedConfig, nil
 }
 
 // getRemoteClientWithImpersonation returns a client for a remote workload cluster.
@@ -415,23 +376,31 @@ func (m *Manager) getRemoteDynamicWithImpersonation(ctx context.Context, cluster
 // createRemoteClusterClient creates Kubernetes clients for a remote workload cluster.
 // This is called by the cache on cache miss.
 //
-// The method:
-//  1. Retrieves the kubeconfig from the CAPI secret
-//  2. Configures impersonation headers for the user
+// # Security Model
+//
+// The method uses the user's credentials for ALL operations:
+//  1. Retrieves the kubeconfig secret using user's MC RBAC permissions
+//  2. Configures impersonation headers for WC operations
 //  3. Creates clientset and dynamic client with the impersonated config
+//
+// This ensures defense in depth: the user must have permission to read the
+// kubeconfig secret on the MC, AND their impersonated identity must have
+// permissions on the WC.
 func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
 	m.logger.Debug("Creating remote cluster client",
 		"cluster", clusterName,
 		"user_hash", AnonymizeEmail(user.Email),
 		"group_count", len(user.Groups))
 
-	// Retrieve the kubeconfig for the cluster
-	baseConfig, err := m.GetKubeconfigForCluster(ctx, clusterName)
+	// Retrieve the kubeconfig for the cluster using user's credentials
+	// This enforces MC RBAC - user must have permission to read the secret
+	baseConfig, err := m.GetKubeconfigForCluster(ctx, clusterName, user)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Configure impersonation for the user
+	// Configure impersonation for WC operations
+	// The kubeconfig contains admin credentials; we impersonate the user
 	impersonatedConfig := ConfigWithImpersonation(baseConfig, user)
 
 	// Create the clientset

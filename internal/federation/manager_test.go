@@ -25,46 +25,40 @@ func TestNewManager(t *testing.T) {
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
+	validProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+
 	tests := []struct {
-		name          string
-		localClient   kubernetes.Interface
-		localDynamic  dynamic.Interface
-		opts          []ManagerOption
-		expectedError string
+		name           string
+		clientProvider ClientProvider
+		opts           []ManagerOption
+		expectedError  string
 	}{
 		{
-			name:          "valid inputs",
-			localClient:   fakeClient,
-			localDynamic:  fakeDynamic,
-			opts:          []ManagerOption{WithManagerLogger(logger)},
-			expectedError: "",
+			name:           "valid inputs",
+			clientProvider: validProvider,
+			opts:           []ManagerOption{WithManagerLogger(logger)},
+			expectedError:  "",
 		},
 		{
-			name:          "no logger uses default",
-			localClient:   fakeClient,
-			localDynamic:  fakeDynamic,
-			opts:          nil,
-			expectedError: "",
+			name:           "no logger uses default",
+			clientProvider: validProvider,
+			opts:           nil,
+			expectedError:  "",
 		},
 		{
-			name:          "nil local client",
-			localClient:   nil,
-			localDynamic:  fakeDynamic,
-			opts:          []ManagerOption{WithManagerLogger(logger)},
-			expectedError: "local client is required",
-		},
-		{
-			name:          "nil dynamic client",
-			localClient:   fakeClient,
-			localDynamic:  nil,
-			opts:          []ManagerOption{WithManagerLogger(logger)},
-			expectedError: "local dynamic client is required",
+			name:           "nil client provider",
+			clientProvider: nil,
+			opts:           []ManagerOption{WithManagerLogger(logger)},
+			expectedError:  "client provider is required",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(tt.localClient, tt.localDynamic, nil, tt.opts...)
+			manager, err := NewManager(tt.clientProvider, tt.opts...)
 
 			if tt.expectedError != "" {
 				require.Error(t, err)
@@ -74,7 +68,7 @@ func TestNewManager(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotNil(t, manager)
 				// Clean up
-				defer manager.Close()
+				defer func() { _ = manager.Close() }()
 			}
 		})
 	}
@@ -85,6 +79,11 @@ func TestManager_GetClient(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
+
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
 
 	tests := []struct {
 		name          string
@@ -153,7 +152,7 @@ func TestManager_GetClient(t *testing.T) {
 				Email: "user@example.com",
 			},
 			setupManager: func(m *Manager) {
-				m.Close()
+				_ = m.Close()
 			},
 			expectedError: ErrManagerClosed,
 		},
@@ -161,9 +160,9 @@ func TestManager_GetClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+			manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 			require.NoError(t, err)
-			defer manager.Close()
+			defer func() { _ = manager.Close() }()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -189,6 +188,11 @@ func TestManager_GetDynamicClient(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
+
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
 
 	tests := []struct {
 		name          string
@@ -238,7 +242,7 @@ func TestManager_GetDynamicClient(t *testing.T) {
 				Email: "user@example.com",
 			},
 			setupManager: func(m *Manager) {
-				m.Close()
+				_ = m.Close()
 			},
 			expectedError: ErrManagerClosed,
 		},
@@ -246,9 +250,9 @@ func TestManager_GetDynamicClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+			manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 			require.NoError(t, err)
-			defer manager.Close()
+			defer func() { _ = manager.Close() }()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -275,6 +279,11 @@ func TestManager_ListClusters(t *testing.T) {
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+
 	tests := []struct {
 		name          string
 		user          *UserInfo
@@ -300,7 +309,7 @@ func TestManager_ListClusters(t *testing.T) {
 			name: "closed manager returns error",
 			user: &UserInfo{Email: "user@example.com"},
 			setupManager: func(m *Manager) {
-				m.Close()
+				_ = m.Close()
 			},
 			expectedError: ErrManagerClosed,
 		},
@@ -308,9 +317,9 @@ func TestManager_ListClusters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+			manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 			require.NoError(t, err)
-			defer manager.Close()
+			defer func() { _ = manager.Close() }()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -336,6 +345,11 @@ func TestManager_GetClusterSummary(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
+
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
 
 	tests := []struct {
 		name          string
@@ -379,7 +393,7 @@ func TestManager_GetClusterSummary(t *testing.T) {
 			clusterName: "my-cluster",
 			user:        &UserInfo{Email: "user@example.com"},
 			setupManager: func(m *Manager) {
-				m.Close()
+				_ = m.Close()
 			},
 			expectedError: ErrManagerClosed,
 		},
@@ -387,9 +401,9 @@ func TestManager_GetClusterSummary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+			manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 			require.NoError(t, err)
-			defer manager.Close()
+			defer func() { _ = manager.Close() }()
 
 			if tt.setupManager != nil {
 				tt.setupManager(manager)
@@ -415,8 +429,13 @@ func TestManager_Close(t *testing.T) {
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+
 	t.Run("close succeeds", func(t *testing.T) {
-		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+		manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 		require.NoError(t, err)
 
 		err = manager.Close()
@@ -424,7 +443,7 @@ func TestManager_Close(t *testing.T) {
 	})
 
 	t.Run("close is idempotent", func(t *testing.T) {
-		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+		manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 		require.NoError(t, err)
 
 		err = manager.Close()
@@ -435,7 +454,7 @@ func TestManager_Close(t *testing.T) {
 	})
 
 	t.Run("methods fail after close", func(t *testing.T) {
-		manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+		manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 		require.NoError(t, err)
 
 		err = manager.Close()
@@ -463,9 +482,14 @@ func TestManager_Concurrency(t *testing.T) {
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
-	manager, err := NewManager(fakeClient, fakeDynamic, nil, WithManagerLogger(logger))
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+
+	manager, err := NewManager(clientProvider, WithManagerLogger(logger))
 	require.NoError(t, err)
-	defer manager.Close()
+	defer func() { _ = manager.Close() }()
 
 	// Test concurrent access
 	var wg sync.WaitGroup
@@ -510,6 +534,11 @@ func TestManager_OptionsComposition(t *testing.T) {
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 	metrics := newMockMetricsRecorder()
 
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+
 	// Test that WithManagerCacheConfig and WithManagerCacheMetrics can be combined
 	t.Run("cache config and metrics can be combined", func(t *testing.T) {
 		config := CacheConfig{
@@ -518,13 +547,13 @@ func TestManager_OptionsComposition(t *testing.T) {
 			CleanupInterval: 30 * time.Second,
 		}
 
-		manager, err := NewManager(fakeClient, fakeDynamic, nil,
+		manager, err := NewManager(clientProvider,
 			WithManagerLogger(logger),
 			WithManagerCacheConfig(config),
 			WithManagerCacheMetrics(metrics),
 		)
 		require.NoError(t, err)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		// Verify cache was created with the custom config
 		assert.Equal(t, 5*time.Minute, manager.cache.config.TTL)
@@ -550,16 +579,36 @@ func TestManager_OptionsComposition(t *testing.T) {
 		}
 
 		// Apply metrics before config
-		manager, err := NewManager(fakeClient, fakeDynamic, nil,
+		manager, err := NewManager(clientProvider,
 			WithManagerCacheMetrics(metrics2),
 			WithManagerCacheConfig(config),
 			WithManagerLogger(logger),
 		)
 		require.NoError(t, err)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		// Both should be applied
 		assert.Equal(t, 3*time.Minute, manager.cache.config.TTL)
 		assert.Equal(t, 100, manager.cache.config.MaxEntries)
 	})
+}
+
+func TestStaticClientProvider(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset()
+	scheme := runtime.NewScheme()
+	fakeDynamic := createTestFakeDynamicClient(scheme)
+
+	provider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+		RestConfig:    nil,
+	}
+
+	user := &UserInfo{Email: "user@example.com"}
+	clientset, dynamicClient, restConfig, err := provider.GetClientsForUser(context.Background(), user)
+
+	require.NoError(t, err)
+	assert.Equal(t, fakeClient, clientset)
+	assert.Equal(t, fakeDynamic, dynamicClient)
+	assert.Nil(t, restConfig)
 }
