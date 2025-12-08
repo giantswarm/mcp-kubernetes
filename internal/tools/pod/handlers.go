@@ -34,28 +34,22 @@ type PortMapping struct {
 	RemotePort int `json:"remotePort"`
 }
 
-// recordPodOperation records metrics for a pod operation if instrumentation is enabled.
+// recordPodOperation records metrics for a pod operation.
+// Delegates to ServerContext which handles nil checks internally.
 func recordPodOperation(ctx context.Context, sc *server.ServerContext, operation, namespace, status string, duration time.Duration) {
-	provider := sc.InstrumentationProvider()
-	if provider != nil && provider.Enabled() {
-		provider.Metrics().RecordPodOperation(ctx, operation, namespace, status, duration)
-	}
+	sc.RecordPodOperation(ctx, operation, namespace, status, duration)
 }
 
 // incrementActiveSessions increments the active port-forward sessions counter.
+// Delegates to ServerContext which handles nil checks internally.
 func incrementActiveSessions(ctx context.Context, sc *server.ServerContext) {
-	provider := sc.InstrumentationProvider()
-	if provider != nil && provider.Enabled() {
-		provider.Metrics().IncrementActiveSessions(ctx)
-	}
+	sc.IncrementActiveSessions(ctx)
 }
 
 // decrementActiveSessions decrements the active port-forward sessions counter.
+// Delegates to ServerContext which handles nil checks internally.
 func decrementActiveSessions(ctx context.Context, sc *server.ServerContext) {
-	provider := sc.InstrumentationProvider()
-	if provider != nil && provider.Enabled() {
-		provider.Metrics().DecrementActiveSessions(ctx)
-	}
+	sc.DecrementActiveSessions(ctx)
 }
 
 // handleGetLogs handles kubectl logs operations
@@ -413,7 +407,7 @@ func handleStopAllPortForwardSessions(ctx context.Context, request mcp.CallToolR
 	}
 
 	// Decrement active sessions metric for all stopped sessions
-	for range count {
+	for i := 0; i < count; i++ {
 		decrementActiveSessions(ctx, sc)
 	}
 

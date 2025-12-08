@@ -1,6 +1,7 @@
 package instrumentation
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -63,8 +64,28 @@ func DefaultConfig() Config {
 
 // Validate checks if the configuration is valid.
 func (c *Config) Validate() error {
-	// Validation is lenient - we can work with most configurations
-	// The provider will handle invalid configurations gracefully
+	// Validate sampling rate is within bounds
+	if c.TraceSamplingRate < 0 || c.TraceSamplingRate > 1 {
+		return fmt.Errorf("trace sampling rate must be between 0.0 and 1.0, got %f", c.TraceSamplingRate)
+	}
+
+	// Validate metrics exporter
+	validMetricsExporters := map[string]bool{"prometheus": true, "otlp": true, "stdout": true}
+	if c.MetricsExporter != "" && !validMetricsExporters[c.MetricsExporter] {
+		return fmt.Errorf("invalid metrics exporter %q, must be one of: prometheus, otlp, stdout", c.MetricsExporter)
+	}
+
+	// Validate tracing exporter
+	validTracingExporters := map[string]bool{"otlp": true, "stdout": true, "none": true}
+	if c.TracingExporter != "" && !validTracingExporters[c.TracingExporter] {
+		return fmt.Errorf("invalid tracing exporter %q, must be one of: otlp, stdout, none", c.TracingExporter)
+	}
+
+	// OTLP endpoint required when using OTLP tracing exporter
+	if c.TracingExporter == "otlp" && c.OTLPEndpoint == "" {
+		return fmt.Errorf("OTLP endpoint is required when using OTLP tracing exporter")
+	}
+
 	return nil
 }
 
@@ -100,27 +121,6 @@ func getEnvFloatOrDefault(key string, defaultValue float64) float64 {
 	return defaultValue
 }
 
-// MetricLabels contains common labels for metrics.
-type MetricLabels struct {
-	// HTTP labels
-	Method     string
-	Path       string
-	StatusCode string
-
-	// Kubernetes labels
-	Operation    string
-	ResourceType string
-	Namespace    string
-	Status       string
-
-	// OAuth labels
-	Result string
-
-	// Port-forward labels
-	PodName string
-	PodPort string
-}
-
 // Constants for metric label values.
 const (
 	// Status values
@@ -140,6 +140,7 @@ const (
 	OperationApply  = "apply"
 	OperationDelete = "delete"
 	OperationPatch  = "patch"
+	OperationScale  = "scale"
 	OperationLogs   = "logs"
 	OperationExec   = "exec"
 	OperationWatch  = "watch"

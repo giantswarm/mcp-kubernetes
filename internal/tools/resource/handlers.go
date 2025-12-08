@@ -16,12 +16,10 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
-// recordK8sOperation records metrics for a Kubernetes operation if instrumentation is enabled.
+// recordK8sOperation records metrics for a Kubernetes operation.
+// Delegates to ServerContext which handles nil checks internally.
 func recordK8sOperation(ctx context.Context, sc *server.ServerContext, operation, resourceType, namespace, status string, duration time.Duration) {
-	provider := sc.InstrumentationProvider()
-	if provider != nil && provider.Enabled() {
-		provider.Metrics().RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
-	}
+	sc.RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
 }
 
 // handleGetResource handles kubectl get operations
@@ -535,11 +533,11 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	duration := time.Since(start)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to scale resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s scaled to %d replicas successfully", resourceType, name, int32(replicas))), nil
 }

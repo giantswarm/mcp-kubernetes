@@ -70,9 +70,53 @@ func TestDefaultConfigWithEnv(t *testing.T) {
 }
 
 func TestConfigValidate(t *testing.T) {
+	// Test valid default config
 	config := DefaultConfig()
 	if err := config.Validate(); err != nil {
-		t.Errorf("expected Validate to return nil, got %v", err)
+		t.Errorf("expected Validate to return nil for default config, got %v", err)
+	}
+
+	// Test invalid sampling rate (too high)
+	config.TraceSamplingRate = 1.5
+	if err := config.Validate(); err == nil {
+		t.Error("expected error for sampling rate > 1.0")
+	}
+
+	// Test invalid sampling rate (negative)
+	config.TraceSamplingRate = -0.1
+	if err := config.Validate(); err == nil {
+		t.Error("expected error for negative sampling rate")
+	}
+
+	// Reset to valid sampling rate
+	config.TraceSamplingRate = 0.5
+
+	// Test invalid metrics exporter
+	config.MetricsExporter = "invalid"
+	if err := config.Validate(); err == nil {
+		t.Error("expected error for invalid metrics exporter")
+	}
+
+	// Reset to valid metrics exporter
+	config.MetricsExporter = "prometheus"
+
+	// Test invalid tracing exporter
+	config.TracingExporter = "invalid"
+	if err := config.Validate(); err == nil {
+		t.Error("expected error for invalid tracing exporter")
+	}
+
+	// Test OTLP tracing without endpoint
+	config.TracingExporter = "otlp"
+	config.OTLPEndpoint = ""
+	if err := config.Validate(); err == nil {
+		t.Error("expected error for OTLP tracing without endpoint")
+	}
+
+	// Test OTLP tracing with endpoint (valid)
+	config.OTLPEndpoint = "http://localhost:4318"
+	if err := config.Validate(); err != nil {
+		t.Errorf("expected no error for valid OTLP config, got %v", err)
 	}
 }
 

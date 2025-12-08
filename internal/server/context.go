@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
@@ -147,6 +148,52 @@ func (sc *ServerContext) InstrumentationProvider() *instrumentation.Provider {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.instrumentationProvider
+}
+
+// RecordK8sOperation records a Kubernetes operation metric if instrumentation is enabled.
+// This is a convenience method that handles nil checks internally.
+func (sc *ServerContext) RecordK8sOperation(ctx context.Context, operation, resourceType, namespace, status string, duration time.Duration) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
+	}
+}
+
+// RecordPodOperation records a pod operation metric if instrumentation is enabled.
+// This is a convenience method that handles nil checks internally.
+func (sc *ServerContext) RecordPodOperation(ctx context.Context, operation, namespace, status string, duration time.Duration) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().RecordPodOperation(ctx, operation, namespace, status, duration)
+	}
+}
+
+// IncrementActiveSessions increments the active port-forward sessions metric.
+func (sc *ServerContext) IncrementActiveSessions(ctx context.Context) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().IncrementActiveSessions(ctx)
+	}
+}
+
+// DecrementActiveSessions decrements the active port-forward sessions metric.
+func (sc *ServerContext) DecrementActiveSessions(ctx context.Context) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().DecrementActiveSessions(ctx)
+	}
 }
 
 // Logger returns the logger interface.
