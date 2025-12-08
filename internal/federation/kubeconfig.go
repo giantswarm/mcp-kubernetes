@@ -405,10 +405,11 @@ func ConfigWithImpersonation(config *rest.Config, user *UserInfo) *rest.Config {
 // If the user already has extra headers, they are preserved and the agent is added.
 // The user's extra values take precedence if they specify a custom agent value.
 func mergeExtraWithAgent(userExtra map[string][]string) map[string][]string {
+	// Pre-allocate map with expected capacity (user extras + agent)
+	extra := make(map[string][]string, len(userExtra)+1)
+
 	// Start with the agent identifier
-	extra := map[string][]string{
-		ImpersonationAgentExtraKey: {ImpersonationAgentName},
-	}
+	extra[ImpersonationAgentExtraKey] = []string{ImpersonationAgentName}
 
 	// Merge user's extra headers (user values take precedence)
 	for k, v := range userExtra {
