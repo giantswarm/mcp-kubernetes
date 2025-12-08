@@ -100,14 +100,22 @@ func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface
 	}, nil
 }
 
+// checkClosed returns ErrManagerClosed if the manager has been closed.
+// This is a helper to avoid repeating the closed-check pattern in every method.
+func (m *Manager) checkClosed() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed {
+		return ErrManagerClosed
+	}
+	return nil
+}
+
 // GetClient returns a Kubernetes client for the target cluster.
 func (m *Manager) GetClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
-	m.mu.RLock()
-	if m.closed {
-		m.mu.RUnlock()
-		return nil, ErrManagerClosed
+	if err := m.checkClosed(); err != nil {
+		return nil, err
 	}
-	m.mu.RUnlock()
 
 	// If no cluster specified, return local client with impersonation
 	if clusterName == "" {
@@ -120,12 +128,9 @@ func (m *Manager) GetClient(ctx context.Context, clusterName string, user *UserI
 
 // GetDynamicClient returns a dynamic client for the target cluster.
 func (m *Manager) GetDynamicClient(ctx context.Context, clusterName string, user *UserInfo) (dynamic.Interface, error) {
-	m.mu.RLock()
-	if m.closed {
-		m.mu.RUnlock()
-		return nil, ErrManagerClosed
+	if err := m.checkClosed(); err != nil {
+		return nil, err
 	}
-	m.mu.RUnlock()
 
 	// If no cluster specified, return local dynamic client with impersonation
 	if clusterName == "" {
@@ -138,12 +143,9 @@ func (m *Manager) GetDynamicClient(ctx context.Context, clusterName string, user
 
 // ListClusters returns all available workload clusters.
 func (m *Manager) ListClusters(ctx context.Context, user *UserInfo) ([]ClusterSummary, error) {
-	m.mu.RLock()
-	if m.closed {
-		m.mu.RUnlock()
-		return nil, ErrManagerClosed
+	if err := m.checkClosed(); err != nil {
+		return nil, err
 	}
-	m.mu.RUnlock()
 
 	// This will be implemented in a separate issue (#111 - CAPI Cluster Discovery)
 	// For now, return an empty list
@@ -153,12 +155,9 @@ func (m *Manager) ListClusters(ctx context.Context, user *UserInfo) ([]ClusterSu
 
 // GetClusterSummary returns information about a specific cluster.
 func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, user *UserInfo) (*ClusterSummary, error) {
-	m.mu.RLock()
-	if m.closed {
-		m.mu.RUnlock()
-		return nil, ErrManagerClosed
+	if err := m.checkClosed(); err != nil {
+		return nil, err
 	}
-	m.mu.RUnlock()
 
 	if clusterName == "" {
 		return nil, &ClusterNotFoundError{
@@ -196,7 +195,8 @@ func (m *Manager) Close() error {
 }
 
 // getLocalClientWithImpersonation returns the local client configured for user impersonation.
-func (m *Manager) getLocalClientWithImpersonation(ctx context.Context, user *UserInfo) (kubernetes.Interface, error) {
+// The ctx parameter is reserved for future use when impersonation is implemented.
+func (m *Manager) getLocalClientWithImpersonation(_ context.Context, user *UserInfo) (kubernetes.Interface, error) {
 	if user == nil {
 		// No impersonation needed, return the local client as-is
 		return m.localClient, nil
@@ -205,12 +205,13 @@ func (m *Manager) getLocalClientWithImpersonation(ctx context.Context, user *Use
 	// Impersonation will be implemented in issue #109
 	// For now, return the local client directly
 	m.logger.Debug("getLocalClientWithImpersonation - impersonation not yet implemented",
-		"user", user.Email)
+		"user", userEmail(user))
 	return m.localClient, nil
 }
 
 // getLocalDynamicWithImpersonation returns the local dynamic client configured for user impersonation.
-func (m *Manager) getLocalDynamicWithImpersonation(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
+// The ctx parameter is reserved for future use when impersonation is implemented.
+func (m *Manager) getLocalDynamicWithImpersonation(_ context.Context, user *UserInfo) (dynamic.Interface, error) {
 	if user == nil {
 		// No impersonation needed, return the local dynamic client as-is
 		return m.localDynamic, nil
@@ -219,7 +220,7 @@ func (m *Manager) getLocalDynamicWithImpersonation(ctx context.Context, user *Us
 	// Impersonation will be implemented in issue #109
 	// For now, return the local dynamic client directly
 	m.logger.Debug("getLocalDynamicWithImpersonation - impersonation not yet implemented",
-		"user", user.Email)
+		"user", userEmail(user))
 	return m.localDynamic, nil
 }
 
@@ -231,7 +232,7 @@ func (m *Manager) getRemoteClientWithImpersonation(ctx context.Context, clusterN
 	// - #109 (User Impersonation)
 	m.logger.Debug("getRemoteClientWithImpersonation - not yet implemented",
 		"cluster", clusterName,
-		"user", user.Email)
+		"user", userEmail(user))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "remote cluster client retrieval not yet implemented",
@@ -246,9 +247,17 @@ func (m *Manager) getRemoteDynamicWithImpersonation(ctx context.Context, cluster
 	// - #109 (User Impersonation)
 	m.logger.Debug("getRemoteDynamicWithImpersonation - not yet implemented",
 		"cluster", clusterName,
-		"user", user.Email)
+		"user", userEmail(user))
 	return nil, &ClusterNotFoundError{
 		ClusterName: clusterName,
 		Reason:      "remote cluster dynamic client retrieval not yet implemented",
 	}
+}
+
+// userEmail safely extracts the email from UserInfo, returning an empty string if user is nil.
+func userEmail(user *UserInfo) string {
+	if user == nil {
+		return ""
+	}
+	return user.Email
 }

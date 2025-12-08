@@ -76,6 +76,7 @@ func TestKubeconfigError(t *testing.T) {
 				SecretName:  "my-cluster-kubeconfig",
 				Namespace:   "org-acme",
 				Reason:      "secret not found",
+				NotFound:    true,
 			},
 			expectedString: `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): secret not found`,
 			unwrapsTo:      ErrKubeconfigSecretNotFound,
@@ -127,6 +128,7 @@ func TestKubeconfigError_SecretNotFound(t *testing.T) {
 		SecretName:  "test-kubeconfig",
 		Namespace:   "default",
 		Reason:      "secret not found",
+		NotFound:    true,
 	}
 
 	assert.True(t, errors.Is(err, ErrKubeconfigSecretNotFound))
@@ -228,6 +230,7 @@ func TestErrorWrapping(t *testing.T) {
 			SecretName:  "test-kubeconfig",
 			Namespace:   "default",
 			Reason:      "secret not found",
+			NotFound:    true,
 		})
 		assert.True(t, errors.Is(err, ErrKubeconfigSecretNotFound))
 	})

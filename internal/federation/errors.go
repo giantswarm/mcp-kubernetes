@@ -60,6 +60,9 @@ type KubeconfigError struct {
 	Namespace   string
 	Reason      string
 	Err         error
+	// NotFound indicates the kubeconfig secret was not found (vs other errors like invalid data).
+	// When true, Unwrap() returns ErrKubeconfigSecretNotFound instead of ErrKubeconfigInvalid.
+	NotFound bool
 }
 
 // Error implements the error interface.
@@ -77,7 +80,7 @@ func (e *KubeconfigError) Unwrap() error {
 	if e.Err != nil {
 		return e.Err
 	}
-	if e.Reason == "secret not found" {
+	if e.NotFound {
 		return ErrKubeconfigSecretNotFound
 	}
 	return ErrKubeconfigInvalid

@@ -443,3 +443,36 @@ func TestManager_Interface(t *testing.T) {
 	// Verify that Manager implements ClusterClientManager
 	var _ ClusterClientManager = (*Manager)(nil)
 }
+
+func TestUserEmail(t *testing.T) {
+	tests := []struct {
+		name     string
+		user     *UserInfo
+		expected string
+	}{
+		{
+			name:     "nil user returns empty string",
+			user:     nil,
+			expected: "",
+		},
+		{
+			name: "user with email returns email",
+			user: &UserInfo{
+				Email: "user@example.com",
+			},
+			expected: "user@example.com",
+		},
+		{
+			name:     "user with empty email returns empty string",
+			user:     &UserInfo{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := userEmail(tt.user)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
