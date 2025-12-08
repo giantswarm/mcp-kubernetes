@@ -294,8 +294,9 @@ func (m *Manager) ListClusters(ctx context.Context, user *UserInfo) ([]ClusterSu
 // Returns ErrClusterNotFound if the cluster doesn't exist or the user
 // doesn't have permission to access it.
 //
-// The method queries CAPI Cluster resources and returns detailed metadata
-// including provider, release, Kubernetes version, and status information.
+// The method queries CAPI Cluster resources using a field selector for efficiency,
+// and returns detailed metadata including provider, release, Kubernetes version,
+// and status information.
 func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, user *UserInfo) (*ClusterSummary, error) {
 	if err := m.checkClosed(); err != nil {
 		return nil, err
@@ -317,30 +318,27 @@ func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, use
 		return nil, fmt.Errorf("failed to get dynamic client: %w", err)
 	}
 
-	// Discover all clusters (with user's RBAC)
-	clusters, err := m.discoverClusters(ctx, dynamicClient, user)
+	// Query cluster by name using field selector for efficiency
+	summary, err := m.getClusterByName(ctx, dynamicClient, clusterName, user)
 	if err != nil {
 		return nil, err
 	}
 
-	// Find the cluster by exact name
-	for i := range clusters {
-		if clusters[i].Name == clusterName {
-			m.logger.Debug("Found cluster",
-				"cluster", clusterName,
-				"namespace", clusters[i].Namespace,
-				UserHashAttr(user.Email))
-			return &clusters[i], nil
+	if summary == nil {
+		m.logger.Debug("Cluster not found",
+			"cluster", clusterName,
+			UserHashAttr(user.Email))
+		return nil, &ClusterNotFoundError{
+			ClusterName: clusterName,
+			Reason:      "no CAPI Cluster resource found with this name",
 		}
 	}
 
-	m.logger.Debug("Cluster not found",
+	m.logger.Debug("Found cluster",
 		"cluster", clusterName,
+		"namespace", summary.Namespace,
 		UserHashAttr(user.Email))
-	return nil, &ClusterNotFoundError{
-		ClusterName: clusterName,
-		Reason:      "no CAPI Cluster resource found with this name",
-	}
+	return summary, nil
 }
 
 // Close releases all cached clients and resources.

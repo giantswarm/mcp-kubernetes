@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
@@ -85,6 +87,8 @@ func (e *ClusterDiscoveryError) UserFacingError() string {
 // AmbiguousClusterError is returned when a cluster name pattern matches multiple clusters.
 type AmbiguousClusterError struct {
 	Pattern string
+	// Matches contains the clusters that matched the pattern, used to provide
+	// helpful feedback to users about which clusters they might have meant.
 	Matches []ClusterSummary
 }
 
@@ -108,6 +112,27 @@ func (e *AmbiguousClusterError) UserFacingError() string {
 		e.Pattern, strings.Join(names, ", "))
 }
 
+// wrapCAPIListError wraps errors from CAPI cluster list operations into ClusterDiscoveryError.
+// It detects CRD-not-installed errors using Kubernetes API error types for robust detection.
+func wrapCAPIListError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Use Kubernetes API error detection for robust CRD-not-installed detection
+	if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+		return &ClusterDiscoveryError{
+			Reason: "CAPI Cluster CRD not installed on this cluster",
+			Err:    err,
+		}
+	}
+
+	return &ClusterDiscoveryError{
+		Reason: "failed to list CAPI clusters",
+		Err:    err,
+	}
+}
+
 // listCAPIClusterResources queries all CAPI Cluster resources using the provided dynamic client.
 // The results are filtered by the user's RBAC permissions (enforced by the client).
 //
@@ -115,18 +140,7 @@ func (e *AmbiguousClusterError) UserFacingError() string {
 func listCAPIClusterResources(ctx context.Context, dynamicClient dynamic.Interface) (*unstructured.UnstructuredList, error) {
 	list, err := dynamicClient.Resource(CAPIClusterGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		// Check if this is a "resource not found" error (CRD not installed)
-		if strings.Contains(err.Error(), "the server could not find the requested resource") ||
-			strings.Contains(err.Error(), "no matches for kind") {
-			return nil, &ClusterDiscoveryError{
-				Reason: "CAPI Cluster CRD not installed on this cluster",
-				Err:    err,
-			}
-		}
-		return nil, &ClusterDiscoveryError{
-			Reason: "failed to list CAPI clusters",
-			Err:    err,
-		}
+		return nil, wrapCAPIListError(err)
 	}
 	return list, nil
 }
@@ -255,7 +269,7 @@ func extractClusterStatus(cluster *unstructured.Unstructured) (phase string, rea
 
 	// Cluster is considered ready when both control plane and infrastructure are ready
 	// and the phase is "Provisioned"
-	ready = controlPlaneReady && infrastructureReady && phase == string(ClusterPhaseProvisioned)
+	ready = controlPlaneReady && infrastructureReady && ClusterPhase(phase) == ClusterPhaseProvisioned
 
 	return phase, ready, controlPlaneReady, infrastructureReady
 }
@@ -300,6 +314,41 @@ func (m *Manager) discoverClusters(ctx context.Context, dynamicClient dynamic.In
 		"count", len(clusters))
 
 	return clusters, nil
+}
+
+// getClusterByName retrieves a specific CAPI cluster by name using a field selector.
+// This is more efficient than discoverClusters when looking for a specific cluster,
+// as it filters on the server side rather than loading all clusters.
+//
+// Note: Client-side filtering is also performed as a defensive measure since some
+// backends (including test fakes) may not support field selectors.
+//
+// Returns nil, nil if the cluster is not found.
+func (m *Manager) getClusterByName(ctx context.Context, dynamicClient dynamic.Interface, clusterName string, user *UserInfo) (*ClusterSummary, error) {
+	// Use field selector to query by name directly on the server
+	// This provides server-side filtering when supported by the backend
+	listOpts := metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", clusterName),
+	}
+
+	list, err := dynamicClient.Resource(CAPIClusterGVR).List(ctx, listOpts)
+	if err != nil {
+		m.logger.Debug("Failed to get CAPI cluster by name",
+			"cluster", clusterName,
+			UserHashAttr(user.Email),
+			"error", err)
+		return nil, wrapCAPIListError(err)
+	}
+
+	// Client-side filtering as defensive measure (some backends don't support field selectors)
+	for i := range list.Items {
+		if list.Items[i].GetName() == clusterName {
+			summary := clusterSummaryFromUnstructured(&list.Items[i])
+			return &summary, nil
+		}
+	}
+
+	return nil, nil
 }
 
 // findClusterByName searches for a cluster with an exact name match.
@@ -454,18 +503,7 @@ func (m *Manager) listClustersWithOptions(ctx context.Context, user *UserInfo, o
 	}
 
 	if err != nil {
-		// Check if this is a "resource not found" error (CRD not installed)
-		if strings.Contains(err.Error(), "the server could not find the requested resource") ||
-			strings.Contains(err.Error(), "no matches for kind") {
-			return nil, &ClusterDiscoveryError{
-				Reason: "CAPI Cluster CRD not installed on this cluster",
-				Err:    err,
-			}
-		}
-		return nil, &ClusterDiscoveryError{
-			Reason: "failed to list CAPI clusters",
-			Err:    err,
-		}
+		return nil, wrapCAPIListError(err)
 	}
 
 	// Convert and filter results

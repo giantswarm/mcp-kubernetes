@@ -1037,3 +1037,86 @@ func TestExtractKubernetesVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestWrapCAPIListError(t *testing.T) {
+	t.Run("nil error returns nil", func(t *testing.T) {
+		result := wrapCAPIListError(nil)
+		assert.Nil(t, result)
+	})
+
+	t.Run("generic error wraps as failed to list", func(t *testing.T) {
+		err := errors.New("connection refused")
+		result := wrapCAPIListError(err)
+
+		require.NotNil(t, result)
+		discoveryErr, ok := result.(*ClusterDiscoveryError)
+		require.True(t, ok)
+		assert.Equal(t, "failed to list CAPI clusters", discoveryErr.Reason)
+		assert.Equal(t, err, discoveryErr.Err)
+	})
+}
+
+func TestManager_GetClusterByName(t *testing.T) {
+	ctx := context.Background()
+
+	clusters := []*unstructured.Unstructured{
+		createTestCAPIClusterWithDetails("prod-cluster", "org-acme",
+			withLabels(map[string]string{LabelGiantSwarmRelease: "20.0.0"}),
+			withInfrastructureRef("AWSCluster", "prod-cluster"),
+		),
+		createTestCAPIClusterWithDetails("staging-cluster", "org-acme"),
+	}
+
+	tests := []struct {
+		name          string
+		clusterName   string
+		user          *UserInfo
+		expectFound   bool
+		expectName    string
+		expectedError error
+	}{
+		{
+			name:        "finds existing cluster",
+			clusterName: "prod-cluster",
+			user:        testUser(),
+			expectFound: true,
+			expectName:  "prod-cluster",
+		},
+		{
+			name:        "finds second cluster",
+			clusterName: "staging-cluster",
+			user:        testUser(),
+			expectFound: true,
+			expectName:  "staging-cluster",
+		},
+		{
+			name:        "cluster not found returns nil",
+			clusterName: "nonexistent",
+			user:        testUser(),
+			expectFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := setupTestManager(t, clusters, nil)
+			dynamicClient, err := manager.GetDynamicClient(ctx, "", tt.user)
+			require.NoError(t, err)
+
+			result, err := manager.getClusterByName(ctx, dynamicClient, tt.clusterName, tt.user)
+
+			if tt.expectedError != nil {
+				require.Error(t, err)
+				assert.True(t, errors.Is(err, tt.expectedError))
+			} else {
+				require.NoError(t, err)
+				if tt.expectFound {
+					require.NotNil(t, result)
+					assert.Equal(t, tt.expectName, result.Name)
+				} else {
+					assert.Nil(t, result)
+				}
+			}
+		})
+	}
+}
