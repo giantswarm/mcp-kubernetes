@@ -227,9 +227,8 @@ func (c *ClientCache) Get(ctx context.Context, clusterName, userEmail string) *c
 		return nil
 	}
 
-	// Touch to update LRU ordering (safe under RLock since we're only reading)
-	// Note: This is a slight data race on lastAccessed, but it's acceptable
-	// for LRU purposes as approximate ordering is sufficient
+	// Touch to update LRU ordering. This is safe under RLock because
+	// lastAccessedNanos uses atomic operations for lock-free updates.
 	client.touch(now)
 	c.metrics.RecordCacheHit(ctx, clusterName)
 
@@ -239,6 +238,12 @@ func (c *ClientCache) Get(ctx context.Context, clusterName, userEmail string) *c
 // Set stores a client in the cache for the given cluster and user.
 // This method is thread-safe.
 func (c *ClientCache) Set(ctx context.Context, clusterName, userEmail string, clientset kubernetes.Interface, dynamicClient dynamic.Interface, restConfig *rest.Config) {
+	c.setAndReturn(ctx, clusterName, userEmail, clientset, dynamicClient, restConfig)
+}
+
+// setAndReturn stores a client in the cache and returns the cached entry.
+// This is used internally by GetOrCreate to avoid a redundant Get after Set.
+func (c *ClientCache) setAndReturn(ctx context.Context, clusterName, userEmail string, clientset kubernetes.Interface, dynamicClient dynamic.Interface, restConfig *rest.Config) *cachedClient {
 	key := cacheKey(clusterName, userEmail)
 	now := c.now()
 
@@ -246,7 +251,7 @@ func (c *ClientCache) Set(ctx context.Context, clusterName, userEmail string, cl
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return
+		return nil
 	}
 
 	// Evict LRU entries if at capacity
@@ -270,6 +275,8 @@ func (c *ClientCache) Set(ctx context.Context, clusterName, userEmail string, cl
 		"cluster", clusterName,
 		"user_hash", AnonymizeEmail(userEmail),
 		"expiry", c.config.TTL)
+
+	return client
 }
 
 // GetOrCreate retrieves a cached client or creates a new one using the provided factory.
@@ -303,11 +310,8 @@ func (c *ClientCache) GetOrCreate(
 			return nil, err
 		}
 
-		// Store in cache
-		c.Set(ctx, clusterName, userEmail, clientset, dynamicClient, restConfig)
-
-		// Return cached entry
-		return c.Get(ctx, clusterName, userEmail), nil
+		// Store in cache and return the entry directly (avoiding redundant Get)
+		return c.setAndReturn(ctx, clusterName, userEmail, clientset, dynamicClient, restConfig), nil
 	})
 
 	if err != nil {

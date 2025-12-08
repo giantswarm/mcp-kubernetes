@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -499,4 +500,65 @@ func TestManager_Concurrency(t *testing.T) {
 func TestManager_Interface(t *testing.T) {
 	// Verify that Manager implements ClusterClientManager
 	var _ ClusterClientManager = (*Manager)(nil)
+}
+
+func TestManager_OptionsComposition(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	fakeClient := fake.NewSimpleClientset()
+	scheme := runtime.NewScheme()
+	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
+	metrics := newMockMetricsRecorder()
+
+	// Test that WithManagerCacheConfig and WithManagerCacheMetrics can be combined
+	t.Run("cache config and metrics can be combined", func(t *testing.T) {
+		config := CacheConfig{
+			TTL:             5 * time.Minute,
+			MaxEntries:      500,
+			CleanupInterval: 30 * time.Second,
+		}
+
+		manager, err := NewManager(fakeClient, fakeDynamic, nil,
+			WithManagerLogger(logger),
+			WithManagerCacheConfig(config),
+			WithManagerCacheMetrics(metrics),
+		)
+		require.NoError(t, err)
+		defer manager.Close()
+
+		// Verify cache was created with the custom config
+		assert.Equal(t, 5*time.Minute, manager.cache.config.TTL)
+		assert.Equal(t, 500, manager.cache.config.MaxEntries)
+		assert.Equal(t, 30*time.Second, manager.cache.config.CleanupInterval)
+
+		// Verify metrics recorder was set
+		ctx := context.Background()
+		user := &UserInfo{Email: "user@example.com"}
+		_, err = manager.GetClient(ctx, "", user)
+		require.NoError(t, err)
+
+		// Should have recorded cache metrics
+		assert.True(t, metrics.getMisses() > 0 || metrics.getHits() > 0, "expected cache metrics to be recorded")
+	})
+
+	// Test that order doesn't matter
+	t.Run("option order does not matter", func(t *testing.T) {
+		metrics2 := newMockMetricsRecorder()
+		config := CacheConfig{
+			TTL:        3 * time.Minute,
+			MaxEntries: 100,
+		}
+
+		// Apply metrics before config
+		manager, err := NewManager(fakeClient, fakeDynamic, nil,
+			WithManagerCacheMetrics(metrics2),
+			WithManagerCacheConfig(config),
+			WithManagerLogger(logger),
+		)
+		require.NoError(t, err)
+		defer manager.Close()
+
+		// Both should be applied
+		assert.Equal(t, 3*time.Minute, manager.cache.config.TTL)
+		assert.Equal(t, 100, manager.cache.config.MaxEntries)
+	})
 }

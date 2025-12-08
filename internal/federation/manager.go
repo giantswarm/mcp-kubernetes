@@ -63,6 +63,10 @@ type Manager struct {
 	// Client cache for remote and impersonated local clients
 	cache *ClientCache
 
+	// Cache configuration (set via options, applied during NewManager)
+	cacheConfig  *CacheConfig
+	cacheMetrics CacheMetricsRecorder
+
 	// Logger for operational messages
 	logger *slog.Logger
 
@@ -85,28 +89,18 @@ func WithManagerLogger(logger *slog.Logger) ManagerOption {
 }
 
 // WithManagerCacheConfig sets the cache configuration for the Manager.
+// This option can be combined with WithManagerCacheMetrics.
 func WithManagerCacheConfig(config CacheConfig) ManagerOption {
 	return func(m *Manager) {
-		if m.cache != nil {
-			return // Cache already created
-		}
-		m.cache = NewClientCache(
-			WithCacheConfig(config),
-			WithCacheLogger(m.logger),
-		)
+		m.cacheConfig = &config
 	}
 }
 
 // WithManagerCacheMetrics sets the metrics recorder for the cache.
+// This option can be combined with WithManagerCacheConfig.
 func WithManagerCacheMetrics(metrics CacheMetricsRecorder) ManagerOption {
 	return func(m *Manager) {
-		if m.cache != nil {
-			return // Cache already created
-		}
-		m.cache = NewClientCache(
-			WithCacheLogger(m.logger),
-			WithCacheMetrics(metrics),
-		)
+		m.cacheMetrics = metrics
 	}
 }
 
@@ -145,12 +139,15 @@ func NewManager(localClient kubernetes.Interface, localDynamic dynamic.Interface
 		opt(m)
 	}
 
-	// Create cache with default config if not already created
-	if m.cache == nil {
-		m.cache = NewClientCache(
-			WithCacheLogger(m.logger),
-		)
+	// Build cache options from configuration set via Manager options
+	cacheOpts := []ClientCacheOption{WithCacheLogger(m.logger)}
+	if m.cacheConfig != nil {
+		cacheOpts = append(cacheOpts, WithCacheConfig(*m.cacheConfig))
 	}
+	if m.cacheMetrics != nil {
+		cacheOpts = append(cacheOpts, WithCacheMetrics(m.cacheMetrics))
+	}
+	m.cache = NewClientCache(cacheOpts...)
 
 	m.logger.Info("Federation manager initialized",
 		"cache_enabled", m.cache != nil,

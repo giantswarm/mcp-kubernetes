@@ -15,7 +15,13 @@
 //
 // ClusterClientManager is the primary interface for multi-cluster operations:
 //
-//	manager := federation.NewManager(localClient, localDynamic, logger)
+//	manager, err := federation.NewManager(localClient, localDynamic, restConfig,
+//		federation.WithManagerLogger(logger),
+//	)
+//	if err != nil {
+//		return err
+//	}
+//	defer manager.Close()
 //
 //	// Get a client for a specific workload cluster
 //	client, err := manager.GetClient(ctx, "my-cluster", userInfo)
@@ -46,7 +52,13 @@
 // # Example Usage
 //
 //	// Initialize the manager with the Management Cluster client
-//	manager, err := federation.NewManager(localClient, localDynamic, logger)
+//	manager, err := federation.NewManager(localClient, localDynamic, restConfig,
+//		federation.WithManagerLogger(logger),
+//		federation.WithManagerCacheConfig(federation.CacheConfig{
+//			TTL:        10 * time.Minute,
+//			MaxEntries: 1000,
+//		}),
+//	)
 //	if err != nil {
 //		return err
 //	}
