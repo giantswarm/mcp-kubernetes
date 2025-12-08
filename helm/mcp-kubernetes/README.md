@@ -132,6 +132,31 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 
 See the [Production Secret Management](#production-secret-management) section below for detailed examples.
 
+### CAPI Mode Configuration
+
+CAPI Mode enables multi-cluster federation via Cluster API. When enabled, the MCP server can discover and connect to workload clusters managed by CAPI on the Management Cluster.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `capiMode.enabled` | Enable CAPI federation mode | `false` |
+| `capiMode.cache.ttl` | Time-to-live for cached clients | `"10m"` |
+| `capiMode.cache.maxEntries` | Maximum cached (cluster, user) pairs | `1000` |
+| `capiMode.cache.cleanupInterval` | Cleanup interval for expired entries | `"1m"` |
+| `capiMode.connectivity.timeout` | TCP connection timeout | `"5s"` |
+| `capiMode.connectivity.retryAttempts` | Retry attempts for transient failures | `3` |
+| `capiMode.connectivity.retryBackoff` | Initial backoff between retries | `"1s"` |
+| `capiMode.connectivity.requestTimeout` | API request timeout | `"30s"` |
+| `capiMode.connectivity.qps` | Kubernetes client QPS rate limit | `50` |
+| `capiMode.connectivity.burst` | Kubernetes client burst limit | `100` |
+| `capiMode.output.maxItems` | Max items per query (absolute max: 1000) | `100` |
+| `capiMode.output.maxClusters` | Max clusters in fleet queries (absolute max: 100) | `20` |
+| `capiMode.output.maxResponseBytes` | Max response size in bytes | `524288` |
+| `capiMode.output.slimOutput` | Remove verbose fields from output | `true` |
+| `capiMode.output.maskSecrets` | Mask secret data with REDACTED | `true` |
+| `capiMode.rbac.create` | Create CAPI-specific RBAC resources | `true` |
+| `capiMode.rbac.allowedNamespaces` | Namespaces for kubeconfig secret access | `[]` |
+| `capiMode.rbac.clusterWideSecrets` | Grant cluster-wide secret access (NOT recommended) | `false` |
+
 ### Cilium Network Policy
 
 | Parameter | Description | Default |
@@ -154,6 +179,22 @@ The chart automatically creates a ClusterRole and ClusterRoleBinding that grants
 - **Batch resources**: jobs, cronjobs
 - **Autoscaling resources**: horizontalpodautoscalers
 - **Policy resources**: poddisruptionbudgets
+
+### CAPI Mode Additional Permissions
+
+When CAPI mode is enabled (`capiMode.enabled: true`), additional RBAC resources are created:
+
+**ClusterRole: `<release>-mcp-kubernetes-capi`**
+- **CAPI resources** (read-only): clusters, machinepools, machinedeployments, machines
+- **Infrastructure resources** (read-only): all resources in `infrastructure.cluster.x-k8s.io`
+- **Authentication**: tokenreviews (create)
+- **Authorization**: subjectaccessreviews, selfsubjectaccessreviews (create)
+
+**Namespace-Scoped Roles** (per namespace in `capiMode.rbac.allowedNamespaces`):
+- **Secrets** (read-only): Access to kubeconfig secrets in the specified namespace
+
+**Cluster-Wide Secret Access** (only if `capiMode.rbac.clusterWideSecrets: true`):
+- **Secrets** (read-only): Access to ALL secrets cluster-wide - **NOT RECOMMENDED**
 
 ## Network Security
 
@@ -262,6 +303,59 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
 ```
 
 **Important**: OAuth requires HTTPS in production. Make sure to configure TLS for your ingress.
+
+### Installation with CAPI Mode (Multi-Cluster Federation)
+
+CAPI Mode enables the MCP server to act as a multi-cluster federation gateway. It discovers workload clusters via Cluster API and retrieves their kubeconfig secrets to establish connections.
+
+**Prerequisites:**
+1. Deploy on a CAPI Management Cluster
+2. Configure OAuth authentication (recommended: Dex)
+3. Create organization namespaces with kubeconfig secrets
+
+**Step 1: Prepare RBAC**
+
+The chart creates namespace-scoped Roles for accessing kubeconfig secrets. List all organization namespaces that contain workload clusters:
+
+```yaml
+# values-capi.yaml
+capiMode:
+  enabled: true
+  rbac:
+    create: true
+    allowedNamespaces:
+      - org-acme
+      - org-beta
+      - org-gamma
+```
+
+**Step 2: Install with CAPI Mode**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-capi-production.yaml \
+  --set capiMode.rbac.allowedNamespaces[0]=org-acme \
+  --set capiMode.rbac.allowedNamespaces[1]=org-beta \
+  --set mcpKubernetes.oauth.dex.issuerURL=https://dex.g8s.example.com \
+  --set mcpKubernetes.oauth.baseURL=https://mcp.g8s.example.com
+```
+
+Or use the example production values file:
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-capi-production.yaml
+```
+
+**Security Considerations:**
+
+1. **Namespace-Scoped RBAC** (Recommended): Use `capiMode.rbac.allowedNamespaces` to limit secret access to specific namespaces. This follows the principle of least privilege.
+
+2. **Cluster-Wide Secret Access** (Not Recommended): Only enable `capiMode.rbac.clusterWideSecrets: true` if namespace-scoped access is impractical. This grants read access to ALL secrets in the cluster.
+
+3. **Cache TTL**: Set `capiMode.cache.ttl` to be less than or equal to your OAuth token lifetime to ensure cached clients don't outlive user authorization.
+
+4. **Output Masking**: Keep `capiMode.output.maskSecrets: true` to prevent accidental exposure of sensitive data in tool responses.
 
 ## Production Secret Management
 

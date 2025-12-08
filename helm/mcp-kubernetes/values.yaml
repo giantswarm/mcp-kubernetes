@@ -212,6 +212,63 @@ mcpKubernetes:
   # - name: EXAMPLE_VAR
   #   value: "example-value"
 
+# CAPI Mode Configuration
+# When enabled, the MCP server operates as a multi-cluster federation gateway
+# using Cluster API (CAPI) for cluster discovery and kubeconfig retrieval.
+capiMode:
+  # Enable CAPI federation mode
+  enabled: false
+
+  # Client cache settings for workload cluster connections
+  cache:
+    # Time-to-live for cached clients
+    # Security: Set this to be <= your OAuth token lifetime
+    ttl: "10m"
+    # Maximum number of cached (cluster, user) pairs
+    maxEntries: 1000
+    # How often to clean up expired entries
+    cleanupInterval: "1m"
+
+  # Connectivity settings for workload clusters
+  connectivity:
+    # Timeout for initial TCP connection
+    timeout: "5s"
+    # Number of retry attempts for transient failures
+    retryAttempts: 3
+    # Initial backoff between retries (exponential)
+    retryBackoff: "1s"
+    # Request timeout for API operations
+    requestTimeout: "30s"
+    # QPS rate limit for Kubernetes client
+    qps: 50
+    # Burst limit for Kubernetes client
+    burst: 100
+
+  # Output processing limits for fleet-scale operations
+  output:
+    # Maximum items per query (absolute max: 1000)
+    maxItems: 100
+    # Maximum clusters in fleet-wide queries (absolute max: 100)
+    maxClusters: 20
+    # Maximum response size in bytes (absolute max: 2MB)
+    maxResponseBytes: 524288  # 512KB
+    # Enable slim output (removes verbose fields)
+    slimOutput: true
+    # Mask secret data with "***REDACTED***"
+    maskSecrets: true
+
+  # RBAC configuration for CAPI mode
+  rbac:
+    # Create CAPI-specific RBAC resources
+    create: true
+    # Namespaces to grant kubeconfig secret access
+    # Use [] for cluster-wide access (not recommended)
+    # Giant Swarm convention: org-* namespaces
+    allowedNamespaces: []
+    # When allowedNamespaces is empty and clusterWideSecrets is true,
+    # grants cluster-wide secret access (use with caution)
+    clusterWideSecrets: false
+
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:
   # Specifies whether a CiliumNetworkPolicy should be created
