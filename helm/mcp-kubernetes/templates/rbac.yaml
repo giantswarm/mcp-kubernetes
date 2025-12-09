@@ -196,8 +196,9 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
   # Policy resources (full access)
+  # Note: PodSecurityPolicies removed - deprecated in K8s 1.21, removed in 1.25
   - apiGroups: ["policy"]
-    resources: ["poddisruptionbudgets", "podsecuritypolicies"]
+    resources: ["poddisruptionbudgets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
   # Admission resources
@@ -208,6 +209,9 @@ rules:
 
 {{- if and .Values.serviceAccount.create .Values.rbac.create -}}
 {{- $profile := .Values.rbac.profile | default "standard" -}}
+{{- if and (eq $profile "admin") (not .Values.rbac.adminConfirmation) -}}
+{{- fail "SECURITY: The 'admin' RBAC profile grants dangerous permissions including RBAC management (privilege escalation), pod exec (container escape), and webhook configuration (API interception). To use this profile, you must explicitly set 'rbac.adminConfirmation: true' to confirm you understand these risks." -}}
+{{- end -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

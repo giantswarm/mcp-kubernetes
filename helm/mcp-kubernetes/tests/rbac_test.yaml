@@ -114,11 +114,23 @@ tests:
             verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
         documentIndex: 0
 
-  - it: should create admin profile with full access and security warning
+  - it: should fail when admin profile is used without confirmation
     set:
       serviceAccount.create: true
       rbac.create: true
       rbac.profile: "admin"
+      rbac.adminConfirmation: false
+      capiMode.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "SECURITY: The 'admin' RBAC profile grants dangerous permissions including RBAC management (privilege escalation), pod exec (container escape), and webhook configuration (API interception). To use this profile, you must explicitly set 'rbac.adminConfirmation: true' to confirm you understand these risks."
+
+  - it: should create admin profile with full access and security warning when confirmed
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "admin"
+      rbac.adminConfirmation: true
       capiMode.enabled: false
     asserts:
       - hasDocuments:
@@ -137,6 +149,23 @@ tests:
           content:
             apiGroups: ["rbac.authorization.k8s.io"]
             resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+
+  - it: should not include deprecated podsecuritypolicies in admin profile
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "admin"
+      rbac.adminConfirmation: true
+      capiMode.enabled: false
+    asserts:
+      # Policy rules should only include poddisruptionbudgets, not podsecuritypolicies
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["policy"]
+            resources: ["poddisruptionbudgets"]
             verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
         documentIndex: 0
 
@@ -534,6 +563,7 @@ tests:
       serviceAccount.create: true
       rbac.create: true
       rbac.profile: "admin"
+      rbac.adminConfirmation: true
       capiMode.enabled: true
       capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []

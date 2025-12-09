@@ -64,12 +64,16 @@
         },
         "profile": {
           "type": "string",
-          "description": "RBAC profile: minimal, readonly, standard, admin",
+          "description": "RBAC profile: minimal (no permissions), readonly (read-only, no secrets), standard (read/write including secrets), admin (requires adminConfirmation)",
           "enum": ["minimal", "readonly", "standard", "admin"]
+        },
+        "adminConfirmation": {
+          "type": "boolean",
+          "description": "REQUIRED when using admin profile. Must be set to true to acknowledge the dangerous permissions (RBAC management, pod exec, webhook configuration)"
         },
         "custom": {
           "type": "object",
-          "description": "Custom RBAC rules (overrides profile when enabled)",
+          "description": "Custom RBAC rules. WARNING: Overrides profile safety controls when enabled - use with caution",
           "properties": {
             "enabled": {
               "type": "boolean",

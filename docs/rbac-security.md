@@ -84,6 +84,8 @@ rbac:
 - Read-only access to: storage classes, CRDs
 - **RBAC resources are read-only** (cannot escalate privileges)
 
+> **Security Warning:** The `standard` profile grants **cluster-wide secret access**. This includes read/write permissions to all secrets in all namespaces. If you don't need write operations or secret access, consider using the `readonly` profile instead.
+
 **Use when:**
 - Development and testing environments
 - Trusted single-tenant deployments
@@ -104,8 +106,15 @@ rbac:
 - RBAC management (create/update/delete roles)
 - Admission webhook management
 
+> **DANGER:** The `admin` profile grants **extremely dangerous permissions** that can lead to:
+> - **Privilege escalation** - RBAC management allows creating cluster-admin bindings
+> - **Container escape** - Pod exec allows arbitrary command execution in containers
+> - **API interception** - Webhook configuration can intercept/modify all API requests
+>
+> **You must explicitly confirm you understand these risks** by setting `adminConfirmation: true`.
+
 **Use when:**
-- Administrative tooling
+- Administrative tooling with strict access controls
 - Fully trusted environments only
 - Emergency break-glass scenarios
 
@@ -114,18 +123,26 @@ rbac:
 rbac:
   create: true
   profile: "admin"
+  adminConfirmation: true  # REQUIRED - confirms you understand the risks
 ```
 
-**Warning:** The `admin` profile grants extensive permissions. A ClusterRole annotation warns about this.
+**Security controls:** The Helm chart will **fail to render** unless you explicitly set `adminConfirmation: true`. A ClusterRole annotation also warns about the elevated permissions.
 
 ### Custom RBAC Rules
 
 For fine-grained control, you can define custom rules that override the profile:
 
+> **Security Warning:** Custom rules **bypass all profile safety controls**. When `custom.enabled: true`:
+> - No validation is performed on your custom rules
+> - The profile setting is completely ignored
+> - You can accidentally grant excessive permissions (including admin-level access)
+>
+> **Review custom rules carefully before deploying.**
+
 ```yaml
 rbac:
   create: true
-  profile: "readonly"  # Ignored when custom.enabled is true
+  profile: "readonly"  # IGNORED when custom.enabled is true
   custom:
     enabled: true
     rules:
@@ -136,6 +153,8 @@ rbac:
         resources: ["deployments"]
         verbs: ["get", "list"]
 ```
+
+Only use custom rules when the predefined profiles don't meet your specific requirements.
 
 ---
 
