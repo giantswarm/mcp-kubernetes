@@ -24,16 +24,27 @@ The following operations are blocked by default:
 | `delete` | Remove resources | `kubectl delete` |
 | `patch` | Update specific fields | `kubectl patch` |
 | `scale` | Change replica counts | `kubectl scale` |
+| `exec` | Execute commands in pods | `kubectl exec` |
+| `port-forward` | Forward ports to pods/services | `kubectl port-forward` |
+
+#### Why exec and port-forward are blocked
+
+These operations are blocked because they can bypass the read-only guarantees:
+
+- **exec**: Allows arbitrary command execution inside pods, which can modify files, delete data, read secrets, or perform any action the pod's service account allows. This completely bypasses Kubernetes API-level protections.
+
+- **port-forward**: Establishes network tunnels to internal services, which could be used to access databases, admin interfaces, or other services that allow modifications through their own APIs.
 
 ### Allowed Operations
 
-The following operations are always allowed:
+The following operations are always allowed (read-only):
 
 | Operation | Description | CLI Tool Equivalent |
 |-----------|-------------|---------------------|
 | `get` | Retrieve a single resource | `kubectl get -o yaml` |
 | `list` | List multiple resources | `kubectl get` |
 | `describe` | Get detailed information | `kubectl describe` |
+| `logs` | View pod logs | `kubectl logs` |
 
 ### Configuration
 
@@ -76,9 +87,11 @@ mcp-kubernetes serve --non-destructive=true --dry-run=true
 | Non-Destructive | Dry-Run | Behavior |
 |-----------------|---------|----------|
 | `true` (default) | `false` (default) | Only read operations allowed. Mutating operations blocked. |
-| `true` | `true` | All operations allowed, but mutations are dry-run only (validated, not applied). |
+| `true` | `true` | Resource mutations are dry-run only (validated, not applied). Note: `exec` and `port-forward` are allowed but cannot be dry-run validated by Kubernetes. |
 | `false` | `false` | **DANGEROUS**: All operations allowed and applied. |
-| `false` | `true` | All operations allowed, but mutations are dry-run only. |
+| `false` | `true` | All operations allowed, but resource mutations are dry-run only. |
+
+**Important**: The `exec` and `port-forward` operations cannot be validated via Kubernetes dry-run because they don't create or modify Kubernetes resources - they establish direct connections to running workloads.
 
 ## AllowedOperations
 
@@ -125,24 +138,33 @@ This helps users understand their options when they encounter a blocked operatio
 
 ### Handler-Level Checks
 
-Each mutating operation handler checks the safety modes:
+All mutating operation handlers use the shared `CheckMutatingOperation` function:
 
 ```go
-config := sc.Config()
-if config.NonDestructiveMode && !config.DryRun {
-    // Check if operation is in AllowedOperations
-    allowed := false
+// CheckMutatingOperation verifies if a mutating operation is allowed.
+// Returns an error result if blocked, nil if allowed.
+func CheckMutatingOperation(sc *server.ServerContext, operation string) *mcp.CallToolResult {
+    config := sc.Config()
+    if !config.NonDestructiveMode || config.DryRun {
+        return nil
+    }
+
     for _, op := range config.AllowedOperations {
-        if op == "<operation>" {
-            allowed = true
-            break
+        if op == operation {
+            return nil
         }
     }
-    if !allowed {
-        return error("Operation not allowed in non-destructive mode")
-    }
+
+    return mcp.NewToolResultError(fmt.Sprintf(
+        "%s operations are not allowed in non-destructive mode",
+        operation,
+    ))
 }
 ```
+
+This centralized function is used by all handlers that perform potentially dangerous operations:
+- Resource handlers: `create`, `apply`, `delete`, `patch`, `scale`
+- Pod handlers: `exec`, `port-forward`
 
 ### Kubernetes API Dry-Run
 
@@ -162,4 +184,5 @@ This tells the Kubernetes API server to validate the request without persisting 
 - [RBAC Security](rbac-security.md) - Configure Kubernetes RBAC for mcp-kubernetes
 - [OAuth](oauth.md) - Authentication configuration
 - [Observability](observability.md) - Monitoring and metrics
+
 

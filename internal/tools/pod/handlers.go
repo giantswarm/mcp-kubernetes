@@ -16,6 +16,12 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
+// checkMutatingOperation is a convenience wrapper around tools.CheckMutatingOperation.
+// It verifies if a mutating operation is allowed given the current server configuration.
+func checkMutatingOperation(sc *server.ServerContext, operation string) *mcp.CallToolResult {
+	return tools.CheckMutatingOperation(sc, operation)
+}
+
 // Resource type constant for default resource type in port-forward operations.
 const defaultResourceTypePod = "pod"
 
@@ -170,8 +176,15 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	return mcp.NewToolResultText(logText), nil
 }
 
-// handleExec handles kubectl exec operations
+// handleExec handles kubectl exec operations.
+// This is a potentially dangerous operation that allows arbitrary command execution
+// inside pods, so it is blocked in non-destructive mode unless explicitly allowed.
 func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+	// Check if exec operations are allowed in non-destructive mode
+	if result := checkMutatingOperation(sc, "exec"); result != nil {
+		return result, nil
+	}
+
 	args := request.GetArguments()
 
 	// Extract cluster parameter for multi-cluster support
@@ -249,8 +262,16 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 	return mcp.NewToolResultText(output.String()), nil
 }
 
-// handlePortForward handles kubectl port-forward operations
+// handlePortForward handles kubectl port-forward operations.
+// This operation establishes network tunnels to cluster resources, which could be
+// used to access internal services. It is blocked in non-destructive mode unless
+// explicitly allowed.
 func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+	// Check if port-forward operations are allowed in non-destructive mode
+	if result := checkMutatingOperation(sc, "port-forward"); result != nil {
+		return result, nil
+	}
+
 	args := request.GetArguments()
 
 	// Extract cluster parameter for multi-cluster support

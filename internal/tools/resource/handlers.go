@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -26,25 +24,10 @@ func recordK8sOperation(ctx context.Context, sc *server.ServerContext, operation
 	sc.RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
 }
 
-// checkMutatingOperation verifies if a mutating operation is allowed given the current
-// server configuration. Returns an error result if blocked, nil if allowed.
-// This centralizes the non-destructive mode check to avoid code duplication.
+// checkMutatingOperation is a convenience wrapper around tools.CheckMutatingOperation.
+// It verifies if a mutating operation is allowed given the current server configuration.
 func checkMutatingOperation(sc *server.ServerContext, operation string) *mcp.CallToolResult {
-	config := sc.Config()
-	if !config.NonDestructiveMode || config.DryRun {
-		return nil
-	}
-
-	for _, op := range config.AllowedOperations {
-		if op == operation {
-			return nil
-		}
-	}
-
-	return mcp.NewToolResultError(fmt.Sprintf(
-		"%s operations are not allowed in non-destructive mode (use --dry-run to validate without applying)",
-		cases.Title(language.English).String(operation),
-	))
+	return tools.CheckMutatingOperation(sc, operation)
 }
 
 // handleGetResource handles kubectl get operations

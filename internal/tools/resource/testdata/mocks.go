@@ -4,6 +4,7 @@ package testdata
 import (
 	"context"
 	"io"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -84,22 +85,32 @@ func (m *MockK8sClient) Scale(_ context.Context, _, _, _, _, _ string, _ int32) 
 
 // GetLogs implements k8s.PodManager.
 func (m *MockK8sClient) GetLogs(_ context.Context, _, _, _, _ string, _ k8s.LogOptions) (io.ReadCloser, error) {
-	return nil, nil
+	return io.NopCloser(strings.NewReader("mock log output")), nil
 }
 
 // Exec implements k8s.PodManager.
 func (m *MockK8sClient) Exec(_ context.Context, _, _, _, _ string, _ []string, _ k8s.ExecOptions) (*k8s.ExecResult, error) {
-	return nil, nil
+	return &k8s.ExecResult{
+		ExitCode: 0,
+		Stdout:   "mock output",
+		Stderr:   "",
+	}, nil
 }
 
 // PortForward implements k8s.PodManager.
 func (m *MockK8sClient) PortForward(_ context.Context, _, _, _ string, _ []string, _ k8s.PortForwardOptions) (*k8s.PortForwardSession, error) {
-	return nil, nil
+	return &k8s.PortForwardSession{
+		LocalPorts:  []int{8080},
+		RemotePorts: []int{80},
+	}, nil
 }
 
 // PortForwardToService implements k8s.PodManager.
 func (m *MockK8sClient) PortForwardToService(_ context.Context, _, _, _ string, _ []string, _ k8s.PortForwardOptions) (*k8s.PortForwardSession, error) {
-	return nil, nil
+	return &k8s.PortForwardSession{
+		LocalPorts:  []int{8080},
+		RemotePorts: []int{80},
+	}, nil
 }
 
 // GetAPIResources implements k8s.ClusterManager.
