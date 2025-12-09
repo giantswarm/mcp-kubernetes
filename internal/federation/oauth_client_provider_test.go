@@ -175,7 +175,7 @@ func TestOAuthClientProvider_GetClientsForUser(t *testing.T) {
 			Email:  "user@example.com",
 			Groups: []string{"developers"},
 			Extra: map[string][]string{
-				"oauth_token": {"fallback-token"},
+				UserExtraOAuthTokenKey: {"fallback-token"},
 			},
 		}
 
@@ -206,7 +206,7 @@ func TestOAuthClientProvider_GetClientsForUser(t *testing.T) {
 			Email:  "user@example.com",
 			Groups: []string{"developers"},
 			Extra: map[string][]string{
-				"oauth_token": {"extra-token"},
+				UserExtraOAuthTokenKey: {"extra-token"},
 			},
 		}
 

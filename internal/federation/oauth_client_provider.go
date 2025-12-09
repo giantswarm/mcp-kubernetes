@@ -11,6 +11,11 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// UserExtraOAuthTokenKey is the key used in UserInfo.Extra to store OAuth tokens
+// as a fallback mechanism for testing or alternative authentication flows.
+// nolint:gosec // G101: This is a key name, not a credential
+const UserExtraOAuthTokenKey = "oauth_token"
+
 // OAuthClientProvider implements ClientProvider for OAuth downstream authentication.
 // It creates per-user Kubernetes clients using the user's OAuth bearer token,
 // ensuring all API operations are performed with the user's RBAC permissions.
@@ -44,6 +49,10 @@ import (
 //	    return err
 //	}
 //	manager, err := NewManager(provider)
+//	if err != nil {
+//	    return err
+//	}
+//	defer manager.Close()
 type OAuthClientProvider struct {
 	// In-cluster configuration
 	clusterHost string
@@ -165,7 +174,7 @@ func (p *OAuthClientProvider) GetClientsForUser(ctx context.Context, user *UserI
 
 	// Fallback: check if token is in user.Extra (for testing or alternative flows)
 	if bearerToken == "" && user.Extra != nil {
-		if tokens, ok := user.Extra["oauth_token"]; ok && len(tokens) > 0 {
+		if tokens, ok := user.Extra[UserExtraOAuthTokenKey]; ok && len(tokens) > 0 {
 			bearerToken = tokens[0]
 		}
 	}

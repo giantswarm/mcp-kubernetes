@@ -37,6 +37,51 @@ const (
 // envValueTrue is the string value used to enable boolean environment variables.
 const envValueTrue = "true"
 
+// parseDurationEnv parses a duration from an environment variable value.
+// Returns the parsed duration and true if successful, or zero and false if parsing fails.
+// Logs a warning if the value is present but invalid.
+func parseDurationEnv(value, envName string) (time.Duration, bool) {
+	if value == "" {
+		return 0, false
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		log.Printf("Warning: invalid duration for %s=%q: %v", envName, value, err)
+		return 0, false
+	}
+	return d, true
+}
+
+// parseIntEnv parses an integer from an environment variable value.
+// Returns the parsed int and true if successful, or zero and false if parsing fails.
+// Logs a warning if the value is present but invalid.
+func parseIntEnv(value, envName string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		log.Printf("Warning: invalid integer for %s=%q: %v", envName, value, err)
+		return 0, false
+	}
+	return n, true
+}
+
+// parseFloat32Env parses a float32 from an environment variable value.
+// Returns the parsed float and true if successful, or zero and false if parsing fails.
+// Logs a warning if the value is present but invalid.
+func parseFloat32Env(value, envName string) (float32, bool) {
+	if value == "" {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(value, 32)
+	if err != nil {
+		log.Printf("Warning: invalid float for %s=%q: %v", envName, value, err)
+		return 0, false
+	}
+	return float32(f), true
+}
+
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
 	var (
@@ -324,16 +369,16 @@ func runServe(config ServeConfig) error {
 		// Configure connectivity
 		if config.CAPIMode.ConnectivityTimeout != "" {
 			connectivityConfig := federation.DefaultConnectivityConfig()
-			if timeout, err := time.ParseDuration(config.CAPIMode.ConnectivityTimeout); err == nil {
+			if timeout, ok := parseDurationEnv(config.CAPIMode.ConnectivityTimeout, "CONNECTIVITY_TIMEOUT"); ok {
 				connectivityConfig.ConnectionTimeout = timeout
 			}
 			if config.CAPIMode.ConnectivityRetryAttempts > 0 {
 				connectivityConfig.RetryAttempts = config.CAPIMode.ConnectivityRetryAttempts
 			}
-			if backoff, err := time.ParseDuration(config.CAPIMode.ConnectivityRetryBackoff); err == nil {
+			if backoff, ok := parseDurationEnv(config.CAPIMode.ConnectivityRetryBackoff, "CONNECTIVITY_RETRY_BACKOFF"); ok {
 				connectivityConfig.RetryBackoff = backoff
 			}
-			if reqTimeout, err := time.ParseDuration(config.CAPIMode.ConnectivityRequestTimeout); err == nil {
+			if reqTimeout, ok := parseDurationEnv(config.CAPIMode.ConnectivityRequestTimeout, "CONNECTIVITY_REQUEST_TIMEOUT"); ok {
 				connectivityConfig.RequestTimeout = reqTimeout
 			}
 			if config.CAPIMode.ConnectivityQPS > 0 {
@@ -374,11 +419,9 @@ func runServe(config ServeConfig) error {
 		}
 		// Close federation manager if it was created
 		if fedManager != nil {
-			if closer, ok := fedManager.(interface{ Close() error }); ok {
-				if err := closer.Close(); err != nil {
-					if config.Transport != transportStdio {
-						log.Printf("Error during federation manager shutdown: %v", err)
-					}
+			if err := fedManager.Close(); err != nil {
+				if config.Transport != transportStdio {
+					log.Printf("Error during federation manager shutdown: %v", err)
 				}
 			}
 		}
@@ -534,33 +577,30 @@ func runServe(config ServeConfig) error {
 
 // loadCAPIModeConfig loads CAPI mode configuration from environment variables.
 // This matches the environment variables set by the Helm chart deployment.yaml.
+// Invalid values are logged as warnings and ignored.
 func loadCAPIModeConfig(config *CAPIModeConfig) {
 	// Check if CAPI mode is enabled
 	if os.Getenv("CAPI_MODE_ENABLED") == envValueTrue {
 		config.Enabled = true
 	}
 
-	// Cache configuration
+	// Cache configuration - store as strings for later validation
 	if ttl := os.Getenv("CLIENT_CACHE_TTL"); ttl != "" {
 		config.CacheTTL = ttl
 	}
-	if maxEntries := os.Getenv("CLIENT_CACHE_MAX_ENTRIES"); maxEntries != "" {
-		if n, err := strconv.Atoi(maxEntries); err == nil {
-			config.CacheMaxEntries = n
-		}
+	if n, ok := parseIntEnv(os.Getenv("CLIENT_CACHE_MAX_ENTRIES"), "CLIENT_CACHE_MAX_ENTRIES"); ok {
+		config.CacheMaxEntries = n
 	}
 	if interval := os.Getenv("CLIENT_CACHE_CLEANUP_INTERVAL"); interval != "" {
 		config.CacheCleanupInterval = interval
 	}
 
-	// Connectivity configuration
+	// Connectivity configuration - store as strings for later validation
 	if timeout := os.Getenv("CONNECTIVITY_TIMEOUT"); timeout != "" {
 		config.ConnectivityTimeout = timeout
 	}
-	if retries := os.Getenv("CONNECTIVITY_RETRY_ATTEMPTS"); retries != "" {
-		if n, err := strconv.Atoi(retries); err == nil {
-			config.ConnectivityRetryAttempts = n
-		}
+	if n, ok := parseIntEnv(os.Getenv("CONNECTIVITY_RETRY_ATTEMPTS"), "CONNECTIVITY_RETRY_ATTEMPTS"); ok {
+		config.ConnectivityRetryAttempts = n
 	}
 	if backoff := os.Getenv("CONNECTIVITY_RETRY_BACKOFF"); backoff != "" {
 		config.ConnectivityRetryBackoff = backoff
@@ -568,37 +608,10 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	if reqTimeout := os.Getenv("CONNECTIVITY_REQUEST_TIMEOUT"); reqTimeout != "" {
 		config.ConnectivityRequestTimeout = reqTimeout
 	}
-	if qps := os.Getenv("CONNECTIVITY_QPS"); qps != "" {
-		if f, err := strconv.ParseFloat(qps, 32); err == nil {
-			config.ConnectivityQPS = float32(f)
-		}
+	if f, ok := parseFloat32Env(os.Getenv("CONNECTIVITY_QPS"), "CONNECTIVITY_QPS"); ok {
+		config.ConnectivityQPS = f
 	}
-	if burst := os.Getenv("CONNECTIVITY_BURST"); burst != "" {
-		if n, err := strconv.Atoi(burst); err == nil {
-			config.ConnectivityBurst = n
-		}
-	}
-
-	// Output configuration
-	if maxItems := os.Getenv("OUTPUT_MAX_ITEMS"); maxItems != "" {
-		if n, err := strconv.Atoi(maxItems); err == nil {
-			config.OutputMaxItems = n
-		}
-	}
-	if maxClusters := os.Getenv("OUTPUT_MAX_CLUSTERS"); maxClusters != "" {
-		if n, err := strconv.Atoi(maxClusters); err == nil {
-			config.OutputMaxClusters = n
-		}
-	}
-	if maxBytes := os.Getenv("OUTPUT_MAX_RESPONSE_BYTES"); maxBytes != "" {
-		if n, err := strconv.Atoi(maxBytes); err == nil {
-			config.OutputMaxResponseBytes = n
-		}
-	}
-	if slim := os.Getenv("OUTPUT_SLIM_MODE"); slim == envValueTrue {
-		config.OutputSlimMode = true
-	}
-	if mask := os.Getenv("OUTPUT_MASK_SECRETS"); mask == envValueTrue {
-		config.OutputMaskSecrets = true
+	if n, ok := parseIntEnv(os.Getenv("CONNECTIVITY_BURST"), "CONNECTIVITY_BURST"); ok {
+		config.ConnectivityBurst = n
 	}
 }

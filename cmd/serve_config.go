@@ -78,13 +78,6 @@ type CAPIModeConfig struct {
 	ConnectivityRequestTimeout string
 	ConnectivityQPS            float32
 	ConnectivityBurst          int
-
-	// Output configuration
-	OutputMaxItems         int
-	OutputMaxClusters      int
-	OutputMaxResponseBytes int
-	OutputSlimMode         bool
-	OutputMaskSecrets      bool
 }
 
 // OAuthServeConfig holds OAuth-specific configuration.
