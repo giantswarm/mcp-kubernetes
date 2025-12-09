@@ -56,6 +56,34 @@ type ServeConfig struct {
 	// OAuth configuration
 	OAuth           OAuthServeConfig
 	DownstreamOAuth bool
+
+	// CAPI Mode configuration (multi-cluster federation)
+	CAPIMode CAPIModeConfig
+}
+
+// CAPIModeConfig holds CAPI federation mode configuration.
+type CAPIModeConfig struct {
+	// Enabled enables CAPI federation mode for multi-cluster operations
+	Enabled bool
+
+	// Cache configuration
+	CacheTTL             string
+	CacheMaxEntries      int
+	CacheCleanupInterval string
+
+	// OAuthTokenLifetime is the expected lifetime of OAuth tokens from your provider.
+	// If CacheTTL exceeds this value, a warning is logged. This helps prevent
+	// authentication failures from using cached clients with expired tokens.
+	// Defaults to 1 hour if not specified.
+	OAuthTokenLifetime string
+
+	// Connectivity configuration
+	ConnectivityTimeout        string
+	ConnectivityRetryAttempts  int
+	ConnectivityRetryBackoff   string
+	ConnectivityRequestTimeout string
+	ConnectivityQPS            float32
+	ConnectivityBurst          int
 }
 
 // OAuthServeConfig holds OAuth-specific configuration.

@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -14,8 +15,10 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/capi"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
@@ -30,6 +33,59 @@ const (
 	transportSSE            = "sse"
 	transportStreamableHTTP = "streamable-http"
 )
+
+// envValueTrue is the string value used to enable boolean environment variables.
+const envValueTrue = "true"
+
+// defaultOAuthTokenLifetime is a reasonable default assumption for OAuth token lifetime.
+// Most OIDC providers issue tokens with 1-hour lifetime. This is used to warn operators
+// if their cache TTL exceeds this value, which could lead to using expired tokens.
+const defaultOAuthTokenLifetime = 1 * time.Hour
+
+// parseDurationEnv parses a duration from an environment variable value.
+// Returns the parsed duration and true if successful, or zero and false if parsing fails.
+// Logs a warning if the value is present but invalid.
+func parseDurationEnv(value, envName string) (time.Duration, bool) {
+	if value == "" {
+		return 0, false
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		log.Printf("Warning: invalid duration for %s=%q: %v", envName, value, err)
+		return 0, false
+	}
+	return d, true
+}
+
+// parseIntEnv parses an integer from an environment variable value.
+// Returns the parsed int and true if successful, or zero and false if parsing fails.
+// Logs a warning if the value is present but invalid.
+func parseIntEnv(value, envName string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		log.Printf("Warning: invalid integer for %s=%q: %v", envName, value, err)
+		return 0, false
+	}
+	return n, true
+}
+
+// parseFloat32Env parses a float32 from an environment variable value.
+// Returns the parsed float and true if successful, or zero and false if parsing fails.
+// Logs a warning if the value is present but invalid.
+func parseFloat32Env(value, envName string) (float32, bool) {
+	if value == "" {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(value, 32)
+	if err != nil {
+		log.Printf("Warning: invalid float for %s=%q: %v", envName, value, err)
+		return 0, false
+	}
+	return float32(f), true
+}
 
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
@@ -269,6 +325,120 @@ func runServe(config ServeConfig) error {
 		log.Printf("Downstream OAuth enabled: user OAuth tokens will be used for Kubernetes API authentication")
 	}
 
+	// Load CAPI mode configuration from environment variables
+	loadCAPIModeConfig(&config.CAPIMode)
+
+	// Create federation manager if CAPI mode is enabled
+	var fedManager federation.ClusterClientManager
+	if config.CAPIMode.Enabled {
+		// CAPI mode requires downstream OAuth and in-cluster mode
+		if !config.DownstreamOAuth {
+			return fmt.Errorf("CAPI mode requires downstream OAuth to be enabled (--downstream-oauth)")
+		}
+		if !config.InCluster {
+			return fmt.Errorf("CAPI mode requires in-cluster mode (--in-cluster)")
+		}
+
+		// Create OAuth client provider
+		oauthProvider, err := federation.NewOAuthClientProviderFromInCluster()
+		if err != nil {
+			return fmt.Errorf("failed to create OAuth client provider: %w", err)
+		}
+
+		// Set the token extractor to use the OAuth token from context
+		oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
+
+		// Set metrics recorder if instrumentation is enabled
+		if instrumentationProvider.Enabled() {
+			oauthProvider.SetMetrics(instrumentationProvider.Metrics())
+		}
+
+		// Build federation manager options
+		var managerOpts []federation.ManagerOption
+
+		// Configure cache
+		if config.CAPIMode.CacheTTL != "" {
+			ttl, err := time.ParseDuration(config.CAPIMode.CacheTTL)
+			if err != nil {
+				return fmt.Errorf("invalid cache TTL: %w", err)
+			}
+
+			// Determine OAuth token lifetime for validation
+			// Use configured value if available, otherwise use default
+			tokenLifetime := defaultOAuthTokenLifetime
+			if config.CAPIMode.OAuthTokenLifetime != "" {
+				if parsed, err := time.ParseDuration(config.CAPIMode.OAuthTokenLifetime); err == nil {
+					tokenLifetime = parsed
+				} else {
+					log.Printf("Warning: invalid OAUTH_TOKEN_LIFETIME=%q, using default %v: %v",
+						config.CAPIMode.OAuthTokenLifetime, defaultOAuthTokenLifetime, err)
+				}
+			}
+
+			// Security warning: Cache TTL exceeding OAuth token lifetime
+			// could lead to using expired tokens for cached clients.
+			if ttl > tokenLifetime {
+				log.Printf("Warning: Cache TTL (%v) exceeds OAuth token lifetime (%v). "+
+					"This may cause authentication failures when cached clients use expired tokens. "+
+					"Consider setting CLIENT_CACHE_TTL <= %v or configuring longer token lifetimes in your OAuth provider "+
+					"(set OAUTH_TOKEN_LIFETIME to customize this threshold).",
+					ttl, tokenLifetime, tokenLifetime)
+			}
+
+			cacheConfig := federation.CacheConfig{
+				TTL:        ttl,
+				MaxEntries: config.CAPIMode.CacheMaxEntries,
+			}
+			if config.CAPIMode.CacheCleanupInterval != "" {
+				interval, err := time.ParseDuration(config.CAPIMode.CacheCleanupInterval)
+				if err != nil {
+					return fmt.Errorf("invalid cache cleanup interval: %w", err)
+				}
+				cacheConfig.CleanupInterval = interval
+			}
+			managerOpts = append(managerOpts, federation.WithManagerCacheConfig(cacheConfig))
+		}
+
+		// Configure connectivity
+		if config.CAPIMode.ConnectivityTimeout != "" {
+			connectivityConfig := federation.DefaultConnectivityConfig()
+			if timeout, ok := parseDurationEnv(config.CAPIMode.ConnectivityTimeout, "CONNECTIVITY_TIMEOUT"); ok {
+				connectivityConfig.ConnectionTimeout = timeout
+			}
+			if config.CAPIMode.ConnectivityRetryAttempts > 0 {
+				connectivityConfig.RetryAttempts = config.CAPIMode.ConnectivityRetryAttempts
+			}
+			if backoff, ok := parseDurationEnv(config.CAPIMode.ConnectivityRetryBackoff, "CONNECTIVITY_RETRY_BACKOFF"); ok {
+				connectivityConfig.RetryBackoff = backoff
+			}
+			if reqTimeout, ok := parseDurationEnv(config.CAPIMode.ConnectivityRequestTimeout, "CONNECTIVITY_REQUEST_TIMEOUT"); ok {
+				connectivityConfig.RequestTimeout = reqTimeout
+			}
+			if config.CAPIMode.ConnectivityQPS > 0 {
+				connectivityConfig.QPS = config.CAPIMode.ConnectivityQPS
+			}
+			if config.CAPIMode.ConnectivityBurst > 0 {
+				connectivityConfig.Burst = config.CAPIMode.ConnectivityBurst
+			}
+			managerOpts = append(managerOpts, federation.WithConnectivityConfig(connectivityConfig))
+		}
+
+		// Add instrumentation metrics if enabled
+		if instrumentationProvider.Enabled() {
+			managerOpts = append(managerOpts, federation.WithManagerCacheMetrics(instrumentationProvider.Metrics()))
+		}
+
+		// Create federation manager
+		fedManager, err = federation.NewManager(oauthProvider, managerOpts...)
+		if err != nil {
+			return fmt.Errorf("failed to create federation manager: %w", err)
+		}
+
+		serverContextOptions = append(serverContextOptions, server.WithFederationManager(fedManager))
+
+		log.Printf("CAPI federation mode enabled: multi-cluster operations available")
+	}
+
 	serverContext, err := server.NewServerContext(shutdownCtx, serverContextOptions...)
 	if err != nil {
 		return fmt.Errorf("failed to create server context: %w", err)
@@ -278,6 +448,14 @@ func runServe(config ServeConfig) error {
 			// Only log shutdown errors for non-stdio transports to avoid output interference
 			if config.Transport != transportStdio {
 				log.Printf("Error during server context shutdown: %v", err)
+			}
+		}
+		// Close federation manager if it was created
+		if fedManager != nil {
+			if err := fedManager.Close(); err != nil {
+				if config.Transport != transportStdio {
+					log.Printf("Error during federation manager shutdown: %v", err)
+				}
 			}
 		}
 	}()
@@ -419,7 +597,7 @@ func runServe(config ServeConfig) error {
 				AllowInsecureAuthWithoutState: config.OAuth.AllowInsecureAuthWithoutState,
 				MaxClientsPerIP:               config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                 encryptionKey,
-				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == "true",
+				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:       instrumentationProvider,
 			}, serverContext)
@@ -427,5 +605,52 @@ func runServe(config ServeConfig) error {
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
+	}
+}
+
+// loadCAPIModeConfig loads CAPI mode configuration from environment variables.
+// This matches the environment variables set by the Helm chart deployment.yaml.
+// Invalid values are logged as warnings and ignored.
+func loadCAPIModeConfig(config *CAPIModeConfig) {
+	// Check if CAPI mode is enabled
+	if os.Getenv("CAPI_MODE_ENABLED") == envValueTrue {
+		config.Enabled = true
+	}
+
+	// Cache configuration - store as strings for later validation
+	if ttl := os.Getenv("CLIENT_CACHE_TTL"); ttl != "" {
+		config.CacheTTL = ttl
+	}
+	if n, ok := parseIntEnv(os.Getenv("CLIENT_CACHE_MAX_ENTRIES"), "CLIENT_CACHE_MAX_ENTRIES"); ok {
+		config.CacheMaxEntries = n
+	}
+	if interval := os.Getenv("CLIENT_CACHE_CLEANUP_INTERVAL"); interval != "" {
+		config.CacheCleanupInterval = interval
+	}
+
+	// OAuth token lifetime for cache TTL validation
+	// This helps operators avoid cache TTLs that exceed their token lifetime
+	if lifetime := os.Getenv("OAUTH_TOKEN_LIFETIME"); lifetime != "" {
+		config.OAuthTokenLifetime = lifetime
+	}
+
+	// Connectivity configuration - store as strings for later validation
+	if timeout := os.Getenv("CONNECTIVITY_TIMEOUT"); timeout != "" {
+		config.ConnectivityTimeout = timeout
+	}
+	if n, ok := parseIntEnv(os.Getenv("CONNECTIVITY_RETRY_ATTEMPTS"), "CONNECTIVITY_RETRY_ATTEMPTS"); ok {
+		config.ConnectivityRetryAttempts = n
+	}
+	if backoff := os.Getenv("CONNECTIVITY_RETRY_BACKOFF"); backoff != "" {
+		config.ConnectivityRetryBackoff = backoff
+	}
+	if reqTimeout := os.Getenv("CONNECTIVITY_REQUEST_TIMEOUT"); reqTimeout != "" {
+		config.ConnectivityRequestTimeout = reqTimeout
+	}
+	if f, ok := parseFloat32Env(os.Getenv("CONNECTIVITY_QPS"), "CONNECTIVITY_QPS"); ok {
+		config.ConnectivityQPS = f
+	}
+	if n, ok := parseIntEnv(os.Getenv("CONNECTIVITY_BURST"), "CONNECTIVITY_BURST"); ok {
+		config.ConnectivityBurst = n
 	}
 }
