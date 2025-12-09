@@ -335,11 +335,14 @@ func TestMetrics_ConcurrentOAuthRecording(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			result := OAuthResultSuccess
-			if id%3 == 0 {
+			var result string
+			switch id % 3 {
+			case 0:
 				result = OAuthResultFallback
-			} else if id%3 == 1 {
+			case 1:
 				result = OAuthResultFailure
+			default:
+				result = OAuthResultSuccess
 			}
 			metrics.RecordOAuthDownstreamAuth(ctx, result)
 		}(i)

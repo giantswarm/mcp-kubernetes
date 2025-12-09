@@ -9,6 +9,16 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// Test constants for resource types to satisfy goconst
+const (
+	testResourceDeployment   = "deployment"
+	testResourceDeployments  = "deployments"
+	testResourceReplicaset   = "replicaset"
+	testResourceReplicasets  = "replicasets"
+	testResourceStatefulset  = "statefulset"
+	testResourceStatefulsets = "statefulsets"
+)
+
 // Create simplified test client for validation tests only
 func createTestClientForResources() *kubernetesClient {
 	testLog := &testLogger{}
@@ -126,11 +136,11 @@ func TestKubernetesClient_ScaleValidation(t *testing.T) {
 		// This is the validation logic from the Scale method
 		isScalable := false
 		switch resourceType {
-		case "deployment", "deployments":
+		case testResourceDeployment, testResourceDeployments:
 			isScalable = true
-		case "replicaset", "replicasets":
+		case testResourceReplicaset, testResourceReplicasets:
 			isScalable = true
-		case "statefulset", "statefulsets":
+		case testResourceStatefulset, testResourceStatefulsets:
 			isScalable = true
 		}
 
@@ -138,18 +148,18 @@ func TestKubernetesClient_ScaleValidation(t *testing.T) {
 	})
 
 	t.Run("supported resource types validation", func(t *testing.T) {
-		supportedTypes := []string{"deployment", "deployments", "replicaset", "replicasets", "statefulset", "statefulsets"}
+		supportedTypes := []string{testResourceDeployment, testResourceDeployments, testResourceReplicaset, testResourceReplicasets, testResourceStatefulset, testResourceStatefulsets}
 
 		for _, resourceType := range supportedTypes {
 			t.Run(resourceType, func(t *testing.T) {
 				// This is the validation logic from the Scale method
 				isScalable := false
 				switch resourceType {
-				case "deployment", "deployments":
+				case testResourceDeployment, testResourceDeployments:
 					isScalable = true
-				case "replicaset", "replicasets":
+				case testResourceReplicaset, testResourceReplicasets:
 					isScalable = true
-				case "statefulset", "statefulsets":
+				case testResourceStatefulset, testResourceStatefulsets:
 					isScalable = true
 				}
 

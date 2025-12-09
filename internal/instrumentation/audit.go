@@ -243,7 +243,8 @@ func (al *AuditLogger) LogToolAudit(ti *ToolInvocation) {
 // TraceIDFromContext extracts the trace ID from the current span in context.
 // Returns empty string if no valid span is present.
 //
-// Deprecated: Use GetTraceID instead. This function is kept for backwards compatibility.
+// Deprecated: Use GetTraceID instead. This function is kept for backwards compatibility
+// and will be removed in v2.0.
 func TraceIDFromContext(ctx context.Context) string {
 	return GetTraceID(ctx)
 }
