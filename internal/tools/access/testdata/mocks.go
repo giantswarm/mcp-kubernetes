@@ -51,6 +51,11 @@ func (m *MockFederationManager) Close() error {
 	return nil
 }
 
+// Stats implements federation.ClusterClientManager.
+func (m *MockFederationManager) Stats() federation.ManagerStats {
+	return federation.ManagerStats{}
+}
+
 // MockK8sClient implements k8s.Client interface for testing.
 type MockK8sClient struct{}
 

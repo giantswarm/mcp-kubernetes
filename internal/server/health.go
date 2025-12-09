@@ -220,10 +220,10 @@ func (h *HealthChecker) getFederationStatus() *FederationHealthStatus {
 		CachedClients: 0,
 	}
 
-	// Note: We can't easily get cached client count without modifying
-	// the federation package. This is left as 0 for now.
-	// In a future iteration, we could add a Stats() method to
-	// ClusterClientManager interface.
+	// Get cached client count from federation manager stats
+	if fedStats := h.serverContext.FederationStats(); fedStats != nil {
+		status.CachedClients = fedStats.CacheSize
+	}
 
 	return status
 }

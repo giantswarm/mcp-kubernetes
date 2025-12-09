@@ -39,19 +39,43 @@ const (
 // This prevents cardinality explosion by grouping clusters into categories
 // instead of using the full cluster name.
 //
-// Classification rules:
-//   - Empty string -> "management" (local/management cluster)
-//   - Prefix "prod-" or contains "production" -> "production"
-//   - Prefix "staging-" or contains "staging" -> "staging"
-//   - Prefix "dev-" or contains "development" -> "development"
-//   - Everything else -> "other"
+// # Classification Rules
 //
-// Example:
+// The function uses case-insensitive pattern matching:
 //
-//	ClassifyClusterName("")              // "management"
-//	ClassifyClusterName("prod-wc-01")    // "production"
-//	ClassifyClusterName("staging-test")  // "staging"
-//	ClassifyClusterName("my-cluster")    // "other"
+//	| Pattern                          | Classification |
+//	|----------------------------------|----------------|
+//	| Empty string                     | management     |
+//	| Prefix: prod-, prod_             | production     |
+//	| Contains: production, -prod-     | production     |
+//	| Suffix: -prod                    | production     |
+//	| Prefix: staging-, staging_, stg- | staging        |
+//	| Contains: staging, -stg-         | staging        |
+//	| Suffix: -stg                     | staging        |
+//	| Prefix: dev-, dev_               | development    |
+//	| Contains: development, -dev-     | development    |
+//	| Suffix: -dev                     | development    |
+//	| Everything else                  | other          |
+//
+// # Customization
+//
+// Organizations using different naming conventions (e.g., "live-", "prd-", "uat-")
+// will see these clusters classified as "other". If you need custom classification,
+// consider:
+//   - Renaming clusters to follow the patterns above
+//   - Implementing a custom classifier that wraps this function
+//   - Contributing additional patterns via a pull request
+//
+// # Examples
+//
+//	ClassifyClusterName("")                   // "management"
+//	ClassifyClusterName("prod-wc-01")         // "production"
+//	ClassifyClusterName("my-production-env")  // "production"
+//	ClassifyClusterName("staging-test")       // "staging"
+//	ClassifyClusterName("stg-wc-01")          // "staging"
+//	ClassifyClusterName("dev-cluster")        // "development"
+//	ClassifyClusterName("my-cluster")         // "other"
+//	ClassifyClusterName("us-east-1-cluster")  // "other"
 func ClassifyClusterName(name string) string {
 	if name == "" {
 		return string(ClusterTypeManagement)
