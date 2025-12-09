@@ -12,6 +12,13 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
+// Compile-time interface compliance checks.
+// These ensure the mocks always satisfy the interfaces they're meant to implement.
+var (
+	_ k8s.Client    = (*MockK8sClient)(nil)
+	_ server.Logger = (*MockLogger)(nil)
+)
+
 // MockK8sClient implements k8s.Client interface for testing.
 // It returns nil/empty values for all operations, allowing tests to verify
 // that handler-level checks work correctly.

@@ -13,9 +13,21 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
 
-// TestNonDestructiveMode_BlocksMutatingOperations verifies that non-destructive mode
+// getErrorText safely extracts error text from an MCP result.
+// Returns empty string if result is nil, has no content, or content is not TextContent.
+func getErrorText(t *testing.T, result *mcp.CallToolResult) string {
+	t.Helper()
+	if result == nil || len(result.Content) == 0 {
+		return ""
+	}
+	textContent, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok, "expected TextContent in result, got %T", result.Content[0])
+	return textContent.Text
+}
+
+// TestNonDestructiveModeBlocksMutatingOperations verifies that non-destructive mode
 // blocks all mutating operations (create, apply, delete, patch, scale) when dry-run is disabled.
-func TestNonDestructiveMode_BlocksMutatingOperations(t *testing.T) {
+func TestNonDestructiveModeBlocksMutatingOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create server context with non-destructive mode enabled and dry-run disabled
@@ -94,7 +106,8 @@ func TestNonDestructiveMode_BlocksMutatingOperations(t *testing.T) {
 				"namespace":    "default",
 				"resourceType": "deployment",
 				"name":         "test",
-				"replicas":     float64(3),
+				// JSON numbers unmarshal to float64, so we use float64 here to match
+				"replicas": float64(3),
 			},
 			wantError: "Scale operations are not allowed in non-destructive mode",
 		},
@@ -108,14 +121,14 @@ func TestNonDestructiveMode_BlocksMutatingOperations(t *testing.T) {
 			result, err := tt.handler(ctx, request, sc)
 			require.NoError(t, err)
 			assert.True(t, result.IsError, "expected error result")
-			assert.Contains(t, result.Content[0].(mcp.TextContent).Text, tt.wantError)
+			assert.Contains(t, getErrorText(t, result), tt.wantError)
 		})
 	}
 }
 
-// TestDryRunMode_AllowsMutatingOperationsWithValidation verifies that dry-run mode
+// TestDryRunModeAllowsMutatingOperationsWithValidation verifies that dry-run mode
 // allows mutating operations to proceed (for API validation) even when non-destructive mode is enabled.
-func TestDryRunMode_AllowsMutatingOperationsWithValidation(t *testing.T) {
+func TestDryRunModeAllowsMutatingOperationsWithValidation(t *testing.T) {
 	ctx := context.Background()
 
 	// Create server context with both non-destructive mode AND dry-run enabled
@@ -190,7 +203,8 @@ func TestDryRunMode_AllowsMutatingOperationsWithValidation(t *testing.T) {
 				"namespace":    "default",
 				"resourceType": "deployment",
 				"name":         "test",
-				"replicas":     float64(3),
+				// JSON numbers unmarshal to float64, so we use float64 here to match
+				"replicas": float64(3),
 			},
 		},
 	}
@@ -207,7 +221,7 @@ func TestDryRunMode_AllowsMutatingOperationsWithValidation(t *testing.T) {
 			// but the important thing is that we didn't get blocked by non-destructive mode
 			if result.IsError {
 				// Verify the error is NOT about non-destructive mode
-				errorText := result.Content[0].(mcp.TextContent).Text
+				errorText := getErrorText(t, result)
 				assert.NotContains(t, errorText, "not allowed in non-destructive mode",
 					"dry-run mode should allow operation to proceed past non-destructive check")
 			}
@@ -215,9 +229,9 @@ func TestDryRunMode_AllowsMutatingOperationsWithValidation(t *testing.T) {
 	}
 }
 
-// TestNonDestructiveModeDisabled_AllowsAllOperations verifies that when non-destructive
+// TestNonDestructiveModeDisabledAllowsAllOperations verifies that when non-destructive
 // mode is disabled, all operations are allowed regardless of dry-run setting.
-func TestNonDestructiveModeDisabled_AllowsAllOperations(t *testing.T) {
+func TestNonDestructiveModeDisabledAllowsAllOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create server context with non-destructive mode disabled
@@ -269,7 +283,7 @@ func TestNonDestructiveModeDisabled_AllowsAllOperations(t *testing.T) {
 			require.NoError(t, err)
 			// The request should NOT be blocked by non-destructive mode
 			if result.IsError {
-				errorText := result.Content[0].(mcp.TextContent).Text
+				errorText := getErrorText(t, result)
 				assert.NotContains(t, errorText, "not allowed in non-destructive mode",
 					"non-destructive mode is disabled, should not block operation")
 			}
@@ -277,9 +291,9 @@ func TestNonDestructiveModeDisabled_AllowsAllOperations(t *testing.T) {
 	}
 }
 
-// TestAllowedOperations_ExplicitlyAllowsOperations verifies that operations can be
+// TestAllowedOperationsExplicitlyAllowsOperations verifies that operations can be
 // explicitly allowed via AllowedOperations even in non-destructive mode.
-func TestAllowedOperations_ExplicitlyAllowsOperations(t *testing.T) {
+func TestAllowedOperationsExplicitlyAllowsOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a custom config that allows create operations
@@ -310,7 +324,7 @@ func TestAllowedOperations_ExplicitlyAllowsOperations(t *testing.T) {
 		require.NoError(t, err)
 		// Should NOT be blocked by non-destructive mode because create is in AllowedOperations
 		if result.IsError {
-			errorText := result.Content[0].(mcp.TextContent).Text
+			errorText := getErrorText(t, result)
 			assert.NotContains(t, errorText, "Create operations are not allowed in non-destructive mode",
 				"create should be allowed when explicitly in AllowedOperations")
 		}
@@ -327,7 +341,7 @@ func TestAllowedOperations_ExplicitlyAllowsOperations(t *testing.T) {
 		result, err := handleDeleteResource(ctx, request, sc)
 		require.NoError(t, err)
 		assert.True(t, result.IsError, "delete should be blocked")
-		assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "Delete operations are not allowed in non-destructive mode")
+		assert.Contains(t, getErrorText(t, result), "Delete operations are not allowed in non-destructive mode")
 	})
 }
 
@@ -357,7 +371,7 @@ func TestReadOperationsAlwaysAllowed(t *testing.T) {
 		require.NoError(t, err)
 		// Get should not be blocked by non-destructive mode
 		if result.IsError {
-			errorText := result.Content[0].(mcp.TextContent).Text
+			errorText := getErrorText(t, result)
 			assert.NotContains(t, errorText, "non-destructive mode",
 				"get should always be allowed")
 		}
@@ -374,7 +388,7 @@ func TestReadOperationsAlwaysAllowed(t *testing.T) {
 		require.NoError(t, err)
 		// List should not be blocked by non-destructive mode
 		if result.IsError {
-			errorText := result.Content[0].(mcp.TextContent).Text
+			errorText := getErrorText(t, result)
 			assert.NotContains(t, errorText, "non-destructive mode",
 				"list should always be allowed")
 		}
@@ -392,16 +406,16 @@ func TestReadOperationsAlwaysAllowed(t *testing.T) {
 		require.NoError(t, err)
 		// Describe should not be blocked by non-destructive mode
 		if result.IsError {
-			errorText := result.Content[0].(mcp.TextContent).Text
+			errorText := getErrorText(t, result)
 			assert.NotContains(t, errorText, "non-destructive mode",
 				"describe should always be allowed")
 		}
 	})
 }
 
-// TestDefaultConfig_NonDestructiveModeEnabled verifies that the default configuration
+// TestDefaultConfigNonDestructiveModeEnabled verifies that the default configuration
 // has non-destructive mode enabled (security by default).
-func TestDefaultConfig_NonDestructiveModeEnabled(t *testing.T) {
+func TestDefaultConfigNonDestructiveModeEnabled(t *testing.T) {
 	config := server.NewDefaultConfig()
 	assert.True(t, config.NonDestructiveMode, "non-destructive mode should be enabled by default")
 	assert.False(t, config.DryRun, "dry-run should be disabled by default")
@@ -439,7 +453,7 @@ func TestErrorMessagesIncludeDryRunHint(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 
-	errorText := result.Content[0].(mcp.TextContent).Text
+	errorText := getErrorText(t, result)
 	assert.Contains(t, errorText, "--dry-run",
 		"error message should include hint about dry-run option")
 }
