@@ -333,9 +333,187 @@ func TestImpersonationError(t *testing.T) {
 func TestImpersonationConstants(t *testing.T) {
 	assert.Equal(t, "mcp-kubernetes", ImpersonationAgentName)
 	assert.Equal(t, "agent", ImpersonationAgentExtraKey)
+	assert.Equal(t, "trace-id", ImpersonationTraceIDKey)
 	assert.Equal(t, "Impersonate-User", ImpersonateUserHeader)
 	assert.Equal(t, "Impersonate-Group", ImpersonateGroupHeader)
 	assert.Equal(t, "Impersonate-Extra-", ImpersonateExtraHeaderPrefix)
+}
+
+// TestConfigWithImpersonationAndTraceID tests the trace ID propagation functionality.
+func TestConfigWithImpersonationAndTraceID(t *testing.T) {
+	t.Run("adds trace ID to impersonation headers", func(t *testing.T) {
+		config := &rest.Config{
+			Host: "https://test.example.com",
+		}
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"developers"},
+		}
+		traceID := "abc123def456789012345678901234"
+
+		result := ConfigWithImpersonationAndTraceID(config, user, traceID)
+
+		require.NotNil(t, result)
+		require.NotNil(t, result.Impersonate.Extra)
+
+		// Should have both agent and trace-id
+		assert.Contains(t, result.Impersonate.Extra, ImpersonationAgentExtraKey)
+		assert.Contains(t, result.Impersonate.Extra, ImpersonationTraceIDKey)
+		assert.Equal(t, []string{traceID}, result.Impersonate.Extra[ImpersonationTraceIDKey])
+	})
+
+	t.Run("omits trace ID when empty", func(t *testing.T) {
+		config := &rest.Config{
+			Host: "https://test.example.com",
+		}
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"developers"},
+		}
+
+		result := ConfigWithImpersonationAndTraceID(config, user, "")
+
+		require.NotNil(t, result)
+		require.NotNil(t, result.Impersonate.Extra)
+
+		// Should have agent but NOT trace-id
+		assert.Contains(t, result.Impersonate.Extra, ImpersonationAgentExtraKey)
+		assert.NotContains(t, result.Impersonate.Extra, ImpersonationTraceIDKey)
+	})
+
+	t.Run("trace ID is immutable and cannot be overridden by user", func(t *testing.T) {
+		// Security: The trace ID provides an immutable audit trail.
+		config := &rest.Config{
+			Host: "https://test.example.com",
+		}
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"developers"},
+			Extra: map[string][]string{
+				ImpersonationTraceIDKey: {"malicious-trace-override"},
+			},
+		}
+		traceID := "legitimate-trace-id"
+
+		result := ConfigWithImpersonationAndTraceID(config, user, traceID)
+
+		require.NotNil(t, result)
+		// Trace ID MUST be the provided value, not the user-supplied one
+		assert.Equal(t, []string{traceID}, result.Impersonate.Extra[ImpersonationTraceIDKey],
+			"trace ID must be immutable for audit trail integrity")
+	})
+
+	t.Run("preserves user extra headers alongside trace ID", func(t *testing.T) {
+		config := &rest.Config{
+			Host: "https://test.example.com",
+		}
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"developers"},
+			Extra: map[string][]string{
+				"department": {"engineering"},
+				"sub":        {"user-123"},
+			},
+		}
+		traceID := "trace123"
+
+		result := ConfigWithImpersonationAndTraceID(config, user, traceID)
+
+		require.NotNil(t, result)
+		require.NotNil(t, result.Impersonate.Extra)
+
+		// User's extra headers should be preserved
+		assert.Equal(t, []string{"engineering"}, result.Impersonate.Extra["department"])
+		assert.Equal(t, []string{"user-123"}, result.Impersonate.Extra["sub"])
+
+		// Agent and trace-id also present
+		assert.Contains(t, result.Impersonate.Extra, ImpersonationAgentExtraKey)
+		assert.Equal(t, []string{traceID}, result.Impersonate.Extra[ImpersonationTraceIDKey])
+	})
+
+	t.Run("panics when user is nil", func(t *testing.T) {
+		config := &rest.Config{
+			Host: "https://test.example.com",
+		}
+
+		assert.Panics(t, func() {
+			ConfigWithImpersonationAndTraceID(config, nil, "trace123")
+		}, "should panic when user is nil")
+	})
+
+	t.Run("returns nil when config is nil", func(t *testing.T) {
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"developers"},
+		}
+
+		result := ConfigWithImpersonationAndTraceID(nil, user, "trace123")
+
+		assert.Nil(t, result)
+	})
+}
+
+// TestMergeExtraWithAgentAndTraceID tests the helper function directly.
+func TestMergeExtraWithAgentAndTraceID(t *testing.T) {
+	t.Run("creates extra with agent when trace ID is empty", func(t *testing.T) {
+		result := mergeExtraWithAgentAndTraceID(nil, "")
+
+		require.NotNil(t, result)
+		assert.Len(t, result, 1)
+		assert.Equal(t, []string{ImpersonationAgentName}, result[ImpersonationAgentExtraKey])
+		assert.NotContains(t, result, ImpersonationTraceIDKey)
+	})
+
+	t.Run("creates extra with agent and trace ID", func(t *testing.T) {
+		result := mergeExtraWithAgentAndTraceID(nil, "trace-abc123")
+
+		require.NotNil(t, result)
+		assert.Len(t, result, 2)
+		assert.Equal(t, []string{ImpersonationAgentName}, result[ImpersonationAgentExtraKey])
+		assert.Equal(t, []string{"trace-abc123"}, result[ImpersonationTraceIDKey])
+	})
+
+	t.Run("merges user extra with agent and trace ID", func(t *testing.T) {
+		userExtra := map[string][]string{
+			"department": {"engineering"},
+		}
+
+		result := mergeExtraWithAgentAndTraceID(userExtra, "trace-xyz")
+
+		require.NotNil(t, result)
+		assert.Len(t, result, 3)
+		assert.Equal(t, []string{ImpersonationAgentName}, result[ImpersonationAgentExtraKey])
+		assert.Equal(t, []string{"trace-xyz"}, result[ImpersonationTraceIDKey])
+		assert.Equal(t, []string{"engineering"}, result["department"])
+	})
+
+	t.Run("trace ID is immutable and overwrites user attempts", func(t *testing.T) {
+		userExtra := map[string][]string{
+			ImpersonationTraceIDKey: {"malicious-trace-override"},
+		}
+
+		result := mergeExtraWithAgentAndTraceID(userExtra, "legitimate-trace")
+
+		require.NotNil(t, result)
+		// The provided trace ID must always win for audit trail integrity
+		assert.Equal(t, []string{"legitimate-trace"}, result[ImpersonationTraceIDKey],
+			"trace ID must be immutable")
+	})
+
+	t.Run("does not modify original user extra map", func(t *testing.T) {
+		userExtra := map[string][]string{
+			"department": {"engineering"},
+		}
+
+		result := mergeExtraWithAgentAndTraceID(userExtra, "trace123")
+
+		// Result should have trace ID
+		assert.Contains(t, result, ImpersonationTraceIDKey)
+
+		// Original should NOT have trace ID
+		assert.NotContains(t, userExtra, ImpersonationTraceIDKey)
+		assert.Len(t, userExtra, 1)
+	})
 }
 
 // TestGroupMappingBehavior documents and tests the group mapping behavior

@@ -22,6 +22,10 @@ const (
 	attrResult       = "result"
 	attrCluster      = "cluster"
 	attrReason       = "reason"
+
+	// CAPI/Federation specific attributes (with cardinality controls)
+	attrUserDomain  = "user_domain"
+	attrClusterType = "cluster_type"
 )
 
 // Metrics provides methods for recording observability metrics.
@@ -45,6 +49,12 @@ type Metrics struct {
 	clientCacheMissesTotal    metric.Int64Counter
 	clientCacheEvictionsTotal metric.Int64Counter
 	clientCacheSize           metric.Int64Gauge
+
+	// CAPI/Federation metrics
+	clusterOperationsTotal    metric.Int64Counter
+	clusterOperationDuration  metric.Float64Histogram
+	impersonationTotal        metric.Int64Counter
+	federationClientCreations metric.Int64Counter
 
 	// Configuration
 	// detailedLabels controls whether high-cardinality labels (namespace, resource_type)
@@ -179,6 +189,48 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mcp_client_cache_entries gauge: %w", err)
+	}
+
+	// CAPI/Federation Metrics
+	//
+	// Note on cardinality: These metrics use cardinality controls:
+	// - cluster_type instead of cluster_name (production/staging/other)
+	// - user_domain instead of full email (e.g., "giantswarm.io")
+	m.clusterOperationsTotal, err = meter.Int64Counter(
+		"mcp_cluster_operations_total",
+		metric.WithDescription("Total operations performed on remote clusters. Labels: cluster_type, operation, status"),
+		metric.WithUnit("{operation}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_cluster_operations_total counter: %w", err)
+	}
+
+	m.clusterOperationDuration, err = meter.Float64Histogram(
+		"mcp_cluster_operation_duration_seconds",
+		metric.WithDescription("Duration of operations on remote clusters. Labels: cluster_type, operation"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_cluster_operation_duration_seconds histogram: %w", err)
+	}
+
+	m.impersonationTotal, err = meter.Int64Counter(
+		"mcp_impersonation_total",
+		metric.WithDescription("Total impersonation requests. Labels: user_domain, cluster_type, result"),
+		metric.WithUnit("{request}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_impersonation_total counter: %w", err)
+	}
+
+	m.federationClientCreations, err = meter.Int64Counter(
+		"mcp_federation_client_creations_total",
+		metric.WithDescription("Total federation client creation attempts. Labels: cluster_type, result"),
+		metric.WithUnit("{creation}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_federation_client_creations_total counter: %w", err)
 	}
 
 	return m, nil
@@ -346,4 +398,75 @@ func (m *Metrics) SetCacheSize(ctx context.Context, size int) {
 	}
 
 	m.clientCacheSize.Record(ctx, int64(size))
+}
+
+// RecordClusterOperation records a remote cluster operation with cardinality controls.
+// The clusterName is automatically classified into cluster types (production/staging/other)
+// to prevent cardinality explosion.
+//
+// Parameters:
+//   - clusterName: Original cluster name (will be classified)
+//   - operation: The operation type (get, list, create, delete, etc.)
+//   - status: Result status ("success" or "error")
+//   - duration: Time taken for the operation
+func (m *Metrics) RecordClusterOperation(ctx context.Context, clusterName, operation, status string, duration time.Duration) {
+	if m.clusterOperationsTotal == nil || m.clusterOperationDuration == nil {
+		return // Instrumentation not initialized
+	}
+
+	clusterType := ClassifyClusterName(clusterName)
+
+	attrs := []attribute.KeyValue{
+		attribute.String(attrCluster, clusterType),
+		attribute.String(attrOperation, operation),
+		attribute.String(attrStatus, status),
+	}
+
+	m.clusterOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+
+	// Duration metrics don't need status label
+	durationAttrs := []attribute.KeyValue{
+		attribute.String(attrCluster, clusterType),
+		attribute.String(attrOperation, operation),
+	}
+	m.clusterOperationDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(durationAttrs...))
+}
+
+// RecordImpersonation records an impersonation request with cardinality controls.
+// The userEmail is reduced to domain only to prevent cardinality explosion.
+//
+// Parameters:
+//   - userEmail: User's email (will be reduced to domain)
+//   - clusterName: Target cluster (will be classified)
+//   - result: Result of impersonation ("success", "error", "denied")
+func (m *Metrics) RecordImpersonation(ctx context.Context, userEmail, clusterName, result string) {
+	if m.impersonationTotal == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(attrUserDomain, ExtractUserDomain(userEmail)),
+		attribute.String(attrCluster, ClassifyClusterName(clusterName)),
+		attribute.String(attrResult, result),
+	}
+
+	m.impersonationTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// RecordFederationClientCreation records a federation client creation attempt.
+//
+// Parameters:
+//   - clusterName: Target cluster (will be classified)
+//   - result: Result of creation ("success", "error", "cached")
+func (m *Metrics) RecordFederationClientCreation(ctx context.Context, clusterName, result string) {
+	if m.federationClientCreations == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(attrCluster, ClassifyClusterName(clusterName)),
+		attribute.String(attrResult, result),
+	}
+
+	m.federationClientCreations.Add(ctx, 1, metric.WithAttributes(attrs...))
 }

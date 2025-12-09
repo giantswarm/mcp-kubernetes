@@ -205,6 +205,117 @@ active_port_forward_sessions
 avg_over_time(active_port_forward_sessions[1h])
 ```
 
+### CAPI/Federation Metrics
+
+These metrics are specific to multi-cluster federation mode and use cardinality controls to prevent metric explosion.
+
+#### `mcp_cluster_operations_total`
+Counter of operations performed on remote clusters.
+
+**Labels:**
+- `cluster`: Classified cluster type (production, staging, development, management, other)
+- `operation`: Operation type (get, list, create, delete, etc.)
+- `status`: Operation result (success, error)
+
+**Note:** Cluster names are automatically classified into types to prevent high cardinality.
+
+**Example:**
+```promql
+# Total operations on production clusters
+mcp_cluster_operations_total{cluster="production"}
+
+# Error rate on remote clusters
+rate(mcp_cluster_operations_total{status="error"}[5m])
+/ rate(mcp_cluster_operations_total[5m])
+```
+
+#### `mcp_cluster_operation_duration_seconds`
+Histogram of remote cluster operation durations.
+
+**Labels:**
+- `cluster`: Classified cluster type
+- `operation`: Operation type
+
+**Buckets:** 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0 seconds
+
+**Example:**
+```promql
+# P95 duration for production cluster operations
+histogram_quantile(0.95,
+  rate(mcp_cluster_operation_duration_seconds_bucket{cluster="production"}[5m])
+)
+```
+
+#### `mcp_impersonation_total`
+Counter of impersonation requests.
+
+**Labels:**
+- `user_domain`: Email domain of the user (e.g., "giantswarm.io")
+- `cluster`: Classified cluster type
+- `result`: Result (success, error, denied)
+
+**Note:** User emails are reduced to domains to prevent high cardinality and protect PII.
+
+**Example:**
+```promql
+# Total impersonation by domain
+sum by (user_domain) (mcp_impersonation_total)
+
+# Impersonation denial rate
+rate(mcp_impersonation_total{result="denied"}[5m])
+/ rate(mcp_impersonation_total[5m])
+```
+
+#### `mcp_federation_client_creations_total`
+Counter of federation client creation attempts.
+
+**Labels:**
+- `cluster`: Classified cluster type
+- `result`: Result (success, error, cached)
+
+**Example:**
+```promql
+# Cache hit ratio
+mcp_federation_client_creations_total{result="cached"}
+/ sum(mcp_federation_client_creations_total)
+```
+
+#### `mcp_client_cache_hits_total`
+Counter of client cache hits.
+
+**Labels:**
+- `cluster`: Cluster name (may have high cardinality)
+
+#### `mcp_client_cache_misses_total`
+Counter of client cache misses.
+
+**Labels:**
+- `cluster`: Cluster name (may have high cardinality)
+
+#### `mcp_client_cache_evictions_total`
+Counter of client cache evictions.
+
+**Labels:**
+- `reason`: Eviction reason (expired, lru, manual)
+
+**Example:**
+```promql
+# Cache eviction rate by reason
+sum by (reason) (rate(mcp_client_cache_evictions_total[5m]))
+```
+
+#### `mcp_client_cache_entries`
+Gauge of current entries in the client cache.
+
+**Example:**
+```promql
+# Current cache size
+mcp_client_cache_entries
+
+# Cache capacity utilization (if max entries is 1000)
+mcp_client_cache_entries / 1000
+```
+
 ## Example Prometheus Queries
 
 ### Service Health
@@ -332,6 +443,57 @@ groups:
           description: "Failure rate: {{ $value | humanize }} per second"
 ```
 
+### Federation/CAPI Alerts
+
+```yaml
+      - alert: HighClusterOperationErrorRate
+        expr: |
+          (
+            sum(rate(mcp_cluster_operations_total{status="error"}[5m]))
+            / sum(rate(mcp_cluster_operations_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in remote cluster operations"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+      - alert: ImpersonationDenials
+        expr: |
+          rate(mcp_impersonation_total{result="denied"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Impersonation requests being denied"
+          description: "Denial rate: {{ $value | humanize }} per second"
+
+      - alert: HighClientCacheEvictions
+        expr: |
+          rate(mcp_client_cache_evictions_total{reason="lru"}[5m]) > 1
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "High LRU cache evictions - consider increasing cache size"
+          description: "Eviction rate: {{ $value | humanize }} per second"
+
+      - alert: SlowRemoteClusterOperations
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, cluster) (
+              rate(mcp_cluster_operation_duration_seconds_bucket[5m])
+            )
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow remote cluster operations"
+          description: "P95 duration for {{ $labels.cluster }} clusters is {{ $value }}s"
+```
+
 ## Grafana Dashboards
 
 ### Key Panels
@@ -356,19 +518,75 @@ When `TRACING_EXPORTER=otlp` is set, distributed traces are exported to an OTLP 
 
 ### Trace Attributes
 
-Traces include the following attributes:
+Traces include the following standard attributes:
 
 - `http.method`: HTTP method
 - `http.route`: Request route
 - `http.status_code`: HTTP status code
 - `k8s.namespace`: Kubernetes namespace
 - `k8s.resource_type`: Resource type
-- `k8s.operation`: Operation type
+- `k8s.resource_name`: Resource name
+- `k8s.operation`: Operation type (get, list, create, delete, etc.)
 
-### Example Trace Query (Jaeger)
+### CAPI/Federation Trace Attributes
+
+For multi-cluster operations, additional attributes are included:
+
+- `mcp.tool`: MCP tool name being executed
+- `mcp.cluster`: Target cluster name
+- `mcp.cluster_type`: Classified cluster type (production, staging, development, management, other)
+- `mcp.user.email`: User's email (optional, for audit)
+- `mcp.user.domain`: User's email domain (always included)
+- `mcp.user.group_count`: Number of groups the user belongs to
+- `mcp.cache_hit`: Whether the operation used a cached client
+- `mcp.impersonated`: Whether user impersonation was used
+- `mcp.federated`: Whether federation was used for the operation
+
+### Span Naming Convention
+
+Spans follow a consistent naming convention:
+
+- `tool.<tool_name>`: MCP tool invocations (e.g., `tool.kubernetes_get`)
+- `k8s.<operation>`: Kubernetes API calls (e.g., `k8s.get`, `k8s.list`)
+- `federation.<operation>`: Federation operations (e.g., `federation.GetClient`)
+
+### Trace ID Propagation
+
+Trace IDs are propagated to Kubernetes audit logs via impersonation headers. This bridges the "audit gap" when the MCP server acts as a proxy:
 
 ```
-service:mcp-kubernetes operation:kubernetes_get
+Impersonate-Extra-trace-id: abc123def456...
+```
+
+Kubernetes audit logs will show:
+```json
+{
+  "user": {
+    "username": "jane@giantswarm.io",
+    "extra": {
+      "agent": ["mcp-kubernetes"],
+      "trace-id": ["abc123def456..."]
+    }
+  }
+}
+```
+
+This allows correlation between:
+1. MCP server traces in your observability backend (Jaeger, Tempo, etc.)
+2. Kubernetes audit logs on workload clusters
+
+### Example Trace Queries
+
+**Jaeger:**
+```
+service:mcp-kubernetes operation:tool.kubernetes_get
+service:mcp-kubernetes mcp.cluster_type=production
+service:mcp-kubernetes mcp.user.domain=giantswarm.io
+```
+
+**Grafana Tempo:**
+```
+{ span.mcp.cluster_type = "production" && span.mcp.tool = "kubernetes_delete" }
 ```
 
 ## Health Endpoints
@@ -402,6 +620,35 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 ```
+
+### Detailed Health (`/healthz/detailed`)
+
+Returns comprehensive health information including CAPI/federation status:
+
+```json
+{
+  "status": "ok",
+  "mode": "capi",
+  "version": "1.0.0",
+  "uptime": "4h32m",
+  "management_cluster": {
+    "connected": true,
+    "capi_crd_available": true
+  },
+  "federation": {
+    "enabled": true,
+    "cached_clients": 42
+  },
+  "instrumentation": {
+    "enabled": true
+  }
+}
+```
+
+**Mode values:**
+- `capi`: Federation mode with CAPI cluster management
+- `in-cluster`: Running inside a Kubernetes cluster with service account
+- `local`: Running locally with kubeconfig
 
 ## Cardinality Management
 
@@ -440,6 +687,89 @@ scrape_configs:
         action: labeldrop
 ```
 
+## Structured Audit Logging
+
+`mcp-kubernetes` provides structured JSON logging for tool invocations to support security auditing and compliance.
+
+### Log Format
+
+Every tool invocation produces a structured log entry:
+
+```json
+{
+  "level": "info",
+  "msg": "tool_executed",
+  "tool": "kubernetes_delete",
+  "user_domain": "giantswarm.io",
+  "group_count": 3,
+  "cluster_type": "production",
+  "namespace": "production",
+  "resource_type": "pods",
+  "duration": "0.523s",
+  "success": true,
+  "trace_id": "abc123def456..."
+}
+```
+
+### Audit Log Fields
+
+**Standard fields (cardinality-controlled):**
+- `tool`: MCP tool name
+- `user_domain`: User's email domain (not full email)
+- `group_count`: Number of groups
+- `cluster_type`: Classified cluster type
+- `duration`: Execution duration
+- `success`: Boolean success indicator
+- `trace_id`: OpenTelemetry trace ID for correlation
+
+**Optional fields:**
+- `namespace`: Kubernetes namespace (when applicable)
+- `resource_type`: Resource type (when applicable)
+- `error`: Error message (when failed)
+
+### Full Audit Logs
+
+For compliance/audit purposes, a separate log stream can include full details:
+
+```json
+{
+  "level": "info",
+  "msg": "tool_audit",
+  "tool": "kubernetes_delete",
+  "user": "jane@giantswarm.io",
+  "groups": ["github:org:giantswarm", "platform-team"],
+  "cluster": "prod-wc-01",
+  "namespace": "production",
+  "resource_type": "pods",
+  "resource_name": "nginx-abc123",
+  "duration": "0.523s",
+  "success": true,
+  "trace_id": "abc123def456...",
+  "span_id": "789xyz..."
+}
+```
+
+**Warning:** Full audit logs contain PII (user emails) and sensitive infrastructure details. Ensure:
+- Audit logs are stored securely
+- Access controls are in place
+- Retention policies comply with data protection regulations
+
+### Loki/Grafana Log Queries
+
+```logql
+# All tool executions by a specific domain
+{app="mcp-kubernetes"} |= "tool_executed" | json | user_domain="giantswarm.io"
+
+# Failed operations on production clusters
+{app="mcp-kubernetes"} |= "tool_failed" | json | cluster_type="production"
+
+# Delete operations (security audit)
+{app="mcp-kubernetes"} | json | tool="kubernetes_delete"
+
+# Correlate logs with trace ID
+{app="mcp-kubernetes"} | json | trace_id="abc123def456"
+```
+
 ## Best Practices
 
 1. **Sampling**: Set `OTEL_TRACES_SAMPLER_ARG` to an appropriate value (e.g., 0.1 for 10% sampling)
@@ -449,6 +779,8 @@ scrape_configs:
 5. **Dashboards**: Create Grafana dashboards for key metrics
 6. **Monitoring**: Monitor the instrumentation overhead itself
 7. **Health Checks**: Use `/healthz` and `/readyz` for Kubernetes probes
+8. **Audit Logs**: Separate audit logs from operational logs for compliance
+9. **Trace Correlation**: Use trace IDs to correlate MCP server logs with Kubernetes audit logs
 
 ## Troubleshooting
 
