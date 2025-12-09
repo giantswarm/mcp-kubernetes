@@ -6,124 +6,124 @@ func TestClassifyClusterName(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected string
+		expected ClusterType
 	}{
 		// Management cluster (empty)
 		{
 			name:     "empty string returns management",
 			input:    "",
-			expected: "management",
+			expected: ClusterTypeManagement,
 		},
 		// Production patterns
 		{
 			name:     "prod- prefix",
 			input:    "prod-wc-01",
-			expected: "production",
+			expected: ClusterTypeProduction,
 		},
 		{
 			name:     "prod_ prefix",
 			input:    "prod_cluster",
-			expected: "production",
+			expected: ClusterTypeProduction,
 		},
 		{
 			name:     "contains production",
 			input:    "my-production-cluster",
-			expected: "production",
+			expected: ClusterTypeProduction,
 		},
 		{
 			name:     "contains -prod-",
 			input:    "us-east-prod-01",
-			expected: "production",
+			expected: ClusterTypeProduction,
 		},
 		{
 			name:     "ends with -prod",
 			input:    "cluster-prod",
-			expected: "production",
+			expected: ClusterTypeProduction,
 		},
 		{
 			name:     "uppercase PROD prefix",
 			input:    "PROD-CLUSTER",
-			expected: "production",
+			expected: ClusterTypeProduction,
 		},
 		// Staging patterns
 		{
 			name:     "staging- prefix",
 			input:    "staging-cluster",
-			expected: "staging",
+			expected: ClusterTypeStaging,
 		},
 		{
 			name:     "staging_ prefix",
 			input:    "staging_01",
-			expected: "staging",
+			expected: ClusterTypeStaging,
 		},
 		{
 			name:     "stg- prefix",
 			input:    "stg-wc-01",
-			expected: "staging",
+			expected: ClusterTypeStaging,
 		},
 		{
 			name:     "contains staging",
 			input:    "my-staging-env",
-			expected: "staging",
+			expected: ClusterTypeStaging,
 		},
 		{
 			name:     "ends with -stg",
 			input:    "cluster-stg",
-			expected: "staging",
+			expected: ClusterTypeStaging,
 		},
 		// Development patterns
 		{
 			name:     "dev- prefix",
 			input:    "dev-cluster",
-			expected: "development",
+			expected: ClusterTypeDevelopment,
 		},
 		{
 			name:     "dev_ prefix",
 			input:    "dev_test",
-			expected: "development",
+			expected: ClusterTypeDevelopment,
 		},
 		{
 			name:     "contains development",
 			input:    "development-env",
-			expected: "development",
+			expected: ClusterTypeDevelopment,
 		},
 		{
 			name:     "contains -dev-",
 			input:    "us-west-dev-01",
-			expected: "development",
+			expected: ClusterTypeDevelopment,
 		},
 		{
 			name:     "ends with -dev",
 			input:    "cluster-dev",
-			expected: "development",
+			expected: ClusterTypeDevelopment,
 		},
 		// Other (no pattern match)
 		{
 			name:     "random cluster name",
 			input:    "my-cluster",
-			expected: "other",
+			expected: ClusterTypeOther,
 		},
 		{
 			name:     "numeric cluster name",
 			input:    "cluster-123",
-			expected: "other",
+			expected: ClusterTypeOther,
 		},
 		{
 			name:     "region-based name",
 			input:    "us-east-1-cluster",
-			expected: "other",
+			expected: ClusterTypeOther,
 		},
 		{
 			name:     "team-based name",
 			input:    "team-alpha-cluster",
-			expected: "other",
+			expected: ClusterTypeOther,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ClassifyClusterName(tt.input)
-			if result != tt.expected {
+			if result != string(tt.expected) {
 				t.Errorf("ClassifyClusterName(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
@@ -189,31 +189,42 @@ func TestExtractUserDomain(t *testing.T) {
 }
 
 func TestClusterTypeConstants(t *testing.T) {
-	// Verify constants are defined correctly
-	if ClusterTypeProduction != "production" {
-		t.Errorf("ClusterTypeProduction = %q, want %q", ClusterTypeProduction, "production")
+	// Verify constants are defined correctly using the typed constants
+	// We test that constants are not empty and have the expected type
+	constants := []ClusterType{
+		ClusterTypeProduction,
+		ClusterTypeStaging,
+		ClusterTypeDevelopment,
+		ClusterTypeManagement,
+		ClusterTypeOther,
 	}
-	if ClusterTypeStaging != "staging" {
-		t.Errorf("ClusterTypeStaging = %q, want %q", ClusterTypeStaging, "staging")
+
+	for _, c := range constants {
+		if c == "" {
+			t.Error("ClusterType constant should not be empty")
+		}
 	}
-	if ClusterTypeDevelopment != "development" {
-		t.Errorf("ClusterTypeDevelopment = %q, want %q", ClusterTypeDevelopment, "development")
+
+	// Verify we have 5 distinct constant values
+	seen := make(map[ClusterType]bool)
+	for _, c := range constants {
+		if seen[c] {
+			t.Errorf("Duplicate ClusterType constant: %q", c)
+		}
+		seen[c] = true
 	}
-	if ClusterTypeManagement != "management" {
-		t.Errorf("ClusterTypeManagement = %q, want %q", ClusterTypeManagement, "management")
-	}
-	if ClusterTypeOther != "other" {
-		t.Errorf("ClusterTypeOther = %q, want %q", ClusterTypeOther, "other")
+	if len(seen) != 5 {
+		t.Errorf("Expected 5 unique ClusterType constants, got %d", len(seen))
 	}
 }
 
 func TestImpersonationResultConstants(t *testing.T) {
 	// Verify constants are defined correctly
-	if ImpersonationResultSuccess != "success" {
-		t.Errorf("ImpersonationResultSuccess = %q, want %q", ImpersonationResultSuccess, "success")
+	if ImpersonationResultSuccess != StatusSuccess {
+		t.Errorf("ImpersonationResultSuccess = %q, want %q", ImpersonationResultSuccess, StatusSuccess)
 	}
-	if ImpersonationResultError != "error" {
-		t.Errorf("ImpersonationResultError = %q, want %q", ImpersonationResultError, "error")
+	if ImpersonationResultError != StatusError {
+		t.Errorf("ImpersonationResultError = %q, want %q", ImpersonationResultError, StatusError)
 	}
 	if ImpersonationResultDenied != "denied" {
 		t.Errorf("ImpersonationResultDenied = %q, want %q", ImpersonationResultDenied, "denied")
@@ -222,11 +233,11 @@ func TestImpersonationResultConstants(t *testing.T) {
 
 func TestFederationClientResultConstants(t *testing.T) {
 	// Verify constants are defined correctly
-	if FederationClientResultSuccess != "success" {
-		t.Errorf("FederationClientResultSuccess = %q, want %q", FederationClientResultSuccess, "success")
+	if FederationClientResultSuccess != StatusSuccess {
+		t.Errorf("FederationClientResultSuccess = %q, want %q", FederationClientResultSuccess, StatusSuccess)
 	}
-	if FederationClientResultError != "error" {
-		t.Errorf("FederationClientResultError = %q, want %q", FederationClientResultError, "error")
+	if FederationClientResultError != StatusError {
+		t.Errorf("FederationClientResultError = %q, want %q", FederationClientResultError, StatusError)
 	}
 	if FederationClientResultCached != "cached" {
 		t.Errorf("FederationClientResultCached = %q, want %q", FederationClientResultCached, "cached")

@@ -122,7 +122,6 @@ func (ti *ToolInvocation) LogAuditAttrs() []slog.Attr {
 		attrs = append(attrs, slog.String("resource_type", ti.ResourceType))
 	}
 	if ti.ResourceName != "" {
-		// Hash resource name for audit (may contain sensitive info like secret names)
 		attrs = append(attrs, slog.String("resource_name", ti.ResourceName))
 	}
 	if ti.TraceID != "" {
@@ -243,10 +242,8 @@ func (al *AuditLogger) LogToolAudit(ti *ToolInvocation) {
 
 // TraceIDFromContext extracts the trace ID from the current span in context.
 // Returns empty string if no valid span is present.
+//
+// Deprecated: Use GetTraceID instead. This function is kept for backwards compatibility.
 func TraceIDFromContext(ctx context.Context) string {
-	span := trace.SpanFromContext(ctx)
-	if span.SpanContext().IsValid() {
-		return span.SpanContext().TraceID().String()
-	}
-	return ""
+	return GetTraceID(ctx)
 }
