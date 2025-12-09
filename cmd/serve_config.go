@@ -71,6 +71,12 @@ type CAPIModeConfig struct {
 	CacheMaxEntries      int
 	CacheCleanupInterval string
 
+	// OAuthTokenLifetime is the expected lifetime of OAuth tokens from your provider.
+	// If CacheTTL exceeds this value, a warning is logged. This helps prevent
+	// authentication failures from using cached clients with expired tokens.
+	// Defaults to 1 hour if not specified.
+	OAuthTokenLifetime string
+
 	// Connectivity configuration
 	ConnectivityTimeout        string
 	ConnectivityRetryAttempts  int

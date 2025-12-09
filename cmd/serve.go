@@ -37,6 +37,11 @@ const (
 // envValueTrue is the string value used to enable boolean environment variables.
 const envValueTrue = "true"
 
+// defaultOAuthTokenLifetime is a reasonable default assumption for OAuth token lifetime.
+// Most OIDC providers issue tokens with 1-hour lifetime. This is used to warn operators
+// if their cache TTL exceeds this value, which could lead to using expired tokens.
+const defaultOAuthTokenLifetime = 1 * time.Hour
+
 // parseDurationEnv parses a duration from an environment variable value.
 // Returns the parsed duration and true if successful, or zero and false if parsing fails.
 // Logs a warning if the value is present but invalid.
@@ -343,6 +348,11 @@ func runServe(config ServeConfig) error {
 		// Set the token extractor to use the OAuth token from context
 		oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
 
+		// Set metrics recorder if instrumentation is enabled
+		if instrumentationProvider.Enabled() {
+			oauthProvider.SetMetrics(instrumentationProvider.Metrics())
+		}
+
 		// Build federation manager options
 		var managerOpts []federation.ManagerOption
 
@@ -352,6 +362,29 @@ func runServe(config ServeConfig) error {
 			if err != nil {
 				return fmt.Errorf("invalid cache TTL: %w", err)
 			}
+
+			// Determine OAuth token lifetime for validation
+			// Use configured value if available, otherwise use default
+			tokenLifetime := defaultOAuthTokenLifetime
+			if config.CAPIMode.OAuthTokenLifetime != "" {
+				if parsed, err := time.ParseDuration(config.CAPIMode.OAuthTokenLifetime); err == nil {
+					tokenLifetime = parsed
+				} else {
+					log.Printf("Warning: invalid OAUTH_TOKEN_LIFETIME=%q, using default %v: %v",
+						config.CAPIMode.OAuthTokenLifetime, defaultOAuthTokenLifetime, err)
+				}
+			}
+
+			// Security warning: Cache TTL exceeding OAuth token lifetime
+			// could lead to using expired tokens for cached clients.
+			if ttl > tokenLifetime {
+				log.Printf("Warning: Cache TTL (%v) exceeds OAuth token lifetime (%v). "+
+					"This may cause authentication failures when cached clients use expired tokens. "+
+					"Consider setting CLIENT_CACHE_TTL <= %v or configuring longer token lifetimes in your OAuth provider "+
+					"(set OAUTH_TOKEN_LIFETIME to customize this threshold).",
+					ttl, tokenLifetime, tokenLifetime)
+			}
+
 			cacheConfig := federation.CacheConfig{
 				TTL:        ttl,
 				MaxEntries: config.CAPIMode.CacheMaxEntries,
@@ -593,6 +626,12 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	}
 	if interval := os.Getenv("CLIENT_CACHE_CLEANUP_INTERVAL"); interval != "" {
 		config.CacheCleanupInterval = interval
+	}
+
+	// OAuth token lifetime for cache TTL validation
+	// This helps operators avoid cache TTLs that exceed their token lifetime
+	if lifetime := os.Getenv("OAUTH_TOKEN_LIFETIME"); lifetime != "" {
+		config.OAuthTokenLifetime = lifetime
 	}
 
 	// Connectivity configuration - store as strings for later validation

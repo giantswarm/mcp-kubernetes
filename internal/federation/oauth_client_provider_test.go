@@ -81,24 +81,127 @@ func TestDefaultOAuthClientProviderConfig(t *testing.T) {
 }
 
 func TestOAuthClientProvider_SetTokenExtractor(t *testing.T) {
+	t.Run("sets extractor on first call", func(t *testing.T) {
+		config := DefaultOAuthClientProviderConfig()
+		provider, err := NewOAuthClientProvider(config)
+		require.NoError(t, err)
+
+		// Initially nil
+		assert.Nil(t, provider.tokenExtractor)
+
+		// Set extractor
+		extractor := func(ctx context.Context) (string, bool) {
+			return "test-token", true
+		}
+		provider.SetTokenExtractor(extractor)
+
+		// Verify it's set
+		assert.NotNil(t, provider.tokenExtractor)
+		token, ok := provider.tokenExtractor(context.Background())
+		assert.True(t, ok)
+		assert.Equal(t, "test-token", token)
+	})
+
+	t.Run("ignores subsequent calls (immutable after first set)", func(t *testing.T) {
+		config := DefaultOAuthClientProviderConfig()
+		provider, err := NewOAuthClientProvider(config)
+		require.NoError(t, err)
+
+		// Set first extractor
+		firstExtractor := func(ctx context.Context) (string, bool) {
+			return "first-token", true
+		}
+		provider.SetTokenExtractor(firstExtractor)
+
+		// Try to set second extractor (should be ignored)
+		secondExtractor := func(ctx context.Context) (string, bool) {
+			return "second-token", true
+		}
+		provider.SetTokenExtractor(secondExtractor)
+
+		// Verify the first extractor is still in use
+		token, ok := provider.tokenExtractor(context.Background())
+		assert.True(t, ok)
+		assert.Equal(t, "first-token", token,
+			"SetTokenExtractor should be immutable after first call for security")
+	})
+}
+
+// mockOAuthMetricsRecorder is a test double for OAuthAuthMetricsRecorder.
+type mockOAuthMetricsRecorder struct {
+	recordings []string
+}
+
+func (m *mockOAuthMetricsRecorder) RecordOAuthDownstreamAuth(_ context.Context, result string) {
+	m.recordings = append(m.recordings, result)
+}
+
+func TestOAuthClientProvider_SetMetrics(t *testing.T) {
 	config := DefaultOAuthClientProviderConfig()
 	provider, err := NewOAuthClientProvider(config)
 	require.NoError(t, err)
 
 	// Initially nil
-	assert.Nil(t, provider.tokenExtractor)
+	assert.Nil(t, provider.metrics)
 
-	// Set extractor
-	extractor := func(ctx context.Context) (string, bool) {
-		return "test-token", true
-	}
-	provider.SetTokenExtractor(extractor)
+	// Set metrics
+	metrics := &mockOAuthMetricsRecorder{}
+	provider.SetMetrics(metrics)
 
 	// Verify it's set
-	assert.NotNil(t, provider.tokenExtractor)
-	token, ok := provider.tokenExtractor(context.Background())
-	assert.True(t, ok)
-	assert.Equal(t, "test-token", token)
+	assert.NotNil(t, provider.metrics)
+}
+
+func TestOAuthClientProvider_MetricsRecording(t *testing.T) {
+	t.Run("records no_token when token is missing", func(t *testing.T) {
+		config := DefaultOAuthClientProviderConfig()
+		provider, err := NewOAuthClientProvider(config)
+		require.NoError(t, err)
+
+		metrics := &mockOAuthMetricsRecorder{}
+		provider.SetMetrics(metrics)
+
+		user := &UserInfo{
+			Email: "user@example.com",
+		}
+
+		_, _, _, err = provider.GetClientsForUser(context.Background(), user)
+		assert.Error(t, err)
+		assert.Contains(t, metrics.recordings, "no_token")
+	})
+
+	t.Run("records failure when user is nil", func(t *testing.T) {
+		config := DefaultOAuthClientProviderConfig()
+		provider, err := NewOAuthClientProvider(config)
+		require.NoError(t, err)
+
+		metrics := &mockOAuthMetricsRecorder{}
+		provider.SetMetrics(metrics)
+
+		_, _, _, err = provider.GetClientsForUser(context.Background(), nil)
+		assert.Error(t, err)
+		assert.Contains(t, metrics.recordings, "failure")
+	})
+
+	t.Run("records fallback when using user.Extra token", func(t *testing.T) {
+		config := DefaultOAuthClientProviderConfig()
+		provider, err := NewOAuthClientProvider(config)
+		require.NoError(t, err)
+
+		metrics := &mockOAuthMetricsRecorder{}
+		provider.SetMetrics(metrics)
+
+		user := &UserInfo{
+			Email: "user@example.com",
+			Extra: map[string][]string{
+				UserExtraOAuthTokenKey: {"fallback-token"},
+			},
+		}
+
+		// This will fail to create clients but should record fallback metric
+		_, _, _, _ = provider.GetClientsForUser(context.Background(), user)
+		assert.Contains(t, metrics.recordings, "fallback")
+	})
 }
 
 func TestOAuthClientProvider_GetClientsForUser(t *testing.T) {

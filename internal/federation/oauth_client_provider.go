@@ -4,6 +4,8 @@ package federation
 import (
 	"context"
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/dynamic"
@@ -53,6 +55,15 @@ const UserExtraOAuthTokenKey = "oauth_token"
 //	    return err
 //	}
 //	defer manager.Close()
+//
+// OAuthAuthMetricsRecorder provides an interface for recording OAuth authentication metrics.
+// This is used by OAuthClientProvider to track authentication success/failure rates.
+type OAuthAuthMetricsRecorder interface {
+	// RecordOAuthDownstreamAuth records an OAuth downstream authentication attempt.
+	// result should be one of: "success", "fallback", "failure", "no_token"
+	RecordOAuthDownstreamAuth(ctx context.Context, result string)
+}
+
 type OAuthClientProvider struct {
 	// In-cluster configuration
 	clusterHost string
@@ -65,6 +76,14 @@ type OAuthClientProvider struct {
 
 	// Token extractor function for getting OAuth tokens from context
 	tokenExtractor TokenExtractor
+
+	// tokenExtractorOnce ensures SetTokenExtractor can only be called once.
+	// This is a security measure to prevent runtime swapping of the extractor
+	// which could lead to authentication bypass.
+	tokenExtractorOnce sync.Once
+
+	// metrics records OAuth authentication success/failure for monitoring
+	metrics OAuthAuthMetricsRecorder
 }
 
 // OAuthClientProviderConfig contains configuration for creating an OAuthClientProvider.
@@ -148,8 +167,29 @@ type TokenExtractor func(ctx context.Context) (string, bool)
 // SetTokenExtractor sets the token extractor function for the provider.
 // This should be called after creating the provider to configure how tokens
 // are extracted from context.
+//
+// # Security: Immutable After First Set
+//
+// This method can only be called once per provider instance. Subsequent calls
+// will be ignored and a warning will be logged. This prevents runtime swapping
+// of the token extractor which could lead to authentication bypass or confusion
+// about which tokens are being used.
+//
+// If you need to change the extractor, create a new OAuthClientProvider instance.
 func (p *OAuthClientProvider) SetTokenExtractor(extractor TokenExtractor) {
-	p.tokenExtractor = extractor
+	p.tokenExtractorOnce.Do(func() {
+		p.tokenExtractor = extractor
+	})
+	// Check if the extractor was actually set (Do only runs once)
+	if p.tokenExtractor != nil && fmt.Sprintf("%p", p.tokenExtractor) != fmt.Sprintf("%p", extractor) {
+		log.Printf("Warning: SetTokenExtractor called multiple times; subsequent calls are ignored for security")
+	}
+}
+
+// SetMetrics sets the metrics recorder for tracking authentication success/failure.
+// This should be called during initialization to enable metrics collection.
+func (p *OAuthClientProvider) SetMetrics(metrics OAuthAuthMetricsRecorder) {
+	p.metrics = metrics
 }
 
 // GetClientsForUser returns Kubernetes clients authenticated with the user's OAuth token.
@@ -158,17 +198,28 @@ func (p *OAuthClientProvider) SetTokenExtractor(extractor TokenExtractor) {
 //
 // This method creates fresh clients for each call. The federation Manager handles
 // caching of these clients per (cluster, user) pair.
+//
+// # Metrics
+//
+// If metrics are configured via SetMetrics, this method records authentication outcomes:
+//   - "success": Token extracted from context successfully
+//   - "fallback": Token obtained from user.Extra (testing/alternative flows)
+//   - "no_token": No token available in context or user.Extra
+//   - "failure": Client creation failed after token extraction
 func (p *OAuthClientProvider) GetClientsForUser(ctx context.Context, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
 	if user == nil {
+		p.recordMetric(ctx, "failure")
 		return nil, nil, nil, fmt.Errorf("user info is required")
 	}
 
 	// Extract OAuth token from context using the configured extractor
 	var bearerToken string
+	var tokenSource string
 	if p.tokenExtractor != nil {
 		token, ok := p.tokenExtractor(ctx)
 		if ok && token != "" {
 			bearerToken = token
+			tokenSource = "context"
 		}
 	}
 
@@ -176,11 +227,18 @@ func (p *OAuthClientProvider) GetClientsForUser(ctx context.Context, user *UserI
 	if bearerToken == "" && user.Extra != nil {
 		if tokens, ok := user.Extra[UserExtraOAuthTokenKey]; ok && len(tokens) > 0 {
 			bearerToken = tokens[0]
+			tokenSource = "fallback"
 		}
 	}
 
 	if bearerToken == "" {
+		p.recordMetric(ctx, "no_token")
 		return nil, nil, nil, fmt.Errorf("OAuth token not found in context or user info")
+	}
+
+	// Record how the token was obtained
+	if tokenSource == "fallback" {
+		p.recordMetric(ctx, "fallback")
 	}
 
 	// Create REST config with user's bearer token
@@ -198,16 +256,30 @@ func (p *OAuthClientProvider) GetClientsForUser(ctx context.Context, user *UserI
 	// Create clientset
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
+		p.recordMetric(ctx, "failure")
 		return nil, nil, nil, fmt.Errorf("failed to create clientset: %w", err)
 	}
 
 	// Create dynamic client
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
+		p.recordMetric(ctx, "failure")
 		return nil, nil, nil, fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
+	// Record success metric (only if token came from context, not fallback)
+	if tokenSource == "context" {
+		p.recordMetric(ctx, "success")
+	}
+
 	return clientset, dynamicClient, restConfig, nil
+}
+
+// recordMetric safely records an OAuth authentication metric if metrics are configured.
+func (p *OAuthClientProvider) recordMetric(ctx context.Context, result string) {
+	if p.metrics != nil {
+		p.metrics.RecordOAuthDownstreamAuth(ctx, result)
+	}
 }
 
 // Ensure OAuthClientProvider implements ClientProvider.
