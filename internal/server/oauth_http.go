@@ -292,7 +292,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		if len(config.EncryptionKey) > 0 {
 			encryptor, err := security.NewEncryptor(config.EncryptionKey)
 			if err != nil {
-				// Close the Valkey store on error
+				// Close the Valkey store on error to release resources
 				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to create encryptor for Valkey storage: %w", err)
 			}

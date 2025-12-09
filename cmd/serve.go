@@ -153,6 +153,20 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Build OAuth storage config from flags
+			storageConfig := server.OAuthStorageConfig{
+				Type: server.OAuthStorageType(oauthStorageType),
+				Valkey: server.ValkeyStorageConfig{
+					URL:        valkeyURL,
+					Password:   valkeyPassword,
+					TLSEnabled: valkeyTLS,
+					KeyPrefix:  valkeyKeyPrefix,
+					DB:         valkeyDB,
+				},
+			}
+			// Load env vars only for flags not explicitly set by user
+			loadOAuthStorageEnvVars(cmd, &storageConfig)
+
 			config := ServeConfig{
 				Transport:          transport,
 				HTTPAddr:           httpAddr,
@@ -181,16 +195,7 @@ Downstream OAuth (--downstream-oauth):
 					AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
 					MaxClientsPerIP:               maxClientsPerIP,
 					EncryptionKey:                 oauthEncryptionKey,
-					Storage: OAuthStorageConfig{
-						Type: OAuthStorageType(oauthStorageType),
-						Valkey: ValkeyConfig{
-							URL:        valkeyURL,
-							Password:   valkeyPassword,
-							TLSEnabled: valkeyTLS,
-							KeyPrefix:  valkeyKeyPrefix,
-							DB:         valkeyDB,
-						},
-					},
+					Storage:                       storageConfig,
 				},
 				DownstreamOAuth: downstreamOAuth,
 			}
@@ -538,9 +543,7 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.DexClientSecret, "DEX_CLIENT_SECRET")
 			loadEnvIfEmpty(&config.OAuth.DexConnectorID, "DEX_CONNECTOR_ID")
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
-
-			// Load Valkey storage configuration from env vars
-			loadOAuthStorageEnvVars(&config.OAuth.Storage)
+			// Note: Valkey storage env vars are loaded in RunE closure where cmd is available
 
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
@@ -635,16 +638,7 @@ func runServe(config ServeConfig) error {
 				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:       instrumentationProvider,
-				Storage: server.OAuthStorageConfig{
-					Type: server.OAuthStorageType(config.OAuth.Storage.Type),
-					Valkey: server.ValkeyStorageConfig{
-						URL:        config.OAuth.Storage.Valkey.URL,
-						Password:   config.OAuth.Storage.Valkey.Password,
-						TLSEnabled: config.OAuth.Storage.Valkey.TLSEnabled,
-						KeyPrefix:  config.OAuth.Storage.Valkey.KeyPrefix,
-						DB:         config.OAuth.Storage.Valkey.DB,
-					},
-				},
+				Storage:                       config.OAuth.Storage, // Same type, no conversion needed
 			}, serverContext)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
@@ -654,29 +648,42 @@ func runServe(config ServeConfig) error {
 }
 
 // loadOAuthStorageEnvVars loads OAuth storage configuration from environment variables.
-// Environment variables override empty flag values.
-func loadOAuthStorageEnvVars(config *OAuthStorageConfig) {
-	// Storage type
-	if config.Type == "" {
+// Environment variables only override flag values when the flag was not explicitly set.
+// The cmd parameter is used to check if flags were explicitly set by the user.
+func loadOAuthStorageEnvVars(cmd *cobra.Command, config *server.OAuthStorageConfig) {
+	// Storage type - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("oauth-storage-type") {
 		if storageType := os.Getenv("OAUTH_STORAGE_TYPE"); storageType != "" {
-			config.Type = OAuthStorageType(storageType)
+			config.Type = server.OAuthStorageType(storageType)
 		}
 	}
 
-	// Valkey configuration
-	loadEnvIfEmpty(&config.Valkey.URL, "VALKEY_URL")
-	loadEnvIfEmpty(&config.Valkey.Password, "VALKEY_PASSWORD")
-	loadEnvIfEmpty(&config.Valkey.KeyPrefix, "VALKEY_KEY_PREFIX")
+	// Valkey URL - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("valkey-url") {
+		loadEnvIfEmpty(&config.Valkey.URL, "VALKEY_URL")
+	}
 
-	// Valkey TLS (only override if not already set via flag)
-	if !config.Valkey.TLSEnabled {
+	// Valkey Password - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("valkey-password") {
+		loadEnvIfEmpty(&config.Valkey.Password, "VALKEY_PASSWORD")
+	}
+
+	// Valkey Key Prefix - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("valkey-key-prefix") {
+		loadEnvIfEmpty(&config.Valkey.KeyPrefix, "VALKEY_KEY_PREFIX")
+	}
+
+	// Valkey TLS - env var only applies if flag was not explicitly set
+	// This properly handles the case where user explicitly sets --valkey-tls=false
+	if !cmd.Flags().Changed("valkey-tls") {
 		if os.Getenv("VALKEY_TLS_ENABLED") == envValueTrue {
 			config.Valkey.TLSEnabled = true
 		}
 	}
 
-	// Valkey DB (only override if not already set via flag)
-	if config.Valkey.DB == 0 {
+	// Valkey DB - env var only applies if flag was not explicitly set
+	// This properly handles the case where user explicitly sets --valkey-db=0
+	if !cmd.Flags().Changed("valkey-db") {
 		if db, ok := parseIntEnv(os.Getenv("VALKEY_DB"), "VALKEY_DB"); ok {
 			config.Valkey.DB = db
 		}
