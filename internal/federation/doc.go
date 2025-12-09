@@ -15,10 +15,16 @@
 //
 // ClusterClientManager is the primary interface for multi-cluster operations:
 //
-//	// Create a ClientProvider that returns per-user clients
-//	clientProvider := &OAuthClientProvider{factory: bearerTokenFactory}
+//	// Create an OAuthClientProvider for OAuth downstream mode
+//	oauthProvider, err := federation.NewOAuthClientProviderFromInCluster()
+//	if err != nil {
+//		return err
+//	}
 //
-//	manager, err := federation.NewManager(clientProvider,
+//	// Configure the token extractor to get OAuth tokens from context
+//	oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
+//
+//	manager, err := federation.NewManager(oauthProvider,
 //		federation.WithManagerLogger(logger),
 //	)
 //	if err != nil {
@@ -202,13 +208,17 @@
 //
 // # Example Usage
 //
-//	// Create a ClientProvider for OAuth downstream mode
-//	clientProvider := &OAuthClientProvider{
-//		factory: bearerTokenFactory,
+//	// Create an OAuthClientProvider for OAuth downstream mode
+//	oauthProvider, err := federation.NewOAuthClientProviderFromInCluster()
+//	if err != nil {
+//		return err
 //	}
 //
-//	// Initialize the manager with the ClientProvider
-//	manager, err := federation.NewManager(clientProvider,
+//	// Configure the token extractor (uses OAuth middleware's context storage)
+//	oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
+//
+//	// Initialize the manager with the OAuth provider
+//	manager, err := federation.NewManager(oauthProvider,
 //		federation.WithManagerLogger(logger),
 //		federation.WithManagerCacheConfig(federation.CacheConfig{
 //			TTL:        10 * time.Minute,
@@ -220,7 +230,7 @@
 //	}
 //	defer manager.Close()
 //
-//	// Get user info from OAuth token
+//	// Get user info from OAuth token (set by OAuth middleware)
 //	userInfo := &federation.UserInfo{
 //		Email:  "user@example.com",
 //		Groups: []string{"developers"},

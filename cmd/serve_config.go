@@ -56,6 +56,35 @@ type ServeConfig struct {
 	// OAuth configuration
 	OAuth           OAuthServeConfig
 	DownstreamOAuth bool
+
+	// CAPI Mode configuration (multi-cluster federation)
+	CAPIMode CAPIModeConfig
+}
+
+// CAPIModeConfig holds CAPI federation mode configuration.
+type CAPIModeConfig struct {
+	// Enabled enables CAPI federation mode for multi-cluster operations
+	Enabled bool
+
+	// Cache configuration
+	CacheTTL             string
+	CacheMaxEntries      int
+	CacheCleanupInterval string
+
+	// Connectivity configuration
+	ConnectivityTimeout        string
+	ConnectivityRetryAttempts  int
+	ConnectivityRetryBackoff   string
+	ConnectivityRequestTimeout string
+	ConnectivityQPS            float32
+	ConnectivityBurst          int
+
+	// Output configuration
+	OutputMaxItems         int
+	OutputMaxClusters      int
+	OutputMaxResponseBytes int
+	OutputSlimMode         bool
+	OutputMaskSecrets      bool
 }
 
 // OAuthServeConfig holds OAuth-specific configuration.

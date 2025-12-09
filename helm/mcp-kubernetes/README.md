@@ -165,9 +165,81 @@ CAPI Mode enables multi-cluster federation via Cluster API. When enabled, the MC
 | `ciliumNetworkPolicy.labels` | Additional labels for the CiliumNetworkPolicy | `{}` |
 | `ciliumNetworkPolicy.annotations` | Additional annotations for the CiliumNetworkPolicy | `{}` |
 
+## Authentication Modes
+
+`mcp-kubernetes` supports two authentication modes that determine how Kubernetes API permissions are evaluated:
+
+### Service Account Mode (Default)
+
+When OAuth is disabled or `enableDownstreamOAuth` is not set:
+
+- All Kubernetes API calls use the **ServiceAccount's credentials**
+- The RBAC permissions defined in the Helm chart apply to all users
+- All users effectively share the same Kubernetes permissions
+
+**When to use:** Development environments, testing, or scenarios where OAuth/OIDC is not available.
+
+### OAuth Downstream Mode (Recommended for Production)
+
+When `mcpKubernetes.oauth.enableDownstreamOAuth: true` is configured:
+
+- Users authenticate to mcp-kubernetes via OAuth (Dex, Google, etc.)
+- **User's OAuth token is used for ALL Kubernetes API calls**
+- Each user's own RBAC permissions apply
+- The ServiceAccount RBAC defined in this chart is **NOT used** for API operations
+
+**When to use:** Production environments where per-user RBAC isolation is required.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Authentication Mode Comparison                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Service Account Mode              OAuth Downstream Mode            │
+│  ─────────────────────             ────────────────────             │
+│                                                                     │
+│  User → mcp-kubernetes             User → mcp-kubernetes            │
+│           │                                  │                      │
+│           ▼                                  ▼                      │
+│    ServiceAccount Token             User's OAuth Token              │
+│           │                                  │                      │
+│           ▼                                  ▼                      │
+│    K8s API (SA RBAC)                K8s API (User's RBAC)           │
+│                                                                     │
+│  Chart RBAC = permissions          Chart RBAC = NOT USED            │
+│  for all users                     Users need own RBAC              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Required User Permissions (OAuth Downstream Mode)
+
+When OAuth Downstream Mode is enabled, **users** (not the ServiceAccount) need RBAC permissions on the Kubernetes cluster. Grant users access via their OIDC identity or group memberships:
+
+```yaml
+# Example: Grant CAPI cluster discovery to platform-engineers group
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: platform-engineers-capi-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: capi-cluster-viewer  # Create this role with CAPI read permissions
+subjects:
+  - kind: Group
+    name: platform-engineers  # OAuth group from your identity provider
+    apiGroup: rbac.authorization.k8s.io
+```
+
+For detailed information about RBAC configuration in both modes, see [docs/rbac-security.md](../../docs/rbac-security.md).
+
 ## RBAC Permissions
 
-The chart automatically creates a ClusterRole and ClusterRoleBinding that grants the following permissions:
+**Note:** The RBAC resources created by this chart are only used in **Service Account Mode**. When OAuth Downstream Mode is enabled (`enableDownstreamOAuth: true`), users authenticate with their own OAuth tokens and these ServiceAccount permissions are **not used** for API operations.
+
+### Base RBAC (Service Account Mode)
+
+The chart creates a ClusterRole and ClusterRoleBinding that grants the following permissions:
 
 - **Core resources**: pods, services, endpoints, nodes, namespaces, configmaps, secrets, persistentvolumes, persistentvolumeclaims, events
 - **Apps resources**: deployments, replicasets, statefulsets, daemonsets
@@ -180,21 +252,25 @@ The chart automatically creates a ClusterRole and ClusterRoleBinding that grants
 - **Autoscaling resources**: horizontalpodautoscalers
 - **Policy resources**: poddisruptionbudgets
 
-### CAPI Mode Additional Permissions
+### CAPI Mode Additional Permissions (Service Account Mode)
 
-When CAPI mode is enabled (`capiMode.enabled: true`), additional RBAC resources are created:
+When CAPI mode is enabled (`capiMode.enabled: true`) **without OAuth downstream**, additional RBAC resources are created:
 
 **ClusterRole: `<release>-mcp-kubernetes-capi`**
 - **CAPI resources** (read-only): clusters, machinepools, machinedeployments, machines
 - **Infrastructure resources** (read-only): all resources in `infrastructure.cluster.x-k8s.io`
-- **Authentication**: tokenreviews (create)
-- **Authorization**: subjectaccessreviews, selfsubjectaccessreviews (create)
 
 **Namespace-Scoped Roles** (per namespace in `capiMode.rbac.allowedNamespaces`):
 - **Secrets** (read-only): Access to kubeconfig secrets in the specified namespace
 
 **Cluster-Wide Secret Access** (only if `capiMode.rbac.clusterWideSecrets: true`):
 - **Secrets** (read-only): Access to ALL secrets cluster-wide - **NOT RECOMMENDED**
+
+### CAPI Mode with OAuth Downstream
+
+When CAPI mode is used with OAuth Downstream Mode (`enableDownstreamOAuth: true`), users need their own RBAC permissions on the Management Cluster to:
+- Discover CAPI clusters (`cluster.x-k8s.io` resources)
+- Read kubeconfig secrets in their organization namespaces
 
 ## Network Security
 
