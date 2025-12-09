@@ -507,8 +507,11 @@ func TestFormatClusterError_GenericFallback(t *testing.T) {
 	})
 }
 
-func TestGetClusterClientWithStrictMode(t *testing.T) {
-	t.Run("strict mode enabled without token returns auth error", func(t *testing.T) {
+// TestGetClusterClientWithDownstreamOAuth tests the fail-closed OAuth behavior.
+// Note: Strict mode is always enabled - there is no option to disable it.
+// This ensures security by default: users cannot accidentally get service account permissions.
+func TestGetClusterClientWithDownstreamOAuth(t *testing.T) {
+	t.Run("without token returns auth error", func(t *testing.T) {
 		ctx := context.Background() // No OAuth token
 
 		sharedClient := &mockK8sClient{}
@@ -518,7 +521,7 @@ func TestGetClusterClientWithStrictMode(t *testing.T) {
 			server.WithK8sClient(sharedClient),
 			server.WithLogger(&mockLogger{}),
 			server.WithDownstreamOAuth(true),
-			server.WithDownstreamOAuthStrict(true),
+			server.WithDownstreamOAuthStrict(true), // Always true - cannot be disabled
 			server.WithClientFactory(&mockClientFactory{client: perUserClient}),
 		)
 		if err != nil {
@@ -526,10 +529,10 @@ func TestGetClusterClientWithStrictMode(t *testing.T) {
 		}
 		defer func() { _ = sc.Shutdown() }()
 
-		// With strict mode and no token, should fail with auth error
+		// With no token, should fail with auth error (fail closed)
 		client, errMsg := GetClusterClient(ctx, sc, "")
 		if errMsg == "" {
-			t.Error("GetClusterClient in strict mode without token should fail")
+			t.Error("GetClusterClient without token should fail")
 		}
 		if client != nil {
 			t.Error("GetClusterClient should not return a client on auth failure")
@@ -539,7 +542,7 @@ func TestGetClusterClientWithStrictMode(t *testing.T) {
 		}
 	})
 
-	t.Run("strict mode enabled with valid token returns per-user client", func(t *testing.T) {
+	t.Run("with valid token returns per-user client", func(t *testing.T) {
 		// Add OAuth token to context
 		ctx := oauth.ContextWithAccessToken(context.Background(), "valid-token")
 
@@ -558,7 +561,7 @@ func TestGetClusterClientWithStrictMode(t *testing.T) {
 		}
 		defer func() { _ = sc.Shutdown() }()
 
-		// With strict mode and valid token, should succeed
+		// With valid token, should succeed
 		client, errMsg := GetClusterClient(ctx, sc, "")
 		if errMsg != "" {
 			t.Errorf("GetClusterClient with valid token should succeed, got error: %s", errMsg)
@@ -572,7 +575,7 @@ func TestGetClusterClientWithStrictMode(t *testing.T) {
 		}
 	})
 
-	t.Run("strict mode enabled with client creation error returns auth error", func(t *testing.T) {
+	t.Run("with client creation error returns auth error", func(t *testing.T) {
 		// Add OAuth token to context
 		ctx := oauth.ContextWithAccessToken(context.Background(), "invalid-token")
 
@@ -590,48 +593,16 @@ func TestGetClusterClientWithStrictMode(t *testing.T) {
 		}
 		defer func() { _ = sc.Shutdown() }()
 
-		// With strict mode and invalid token, should fail with auth error
+		// With invalid token, should fail with auth error (fail closed)
 		client, errMsg := GetClusterClient(ctx, sc, "")
 		if errMsg == "" {
-			t.Error("GetClusterClient with invalid token in strict mode should fail")
+			t.Error("GetClusterClient with invalid token should fail")
 		}
 		if client != nil {
 			t.Error("GetClusterClient should not return a client on auth failure")
 		}
 		if !strings.Contains(errMsg, "authentication") {
 			t.Errorf("Error message should mention authentication, got: %s", errMsg)
-		}
-	})
-
-	t.Run("strict mode disabled without token falls back to shared client", func(t *testing.T) {
-		ctx := context.Background() // No OAuth token
-
-		sharedClient := &mockK8sClient{}
-		perUserClient := &mockK8sClient{}
-
-		sc, err := server.NewServerContext(ctx,
-			server.WithK8sClient(sharedClient),
-			server.WithLogger(&mockLogger{}),
-			server.WithDownstreamOAuth(true),
-			server.WithDownstreamOAuthStrict(false), // Strict mode disabled
-			server.WithClientFactory(&mockClientFactory{client: perUserClient}),
-		)
-		if err != nil {
-			t.Fatalf("Failed to create server context: %v", err)
-		}
-		defer func() { _ = sc.Shutdown() }()
-
-		// With strict mode disabled and no token, should fall back to shared client
-		client, errMsg := GetClusterClient(ctx, sc, "")
-		if errMsg != "" {
-			t.Errorf("GetClusterClient with strict mode disabled should succeed, got error: %s", errMsg)
-		}
-		if client == nil {
-			t.Error("GetClusterClient should return a client")
-		}
-		// The returned client should be the shared client (fallback)
-		if client.K8s() != sharedClient {
-			t.Error("GetClusterClient should fall back to shared client when strict mode is disabled")
 		}
 	})
 }

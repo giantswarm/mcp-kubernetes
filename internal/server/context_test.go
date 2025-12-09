@@ -66,15 +66,16 @@ func TestK8sClientForContext_NoClientFactory(t *testing.T) {
 	assert.Same(t, sharedClient, client)
 }
 
-func TestK8sClientForContext_StrictMode_NoToken_Denied(t *testing.T) {
-	// When strict mode is enabled and no token is present, should return error
+func TestK8sClientForContext_NoToken_Denied(t *testing.T) {
+	// When downstream OAuth is enabled and no token is present, should return error
+	// (strict mode is always enabled - fail closed for security)
 	sharedClient := &mockK8sClient{}
 	perUserClient := &mockK8sClient{}
 
 	sc := &ServerContext{
 		k8sClient:             sharedClient,
 		downstreamOAuth:       true,
-		downstreamOAuthStrict: true, // Strict mode enabled
+		downstreamOAuthStrict: true, // Always true - strict mode cannot be disabled
 		clientFactory: &mockClientFactory{
 			client: perUserClient,
 		},
@@ -89,8 +90,8 @@ func TestK8sClientForContext_StrictMode_NoToken_Denied(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrOAuthTokenMissing), "expected ErrOAuthTokenMissing, got %v", err)
 }
 
-func TestK8sClientForContext_StrictMode_EmptyToken_Denied(t *testing.T) {
-	// When strict mode is enabled and token is empty, should return error
+func TestK8sClientForContext_EmptyToken_Denied(t *testing.T) {
+	// When downstream OAuth is enabled and token is empty, should return error
 	sharedClient := &mockK8sClient{}
 	perUserClient := &mockK8sClient{}
 
@@ -112,8 +113,8 @@ func TestK8sClientForContext_StrictMode_EmptyToken_Denied(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrOAuthTokenMissing))
 }
 
-func TestK8sClientForContext_StrictMode_ClientCreationFailed_Denied(t *testing.T) {
-	// When strict mode is enabled and client creation fails, should return error
+func TestK8sClientForContext_ClientCreationFailed_Denied(t *testing.T) {
+	// When downstream OAuth is enabled and client creation fails, should return error
 	sharedClient := &mockK8sClient{}
 
 	sc := &ServerContext{
@@ -134,8 +135,8 @@ func TestK8sClientForContext_StrictMode_ClientCreationFailed_Denied(t *testing.T
 	assert.True(t, errors.Is(err, ErrOAuthClientFailed))
 }
 
-func TestK8sClientForContext_StrictMode_Success(t *testing.T) {
-	// When strict mode is enabled and token is valid, should return per-user client
+func TestK8sClientForContext_ValidToken_Success(t *testing.T) {
+	// When downstream OAuth is enabled and token is valid, should return per-user client
 	sharedClient := &mockK8sClient{}
 	perUserClient := &mockK8sClient{}
 
@@ -157,124 +158,24 @@ func TestK8sClientForContext_StrictMode_Success(t *testing.T) {
 	assert.NotSame(t, sharedClient, client)
 }
 
-func TestK8sClientForContext_NonStrict_NoToken_Fallback(t *testing.T) {
-	// When strict mode is disabled and no token is present, should fall back to shared client
-	sharedClient := &mockK8sClient{}
-	perUserClient := &mockK8sClient{}
-
-	sc := &ServerContext{
-		k8sClient:             sharedClient,
-		downstreamOAuth:       true,
-		downstreamOAuthStrict: false, // Strict mode disabled
-		clientFactory: &mockClientFactory{
-			client: perUserClient,
-		},
-		logger: NewDefaultLogger(),
-	}
-
-	ctx := context.Background() // No token in context
-	client, err := sc.K8sClientForContext(ctx)
-
-	assert.NoError(t, err)
-	assert.Same(t, sharedClient, client) // Falls back to shared client
-}
-
-func TestK8sClientForContext_NonStrict_ClientCreationFailed_Fallback(t *testing.T) {
-	// When strict mode is disabled and client creation fails, should fall back
-	sharedClient := &mockK8sClient{}
-
-	sc := &ServerContext{
-		k8sClient:             sharedClient,
-		downstreamOAuth:       true,
-		downstreamOAuthStrict: false, // Strict mode disabled
-		clientFactory: &mockClientFactory{
-			createErr: errors.New("token rejected"),
-		},
-		logger: NewDefaultLogger(),
-	}
-
-	ctx := oauth.ContextWithAccessToken(context.Background(), "valid-token")
-	client, err := sc.K8sClientForContext(ctx)
-
-	assert.NoError(t, err)
-	assert.Same(t, sharedClient, client) // Falls back to shared client
-}
-
-func TestK8sClientForContext_NonStrict_Success(t *testing.T) {
-	// When strict mode is disabled and token is valid, should return per-user client
-	sharedClient := &mockK8sClient{}
-	perUserClient := &mockK8sClient{}
-
-	sc := &ServerContext{
-		k8sClient:             sharedClient,
-		downstreamOAuth:       true,
-		downstreamOAuthStrict: false,
-		clientFactory: &mockClientFactory{
-			client: perUserClient,
-		},
-		logger: NewDefaultLogger(),
-	}
-
-	ctx := oauth.ContextWithAccessToken(context.Background(), "valid-token")
-	client, err := sc.K8sClientForContext(ctx)
-
-	assert.NoError(t, err)
-	assert.Same(t, perUserClient, client)
-}
-
 func TestDownstreamOAuthStrictEnabled(t *testing.T) {
-	tests := []struct {
-		name     string
-		strict   bool
-		expected bool
-	}{
-		{
-			name:     "strict mode enabled",
-			strict:   true,
-			expected: true,
-		},
-		{
-			name:     "strict mode disabled",
-			strict:   false,
-			expected: false,
-		},
+	// Note: In production, strict mode is always enabled.
+	// This test verifies the getter function works correctly.
+	sc := &ServerContext{
+		downstreamOAuthStrict: true,
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sc := &ServerContext{
-				downstreamOAuthStrict: tt.strict,
-			}
-			assert.Equal(t, tt.expected, sc.DownstreamOAuthStrictEnabled())
-		})
-	}
+	assert.True(t, sc.DownstreamOAuthStrictEnabled())
 }
 
 func TestWithDownstreamOAuthStrict(t *testing.T) {
-	tests := []struct {
-		name    string
-		enabled bool
-	}{
-		{
-			name:    "enable strict mode",
-			enabled: true,
-		},
-		{
-			name:    "disable strict mode",
-			enabled: false,
-		},
-	}
+	// Note: In production use, this option is always called with true.
+	// This test verifies the option function works correctly.
+	sc := &ServerContext{}
+	opt := WithDownstreamOAuthStrict(true)
+	err := opt(sc)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sc := &ServerContext{}
-			opt := WithDownstreamOAuthStrict(tt.enabled)
-			err := opt(sc)
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.enabled, sc.downstreamOAuthStrict)
-		})
-	}
+	require.NoError(t, err)
+	assert.True(t, sc.downstreamOAuthStrict)
 }
 
 func TestOAuthErrors(t *testing.T) {

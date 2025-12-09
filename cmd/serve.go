@@ -121,7 +121,6 @@ func newServeCmd() *cobra.Command {
 		maxClientsPerIP               int
 		oauthEncryptionKey            string
 		downstreamOAuth               bool
-		downstreamOAuthStrict         bool
 	)
 
 	cmd := &cobra.Command{
@@ -175,8 +174,7 @@ Downstream OAuth (--downstream-oauth):
 					MaxClientsPerIP:               maxClientsPerIP,
 					EncryptionKey:                 oauthEncryptionKey,
 				},
-				DownstreamOAuth:       downstreamOAuth,
-				DownstreamOAuthStrict: downstreamOAuthStrict,
+				DownstreamOAuth: downstreamOAuth,
 			}
 			return runServe(config)
 		},
@@ -214,7 +212,6 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
-	cmd.Flags().BoolVar(&downstreamOAuthStrict, "downstream-oauth-strict", true, "Fail with authentication error instead of falling back to service account when OAuth token is missing (recommended for production)")
 
 	return cmd
 }
@@ -326,15 +323,12 @@ func runServe(config ServeConfig) error {
 		serverContextOptions = append(serverContextOptions, server.WithClientFactory(clientFactory))
 		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuth(true))
 
-		// Configure strict mode (default: true)
-		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuthStrict(config.DownstreamOAuthStrict))
+		// Strict mode is always enabled - fail closed for security
+		// This ensures requests without valid OAuth tokens fail with authentication errors
+		// rather than silently falling back to service account (which could be a security risk)
+		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuthStrict(true))
 
-		if config.DownstreamOAuthStrict {
-			log.Printf("Downstream OAuth enabled (strict mode): requests without valid OAuth tokens will fail with authentication error")
-		} else {
-			log.Printf("WARNING: Downstream OAuth enabled with STRICT MODE DISABLED: will fall back to service account if OAuth token is missing")
-			log.Printf("         This is NOT RECOMMENDED for production - consider enabling --downstream-oauth-strict")
-		}
+		log.Printf("Downstream OAuth enabled: requests without valid OAuth tokens will fail with authentication error")
 	}
 
 	// Load CAPI mode configuration from environment variables
