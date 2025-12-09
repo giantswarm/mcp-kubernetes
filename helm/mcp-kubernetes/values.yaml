@@ -35,7 +35,7 @@ serviceAccount:
 rbac:
   # Create RBAC resources (ClusterRole and ClusterRoleBinding)
   create: true
-  
+
   # RBAC profile controls the permission level
   # Options:
   #   - "minimal":  Only pod lifecycle permissions (for downstream OAuth mode)
@@ -51,7 +51,7 @@ rbac:
   # WARNING: "standard" profile grants CLUSTER-WIDE SECRET ACCESS.
   # Consider using "readonly" if you don't need write operations.
   profile: "standard"
-  
+
   # REQUIRED when using profile: "admin"
   # The admin profile grants dangerous permissions:
   #   - RBAC management (privilege escalation risk)
@@ -59,7 +59,7 @@ rbac:
   #   - Webhook configurations (API interception risk)
   # You must set this to true to acknowledge these risks.
   adminConfirmation: false
-  
+
   # Custom RBAC rules (overrides profile when enabled)
   #
   # WARNING: Custom rules BYPASS ALL PROFILE SAFETY CONTROLS!
