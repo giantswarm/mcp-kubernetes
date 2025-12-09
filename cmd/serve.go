@@ -121,6 +121,14 @@ func newServeCmd() *cobra.Command {
 		maxClientsPerIP               int
 		oauthEncryptionKey            string
 		downstreamOAuth               bool
+
+		// OAuth storage options
+		oauthStorageType string
+		valkeyURL        string
+		valkeyPassword   string
+		valkeyTLS        bool
+		valkeyKeyPrefix  string
+		valkeyDB         int
 	)
 
 	cmd := &cobra.Command{
@@ -145,6 +153,26 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Build OAuth storage config from flags
+			storageConfig := server.OAuthStorageConfig{
+				Type: server.OAuthStorageType(oauthStorageType),
+				Valkey: server.ValkeyStorageConfig{
+					URL:        valkeyURL,
+					Password:   valkeyPassword,
+					TLSEnabled: valkeyTLS,
+					KeyPrefix:  valkeyKeyPrefix,
+					DB:         valkeyDB,
+				},
+			}
+			// Load env vars only for flags not explicitly set by user
+			loadOAuthStorageEnvVars(cmd, &storageConfig)
+
+			// Security warning: CLI password flags may be visible in process listings
+			if cmd.Flags().Changed("valkey-password") {
+				log.Printf("WARNING: Valkey password provided via CLI flag - password may be visible in process listings (ps aux)")
+				log.Printf("         For better security, use the VALKEY_PASSWORD environment variable instead")
+			}
+
 			config := ServeConfig{
 				Transport:          transport,
 				HTTPAddr:           httpAddr,
@@ -173,6 +201,7 @@ Downstream OAuth (--downstream-oauth):
 					AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
 					MaxClientsPerIP:               maxClientsPerIP,
 					EncryptionKey:                 oauthEncryptionKey,
+					Storage:                       storageConfig,
 				},
 				DownstreamOAuth: downstreamOAuth,
 			}
@@ -212,6 +241,14 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
+
+	// OAuth storage flags
+	cmd.Flags().StringVar(&oauthStorageType, "oauth-storage-type", "memory", "OAuth token storage type: memory or valkey (can also be set via OAUTH_STORAGE_TYPE env var)")
+	cmd.Flags().StringVar(&valkeyURL, "valkey-url", "", "Valkey server address (e.g., valkey.namespace.svc:6379, can also be set via VALKEY_URL env var)")
+	cmd.Flags().StringVar(&valkeyPassword, "valkey-password", "", "Valkey authentication password (can also be set via VALKEY_PASSWORD env var)")
+	cmd.Flags().BoolVar(&valkeyTLS, "valkey-tls", false, "Enable TLS for Valkey connections (can also be set via VALKEY_TLS_ENABLED env var)")
+	cmd.Flags().StringVar(&valkeyKeyPrefix, "valkey-key-prefix", "mcp:", "Prefix for all Valkey keys (can also be set via VALKEY_KEY_PREFIX env var)")
+	cmd.Flags().IntVar(&valkeyDB, "valkey-db", 0, "Valkey database number (can also be set via VALKEY_DB env var)")
 
 	return cmd
 }
@@ -512,6 +549,7 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.DexClientSecret, "DEX_CLIENT_SECRET")
 			loadEnvIfEmpty(&config.OAuth.DexConnectorID, "DEX_CONNECTOR_ID")
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
+			// Note: Valkey storage env vars are loaded in RunE closure where cmd is available
 
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
@@ -606,11 +644,55 @@ func runServe(config ServeConfig) error {
 				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:       instrumentationProvider,
+				Storage:                       config.OAuth.Storage, // Same type, no conversion needed
 			}, serverContext)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
+	}
+}
+
+// loadOAuthStorageEnvVars loads OAuth storage configuration from environment variables.
+// Environment variables only override flag values when the flag was not explicitly set.
+// The cmd parameter is used to check if flags were explicitly set by the user.
+func loadOAuthStorageEnvVars(cmd *cobra.Command, config *server.OAuthStorageConfig) {
+	// Storage type - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("oauth-storage-type") {
+		if storageType := os.Getenv("OAUTH_STORAGE_TYPE"); storageType != "" {
+			config.Type = server.OAuthStorageType(storageType)
+		}
+	}
+
+	// Valkey URL - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("valkey-url") {
+		loadEnvIfEmpty(&config.Valkey.URL, "VALKEY_URL")
+	}
+
+	// Valkey Password - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("valkey-password") {
+		loadEnvIfEmpty(&config.Valkey.Password, "VALKEY_PASSWORD")
+	}
+
+	// Valkey Key Prefix - env var only applies if flag was not explicitly set
+	if !cmd.Flags().Changed("valkey-key-prefix") {
+		loadEnvIfEmpty(&config.Valkey.KeyPrefix, "VALKEY_KEY_PREFIX")
+	}
+
+	// Valkey TLS - env var only applies if flag was not explicitly set
+	// This properly handles the case where user explicitly sets --valkey-tls=false
+	if !cmd.Flags().Changed("valkey-tls") {
+		if os.Getenv("VALKEY_TLS_ENABLED") == envValueTrue {
+			config.Valkey.TLSEnabled = true
+		}
+	}
+
+	// Valkey DB - env var only applies if flag was not explicitly set
+	// This properly handles the case where user explicitly sets --valkey-db=0
+	if !cmd.Flags().Changed("valkey-db") {
+		if db, ok := parseIntEnv(os.Getenv("VALKEY_DB"), "VALKEY_DB"); ok {
+			config.Valkey.DB = db
+		}
 	}
 }
 

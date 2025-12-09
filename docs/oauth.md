@@ -1388,16 +1388,128 @@ curl -X POST http://localhost:8080/oauth/register \
   }'
 ```
 
+## Valkey Token Storage (Production)
+
+By default, mcp-kubernetes uses in-memory token storage which is **NOT recommended for production** because:
+- Tokens are lost on pod restart
+- Multiple replicas cannot share session state
+- Rolling updates cause user session loss
+
+For production deployments, use Valkey (Redis-compatible) storage.
+
+### Benefits of Valkey Storage
+
+1. **High Availability** - Multiple replicas can serve users with shared session state
+2. **Rolling Updates** - Deployments do not disrupt user sessions
+3. **Scalability** - Can scale mcp-kubernetes instances independently
+4. **Session Persistence** - Tokens survive pod restarts
+
+### Valkey Configuration
+
+#### Command-Line Flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--oauth-storage-type` | Storage backend: `memory` or `valkey` | `memory` |
+| `--valkey-url` | Valkey server address (e.g., `valkey.namespace.svc:6379`) | - |
+| `--valkey-password` | Valkey authentication password | - |
+| `--valkey-tls` | Enable TLS for Valkey connections | `false` |
+| `--valkey-key-prefix` | Prefix for all Valkey keys | `mcp:` |
+| `--valkey-db` | Valkey database number (0-15) | `0` |
+
+#### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `OAUTH_STORAGE_TYPE` | Storage backend: `memory` or `valkey` |
+| `VALKEY_URL` | Valkey server address |
+| `VALKEY_PASSWORD` | Valkey authentication password |
+| `VALKEY_TLS_ENABLED` | Enable TLS (`true`/`false`) |
+| `VALKEY_KEY_PREFIX` | Prefix for all Valkey keys |
+| `VALKEY_DB` | Valkey database number |
+
+### Example: Production Deployment with Valkey
+
+```bash
+# Deploy Valkey (example using Bitnami Helm chart)
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install valkey bitnami/valkey \
+  --set auth.enabled=true \
+  --set auth.password=your-secure-password \
+  --set tls.enabled=true
+
+# Start mcp-kubernetes with Valkey storage
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --oauth-base-url=https://mcp.example.com \
+  --oauth-provider=dex \
+  --dex-issuer-url=https://dex.example.com \
+  --dex-client-id=mcp-kubernetes \
+  --dex-client-secret=$DEX_CLIENT_SECRET \
+  --registration-token=$REGISTRATION_TOKEN \
+  --oauth-encryption-key=$ENCRYPTION_KEY \
+  --oauth-storage-type=valkey \
+  --valkey-url=valkey.default.svc:6379 \
+  --valkey-password=$VALKEY_PASSWORD \
+  --valkey-tls
+```
+
+### Helm Chart Configuration
+
+```yaml
+mcpKubernetes:
+  oauth:
+    enabled: true
+    baseURL: "https://mcp.example.com"
+    provider: "dex"
+    dex:
+      issuerURL: "https://dex.example.com"
+      clientID: "mcp-kubernetes"
+    encryptionKey: true
+    existingSecret: "mcp-kubernetes-oauth"
+    
+    storage:
+      type: "valkey"
+      valkey:
+        url: "valkey.default.svc:6379"
+        tls:
+          enabled: true
+        keyPrefix: "mcp:"
+        # Password loaded from existingSecret
+```
+
+See `helm/mcp-kubernetes/values-oauth-valkey-example.yaml` for a complete production example.
+
+### Security Considerations for Valkey
+
+1. **Enable TLS** - Always use TLS in production to encrypt traffic between mcp-kubernetes and Valkey
+2. **Use Authentication** - Configure Valkey password and store it in a Kubernetes Secret
+3. **Enable Token Encryption** - Use `--oauth-encryption-key` to encrypt tokens at rest in Valkey
+4. **Network Policies** - Restrict access to Valkey to only mcp-kubernetes pods
+5. **Key Prefix** - Use unique key prefixes in multi-tenant environments
+6. **Avoid CLI Password Flags** - Use environment variables (`VALKEY_PASSWORD`) instead of `--valkey-password` flag, as command-line arguments may be visible in process listings (`ps aux`)
+
+### Valkey vs Redis
+
+Valkey is a community-driven fork of Redis that maintains full compatibility while being fully open source. It provides:
+- Redis protocol compatibility
+- Active community development
+- No licensing concerns
+- Kubernetes-native deployment via Helm charts
+
 ## Architecture
 
-The OAuth implementation is based on the [mcp-oauth](https://github.com/giantswarm/mcp-oauth) library (v0.2.7), which provides:
+The OAuth implementation is based on the [mcp-oauth](https://github.com/giantswarm/mcp-oauth) library (v0.2.14), which provides:
 
 - OAuth 2.1 server implementation
 - Multiple provider support:
   - Dex OIDC provider (with connector selection and groups claim)
   - Google OAuth provider
-- In-memory token storage
-- Security features (rate limiting, audit logging, encryption)
+- Token storage backends:
+  - In-memory storage (development)
+  - Valkey storage (production, Redis-compatible)
+- Security features (rate limiting, audit logging, encryption at rest)
 - RFC-compliant endpoints
 
 The integration is organized as follows:

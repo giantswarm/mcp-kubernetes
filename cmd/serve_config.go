@@ -7,12 +7,14 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
-// OAuth provider constants
+// OAuth provider constants - use server package constants for consistency
 const (
-	OAuthProviderDex    = "dex"
-	OAuthProviderGoogle = "google"
+	OAuthProviderDex    = server.OAuthProviderDex
+	OAuthProviderGoogle = server.OAuthProviderGoogle
 )
 
 // simpleLogger provides basic logging for the Kubernetes client
@@ -103,7 +105,27 @@ type OAuthServeConfig struct {
 	AllowInsecureAuthWithoutState bool
 	MaxClientsPerIP               int
 	EncryptionKey                 string
+
+	// Storage configuration
+	Storage server.OAuthStorageConfig
 }
+
+// Type aliases for OAuth storage configuration - use server package types directly
+// to avoid duplication and ensure consistency across the codebase.
+type (
+	// OAuthStorageType represents the type of token storage backend.
+	OAuthStorageType = server.OAuthStorageType
+	// OAuthStorageConfig holds configuration for OAuth token storage backend.
+	OAuthStorageConfig = server.OAuthStorageConfig
+	// ValkeyStorageConfig holds configuration for Valkey storage backend.
+	ValkeyStorageConfig = server.ValkeyStorageConfig
+)
+
+// Storage type constants - re-exported from server package for convenience.
+const (
+	OAuthStorageTypeMemory = server.OAuthStorageTypeMemory
+	OAuthStorageTypeValkey = server.OAuthStorageTypeValkey
+)
 
 // loadEnvIfEmpty loads an environment variable into a string pointer if it's empty.
 func loadEnvIfEmpty(target *string, envKey string) {

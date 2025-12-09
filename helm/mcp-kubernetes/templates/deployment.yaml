@@ -145,6 +145,33 @@ spec:
                   name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
                   key: oauth-encryption-key
             {{- end }}
+            # Valkey storage configuration
+            {{- if eq .Values.mcpKubernetes.oauth.storage.type "valkey" }}
+            - name: OAUTH_STORAGE_TYPE
+              value: "valkey"
+            - name: VALKEY_URL
+              value: {{ required "mcpKubernetes.oauth.storage.valkey.url is required when using Valkey storage" .Values.mcpKubernetes.oauth.storage.valkey.url | quote }}
+            {{- if .Values.mcpKubernetes.oauth.storage.valkey.tls.enabled }}
+            - name: VALKEY_TLS_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.storage.valkey.keyPrefix }}
+            - name: VALKEY_KEY_PREFIX
+              value: {{ .Values.mcpKubernetes.oauth.storage.valkey.keyPrefix | quote }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.storage.valkey.db }}
+            - name: VALKEY_DB
+              value: {{ .Values.mcpKubernetes.oauth.storage.valkey.db | quote }}
+            {{- end }}
+            {{- if or .Values.mcpKubernetes.oauth.storage.valkey.existingSecret .Values.mcpKubernetes.oauth.existingSecret }}
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.storage.valkey.existingSecret | default .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: {{ .Values.mcpKubernetes.oauth.storage.valkey.secretKeyPassword | default "valkey-password" }}
+                  optional: true
+            {{- end }}
+            {{- end }}
             {{- end }}
             # OpenTelemetry Instrumentation environment variables
             {{- if .Values.mcpKubernetes.instrumentation }}
