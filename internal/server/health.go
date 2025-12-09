@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+// Health status constants for health check responses.
+const (
+	healthStatusOK           = "ok"
+	healthStatusNotReady     = "not ready"
+	healthStatusShuttingDown = "shutting down"
+)
+
 // HealthChecker provides health check endpoints for Kubernetes probes.
 type HealthChecker struct {
 	// ready indicates whether the server is ready to receive traffic
@@ -85,7 +92,7 @@ func (h *HealthChecker) LivenessHandler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 
 		response := HealthResponse{
-			Status: "ok",
+			Status: healthStatusOK,
 		}
 
 		// Add version if available from server context
@@ -108,18 +115,18 @@ func (h *HealthChecker) ReadinessHandler() http.Handler {
 
 		// Check if server is marked as ready
 		if !h.ready.Load() {
-			checks["ready"] = "not ready"
+			checks["ready"] = healthStatusNotReady
 			allOk = false
 		} else {
-			checks["ready"] = "ok"
+			checks["ready"] = healthStatusOK
 		}
 
 		// Check if server context is not shutdown
 		if h.serverContext != nil && h.serverContext.IsShutdown() {
-			checks["shutdown"] = "shutting down"
+			checks["shutdown"] = healthStatusShuttingDown
 			allOk = false
 		} else {
-			checks["shutdown"] = "ok"
+			checks["shutdown"] = healthStatusOK
 		}
 
 		// Check instrumentation provider if enabled
@@ -127,7 +134,7 @@ func (h *HealthChecker) ReadinessHandler() http.Handler {
 			provider := h.serverContext.InstrumentationProvider()
 			if provider != nil {
 				if provider.Enabled() {
-					checks["instrumentation"] = "ok"
+					checks["instrumentation"] = healthStatusOK
 				} else {
 					checks["instrumentation"] = "disabled"
 				}
@@ -139,10 +146,10 @@ func (h *HealthChecker) ReadinessHandler() http.Handler {
 		}
 
 		if allOk {
-			response.Status = "ok"
+			response.Status = healthStatusOK
 			w.WriteHeader(http.StatusOK)
 		} else {
-			response.Status = "not ready"
+			response.Status = healthStatusNotReady
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 
@@ -164,7 +171,7 @@ func (h *HealthChecker) DetailedHealthHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 
 		response := DetailedHealthResponse{
-			Status: "ok",
+			Status: healthStatusOK,
 			Mode:   h.determineMode(),
 			Uptime: time.Since(h.startTime).Truncate(time.Second).String(),
 		}
@@ -183,10 +190,10 @@ func (h *HealthChecker) DetailedHealthHandler() http.Handler {
 
 		// Determine overall status
 		if !h.ready.Load() {
-			response.Status = "not ready"
+			response.Status = healthStatusNotReady
 			w.WriteHeader(http.StatusServiceUnavailable)
 		} else if h.serverContext != nil && h.serverContext.IsShutdown() {
-			response.Status = "shutting down"
+			response.Status = healthStatusShuttingDown
 			w.WriteHeader(http.StatusServiceUnavailable)
 		} else {
 			w.WriteHeader(http.StatusOK)

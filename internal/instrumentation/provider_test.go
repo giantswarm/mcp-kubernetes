@@ -52,7 +52,7 @@ func TestNewProvider_PrometheusExporter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	defer provider.Shutdown(ctx)
+	defer func() { _ = provider.Shutdown(ctx) }()
 
 	if !provider.Enabled() {
 		t.Error("expected provider to be enabled")
@@ -89,7 +89,7 @@ func TestNewProvider_StdoutExporter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	defer provider.Shutdown(ctx)
+	defer func() { _ = provider.Shutdown(ctx) }()
 
 	if !provider.Enabled() {
 		t.Error("expected provider to be enabled")

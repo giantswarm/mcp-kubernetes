@@ -555,33 +555,6 @@ func (c *kubernetesClient) resolveResourceType(resourceType, apiGroup, contextNa
 	return gvr, namespaced, nil
 }
 
-// isResourceNamespaced determines if a resource is namespaced based on its GroupVersionResource
-func (c *kubernetesClient) isResourceNamespaced(gvr schema.GroupVersionResource) bool {
-	// Cluster-scoped resources
-	clusterScopedResources := map[string]bool{
-		"nodes":                           true,
-		"persistentvolumes":               true,
-		"clusterroles":                    true,
-		"clusterrolebindings":             true,
-		"namespaces":                      true,
-		"storageclasses":                  true,
-		"ingressclasses":                  true,
-		"priorityclasses":                 true,
-		"runtimeclasses":                  true,
-		"podsecuritypolicies":             true,
-		"volumeattachments":               true,
-		"csidrivers":                      true,
-		"csinodes":                        true,
-		"csistoragecapacities":            true,
-		"mutatingwebhookconfigurations":   true,
-		"validatingwebhookconfigurations": true,
-		"customresourcedefinitions":       true,
-		"apiservices":                     true,
-	}
-
-	return !clusterScopedResources[gvr.Resource]
-}
-
 // resolveGVRFromObject resolves GroupVersionResource from an unstructured object.
 func (c *kubernetesClient) resolveGVRFromObject(kubeContext string, obj *unstructured.Unstructured) (schema.GroupVersionResource, bool, error) {
 	gv, err := schema.ParseGroupVersion(obj.GetAPIVersion())

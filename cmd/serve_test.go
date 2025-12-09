@@ -148,8 +148,8 @@ func TestRunServeWithInCluster(t *testing.T) {
 			// Skip the kubeconfig test if we don't have a valid kubeconfig and can't create one
 			if tt.shouldSetKubeconfig {
 				kubeconfigPath := createTestKubeconfigFile(t, tmpDir)
-				os.Setenv("KUBECONFIG", kubeconfigPath)
-				defer os.Unsetenv("KUBECONFIG")
+				_ = os.Setenv("KUBECONFIG", kubeconfigPath)
+				defer func() { _ = os.Unsetenv("KUBECONFIG") }()
 			}
 
 			// We can't easily test the full runServe function without complex mocking,
@@ -237,7 +237,7 @@ users:
 `
 
 	kubeconfigPath := dir + "/kubeconfig"
-	err := os.WriteFile(kubeconfigPath, []byte(kubeconfigContent), 0644)
+	err := os.WriteFile(kubeconfigPath, []byte(kubeconfigContent), 0600) // #nosec G306 - test file
 	require.NoError(t, err)
 
 	return kubeconfigPath

@@ -19,6 +19,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Provider encapsulates OpenTelemetry meter and tracer providers.
@@ -109,7 +110,7 @@ func (p *Provider) initMeterProvider(ctx context.Context, res *resource.Resource
 	var reader metric.Reader
 
 	switch p.config.MetricsExporter {
-	case "prometheus":
+	case ExporterPrometheus:
 		// Create Prometheus exporter - it's a reader, not an exporter
 		promExporter, err := prometheus.New()
 		if err != nil {
@@ -119,7 +120,7 @@ func (p *Provider) initMeterProvider(ctx context.Context, res *resource.Resource
 		p.prometheusExporter = promExporter
 		reader = promExporter
 
-	case "otlp":
+	case ExporterOTLP:
 		// OTLP metrics exporter requires endpoint configuration
 		if p.config.OTLPEndpoint == "" {
 			return fmt.Errorf("OTLP endpoint is required for OTLP metrics exporter; set OTEL_EXPORTER_OTLP_ENDPOINT or use 'prometheus' exporter")
@@ -139,11 +140,11 @@ func (p *Provider) initMeterProvider(ctx context.Context, res *resource.Resource
 		}
 		reader = metric.NewPeriodicReader(exporter)
 
-	case "stdout":
+	case ExporterStdout:
 		// DEVELOPMENT ONLY WARNING
 		slog.Warn("stdout metrics exporter enabled - for development/debugging only, not for production",
 			"component", "instrumentation",
-			"exporter", "stdout",
+			"exporter", ExporterStdout,
 		)
 		exporter, err := stdoutmetric.New()
 		if err != nil {
@@ -166,7 +167,7 @@ func (p *Provider) initMeterProvider(ctx context.Context, res *resource.Resource
 
 // initTracerProvider initializes the OpenTelemetry tracer provider based on configuration.
 func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resource) error {
-	if p.config.TracingExporter == "none" {
+	if p.config.TracingExporter == ExporterNone {
 		// No-op tracer provider
 		p.tracerProvider = sdktrace.NewTracerProvider(
 			sdktrace.WithResource(res),
@@ -179,7 +180,7 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 	var err error
 
 	switch p.config.TracingExporter {
-	case "otlp":
+	case ExporterOTLP:
 		if p.config.OTLPEndpoint == "" {
 			return fmt.Errorf("OTLP endpoint is required for OTLP tracing exporter")
 		}
@@ -193,7 +194,7 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 			// Only use insecure transport for local development/testing
 			slog.Warn("OTLP insecure transport enabled - traces may contain sensitive metadata, use only for development",
 				"component", "instrumentation",
-				"exporter", "otlp",
+				"exporter", ExporterOTLP,
 				"endpoint", p.config.OTLPEndpoint,
 			)
 			opts = append(opts, otlptracehttp.WithInsecure())
@@ -205,11 +206,11 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 			return fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 		}
 
-	case "stdout":
+	case ExporterStdout:
 		// DEVELOPMENT ONLY WARNING
 		slog.Warn("stdout traces exporter enabled - for development/debugging only, not for production",
 			"component", "instrumentation",
-			"exporter", "stdout",
+			"exporter", ExporterStdout,
 		)
 		exporter, err = stdouttrace.New()
 		if err != nil {
@@ -242,7 +243,7 @@ func (p *Provider) Metrics() *Metrics {
 // Tracer returns a tracer for creating spans.
 func (p *Provider) Tracer(name string) trace.Tracer {
 	if !p.enabled || p.tracerProvider == nil {
-		return trace.NewNoopTracerProvider().Tracer(name)
+		return noop.NewTracerProvider().Tracer(name)
 	}
 	return p.tracerProvider.Tracer(name)
 }

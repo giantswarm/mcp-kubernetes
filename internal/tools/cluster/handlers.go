@@ -35,7 +35,7 @@ func handleGetAPIResources(ctx context.Context, request mcp.CallToolRequest, sc 
 	}
 
 	// Extract pagination parameters with sensible defaults
-	var limit, offset int = 20, 0 // Default page size for API resources
+	limit, offset := 20, 0 // Default page size for API resources
 	if limitVal, ok := args["limit"]; ok {
 		if limitFloat, ok := limitVal.(float64); ok {
 			limit = int(limitFloat)

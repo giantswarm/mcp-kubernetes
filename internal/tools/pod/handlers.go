@@ -123,7 +123,7 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 		recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: %v", err)), nil
 	}
-	defer logs.Close()
+	defer func() { _ = logs.Close() }()
 
 	recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusSuccess, duration)
 
