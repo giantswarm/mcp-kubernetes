@@ -1,7 +1,8 @@
 # RBAC template tests for mcp-kubernetes Helm chart
 #
 # These tests verify the RBAC resources created by the Helm chart:
-# - Basic ClusterRole/ClusterRoleBinding (standard mode)
+# - RBAC profiles (minimal, readonly, standard, admin)
+# - Custom RBAC rules
 # - CAPI mode ClusterRole for cluster discovery and auth
 # - Namespace-scoped Roles for kubeconfig secret access (recommended)
 # - Cluster-wide secret access ClusterRole (not recommended, requires explicit opt-in)
@@ -12,9 +13,14 @@ suite: RBAC template tests
 templates:
   - templates/rbac.yaml
 tests:
+  # ==========================================
+  # Basic RBAC Tests
+  # ==========================================
+  
   - it: should create basic ClusterRole and ClusterRoleBinding
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: false
     asserts:
       - hasDocuments:
@@ -33,9 +39,193 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: should not create any RBAC when rbac.create is false
+    set:
+      serviceAccount.create: true
+      rbac.create: false
+      capiMode.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ==========================================
+  # RBAC Profile Tests
+  # ==========================================
+
+  - it: should create minimal profile with empty rules
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "minimal"
+      capiMode.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "minimal"
+        documentIndex: 0
+      # Minimal profile should have empty rules
+      - isNull:
+          path: rules
+        documentIndex: 0
+
+  - it: should create readonly profile with get/list/watch verbs only
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "readonly"
+      capiMode.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "readonly"
+        documentIndex: 0
+      # Readonly should have rules with only read verbs
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "persistentvolumes", "persistentvolumeclaims", "events"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+
+  - it: should create standard profile with CRUD permissions
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "standard"
+      capiMode.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "standard"
+        documentIndex: 0
+      # Standard should have CRUD operations
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "events"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+
+  - it: should create admin profile with full access and security warning
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "admin"
+      capiMode.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "admin"
+        documentIndex: 0
+      # Admin should have security warning annotation
+      - isNotEmpty:
+          path: metadata.annotations["security.kubernetes.io/warning"]
+        documentIndex: 0
+      # Admin should have RBAC management permissions
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["rbac.authorization.k8s.io"]
+            resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+
+  - it: should default to standard profile when not specified
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      capiMode.enabled: false
+    asserts:
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "standard"
+        documentIndex: 0
+
+  # ==========================================
+  # Custom RBAC Rules Tests
+  # ==========================================
+
+  - it: should use custom rules when custom.enabled is true
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "readonly"
+      rbac.custom.enabled: true
+      rbac.custom.rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list"]
+    asserts:
+      - hasDocuments:
+          count: 2
+      # Custom rules should be present
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["get", "list"]
+        documentIndex: 0
+
+  # ==========================================
+  # OAuth Downstream Mode Annotations Tests
+  # ==========================================
+
+  - it: should add oauth-downstream annotation when enabled
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "minimal"
+      mcpKubernetes.oauth.enableDownstreamOAuth: true
+      capiMode.enabled: false
+    asserts:
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-mode"]
+          value: "oauth-downstream"
+        documentIndex: 0
+
+  - it: should add security warning when non-minimal profile with downstream OAuth
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "standard"
+      mcpKubernetes.oauth.enableDownstreamOAuth: true
+      capiMode.enabled: false
+    asserts:
+      - isNotEmpty:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/security-warning"]
+        documentIndex: 0
+
+  - it: should not add security warning when minimal profile with downstream OAuth
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "minimal"
+      mcpKubernetes.oauth.enableDownstreamOAuth: true
+      capiMode.enabled: false
+    asserts:
+      - isNull:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/security-warning"]
+        documentIndex: 0
+
+  # ==========================================
+  # CAPI Mode RBAC Tests
+  # ==========================================
+
   - it: should create CAPI ClusterRole when capiMode is enabled
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
@@ -63,6 +253,7 @@ tests:
   - it: should create namespace-scoped Roles for allowed namespaces
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces:
@@ -104,6 +295,7 @@ tests:
   - it: should create cluster-wide secret ClusterRole when clusterWideSecrets is enabled
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
@@ -136,6 +328,7 @@ tests:
   - it: should have security warning annotation on cluster-wide secrets ClusterRole
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: true
       capiMode.rbac.clusterWideSecrets: true
@@ -147,6 +340,7 @@ tests:
   - it: should not create CAPI RBAC when capiMode.rbac.create is false
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: false
     asserts:
@@ -156,6 +350,7 @@ tests:
   - it: should grant CAPI resource discovery permissions
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: true
     asserts:
@@ -178,6 +373,7 @@ tests:
   - it: should grant TokenReview and SubjectAccessReview permissions
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: true
     asserts:
@@ -199,6 +395,7 @@ tests:
   - it: should reference correct ServiceAccount in RoleBinding subjects
     set:
       serviceAccount.create: true
+      rbac.create: true
       capiMode.enabled: true
       capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces:
@@ -215,3 +412,39 @@ tests:
           path: subjects[0].namespace
           value: mcp-system
         documentIndex: 5
+
+  # ==========================================
+  # RBAC Profile with CAPI Mode Tests
+  # ==========================================
+
+  - it: should combine minimal profile with CAPI RBAC
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "minimal"
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces: []
+    asserts:
+      - hasDocuments:
+          count: 4
+      # Base ClusterRole should have minimal (empty) rules
+      - isNull:
+          path: rules
+        documentIndex: 0
+      # CAPI ClusterRole should still have CAPI permissions
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["cluster.x-k8s.io"]
+            resources:
+              - clusters
+              - clusters/status
+              - machinepools
+              - machinepools/status
+              - machinedeployments
+              - machinedeployments/status
+              - machines
+              - machines/status
+            verbs: ["get", "list", "watch"]
+        documentIndex: 2

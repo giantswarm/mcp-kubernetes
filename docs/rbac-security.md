@@ -4,10 +4,10 @@ This document describes the RBAC (Role-Based Access Control) configuration and s
 
 ## TL;DR - Which RBAC Do I Need?
 
-| Deployment Mode | Who Needs RBAC | Helm Chart RBAC Used? |
-|-----------------|----------------|----------------------|
-| **Service Account Mode** (`enableDownstreamOAuth: false`) | ServiceAccount | **Yes** - SA permissions apply to all users |
-| **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User | **No** - Users need their own RBAC bindings |
+| Deployment Mode | Who Needs RBAC | Helm Chart RBAC Used? | Recommended Profile |
+|-----------------|----------------|----------------------|---------------------|
+| **Service Account Mode** (`enableDownstreamOAuth: false`) | ServiceAccount | **Yes** - SA permissions apply to all users | `standard` or `readonly` |
+| **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User | **No** - Users need their own RBAC bindings | `minimal` |
 
 **Key Insight**: The Helm chart creates RBAC for the ServiceAccount. This RBAC is **only used when OAuth Downstream is disabled**. When OAuth Downstream is enabled, users authenticate with their own OAuth tokens and need their own RBAC permissions.
 
@@ -17,11 +17,125 @@ This document describes the RBAC (Role-Based Access Control) configuration and s
 - Helm chart RBAC = what all users can do
 - All users share the same permissions
 - Good for: development, testing, trusted environments
+- Use: `rbac.profile: "standard"` or `rbac.profile: "readonly"`
 
 **OAuth Downstream Mode** (recommended for production):
 - Helm chart RBAC = not used for API operations
 - Each user has individual permissions via their OAuth identity
 - Good for: production, multi-tenant, compliance requirements
+- Use: `rbac.profile: "minimal"` to follow least-privilege principles
+
+---
+
+## RBAC Profiles
+
+The Helm chart provides four RBAC profiles to control ServiceAccount permissions. Choose the appropriate profile based on your deployment mode and security requirements.
+
+### Profile Overview
+
+| Profile | Description | Use Case |
+|---------|-------------|----------|
+| `minimal` | No Kubernetes API permissions | OAuth downstream mode (production) |
+| `readonly` | Read-only access to common resources | Monitoring, debugging, audit |
+| `standard` | Read + limited write operations | Development, testing (default) |
+| `admin` | Full access to all resources | Trusted environments, admin tools |
+
+### Profile: `minimal`
+
+**Permissions:** None (empty rules)
+
+**Use when:**
+- `enableDownstreamOAuth: true` (user tokens used for API)
+- You want to minimize attack surface
+- Production deployments following least-privilege
+
+**Configuration:**
+```yaml
+rbac:
+  create: true
+  profile: "minimal"
+```
+
+**Security benefit:** Even if the ServiceAccount token is compromised, it cannot access any Kubernetes resources.
+
+### Profile: `readonly`
+
+**Permissions:**
+- Read access to: pods, services, deployments, configmaps, namespaces, etc.
+- **Secrets excluded** for security
+- No create/update/delete permissions
+
+**Use when:**
+- Read-only monitoring or debugging access
+- Audit and compliance reporting
+- Limited-access development environments
+
+**Configuration:**
+```yaml
+rbac:
+  create: true
+  profile: "readonly"
+```
+
+### Profile: `standard` (Default)
+
+**Permissions:**
+- Read/write access to: pods, services, deployments, configmaps, secrets, jobs, etc.
+- Read-only access to: storage classes, CRDs
+- **RBAC resources are read-only** (cannot escalate privileges)
+
+**Use when:**
+- Development and testing environments
+- Trusted single-tenant deployments
+- When OAuth downstream is disabled
+
+**Configuration:**
+```yaml
+rbac:
+  create: true
+  profile: "standard"  # This is the default
+```
+
+### Profile: `admin`
+
+**Permissions:**
+- Full CRUD access to all common resources
+- Pod exec, logs, port-forward access
+- RBAC management (create/update/delete roles)
+- Admission webhook management
+
+**Use when:**
+- Administrative tooling
+- Fully trusted environments only
+- Emergency break-glass scenarios
+
+**Configuration:**
+```yaml
+rbac:
+  create: true
+  profile: "admin"
+```
+
+**Warning:** The `admin` profile grants extensive permissions. A ClusterRole annotation warns about this.
+
+### Custom RBAC Rules
+
+For fine-grained control, you can define custom rules that override the profile:
+
+```yaml
+rbac:
+  create: true
+  profile: "readonly"  # Ignored when custom.enabled is true
+  custom:
+    enabled: true
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "services"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list"]
+```
 
 ---
 
@@ -195,11 +309,20 @@ When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC p
 
 ### For OAuth Downstream Mode (Recommended)
 
-1. **Configure OIDC on your Kubernetes clusters**: Ensure the Management Cluster accepts your OAuth provider's tokens
+1. **Use the minimal RBAC profile**: When user tokens are used for API operations, the ServiceAccount doesn't need permissions:
+   ```yaml
+   rbac:
+     profile: "minimal"
+   mcpKubernetes:
+     oauth:
+       enableDownstreamOAuth: true
+   ```
 
-2. **Grant users appropriate RBAC**: Users need permissions for the operations they should perform
+2. **Configure OIDC on your Kubernetes clusters**: Ensure the Management Cluster accepts your OAuth provider's tokens
 
-3. **Use group-based RBAC**: Map OAuth groups to Kubernetes RBAC for easier management:
+3. **Grant users appropriate RBAC**: Users need permissions for the operations they should perform
+
+4. **Use group-based RBAC**: Map OAuth groups to Kubernetes RBAC for easier management:
    ```yaml
    subjects:
      - kind: Group
@@ -207,7 +330,7 @@ When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC p
        apiGroup: rbac.authorization.k8s.io
    ```
 
-4. **Match cache TTL to token lifetime**:
+5. **Match cache TTL to token lifetime**:
    ```yaml
    capiMode:
      cache:
@@ -216,7 +339,16 @@ When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC p
 
 ### For Service Account Mode
 
-1. **Use namespace-scoped RBAC** for secrets:
+1. **Choose the appropriate RBAC profile**: Match the profile to your security requirements:
+   ```yaml
+   rbac:
+     # Use "readonly" for monitoring/audit scenarios
+     # Use "standard" for development environments
+     # Avoid "admin" unless absolutely necessary
+     profile: "readonly"
+   ```
+
+2. **Use namespace-scoped RBAC** for secrets:
    ```yaml
    capiMode:
      rbac:
@@ -226,9 +358,11 @@ When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC p
        clusterWideSecrets: false
    ```
 
-2. **Review SA permissions regularly**: All users inherit SA permissions
+3. **Review SA permissions regularly**: All users inherit SA permissions
 
-3. **Consider network policies**: Restrict which endpoints the MCP server can reach
+4. **Consider network policies**: Restrict which endpoints the MCP server can reach
+
+5. **Never use the admin profile in production**: The `admin` profile grants RBAC management permissions which could be used for privilege escalation
 
 ## Kubernetes Audit Policy
 

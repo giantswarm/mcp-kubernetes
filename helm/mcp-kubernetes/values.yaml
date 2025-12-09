@@ -26,6 +26,40 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# RBAC Configuration
+# Controls the ClusterRole permissions granted to the ServiceAccount
+#
+# IMPORTANT: When enableDownstreamOAuth is true, this RBAC is NOT used for
+# Kubernetes API operations. Users authenticate with their own OAuth tokens.
+# In that case, use the "minimal" profile to follow least-privilege principles.
+rbac:
+  # Create RBAC resources (ClusterRole and ClusterRoleBinding)
+  create: true
+  
+  # RBAC profile controls the permission level
+  # Options:
+  #   - "minimal":  Only pod lifecycle permissions (for downstream OAuth mode)
+  #   - "readonly": Read-only access to common resources
+  #   - "standard": Read + limited write (current default behavior)
+  #   - "admin":    Full access (explicit opt-in for trusted environments)
+  #
+  # Security recommendation:
+  #   - Use "minimal" when enableDownstreamOAuth: true
+  #   - Use "readonly" or "standard" when enableDownstreamOAuth: false
+  profile: "standard"
+  
+  # Custom RBAC rules (overrides profile when enabled)
+  # Use this for fine-grained control over permissions
+  custom:
+    enabled: false
+    # Custom rules to apply (replaces profile rules when enabled)
+    # Example:
+    # rules:
+    #   - apiGroups: [""]
+    #     resources: ["pods"]
+    #     verbs: ["get", "list"]
+    rules: []
+
 podAnnotations: {}
 podLabels: {}
 

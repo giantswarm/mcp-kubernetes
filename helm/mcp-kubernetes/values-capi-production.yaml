@@ -1,11 +1,17 @@
 # Example values for deploying mcp-kubernetes in CAPI Mode (Production)
 # This configuration enables multi-cluster federation via Cluster API.
 #
+# Security Model:
+# - Downstream OAuth enabled: User tokens authenticate to Kubernetes API
+# - RBAC profile "minimal": ServiceAccount has no K8s API permissions
+# - Per-user RBAC applies: Each user needs their own RBAC bindings
+#
 # Prerequisites:
 # 1. Deploy on a CAPI Management Cluster
 # 2. Configure Dex OIDC for authentication
 # 3. Create organization namespaces (org-*) with kubeconfig secrets
 # 4. Set up proper TLS certificates for the ingress
+# 5. Grant users RBAC for CAPI cluster discovery and secret access
 
 # Ingress configuration for external access
 ingress:
@@ -154,6 +160,14 @@ securityContext:
   capabilities:
     drop:
     - ALL
+
+# RBAC Configuration - Minimal profile for downstream OAuth
+# Since user OAuth tokens are used for K8s API, ServiceAccount RBAC is not needed
+rbac:
+  create: true
+  # Minimal profile: ServiceAccount has no K8s API permissions
+  # This follows least-privilege principles for production
+  profile: "minimal"
 
 # Network policy for security
 ciliumNetworkPolicy:

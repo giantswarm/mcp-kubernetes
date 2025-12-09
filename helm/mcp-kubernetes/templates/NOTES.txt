@@ -53,5 +53,56 @@
 
 {{- end }}
 
-5. For more information about using the MCP Kubernetes server, visit:
+{{- if .Values.capiMode.enabled }}
+
+5. CAPI Mode Configuration:
+   - CAPI federation mode is ENABLED
+   - Cluster discovery will use Cluster API resources
+   {{- if and .Values.capiMode.enabled (not .Values.capiMode.rbac.create) }}
+   
+   WARNING: CAPI mode is enabled but capiMode.rbac.create is FALSE.
+   The ServiceAccount will NOT have permissions to:
+   - List CAPI Cluster resources (cluster.x-k8s.io/clusters)
+   - Read infrastructure provider resources
+   - Create TokenReviews/SubjectAccessReviews
+   
+   CAPI operations WILL FAIL unless you manually create equivalent RBAC.
+   To fix: Set capiMode.rbac.create: true or create manual RBAC bindings.
+   {{- end }}
+   {{- if and .Values.capiMode.rbac.create (eq (len .Values.capiMode.rbac.allowedNamespaces) 0) (not .Values.capiMode.rbac.clusterWideSecrets) }}
+   
+   NOTE: No namespaces configured for kubeconfig secret access.
+   Set capiMode.rbac.allowedNamespaces to grant access to specific namespaces.
+   {{- end }}
+   {{- if .Values.capiMode.rbac.clusterWideSecrets }}
+   
+   SECURITY WARNING: Cluster-wide secret access is ENABLED.
+   This grants read access to ALL secrets in the cluster.
+   Consider using namespace-scoped access via capiMode.rbac.allowedNamespaces instead.
+   {{- end }}
+{{- end }}
+
+{{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+
+6. Downstream OAuth Configuration:
+   - User OAuth tokens are used for Kubernetes API authentication
+   - ServiceAccount RBAC is NOT used for API operations
+   {{- $profile := .Values.rbac.profile | default "standard" }}
+   {{- if ne $profile "minimal" }}
+   
+   SECURITY RECOMMENDATION: You have enableDownstreamOAuth: true but
+   rbac.profile is set to "{{ $profile }}".
+   
+   Since user OAuth tokens are used for all API operations, the ServiceAccount
+   RBAC is not utilized. For least-privilege security, consider setting:
+     rbac.profile: "minimal"
+   
+   This eliminates unused permissions that could be exploited if:
+   - OAuth fallback occurs
+   - The ServiceAccount token is compromised
+   - Configuration errors bypass OAuth
+   {{- end }}
+{{- end }}
+
+7. For more information about using the MCP Kubernetes server, visit:
    https://github.com/giantswarm/mcp-kubernetes

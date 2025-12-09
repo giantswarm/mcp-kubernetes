@@ -1,0 +1,58 @@
+# Example values for minimal RBAC profile
+# Use this configuration when running with downstream OAuth enabled.
+#
+# Security Model:
+# - User OAuth tokens are used for all Kubernetes API operations
+# - ServiceAccount RBAC is NOT used for API operations
+# - Minimal RBAC follows the principle of least privilege
+#
+# This configuration is recommended for:
+# - Production deployments with OAuth/OIDC authentication
+# - Multi-tenant environments where user isolation is required
+# - Compliance-focused deployments
+
+# RBAC Configuration - Minimal profile
+rbac:
+  create: true
+  # Minimal profile: No Kubernetes API permissions
+  # ServiceAccount only has permissions for pod lifecycle
+  profile: "minimal"
+
+# OAuth configuration - Downstream OAuth enabled
+mcpKubernetes:
+  oauth:
+    enabled: true
+    provider: "dex"
+    baseURL: "https://mcp.example.com"
+    dex:
+      issuerURL: "https://dex.example.com"
+      clientID: "mcp-kubernetes"
+    existingSecret: "mcp-kubernetes-oauth"
+    allowPublicRegistration: false
+    encryptionKey: true
+    # Enable downstream OAuth - user tokens authenticate to K8s API
+    enableDownstreamOAuth: true
+
+# Pod security - hardened configuration
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  fsGroup: 1000
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+    - ALL
+
+# Network policy for security
+ciliumNetworkPolicy:
+  enabled: true
+

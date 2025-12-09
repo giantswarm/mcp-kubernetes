@@ -54,6 +54,52 @@
         }
       }
     },
+    "rbac": {
+      "type": "object",
+      "description": "RBAC configuration for the ServiceAccount",
+      "properties": {
+        "create": {
+          "type": "boolean",
+          "description": "Create RBAC resources (ClusterRole and ClusterRoleBinding)"
+        },
+        "profile": {
+          "type": "string",
+          "description": "RBAC profile: minimal, readonly, standard, admin",
+          "enum": ["minimal", "readonly", "standard", "admin"]
+        },
+        "custom": {
+          "type": "object",
+          "description": "Custom RBAC rules (overrides profile when enabled)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable custom RBAC rules"
+            },
+            "rules": {
+              "type": "array",
+              "description": "Custom RBAC rules to apply",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "apiGroups": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "resources": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "verbs": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "podAnnotations": {
       "type": "object"
     },
