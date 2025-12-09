@@ -167,6 +167,12 @@ Downstream OAuth (--downstream-oauth):
 			// Load env vars only for flags not explicitly set by user
 			loadOAuthStorageEnvVars(cmd, &storageConfig)
 
+			// Security warning: CLI password flags may be visible in process listings
+			if cmd.Flags().Changed("valkey-password") {
+				log.Printf("WARNING: Valkey password provided via CLI flag - password may be visible in process listings (ps aux)")
+				log.Printf("         For better security, use the VALKEY_PASSWORD environment variable instead")
+			}
+
 			config := ServeConfig{
 				Transport:          transport,
 				HTTPAddr:           httpAddr,

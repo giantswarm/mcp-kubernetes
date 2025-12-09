@@ -101,9 +101,48 @@
    For production deployments, consider using "readonly" or "standard" profiles.
 {{- end }}
 
+{{- if and .Values.mcpKubernetes.oauth.enabled (eq .Values.mcpKubernetes.oauth.storage.type "valkey") }}
+
+7. Valkey Token Storage Configuration:
+   - Storage Type: Valkey (Redis-compatible)
+   - Valkey URL: {{ .Values.mcpKubernetes.oauth.storage.valkey.url }}
+   {{- if .Values.mcpKubernetes.oauth.storage.valkey.tls.enabled }}
+   - TLS: ENABLED (secure)
+   {{- else }}
+   
+   SECURITY WARNING: Valkey TLS is DISABLED.
+   Traffic between mcp-kubernetes and Valkey is NOT encrypted.
+   This could expose OAuth tokens to network-level attacks.
+   
+   For production deployments, enable TLS:
+     mcpKubernetes.oauth.storage.valkey.tls.enabled: true
+   {{- end }}
+   {{- $hasPassword := or .Values.mcpKubernetes.oauth.storage.valkey.password .Values.mcpKubernetes.oauth.storage.valkey.existingSecret .Values.mcpKubernetes.oauth.existingSecret }}
+   {{- if not $hasPassword }}
+   
+   SECURITY WARNING: Valkey authentication is NOT configured.
+   No password is set for Valkey connection.
+   This could allow unauthorized access to OAuth tokens.
+   
+   For production deployments, configure authentication:
+     Option 1: Use existingSecret with valkey-password key
+     Option 2: Set mcpKubernetes.oauth.storage.valkey.existingSecret
+   {{- end }}
+   {{- if not .Values.mcpKubernetes.oauth.encryptionKey }}
+   
+   SECURITY WARNING: Token encryption at rest is DISABLED.
+   OAuth tokens stored in Valkey are NOT encrypted.
+   If Valkey is compromised, tokens could be stolen.
+   
+   For production deployments, enable encryption:
+     mcpKubernetes.oauth.encryptionKey: true
+     And set oauth-encryption-key in your existingSecret
+   {{- end }}
+{{- end }}
+
 {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
 
-7. Downstream OAuth Configuration:
+8. Downstream OAuth Configuration:
    - User OAuth tokens are used for Kubernetes API authentication
    - ServiceAccount RBAC is NOT used for API operations
    {{- if ne $profile "minimal" }}
@@ -122,5 +161,5 @@
    {{- end }}
 {{- end }}
 
-8. For more information about using the MCP Kubernetes server, visit:
+9. For more information about using the MCP Kubernetes server, visit:
    https://github.com/giantswarm/mcp-kubernetes

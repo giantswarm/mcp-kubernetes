@@ -1488,6 +1488,7 @@ See `helm/mcp-kubernetes/values-oauth-valkey-example.yaml` for a complete produc
 3. **Enable Token Encryption** - Use `--oauth-encryption-key` to encrypt tokens at rest in Valkey
 4. **Network Policies** - Restrict access to Valkey to only mcp-kubernetes pods
 5. **Key Prefix** - Use unique key prefixes in multi-tenant environments
+6. **Avoid CLI Password Flags** - Use environment variables (`VALKEY_PASSWORD`) instead of `--valkey-password` flag, as command-line arguments may be visible in process listings (`ps aux`)
 
 ### Valkey vs Redis
 
