@@ -24,6 +24,12 @@ func recordK8sOperation(ctx context.Context, sc *server.ServerContext, operation
 	sc.RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
 }
 
+// checkMutatingOperation is a convenience wrapper around tools.CheckMutatingOperation.
+// It verifies if a mutating operation is allowed given the current server configuration.
+func checkMutatingOperation(sc *server.ServerContext, operation string) *mcp.CallToolResult {
+	return tools.CheckMutatingOperation(sc, operation)
+}
+
 // handleGetResource handles kubectl get operations
 func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
@@ -307,20 +313,8 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 
 // handleCreateResource handles kubectl create operations
 func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
-	config := sc.Config()
-	if config.NonDestructiveMode {
-		// Check if create operations are allowed
-		allowed := false
-		for _, op := range config.AllowedOperations {
-			if op == "create" {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return mcp.NewToolResultError("Create operations are not allowed in non-destructive mode"), nil
-		}
+	if result := checkMutatingOperation(sc, "create"); result != nil {
+		return result, nil
 	}
 
 	// Extract cluster parameter for multi-cluster support
@@ -385,20 +379,8 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 // handleApplyResource handles kubectl apply operations
 func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
-	config := sc.Config()
-	if config.NonDestructiveMode {
-		// Check if apply operations are allowed
-		allowed := false
-		for _, op := range config.AllowedOperations {
-			if op == "apply" {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return mcp.NewToolResultError("Apply operations are not allowed in non-destructive mode"), nil
-		}
+	if result := checkMutatingOperation(sc, "apply"); result != nil {
+		return result, nil
 	}
 
 	// Extract cluster parameter for multi-cluster support
@@ -463,20 +445,8 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 // handleDeleteResource handles kubectl delete operations
 func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
-	config := sc.Config()
-	if config.NonDestructiveMode {
-		// Check if delete operations are allowed
-		allowed := false
-		for _, op := range config.AllowedOperations {
-			if op == "delete" {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return mcp.NewToolResultError("Delete operations are not allowed in non-destructive mode"), nil
-		}
+	if result := checkMutatingOperation(sc, "delete"); result != nil {
+		return result, nil
 	}
 
 	// Extract cluster parameter for multi-cluster support
@@ -522,20 +492,8 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 // handlePatchResource handles kubectl patch operations
 func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
-	config := sc.Config()
-	if config.NonDestructiveMode {
-		// Check if patch operations are allowed
-		allowed := false
-		for _, op := range config.AllowedOperations {
-			if op == "patch" {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return mcp.NewToolResultError("Patch operations are not allowed in non-destructive mode"), nil
-		}
+	if result := checkMutatingOperation(sc, "patch"); result != nil {
+		return result, nil
 	}
 
 	// Extract cluster parameter for multi-cluster support
@@ -616,20 +574,8 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 // handleScaleResource handles kubectl scale operations
 func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
-	config := sc.Config()
-	if config.NonDestructiveMode {
-		// Check if scale operations are allowed
-		allowed := false
-		for _, op := range config.AllowedOperations {
-			if op == "scale" {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return mcp.NewToolResultError("Scale operations are not allowed in non-destructive mode"), nil
-		}
+	if result := checkMutatingOperation(sc, "scale"); result != nil {
+		return result, nil
 	}
 
 	// Extract cluster parameter for multi-cluster support
