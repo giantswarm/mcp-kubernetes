@@ -183,6 +183,20 @@ func (sc *ServerContext) FederationEnabled() bool {
 	return sc.federationManager != nil
 }
 
+// FederationStats returns statistics about the federation manager.
+// Returns nil if federation is not enabled.
+func (sc *ServerContext) FederationStats() *federation.ManagerStats {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+
+	if sc.federationManager == nil {
+		return nil
+	}
+
+	stats := sc.federationManager.Stats()
+	return &stats
+}
+
 // OutputConfig returns the output processing configuration.
 // Returns default config if not explicitly set.
 func (sc *ServerContext) OutputConfig() *OutputConfig {

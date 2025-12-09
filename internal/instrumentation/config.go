@@ -71,8 +71,8 @@ func DefaultConfig() Config {
 		K8sNamespace:       getEnvOrDefault("K8S_NAMESPACE", getEnvOrDefault("POD_NAMESPACE", "")),
 		K8sPodName:         getEnvOrDefault("K8S_POD_NAME", getEnvOrDefault("HOSTNAME", "")),
 		Enabled:            getEnvBoolOrDefault("INSTRUMENTATION_ENABLED", true),
-		MetricsExporter:    getEnvOrDefault("METRICS_EXPORTER", "prometheus"),
-		TracingExporter:    getEnvOrDefault("TRACING_EXPORTER", "none"),
+		MetricsExporter:    getEnvOrDefault("METRICS_EXPORTER", ExporterPrometheus),
+		TracingExporter:    getEnvOrDefault("TRACING_EXPORTER", ExporterNone),
 		OTLPEndpoint:       getEnvOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		OTLPInsecure:       getEnvBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", false),
 		TraceSamplingRate:  getEnvFloatOrDefault("OTEL_TRACES_SAMPLER_ARG", 0.1),
@@ -91,22 +91,22 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate metrics exporter
-	validMetricsExporters := map[string]bool{"prometheus": true, "otlp": true, "stdout": true}
+	validMetricsExporters := map[string]bool{ExporterPrometheus: true, ExporterOTLP: true, ExporterStdout: true}
 	if c.MetricsExporter != "" && !validMetricsExporters[c.MetricsExporter] {
 		return fmt.Errorf("invalid metrics exporter %q, must be one of: prometheus, otlp, stdout", c.MetricsExporter)
 	}
 
 	// Validate tracing exporter
-	validTracingExporters := map[string]bool{"otlp": true, "stdout": true, "none": true}
+	validTracingExporters := map[string]bool{ExporterOTLP: true, ExporterStdout: true, ExporterNone: true}
 	if c.TracingExporter != "" && !validTracingExporters[c.TracingExporter] {
 		return fmt.Errorf("invalid tracing exporter %q, must be one of: otlp, stdout, none", c.TracingExporter)
 	}
 
 	// OTLP endpoint required when using OTLP exporters
-	if c.TracingExporter == "otlp" && c.OTLPEndpoint == "" {
+	if c.TracingExporter == ExporterOTLP && c.OTLPEndpoint == "" {
 		return fmt.Errorf("OTLP endpoint is required when using OTLP tracing exporter")
 	}
-	if c.MetricsExporter == "otlp" && c.OTLPEndpoint == "" {
+	if c.MetricsExporter == ExporterOTLP && c.OTLPEndpoint == "" {
 		return fmt.Errorf("OTLP endpoint is required when using OTLP metrics exporter")
 	}
 
@@ -168,6 +168,12 @@ const (
 	OperationLogs   = "logs"
 	OperationExec   = "exec"
 	OperationWatch  = "watch"
+
+	// Exporter types
+	ExporterPrometheus = "prometheus"
+	ExporterOTLP       = "otlp"
+	ExporterStdout     = "stdout"
+	ExporterNone       = "none"
 
 	// Metric recording intervals
 	DefaultMetricInterval = 10 * time.Second

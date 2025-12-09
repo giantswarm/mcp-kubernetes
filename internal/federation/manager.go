@@ -82,6 +82,10 @@ type ClusterClientManager interface {
 	// Close releases all cached clients and resources.
 	// After Close is called, all other methods will return ErrManagerClosed.
 	Close() error
+
+	// Stats returns current cache and manager statistics for monitoring.
+	// This is useful for health endpoints and operational dashboards.
+	Stats() ManagerStats
 }
 
 // Manager implements ClusterClientManager for CAPI-based multi-cluster federation.
@@ -541,6 +545,42 @@ func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName str
 		UserHashAttr(user.Email))
 
 	return clientset, dynClient, impersonatedConfig, nil
+}
+
+// ManagerStats provides statistics about the manager for monitoring and health checks.
+type ManagerStats struct {
+	// CacheSize is the current number of cached client entries.
+	CacheSize int
+
+	// CacheMaxEntries is the maximum cache capacity.
+	CacheMaxEntries int
+
+	// CacheTTL is the configured time-to-live for cache entries.
+	CacheTTL time.Duration
+
+	// Closed indicates whether the manager has been closed.
+	Closed bool
+}
+
+// Stats returns current cache and manager statistics for monitoring.
+// This is useful for health endpoints and operational dashboards.
+func (m *Manager) Stats() ManagerStats {
+	m.mu.RLock()
+	closed := m.closed
+	m.mu.RUnlock()
+
+	stats := ManagerStats{
+		Closed: closed,
+	}
+
+	if m.cache != nil {
+		cacheStats := m.cache.Stats()
+		stats.CacheSize = cacheStats.Size
+		stats.CacheMaxEntries = cacheStats.MaxEntries
+		stats.CacheTTL = cacheStats.TTL
+	}
+
+	return stats
 }
 
 // checkClusterConnectivity validates connectivity to a workload cluster.

@@ -120,7 +120,7 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 	// Handle authentication mode
 	if config.InCluster {
 		// In-cluster mode: use service account authentication
-		client.currentContext = "in-cluster"
+		client.currentContext = InClusterContext
 
 		// Validate in-cluster environment
 		if err := client.validateInClusterEnvironment(); err != nil {
@@ -674,8 +674,8 @@ func (c *kubernetesClient) ListContexts(ctx context.Context) ([]ContextInfo, err
 		// In-cluster mode: return single simulated context
 		return []ContextInfo{
 			{
-				Name:      "in-cluster",
-				Cluster:   "in-cluster",
+				Name:      InClusterContext,
+				Cluster:   InClusterContext,
 				User:      "serviceaccount",
 				Namespace: c.getInClusterNamespace(),
 				Current:   true,
@@ -706,8 +706,8 @@ func (c *kubernetesClient) GetCurrentContext(ctx context.Context) (*ContextInfo,
 	if c.config.InCluster {
 		// In-cluster mode: return simulated context
 		return &ContextInfo{
-			Name:      "in-cluster",
-			Cluster:   "in-cluster",
+			Name:      InClusterContext,
+			Cluster:   InClusterContext,
 			User:      "serviceaccount",
 			Namespace: c.getInClusterNamespace(),
 			Current:   true,
@@ -734,11 +734,11 @@ func (c *kubernetesClient) SwitchContext(ctx context.Context, contextName string
 	c.logOperation("switch-context", contextName, "", "", "")
 
 	if c.config.InCluster {
-		// In-cluster mode: only allow switching to "in-cluster" context
-		if contextName != "in-cluster" {
+		// In-cluster mode: only allow switching to InClusterContext context
+		if contextName != InClusterContext {
 			return fmt.Errorf("cannot switch context in in-cluster mode: only 'in-cluster' context is available")
 		}
-		// Context is already "in-cluster", no change needed
+		// Context is already InClusterContext, no change needed
 		return nil
 	}
 

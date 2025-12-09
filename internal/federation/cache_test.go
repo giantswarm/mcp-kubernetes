@@ -19,6 +19,11 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// Test constants to reduce string repetition and satisfy goconst
+const (
+	testUserEmail = "user@example.com"
+)
+
 // mockMetricsRecorder tracks cache metrics for testing.
 type mockMetricsRecorder struct {
 	mu          sync.Mutex
@@ -89,7 +94,7 @@ func TestCacheKey(t *testing.T) {
 		},
 		{
 			clusterName: "",
-			userEmail:   "user@example.com",
+			userEmail:   testUserEmail,
 			expected:    "|user@example.com",
 		},
 		{
@@ -175,7 +180,7 @@ func TestClientCache_SetAndGet(t *testing.T) {
 
 	t.Run("set and get client", func(t *testing.T) {
 		clusterName := "test-cluster"
-		userEmail := "user@example.com"
+		userEmail := testUserEmail
 
 		// Initially should be a miss
 		got := cache.Get(ctx, clusterName, userEmail)
@@ -241,7 +246,7 @@ func TestClientCache_TTLExpiration(t *testing.T) {
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
 	clusterName := "ttl-test"
-	userEmail := "user@example.com"
+	userEmail := testUserEmail
 
 	// Set a client
 	cache.Set(ctx, clusterName, userEmail, fakeClient, fakeDynamic, nil)
@@ -274,7 +279,7 @@ func TestClientCache_Delete(t *testing.T) {
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
 	clusterName := "delete-test"
-	userEmail := "user@example.com"
+	userEmail := testUserEmail
 
 	// Set a client
 	cache.Set(ctx, clusterName, userEmail, fakeClient, fakeDynamic, nil)
@@ -349,30 +354,30 @@ func TestClientCache_LRUEviction(t *testing.T) {
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
 	// Add 3 entries (at capacity)
-	cache.Set(ctx, "cluster-1", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-1", testUserEmail, fakeClient, fakeDynamic, nil)
 	currentTime = currentTime.Add(1 * time.Second)
-	cache.Set(ctx, "cluster-2", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-2", testUserEmail, fakeClient, fakeDynamic, nil)
 	currentTime = currentTime.Add(1 * time.Second)
-	cache.Set(ctx, "cluster-3", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-3", testUserEmail, fakeClient, fakeDynamic, nil)
 
 	assert.Equal(t, 3, cache.Size())
 
 	// Access cluster-1 to update its lastAccessed time
 	currentTime = currentTime.Add(1 * time.Second)
-	cache.Get(ctx, "cluster-1", "user@example.com")
+	cache.Get(ctx, "cluster-1", testUserEmail)
 
 	// Add a 4th entry - should evict cluster-2 (least recently accessed)
 	currentTime = currentTime.Add(1 * time.Second)
-	cache.Set(ctx, "cluster-4", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-4", testUserEmail, fakeClient, fakeDynamic, nil)
 
 	assert.Equal(t, 3, cache.Size())
 	assert.Equal(t, 1, metrics.getEvictions("lru"))
 
 	// cluster-2 should be evicted (it was accessed before cluster-1 was touched)
-	assert.Nil(t, cache.Get(ctx, "cluster-2", "user@example.com"))
-	assert.NotNil(t, cache.Get(ctx, "cluster-1", "user@example.com"))
-	assert.NotNil(t, cache.Get(ctx, "cluster-3", "user@example.com"))
-	assert.NotNil(t, cache.Get(ctx, "cluster-4", "user@example.com"))
+	assert.Nil(t, cache.Get(ctx, "cluster-2", testUserEmail))
+	assert.NotNil(t, cache.Get(ctx, "cluster-1", testUserEmail))
+	assert.NotNil(t, cache.Get(ctx, "cluster-3", testUserEmail))
+	assert.NotNil(t, cache.Get(ctx, "cluster-4", testUserEmail))
 }
 
 func TestClientCache_GetOrCreate(t *testing.T) {
@@ -398,7 +403,7 @@ func TestClientCache_GetOrCreate(t *testing.T) {
 	}
 
 	clusterName := "getorcreate-test"
-	userEmail := "user@example.com"
+	userEmail := testUserEmail
 
 	// First call should invoke factory
 	clientset, dynamicClient, err := cache.GetOrCreate(ctx, clusterName, userEmail, factory)
@@ -438,7 +443,7 @@ func TestClientCache_GetOrCreate_ConcurrentSingleflight(t *testing.T) {
 	}
 
 	clusterName := "singleflight-test"
-	userEmail := "user@example.com"
+	userEmail := testUserEmail
 
 	// Launch multiple goroutines simultaneously
 	var wg sync.WaitGroup
@@ -468,7 +473,7 @@ func TestClientCache_Close(t *testing.T) {
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
-	cache.Set(ctx, "test", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "test", testUserEmail, fakeClient, fakeDynamic, nil)
 	assert.Equal(t, 1, cache.Size())
 
 	// Close should succeed
@@ -480,8 +485,8 @@ func TestClientCache_Close(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Operations after close should be no-ops
-	cache.Set(ctx, "test2", "user@example.com", fakeClient, fakeDynamic, nil)
-	assert.Nil(t, cache.Get(ctx, "test", "user@example.com"))
+	cache.Set(ctx, "test2", testUserEmail, fakeClient, fakeDynamic, nil)
+	assert.Nil(t, cache.Get(ctx, "test", testUserEmail))
 }
 
 func TestClientCache_Stats(t *testing.T) {
@@ -512,9 +517,9 @@ func TestClientCache_Stats(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, stats.TTL)
 
 	// Add some entries
-	cache.Set(ctx, "cluster-1", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-1", testUserEmail, fakeClient, fakeDynamic, nil)
 	currentTime = currentTime.Add(2 * time.Minute)
-	cache.Set(ctx, "cluster-2", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-2", testUserEmail, fakeClient, fakeDynamic, nil)
 
 	stats = cache.Stats()
 	assert.Equal(t, 2, stats.Size)
@@ -549,8 +554,8 @@ func TestClientCache_Cleanup(t *testing.T) {
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
 	// Add some entries
-	cache.Set(ctx, "cluster-1", "user@example.com", fakeClient, fakeDynamic, nil)
-	cache.Set(ctx, "cluster-2", "user@example.com", fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-1", testUserEmail, fakeClient, fakeDynamic, nil)
+	cache.Set(ctx, "cluster-2", testUserEmail, fakeClient, fakeDynamic, nil)
 
 	assert.Equal(t, 2, cache.Size())
 
@@ -592,7 +597,7 @@ func TestClientCache_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			clusterName := "concurrent-cluster"
-			userEmail := "user@example.com"
+			userEmail := testUserEmail
 
 			for j := 0; j < iterations; j++ {
 				// Mix of operations
@@ -642,7 +647,7 @@ func TestClientCache_RaceCondition(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				cache.Set(ctx, "cluster", "user@example.com", fakeClient, fakeDynamic, nil)
+				cache.Set(ctx, "cluster", testUserEmail, fakeClient, fakeDynamic, nil)
 			}
 		}(i)
 	}
@@ -653,7 +658,7 @@ func TestClientCache_RaceCondition(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				cache.Get(ctx, "cluster", "user@example.com")
+				cache.Get(ctx, "cluster", testUserEmail)
 			}
 		}(i)
 	}
@@ -664,7 +669,7 @@ func TestClientCache_RaceCondition(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				cache.Delete(ctx, "cluster", "user@example.com")
+				cache.Delete(ctx, "cluster", testUserEmail)
 			}
 		}(i)
 	}
@@ -748,13 +753,13 @@ func BenchmarkClientCache_Get(b *testing.B) {
 
 	// Pre-populate cache
 	for i := 0; i < 100; i++ {
-		cache.Set(ctx, "cluster", "user@example.com", fakeClient, fakeDynamic, nil)
+		cache.Set(ctx, "cluster", testUserEmail, fakeClient, fakeDynamic, nil)
 	}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			cache.Get(ctx, "cluster", "user@example.com")
+			cache.Get(ctx, "cluster", testUserEmail)
 		}
 	})
 }
@@ -776,7 +781,7 @@ func BenchmarkClientCache_Set(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Set(ctx, "cluster", "user@example.com", fakeClient, fakeDynamic, nil)
+		cache.Set(ctx, "cluster", testUserEmail, fakeClient, fakeDynamic, nil)
 	}
 }
 
@@ -796,7 +801,7 @@ func BenchmarkClientCache_GetOrCreate(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, _, _ = cache.GetOrCreate(ctx, "cluster", "user@example.com", factory)
+			_, _, _ = cache.GetOrCreate(ctx, "cluster", testUserEmail, factory)
 		}
 	})
 }

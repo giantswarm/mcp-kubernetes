@@ -541,9 +541,10 @@ func getAPIResources(ctx context.Context, discoveryClient discovery.DiscoveryInt
 	limit, offset int, apiGroup string, namespacedOnly bool, verbs []string) (*PaginatedAPIResourceResponse, error) {
 
 	apiResourceLists, err := discoveryClient.ServerPreferredResources()
-	if err != nil {
-		// Continue with partial results
-	}
+	// ServerPreferredResources may return partial results with an error
+	// (e.g., when some API groups are unavailable). We continue with
+	// whatever results we got, as partial data is better than none.
+	_ = err // Intentionally ignore error - continue with partial results
 
 	var apiResources []APIResourceInfo
 
@@ -642,17 +643,17 @@ func getAPIResources(ctx context.Context, discoveryClient discovery.DiscoveryInt
 // getClusterHealth returns the health status of the cluster.
 func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, discoveryClient discovery.DiscoveryInterface) (*ClusterHealth, error) {
 	health := &ClusterHealth{
-		Status:     "Unknown",
+		Status:     clusterHealthUnknown,
 		Components: []ComponentHealth{},
 		Nodes:      []NodeHealth{},
 	}
 
 	version, err := discoveryClient.ServerVersion()
 	if err != nil {
-		health.Status = "Unhealthy"
+		health.Status = clusterHealthUnhealthy
 		health.Components = append(health.Components, ComponentHealth{
 			Name:    "API Server",
-			Status:  "Unhealthy",
+			Status:  clusterHealthUnhealthy,
 			Message: fmt.Sprintf("Failed to get server version: %s", err.Error()),
 		})
 		return health, nil
@@ -660,7 +661,7 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 
 	health.Components = append(health.Components, ComponentHealth{
 		Name:    "API Server",
-		Status:  "Healthy",
+		Status:  clusterHealthHealthy,
 		Message: fmt.Sprintf("Version: %s", version.String()),
 	})
 
@@ -669,15 +670,15 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 		for _, component := range componentStatuses.Items {
 			componentHealth := ComponentHealth{
 				Name:   component.Name,
-				Status: "Unknown",
+				Status: clusterHealthUnknown,
 			}
 
 			for _, condition := range component.Conditions {
 				if condition.Type == corev1.ComponentHealthy {
 					if condition.Status == corev1.ConditionTrue {
-						componentHealth.Status = "Healthy"
+						componentHealth.Status = clusterHealthHealthy
 					} else {
-						componentHealth.Status = "Unhealthy"
+						componentHealth.Status = clusterHealthUnhealthy
 						componentHealth.Message = condition.Message
 					}
 					break
@@ -934,8 +935,8 @@ func calculateOverallHealthShared(components []ComponentHealth, nodes []NodeHeal
 	}
 
 	for _, component := range components {
-		if criticalComponents[component.Name] && component.Status == "Unhealthy" {
-			return "Unhealthy"
+		if criticalComponents[component.Name] && component.Status == clusterHealthUnhealthy {
+			return clusterHealthUnhealthy
 		}
 	}
 
@@ -948,15 +949,15 @@ func calculateOverallHealthShared(components []ComponentHealth, nodes []NodeHeal
 		}
 
 		if readyNodes < len(nodes)/2 {
-			return "Degraded"
+			return clusterHealthDegraded
 		}
 	}
 
 	for _, component := range components {
-		if component.Status == "Unhealthy" {
-			return "Degraded"
+		if component.Status == clusterHealthUnhealthy {
+			return clusterHealthDegraded
 		}
 	}
 
-	return "Healthy"
+	return clusterHealthHealthy
 }

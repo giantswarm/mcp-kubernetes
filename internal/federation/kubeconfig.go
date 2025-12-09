@@ -476,3 +476,97 @@ func mergeExtraWithAgent(userExtra map[string][]string) map[string][]string {
 
 	return extra
 }
+
+// ImpersonationTraceIDKey is the key used for trace ID in impersonation extra headers.
+// This appears as "Impersonate-Extra-trace-id: <trace_id>" in HTTP requests.
+const ImpersonationTraceIDKey = "trace-id"
+
+// ConfigWithImpersonationAndTraceID returns a copy of the config with impersonation
+// configured, including trace ID for distributed tracing correlation.
+//
+// This function extends ConfigWithImpersonation by adding the trace ID to the
+// impersonation extra headers. This allows Kubernetes audit logs to be correlated
+// with OpenTelemetry traces, bridging the "audit gap" when the MCP server acts as a proxy.
+//
+// # Audit Trail Enhancement
+//
+// The resulting HTTP headers will include:
+//
+//	Impersonate-User: <user.Email>
+//	Impersonate-Group: <user.Groups[...]>
+//	Impersonate-Extra-agent: mcp-kubernetes
+//	Impersonate-Extra-trace-id: <traceID>
+//	Impersonate-Extra-<key>: <value>  (for each entry in user.Extra)
+//
+// Kubernetes Audit Log on WC will show:
+//
+//	{
+//	  "user": {
+//	    "username": "jane@giantswarm.io",
+//	    "extra": {
+//	      "agent": ["mcp-kubernetes"],
+//	      "trace-id": ["abc123def456"]
+//	    }
+//	  }
+//	}
+//
+// # Security
+//
+// Both agent and trace-id are added AFTER user extras to ensure they cannot be
+// overridden by manipulated OAuth claims.
+//
+// # Parameters
+//
+//   - config: The base REST config (typically from cluster kubeconfig)
+//   - user: User identity information for impersonation
+//   - traceID: OpenTelemetry trace ID (empty string if tracing is disabled)
+func ConfigWithImpersonationAndTraceID(config *rest.Config, user *UserInfo, traceID string) *rest.Config {
+	if config == nil {
+		return nil
+	}
+	if user == nil {
+		// Security: Do not silently skip impersonation.
+		panic("federation: ConfigWithImpersonationAndTraceID called with nil user - this is a programming error; validate user with ValidateUserInfo before calling")
+	}
+
+	impersonatedConfig := rest.CopyConfig(config)
+
+	// Build extra headers, merging user's extra with agent and trace ID
+	extra := mergeExtraWithAgentAndTraceID(user.Extra, traceID)
+
+	impersonatedConfig.Impersonate = rest.ImpersonationConfig{
+		UserName: user.Email,
+		Groups:   user.Groups,
+		Extra:    extra,
+	}
+
+	return impersonatedConfig
+}
+
+// mergeExtraWithAgentAndTraceID creates a new extra map that includes
+// the agent identifier and optionally the trace ID.
+//
+// # Security: Immutable Audit Trail
+//
+// Both agent and trace-id are added AFTER user extras, making them immutable.
+// This ensures the audit trail cannot be tampered with.
+func mergeExtraWithAgentAndTraceID(userExtra map[string][]string, traceID string) map[string][]string {
+	// Pre-allocate map with expected capacity
+	capacity := len(userExtra) + 2 // +1 for agent, +1 for trace-id
+	extra := make(map[string][]string, capacity)
+
+	// Copy user's extra headers first
+	for k, v := range userExtra {
+		extra[k] = v
+	}
+
+	// Add agent identifier (immutable)
+	extra[ImpersonationAgentExtraKey] = []string{ImpersonationAgentName}
+
+	// Add trace ID if provided (immutable)
+	if traceID != "" {
+		extra[ImpersonationTraceIDKey] = []string{traceID}
+	}
+
+	return extra
+}

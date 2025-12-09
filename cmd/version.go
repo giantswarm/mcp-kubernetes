@@ -15,7 +15,7 @@ func newVersionCmd() *cobra.Command {
 		Long:  `All software has versions. This is mcp-kubernetes's.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			// rootCmd.Version is expected to be set, typically in root.go during build time.
-			fmt.Fprintf(cmd.OutOrStdout(), "mcp-kubernetes version %s\n", rootCmd.Version)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "mcp-kubernetes version %s\n", rootCmd.Version)
 		},
 	}
 }

@@ -125,20 +125,20 @@ func TestNewClientInCluster(t *testing.T) {
 	// Create temporary service account files
 	tmpDir := t.TempDir()
 	serviceAccountDir := filepath.Join(tmpDir, "serviceaccount")
-	err := os.MkdirAll(serviceAccountDir, 0755)
+	err := os.MkdirAll(serviceAccountDir, 0750) // #nosec G301 - test directory with restricted permissions
 	require.NoError(t, err)
 
 	// Create mock service account files
 	tokenPath := filepath.Join(serviceAccountDir, "token")
-	err = os.WriteFile(tokenPath, []byte("test-token"), 0644)
+	err = os.WriteFile(tokenPath, []byte("test-token"), 0600) // #nosec G306 - test file with restricted permissions
 	require.NoError(t, err)
 
 	caPath := filepath.Join(serviceAccountDir, "ca.crt")
-	err = os.WriteFile(caPath, []byte("test-ca"), 0644)
+	err = os.WriteFile(caPath, []byte("test-ca"), 0600) // #nosec G306 - test file with restricted permissions
 	require.NoError(t, err)
 
 	namespacePath := filepath.Join(serviceAccountDir, "namespace")
-	err = os.WriteFile(namespacePath, []byte("test-namespace"), 0644)
+	err = os.WriteFile(namespacePath, []byte("test-namespace"), 0600) // #nosec G306 - test file with restricted permissions
 	require.NoError(t, err)
 
 	// Temporarily override the service account path
@@ -262,7 +262,7 @@ func TestGetInClusterNamespace(t *testing.T) {
 	namespacePath := filepath.Join(tmpDir, "namespace")
 
 	// Test with existing namespace file
-	err := os.WriteFile(namespacePath, []byte("my-namespace"), 0644)
+	err := os.WriteFile(namespacePath, []byte("my-namespace"), 0600) // #nosec G306 - test file
 	require.NoError(t, err)
 
 	client := &kubernetesClient{}
@@ -305,7 +305,7 @@ users:
   user:
     token: test-token
 `
-	err := os.WriteFile(path, []byte(kubeconfig), 0644)
+	err := os.WriteFile(path, []byte(kubeconfig), 0600) // #nosec G306 - test file
 	require.NoError(t, err)
 }
 

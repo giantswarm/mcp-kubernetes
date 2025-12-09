@@ -24,6 +24,13 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource"
 )
 
+// Transport type constants for the MCP server.
+const (
+	transportStdio          = "stdio"
+	transportSSE            = "sse"
+	transportStreamableHTTP = "streamable-http"
+)
+
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
 	var (
@@ -126,7 +133,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "Use in-cluster authentication (service account token) instead of kubeconfig (default: false)")
 
 	// Transport flags
-	cmd.Flags().StringVar(&transport, "transport", "stdio", "Transport type: stdio, sse, or streamable-http")
+	cmd.Flags().StringVar(&transport, "transport", transportStdio, "Transport type: stdio, sse, or streamable-http")
 	cmd.Flags().StringVar(&httpAddr, "http-addr", ":8080", "HTTP server address (for sse and streamable-http transports)")
 	cmd.Flags().StringVar(&sseEndpoint, "sse-endpoint", "/sse", "SSE endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&messageEndpoint, "message-endpoint", "/message", "Message endpoint path (for sse transport)")
@@ -230,7 +237,7 @@ func runServe(config ServeConfig) error {
 	}
 	defer func() {
 		if shutdownErr := instrumentationProvider.Shutdown(context.Background()); shutdownErr != nil {
-			if config.Transport != "stdio" {
+			if config.Transport != transportStdio {
 				log.Printf("Error during instrumentation shutdown: %v", shutdownErr)
 			}
 		}
@@ -269,7 +276,7 @@ func runServe(config ServeConfig) error {
 	defer func() {
 		if err := serverContext.Shutdown(); err != nil {
 			// Only log shutdown errors for non-stdio transports to avoid output interference
-			if config.Transport != "stdio" {
+			if config.Transport != transportStdio {
 				log.Printf("Error during server context shutdown: %v", err)
 			}
 		}
@@ -304,13 +311,13 @@ func runServe(config ServeConfig) error {
 
 	// Start the appropriate server based on transport type
 	switch config.Transport {
-	case "stdio":
+	case transportStdio:
 		// Don't print startup message for stdio mode as it interferes with MCP communication
 		return runStdioServer(mcpSrv)
-	case "sse":
+	case transportSSE:
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
 		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider)
-	case "streamable-http":
+	case transportStreamableHTTP:
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
 		if config.OAuth.Enabled {
 			// Get OAuth credentials from env vars if not provided via flags

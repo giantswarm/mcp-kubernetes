@@ -705,11 +705,11 @@ func handleSummaryResponse(items []runtime.Object, processor *output.Processor, 
 		"_hint":          "Use summary=false or add filters to see full resource details",
 	}
 
-	if summary.ByStatus != nil && len(summary.ByStatus) > 0 {
+	if len(summary.ByStatus) > 0 {
 		response["byStatus"] = summary.ByStatus
 	}
 
-	if summary.ByNamespace != nil && len(summary.ByNamespace) > 0 {
+	if len(summary.ByNamespace) > 0 {
 		// Limit namespace count to top 10 for readability
 		if len(summary.ByNamespace) > 10 {
 			topNamespaces := output.TopCounts(summary.ByNamespace, 10)

@@ -612,3 +612,59 @@ func TestStaticClientProvider(t *testing.T) {
 	assert.Equal(t, fakeDynamic, dynamicClient)
 	assert.Nil(t, restConfig)
 }
+
+func TestManager_Stats(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	fakeClient := fake.NewSimpleClientset()
+	scheme := runtime.NewScheme()
+	fakeDynamic := createTestFakeDynamicClient(scheme)
+
+	clientProvider := &StaticClientProvider{
+		Clientset:     fakeClient,
+		DynamicClient: fakeDynamic,
+	}
+
+	config := CacheConfig{
+		TTL:             5 * time.Minute,
+		MaxEntries:      500,
+		CleanupInterval: 30 * time.Second,
+	}
+
+	manager, err := NewManager(clientProvider,
+		WithManagerLogger(logger),
+		WithManagerCacheConfig(config),
+	)
+	require.NoError(t, err)
+	defer func() { _ = manager.Close() }()
+
+	t.Run("stats reflect cache configuration", func(t *testing.T) {
+		stats := manager.Stats()
+
+		assert.False(t, stats.Closed)
+		assert.Equal(t, 500, stats.CacheMaxEntries)
+		assert.Equal(t, 5*time.Minute, stats.CacheTTL)
+		assert.Equal(t, 0, stats.CacheSize, "cache should be empty initially")
+	})
+
+	t.Run("stats reflect cache entries after client creation", func(t *testing.T) {
+		user := &UserInfo{Email: "user@example.com", Groups: []string{"group1"}}
+		_, err := manager.GetClient(context.Background(), "", user)
+		require.NoError(t, err)
+
+		stats := manager.Stats()
+		assert.Equal(t, 1, stats.CacheSize, "cache should have one entry after GetClient")
+	})
+
+	t.Run("stats reflect closed state", func(t *testing.T) {
+		// Create a separate manager for this test
+		manager2, err := NewManager(clientProvider, WithManagerLogger(logger))
+		require.NoError(t, err)
+
+		// Close it
+		err = manager2.Close()
+		require.NoError(t, err)
+
+		stats := manager2.Stats()
+		assert.True(t, stats.Closed)
+	})
+}

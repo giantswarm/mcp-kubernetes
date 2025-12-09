@@ -16,6 +16,9 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
+// Resource type constant for default resource type in port-forward operations.
+const defaultResourceTypePod = "pod"
+
 // PortForwardResponse represents the structured response for port forwarding operations
 type PortForwardResponse struct {
 	Success      bool          `json:"success"`
@@ -123,7 +126,7 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 		recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: %v", err)), nil
 	}
-	defer logs.Close()
+	defer func() { _ = logs.Close() }()
 
 	recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusSuccess, duration)
 
@@ -263,7 +266,7 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	// Get resource type (default to "pod" for backward compatibility)
 	resourceType, _ := args["resourceType"].(string)
 	if resourceType == "" {
-		resourceType = "pod"
+		resourceType = defaultResourceTypePod
 	}
 
 	// Get resource name (support both old "podName" and new "resourceName" for backward compatibility)
@@ -272,7 +275,7 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 		// Fall back to "podName" for backward compatibility
 		if podName, exists := args["podName"].(string); exists && podName != "" {
 			resourceName = podName
-			resourceType = "pod" // Ensure it's treated as a pod
+			resourceType = defaultResourceTypePod // Ensure it's treated as a pod
 		} else {
 			return mcp.NewToolResultError("resourceName is required"), nil
 		}
@@ -318,7 +321,7 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 
 	// Handle port forwarding based on resource type
 	switch resourceType {
-	case "pod":
+	case defaultResourceTypePod:
 		session, err = k8sClient.PortForward(setupCtx, kubeContext, namespace, resourceName, ports, opts)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to setup port forwarding to pod: %v", err)), nil

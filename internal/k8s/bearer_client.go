@@ -343,8 +343,8 @@ func (c *bearerTokenClient) ListContexts(ctx context.Context) ([]ContextInfo, er
 	c.logOperation("list-contexts", "", "", "", "")
 	return []ContextInfo{
 		{
-			Name:      "in-cluster",
-			Cluster:   "in-cluster",
+			Name:      InClusterContext,
+			Cluster:   InClusterContext,
 			User:      "oauth-user",
 			Namespace: c.getInClusterNamespace(),
 			Current:   true,
@@ -354,10 +354,10 @@ func (c *bearerTokenClient) ListContexts(ctx context.Context) ([]ContextInfo, er
 
 // GetCurrentContext returns the current context.
 func (c *bearerTokenClient) GetCurrentContext(ctx context.Context) (*ContextInfo, error) {
-	c.logOperation("get-current-context", "in-cluster", "", "", "")
+	c.logOperation("get-current-context", InClusterContext, "", "", "")
 	return &ContextInfo{
-		Name:      "in-cluster",
-		Cluster:   "in-cluster",
+		Name:      InClusterContext,
+		Cluster:   InClusterContext,
 		User:      "oauth-user",
 		Namespace: c.getInClusterNamespace(),
 		Current:   true,
@@ -367,7 +367,7 @@ func (c *bearerTokenClient) GetCurrentContext(ctx context.Context) (*ContextInfo
 // SwitchContext is not supported for bearer token clients.
 func (c *bearerTokenClient) SwitchContext(ctx context.Context, contextName string) error {
 	c.logOperation("switch-context", contextName, "", "", "")
-	if contextName != "in-cluster" {
+	if contextName != InClusterContext {
 		return fmt.Errorf("cannot switch context: bearer token client only supports in-cluster context")
 	}
 	return nil
