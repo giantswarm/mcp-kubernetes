@@ -257,6 +257,87 @@ spec:
             memory: 512Mi
 ```
 
+### 3. Expose via Ingress
+
+To make the MCP server accessible from outside the cluster, create a Service and Ingress:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-kubernetes
+  namespace: default
+spec:
+  selector:
+    app: mcp-kubernetes
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-kubernetes
+  namespace: default
+  annotations:
+    # Add your ingress controller annotations as needed
+    # For nginx:
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  rules:
+  - host: mcp.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mcp-kubernetes
+            port:
+              number: 8080
+  tls:
+  - hosts:
+    - mcp.example.com
+    secretName: mcp-kubernetes-tls
+```
+
+### 4. Connecting to the MCP Server via Ingress
+
+Once deployed with an Ingress, MCP clients can connect using the following endpoints based on the transport type:
+
+| Transport | Endpoint | Example URL |
+|-----------|----------|-------------|
+| **Streamable HTTP** | `/mcp` | `https://mcp.example.com/mcp` |
+| **SSE** | `/sse` | `https://mcp.example.com/sse` |
+
+**Example MCP client configuration (Claude Desktop, Cursor, etc.):**
+
+```json
+{
+  "mcpServers": {
+    "kubernetes": {
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+**For SSE transport:**
+
+```json
+{
+  "mcpServers": {
+    "kubernetes": {
+      "url": "https://mcp.example.com/sse"
+    }
+  }
+}
+```
+
+**Note:** The endpoint paths are configurable via `--http-endpoint` (default: `/mcp`) and `--sse-endpoint` (default: `/sse`) flags.
+
 ## Available Tools
 
 The MCP server provides the following tools:
