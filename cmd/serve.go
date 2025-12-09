@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -14,8 +15,10 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/capi"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
@@ -30,6 +33,9 @@ const (
 	transportSSE            = "sse"
 	transportStreamableHTTP = "streamable-http"
 )
+
+// envValueTrue is the string value used to enable boolean environment variables.
+const envValueTrue = "true"
 
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
@@ -269,6 +275,92 @@ func runServe(config ServeConfig) error {
 		log.Printf("Downstream OAuth enabled: user OAuth tokens will be used for Kubernetes API authentication")
 	}
 
+	// Load CAPI mode configuration from environment variables
+	loadCAPIModeConfig(&config.CAPIMode)
+
+	// Create federation manager if CAPI mode is enabled
+	var fedManager federation.ClusterClientManager
+	if config.CAPIMode.Enabled {
+		// CAPI mode requires downstream OAuth and in-cluster mode
+		if !config.DownstreamOAuth {
+			return fmt.Errorf("CAPI mode requires downstream OAuth to be enabled (--downstream-oauth)")
+		}
+		if !config.InCluster {
+			return fmt.Errorf("CAPI mode requires in-cluster mode (--in-cluster)")
+		}
+
+		// Create OAuth client provider
+		oauthProvider, err := federation.NewOAuthClientProviderFromInCluster()
+		if err != nil {
+			return fmt.Errorf("failed to create OAuth client provider: %w", err)
+		}
+
+		// Set the token extractor to use the OAuth token from context
+		oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
+
+		// Build federation manager options
+		var managerOpts []federation.ManagerOption
+
+		// Configure cache
+		if config.CAPIMode.CacheTTL != "" {
+			ttl, err := time.ParseDuration(config.CAPIMode.CacheTTL)
+			if err != nil {
+				return fmt.Errorf("invalid cache TTL: %w", err)
+			}
+			cacheConfig := federation.CacheConfig{
+				TTL:        ttl,
+				MaxEntries: config.CAPIMode.CacheMaxEntries,
+			}
+			if config.CAPIMode.CacheCleanupInterval != "" {
+				interval, err := time.ParseDuration(config.CAPIMode.CacheCleanupInterval)
+				if err != nil {
+					return fmt.Errorf("invalid cache cleanup interval: %w", err)
+				}
+				cacheConfig.CleanupInterval = interval
+			}
+			managerOpts = append(managerOpts, federation.WithManagerCacheConfig(cacheConfig))
+		}
+
+		// Configure connectivity
+		if config.CAPIMode.ConnectivityTimeout != "" {
+			connectivityConfig := federation.DefaultConnectivityConfig()
+			if timeout, err := time.ParseDuration(config.CAPIMode.ConnectivityTimeout); err == nil {
+				connectivityConfig.ConnectionTimeout = timeout
+			}
+			if config.CAPIMode.ConnectivityRetryAttempts > 0 {
+				connectivityConfig.RetryAttempts = config.CAPIMode.ConnectivityRetryAttempts
+			}
+			if backoff, err := time.ParseDuration(config.CAPIMode.ConnectivityRetryBackoff); err == nil {
+				connectivityConfig.RetryBackoff = backoff
+			}
+			if reqTimeout, err := time.ParseDuration(config.CAPIMode.ConnectivityRequestTimeout); err == nil {
+				connectivityConfig.RequestTimeout = reqTimeout
+			}
+			if config.CAPIMode.ConnectivityQPS > 0 {
+				connectivityConfig.QPS = config.CAPIMode.ConnectivityQPS
+			}
+			if config.CAPIMode.ConnectivityBurst > 0 {
+				connectivityConfig.Burst = config.CAPIMode.ConnectivityBurst
+			}
+			managerOpts = append(managerOpts, federation.WithConnectivityConfig(connectivityConfig))
+		}
+
+		// Add instrumentation metrics if enabled
+		if instrumentationProvider.Enabled() {
+			managerOpts = append(managerOpts, federation.WithManagerCacheMetrics(instrumentationProvider.Metrics()))
+		}
+
+		// Create federation manager
+		fedManager, err = federation.NewManager(oauthProvider, managerOpts...)
+		if err != nil {
+			return fmt.Errorf("failed to create federation manager: %w", err)
+		}
+
+		serverContextOptions = append(serverContextOptions, server.WithFederationManager(fedManager))
+
+		log.Printf("CAPI federation mode enabled: multi-cluster operations available")
+	}
+
 	serverContext, err := server.NewServerContext(shutdownCtx, serverContextOptions...)
 	if err != nil {
 		return fmt.Errorf("failed to create server context: %w", err)
@@ -278,6 +370,16 @@ func runServe(config ServeConfig) error {
 			// Only log shutdown errors for non-stdio transports to avoid output interference
 			if config.Transport != transportStdio {
 				log.Printf("Error during server context shutdown: %v", err)
+			}
+		}
+		// Close federation manager if it was created
+		if fedManager != nil {
+			if closer, ok := fedManager.(interface{ Close() error }); ok {
+				if err := closer.Close(); err != nil {
+					if config.Transport != transportStdio {
+						log.Printf("Error during federation manager shutdown: %v", err)
+					}
+				}
 			}
 		}
 	}()
@@ -419,7 +521,7 @@ func runServe(config ServeConfig) error {
 				AllowInsecureAuthWithoutState: config.OAuth.AllowInsecureAuthWithoutState,
 				MaxClientsPerIP:               config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                 encryptionKey,
-				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == "true",
+				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:       instrumentationProvider,
 			}, serverContext)
@@ -427,5 +529,76 @@ func runServe(config ServeConfig) error {
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
+	}
+}
+
+// loadCAPIModeConfig loads CAPI mode configuration from environment variables.
+// This matches the environment variables set by the Helm chart deployment.yaml.
+func loadCAPIModeConfig(config *CAPIModeConfig) {
+	// Check if CAPI mode is enabled
+	if os.Getenv("CAPI_MODE_ENABLED") == envValueTrue {
+		config.Enabled = true
+	}
+
+	// Cache configuration
+	if ttl := os.Getenv("CLIENT_CACHE_TTL"); ttl != "" {
+		config.CacheTTL = ttl
+	}
+	if maxEntries := os.Getenv("CLIENT_CACHE_MAX_ENTRIES"); maxEntries != "" {
+		if n, err := strconv.Atoi(maxEntries); err == nil {
+			config.CacheMaxEntries = n
+		}
+	}
+	if interval := os.Getenv("CLIENT_CACHE_CLEANUP_INTERVAL"); interval != "" {
+		config.CacheCleanupInterval = interval
+	}
+
+	// Connectivity configuration
+	if timeout := os.Getenv("CONNECTIVITY_TIMEOUT"); timeout != "" {
+		config.ConnectivityTimeout = timeout
+	}
+	if retries := os.Getenv("CONNECTIVITY_RETRY_ATTEMPTS"); retries != "" {
+		if n, err := strconv.Atoi(retries); err == nil {
+			config.ConnectivityRetryAttempts = n
+		}
+	}
+	if backoff := os.Getenv("CONNECTIVITY_RETRY_BACKOFF"); backoff != "" {
+		config.ConnectivityRetryBackoff = backoff
+	}
+	if reqTimeout := os.Getenv("CONNECTIVITY_REQUEST_TIMEOUT"); reqTimeout != "" {
+		config.ConnectivityRequestTimeout = reqTimeout
+	}
+	if qps := os.Getenv("CONNECTIVITY_QPS"); qps != "" {
+		if f, err := strconv.ParseFloat(qps, 32); err == nil {
+			config.ConnectivityQPS = float32(f)
+		}
+	}
+	if burst := os.Getenv("CONNECTIVITY_BURST"); burst != "" {
+		if n, err := strconv.Atoi(burst); err == nil {
+			config.ConnectivityBurst = n
+		}
+	}
+
+	// Output configuration
+	if maxItems := os.Getenv("OUTPUT_MAX_ITEMS"); maxItems != "" {
+		if n, err := strconv.Atoi(maxItems); err == nil {
+			config.OutputMaxItems = n
+		}
+	}
+	if maxClusters := os.Getenv("OUTPUT_MAX_CLUSTERS"); maxClusters != "" {
+		if n, err := strconv.Atoi(maxClusters); err == nil {
+			config.OutputMaxClusters = n
+		}
+	}
+	if maxBytes := os.Getenv("OUTPUT_MAX_RESPONSE_BYTES"); maxBytes != "" {
+		if n, err := strconv.Atoi(maxBytes); err == nil {
+			config.OutputMaxResponseBytes = n
+		}
+	}
+	if slim := os.Getenv("OUTPUT_SLIM_MODE"); slim == envValueTrue {
+		config.OutputSlimMode = true
+	}
+	if mask := os.Getenv("OUTPUT_MASK_SECRETS"); mask == envValueTrue {
+		config.OutputMaskSecrets = true
 	}
 }
