@@ -448,3 +448,120 @@ tests:
               - machines/status
             verbs: ["get", "list", "watch"]
         documentIndex: 2
+
+  - it: should combine readonly profile with CAPI RBAC
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "readonly"
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces: []
+    asserts:
+      - hasDocuments:
+          count: 4
+      # Base ClusterRole should have readonly rules
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "readonly"
+        documentIndex: 0
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "persistentvolumes", "persistentvolumeclaims", "events"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+      # CAPI ClusterRole should still have CAPI permissions
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["cluster.x-k8s.io"]
+            resources:
+              - clusters
+              - clusters/status
+              - machinepools
+              - machinepools/status
+              - machinedeployments
+              - machinedeployments/status
+              - machines
+              - machines/status
+            verbs: ["get", "list", "watch"]
+        documentIndex: 2
+
+  - it: should combine standard profile with CAPI RBAC
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "standard"
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces: []
+    asserts:
+      - hasDocuments:
+          count: 4
+      # Base ClusterRole should have standard rules (CRUD)
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "standard"
+        documentIndex: 0
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "events"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+      # CAPI ClusterRole should still have CAPI permissions
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["cluster.x-k8s.io"]
+            resources:
+              - clusters
+              - clusters/status
+              - machinepools
+              - machinepools/status
+              - machinedeployments
+              - machinedeployments/status
+              - machines
+              - machines/status
+            verbs: ["get", "list", "watch"]
+        documentIndex: 2
+
+  - it: should combine admin profile with CAPI RBAC
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "admin"
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+      capiMode.rbac.allowedNamespaces: []
+    asserts:
+      - hasDocuments:
+          count: 4
+      # Base ClusterRole should have admin rules
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "admin"
+        documentIndex: 0
+      # Admin should have security warning
+      - isNotEmpty:
+          path: metadata.annotations["security.kubernetes.io/warning"]
+        documentIndex: 0
+      # CAPI ClusterRole should still have CAPI permissions
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["cluster.x-k8s.io"]
+            resources:
+              - clusters
+              - clusters/status
+              - machinepools
+              - machinepools/status
+              - machinedeployments
+              - machinedeployments/status
+              - machines
+              - machines/status
+            verbs: ["get", "list", "watch"]
+        documentIndex: 2

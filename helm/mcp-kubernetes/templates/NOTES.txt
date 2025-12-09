@@ -82,12 +82,30 @@
    {{- end }}
 {{- end }}
 
+{{- $profile := .Values.rbac.profile | default "standard" }}
+{{- if eq $profile "admin" }}
+
+6. SECURITY WARNING: Admin RBAC Profile
+   - rbac.profile is set to "admin"
+   - This grants EXTENSIVE permissions including:
+     - RBAC management (create/update/delete roles and bindings)
+     - Pod exec, logs, and port-forward access
+     - Full access to secrets cluster-wide
+     - Webhook configuration management
+   
+   The admin profile should ONLY be used in:
+   - Fully trusted environments
+   - Emergency break-glass scenarios
+   - Administrative tooling with restricted access
+   
+   For production deployments, consider using "readonly" or "standard" profiles.
+{{- end }}
+
 {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
 
-6. Downstream OAuth Configuration:
+7. Downstream OAuth Configuration:
    - User OAuth tokens are used for Kubernetes API authentication
    - ServiceAccount RBAC is NOT used for API operations
-   {{- $profile := .Values.rbac.profile | default "standard" }}
    {{- if ne $profile "minimal" }}
    
    SECURITY RECOMMENDATION: You have enableDownstreamOAuth: true but
@@ -104,5 +122,5 @@
    {{- end }}
 {{- end }}
 
-7. For more information about using the MCP Kubernetes server, visit:
+8. For more information about using the MCP Kubernetes server, visit:
    https://github.com/giantswarm/mcp-kubernetes

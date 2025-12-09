@@ -244,8 +244,7 @@ rules:
 {{- else if eq $profile "admin" }}
 {{- include "mcp-kubernetes.rbac.adminRules" . }}
 {{- else }}
-# Unknown profile "{{ $profile }}", defaulting to standard
-{{- include "mcp-kubernetes.rbac.standardRules" . }}
+{{- fail (printf "Unknown RBAC profile: %s. Valid profiles are: minimal, readonly, standard, admin" $profile) }}
 {{- end }}
 
 ---
