@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
 	"github.com/giantswarm/mcp-oauth/storage/memory"
+	"github.com/giantswarm/mcp-oauth/storage/valkey"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -75,6 +77,43 @@ var (
 		"https://www.googleapis.com/auth/userinfo.profile",
 	}
 )
+
+// OAuthStorageType represents the type of token storage backend.
+type OAuthStorageType string
+
+const (
+	// OAuthStorageTypeMemory uses in-memory storage (default, not recommended for production)
+	OAuthStorageTypeMemory OAuthStorageType = "memory"
+	// OAuthStorageTypeValkey uses Valkey (Redis-compatible) for persistent storage
+	OAuthStorageTypeValkey OAuthStorageType = "valkey"
+)
+
+// OAuthStorageConfig holds configuration for OAuth token storage backend.
+type OAuthStorageConfig struct {
+	// Type is the storage backend type: "memory" or "valkey" (default: "memory")
+	Type OAuthStorageType
+
+	// Valkey configuration (used when Type is "valkey")
+	Valkey ValkeyStorageConfig
+}
+
+// ValkeyStorageConfig holds configuration for Valkey storage backend.
+type ValkeyStorageConfig struct {
+	// URL is the Valkey server address (e.g., "valkey.namespace.svc:6379")
+	URL string
+
+	// Password is the optional password for Valkey authentication
+	Password string
+
+	// TLSEnabled enables TLS for Valkey connections
+	TLSEnabled bool
+
+	// KeyPrefix is the prefix for all Valkey keys (default: "mcp:")
+	KeyPrefix string
+
+	// DB is the Valkey database number (default: 0)
+	DB int
+}
 
 // OAuthConfig holds MCP-specific OAuth configuration
 // Uses the mcp-oauth library's types directly to avoid duplication
@@ -140,6 +179,10 @@ type OAuthConfig struct {
 
 	// InstrumentationProvider is the OpenTelemetry instrumentation provider for metrics/tracing
 	InstrumentationProvider *instrumentation.Provider
+
+	// Storage configures the token storage backend
+	// Defaults to in-memory storage if not specified
+	Storage OAuthStorageConfig
 }
 
 // OAuthHTTPServer wraps an MCP server with OAuth 2.1 authentication
@@ -207,8 +250,77 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
-	// Create memory storage
-	store := memory.New()
+	// Create storage backend based on configuration
+	// Both memory.Store and valkey.Store implement TokenStore, ClientStore, and FlowStore
+	var tokenStore storage.TokenStore
+	var clientStore storage.ClientStore
+	var flowStore storage.FlowStore
+
+	switch config.Storage.Type {
+	case OAuthStorageTypeValkey:
+		if config.Storage.Valkey.URL == "" {
+			return nil, nil, fmt.Errorf("valkey URL is required when using valkey storage (--valkey-url or VALKEY_URL)")
+		}
+
+		// Configure Valkey storage
+		valkeyConfig := valkey.Config{
+			Address:   config.Storage.Valkey.URL,
+			Password:  config.Storage.Valkey.Password,
+			DB:        config.Storage.Valkey.DB,
+			KeyPrefix: config.Storage.Valkey.KeyPrefix,
+			Logger:    logger,
+		}
+
+		// Configure TLS if enabled
+		if config.Storage.Valkey.TLSEnabled {
+			valkeyConfig.TLS = &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			}
+		}
+
+		// Set default key prefix if not specified
+		if valkeyConfig.KeyPrefix == "" {
+			valkeyConfig.KeyPrefix = valkey.DefaultKeyPrefix
+		}
+
+		valkeyStore, err := valkey.New(valkeyConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
+		}
+
+		// Set up encryption for Valkey store if key is provided
+		if len(config.EncryptionKey) > 0 {
+			encryptor, err := security.NewEncryptor(config.EncryptionKey)
+			if err != nil {
+				// Close the Valkey store on error
+				valkeyStore.Close()
+				return nil, nil, fmt.Errorf("failed to create encryptor for Valkey storage: %w", err)
+			}
+			valkeyStore.SetEncryptor(encryptor)
+			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
+		}
+
+		// Valkey store implements all required interfaces
+		tokenStore = valkeyStore
+		clientStore = valkeyStore
+		flowStore = valkeyStore
+		logger.Info("Using Valkey storage backend", "address", config.Storage.Valkey.URL, "tls", config.Storage.Valkey.TLSEnabled)
+
+	case OAuthStorageTypeMemory, "":
+		// Use memory storage (default)
+		memStore := memory.New()
+		tokenStore = memStore
+		clientStore = memStore
+		flowStore = memStore
+		if config.Storage.Type == "" {
+			logger.Info("Using in-memory storage backend (default)")
+		} else {
+			logger.Info("Using in-memory storage backend")
+		}
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: memory, valkey)", config.Storage.Type)
+	}
 
 	// Set defaults
 	maxClientsPerIP := config.MaxClientsPerIP
@@ -237,9 +349,9 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	// Create OAuth server
 	server, err := oauth.NewServer(
 		provider,
-		store, // TokenStore
-		store, // ClientStore
-		store, // FlowStore
+		tokenStore,  // TokenStore
+		clientStore, // ClientStore
+		flowStore,   // FlowStore
 		serverConfig,
 		logger,
 	)
@@ -247,8 +359,8 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Set up encryption if key provided
-	if len(config.EncryptionKey) > 0 {
+	// Set up encryption if key provided (only for memory storage; Valkey encryption is set above)
+	if len(config.EncryptionKey) > 0 && config.Storage.Type != OAuthStorageTypeValkey {
 		encryptor, err := security.NewEncryptor(config.EncryptionKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
@@ -276,7 +388,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	clientRegRL := security.NewClientRegistrationRateLimiter(logger)
 	server.SetClientRegistrationRateLimiter(clientRegRL)
 
-	return server, store, nil
+	return server, tokenStore, nil
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server

@@ -121,6 +121,14 @@ func newServeCmd() *cobra.Command {
 		maxClientsPerIP               int
 		oauthEncryptionKey            string
 		downstreamOAuth               bool
+
+		// OAuth storage options
+		oauthStorageType string
+		valkeyURL        string
+		valkeyPassword   string
+		valkeyTLS        bool
+		valkeyKeyPrefix  string
+		valkeyDB         int
 	)
 
 	cmd := &cobra.Command{
@@ -173,6 +181,16 @@ Downstream OAuth (--downstream-oauth):
 					AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
 					MaxClientsPerIP:               maxClientsPerIP,
 					EncryptionKey:                 oauthEncryptionKey,
+					Storage: OAuthStorageConfig{
+						Type: OAuthStorageType(oauthStorageType),
+						Valkey: ValkeyConfig{
+							URL:        valkeyURL,
+							Password:   valkeyPassword,
+							TLSEnabled: valkeyTLS,
+							KeyPrefix:  valkeyKeyPrefix,
+							DB:         valkeyDB,
+						},
+					},
 				},
 				DownstreamOAuth: downstreamOAuth,
 			}
@@ -212,6 +230,14 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
+
+	// OAuth storage flags
+	cmd.Flags().StringVar(&oauthStorageType, "oauth-storage-type", "memory", "OAuth token storage type: memory or valkey (can also be set via OAUTH_STORAGE_TYPE env var)")
+	cmd.Flags().StringVar(&valkeyURL, "valkey-url", "", "Valkey server address (e.g., valkey.namespace.svc:6379, can also be set via VALKEY_URL env var)")
+	cmd.Flags().StringVar(&valkeyPassword, "valkey-password", "", "Valkey authentication password (can also be set via VALKEY_PASSWORD env var)")
+	cmd.Flags().BoolVar(&valkeyTLS, "valkey-tls", false, "Enable TLS for Valkey connections (can also be set via VALKEY_TLS_ENABLED env var)")
+	cmd.Flags().StringVar(&valkeyKeyPrefix, "valkey-key-prefix", "mcp:", "Prefix for all Valkey keys (can also be set via VALKEY_KEY_PREFIX env var)")
+	cmd.Flags().IntVar(&valkeyDB, "valkey-db", 0, "Valkey database number (can also be set via VALKEY_DB env var)")
 
 	return cmd
 }
@@ -513,6 +539,9 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.DexConnectorID, "DEX_CONNECTOR_ID")
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
 
+			// Load Valkey storage configuration from env vars
+			loadOAuthStorageEnvVars(&config.OAuth.Storage)
+
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
@@ -606,11 +635,51 @@ func runServe(config ServeConfig) error {
 				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:       instrumentationProvider,
+				Storage: server.OAuthStorageConfig{
+					Type: server.OAuthStorageType(config.OAuth.Storage.Type),
+					Valkey: server.ValkeyStorageConfig{
+						URL:        config.OAuth.Storage.Valkey.URL,
+						Password:   config.OAuth.Storage.Valkey.Password,
+						TLSEnabled: config.OAuth.Storage.Valkey.TLSEnabled,
+						KeyPrefix:  config.OAuth.Storage.Valkey.KeyPrefix,
+						DB:         config.OAuth.Storage.Valkey.DB,
+					},
+				},
 			}, serverContext)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
+	}
+}
+
+// loadOAuthStorageEnvVars loads OAuth storage configuration from environment variables.
+// Environment variables override empty flag values.
+func loadOAuthStorageEnvVars(config *OAuthStorageConfig) {
+	// Storage type
+	if config.Type == "" {
+		if storageType := os.Getenv("OAUTH_STORAGE_TYPE"); storageType != "" {
+			config.Type = OAuthStorageType(storageType)
+		}
+	}
+
+	// Valkey configuration
+	loadEnvIfEmpty(&config.Valkey.URL, "VALKEY_URL")
+	loadEnvIfEmpty(&config.Valkey.Password, "VALKEY_PASSWORD")
+	loadEnvIfEmpty(&config.Valkey.KeyPrefix, "VALKEY_KEY_PREFIX")
+
+	// Valkey TLS (only override if not already set via flag)
+	if !config.Valkey.TLSEnabled {
+		if os.Getenv("VALKEY_TLS_ENABLED") == envValueTrue {
+			config.Valkey.TLSEnabled = true
+		}
+	}
+
+	// Valkey DB (only override if not already set via flag)
+	if config.Valkey.DB == 0 {
+		if db, ok := parseIntEnv(os.Getenv("VALKEY_DB"), "VALKEY_DB"); ok {
+			config.Valkey.DB = db
+		}
 	}
 }
 

@@ -103,6 +103,46 @@ type OAuthServeConfig struct {
 	AllowInsecureAuthWithoutState bool
 	MaxClientsPerIP               int
 	EncryptionKey                 string
+
+	// Storage configuration
+	Storage OAuthStorageConfig
+}
+
+// OAuthStorageType represents the type of token storage backend.
+type OAuthStorageType string
+
+const (
+	// OAuthStorageTypeMemory uses in-memory storage (default, not recommended for production)
+	OAuthStorageTypeMemory OAuthStorageType = "memory"
+	// OAuthStorageTypeValkey uses Valkey (Redis-compatible) for persistent storage
+	OAuthStorageTypeValkey OAuthStorageType = "valkey"
+)
+
+// OAuthStorageConfig holds configuration for OAuth token storage backend.
+type OAuthStorageConfig struct {
+	// Type is the storage backend type: "memory" or "valkey" (default: "memory")
+	Type OAuthStorageType
+
+	// Valkey configuration (used when Type is "valkey")
+	Valkey ValkeyConfig
+}
+
+// ValkeyConfig holds configuration for Valkey storage backend.
+type ValkeyConfig struct {
+	// URL is the Valkey server address (e.g., "valkey.namespace.svc:6379")
+	URL string
+
+	// Password is the optional password for Valkey authentication
+	Password string
+
+	// TLSEnabled enables TLS for Valkey connections
+	TLSEnabled bool
+
+	// KeyPrefix is the prefix for all Valkey keys (default: "mcp:")
+	KeyPrefix string
+
+	// DB is the Valkey database number (default: 0)
+	DB int
 }
 
 // loadEnvIfEmpty loads an environment variable into a string pointer if it's empty.
