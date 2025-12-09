@@ -307,9 +307,9 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 
 // handleCreateResource handles kubectl create operations
 func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
+	// Check if non-destructive mode is enabled (skip check if dry-run allows validation)
 	config := sc.Config()
-	if config.NonDestructiveMode {
+	if config.NonDestructiveMode && !config.DryRun {
 		// Check if create operations are allowed
 		allowed := false
 		for _, op := range config.AllowedOperations {
@@ -319,7 +319,7 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 			}
 		}
 		if !allowed {
-			return mcp.NewToolResultError("Create operations are not allowed in non-destructive mode"), nil
+			return mcp.NewToolResultError("Create operations are not allowed in non-destructive mode (use --dry-run to validate without applying)"), nil
 		}
 	}
 
@@ -385,9 +385,9 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 // handleApplyResource handles kubectl apply operations
 func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
+	// Check if non-destructive mode is enabled (skip check if dry-run allows validation)
 	config := sc.Config()
-	if config.NonDestructiveMode {
+	if config.NonDestructiveMode && !config.DryRun {
 		// Check if apply operations are allowed
 		allowed := false
 		for _, op := range config.AllowedOperations {
@@ -397,7 +397,7 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 			}
 		}
 		if !allowed {
-			return mcp.NewToolResultError("Apply operations are not allowed in non-destructive mode"), nil
+			return mcp.NewToolResultError("Apply operations are not allowed in non-destructive mode (use --dry-run to validate without applying)"), nil
 		}
 	}
 
@@ -463,9 +463,9 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 // handleDeleteResource handles kubectl delete operations
 func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
+	// Check if non-destructive mode is enabled (skip check if dry-run allows validation)
 	config := sc.Config()
-	if config.NonDestructiveMode {
+	if config.NonDestructiveMode && !config.DryRun {
 		// Check if delete operations are allowed
 		allowed := false
 		for _, op := range config.AllowedOperations {
@@ -475,7 +475,7 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 			}
 		}
 		if !allowed {
-			return mcp.NewToolResultError("Delete operations are not allowed in non-destructive mode"), nil
+			return mcp.NewToolResultError("Delete operations are not allowed in non-destructive mode (use --dry-run to validate without applying)"), nil
 		}
 	}
 
@@ -522,9 +522,9 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 // handlePatchResource handles kubectl patch operations
 func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
+	// Check if non-destructive mode is enabled (skip check if dry-run allows validation)
 	config := sc.Config()
-	if config.NonDestructiveMode {
+	if config.NonDestructiveMode && !config.DryRun {
 		// Check if patch operations are allowed
 		allowed := false
 		for _, op := range config.AllowedOperations {
@@ -534,7 +534,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 			}
 		}
 		if !allowed {
-			return mcp.NewToolResultError("Patch operations are not allowed in non-destructive mode"), nil
+			return mcp.NewToolResultError("Patch operations are not allowed in non-destructive mode (use --dry-run to validate without applying)"), nil
 		}
 	}
 
@@ -616,9 +616,9 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 // handleScaleResource handles kubectl scale operations
 func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	// Check if non-destructive mode is enabled
+	// Check if non-destructive mode is enabled (skip check if dry-run allows validation)
 	config := sc.Config()
-	if config.NonDestructiveMode {
+	if config.NonDestructiveMode && !config.DryRun {
 		// Check if scale operations are allowed
 		allowed := false
 		for _, op := range config.AllowedOperations {
@@ -628,7 +628,7 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 			}
 		}
 		if !allowed {
-			return mcp.NewToolResultError("Scale operations are not allowed in non-destructive mode"), nil
+			return mcp.NewToolResultError("Scale operations are not allowed in non-destructive mode (use --dry-run to validate without applying)"), nil
 		}
 	}
 
