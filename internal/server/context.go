@@ -103,11 +103,11 @@ func (sc *ServerContext) K8sClient() k8s.Client {
 // If downstream OAuth is enabled and an access token is present in the context,
 // it returns a per-user client using the bearer token.
 //
-// When downstream OAuth strict mode is enabled (downstreamOAuthStrict=true):
+// When downstream OAuth strict mode is enabled (the default via CLI):
 //   - If no access token is available, returns ErrOAuthTokenMissing
 //   - If the bearer token client cannot be created, returns ErrOAuthClientFailed
 //
-// When strict mode is disabled (default for backwards compatibility):
+// When strict mode is disabled (NOT recommended for production):
 //   - Falls back to the shared service account client if authentication fails
 //
 // Returns (client, nil) on success, or (nil, error) when strict mode denies access.

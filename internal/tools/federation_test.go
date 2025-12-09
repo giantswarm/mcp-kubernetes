@@ -2,12 +2,14 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
@@ -25,6 +27,19 @@ func (l *mockLogger) Warn(msg string, args ...interface{})  {}
 func (l *mockLogger) Error(msg string, args ...interface{}) {}
 func (l *mockLogger) With(args ...interface{}) server.Logger {
 	return l
+}
+
+// mockClientFactory is a mock client factory for testing OAuth downstream.
+type mockClientFactory struct {
+	client    k8s.Client
+	createErr error
+}
+
+func (f *mockClientFactory) CreateBearerTokenClient(token string) (k8s.Client, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	return f.client, nil
 }
 
 func TestExtractClusterParam(t *testing.T) {
@@ -488,6 +503,198 @@ func TestFormatClusterError_GenericFallback(t *testing.T) {
 		expectedMsg := "failed to access cluster: an unexpected error occurred"
 		if result != expectedMsg {
 			t.Errorf("Expected generic message %q, got %q", expectedMsg, result)
+		}
+	})
+}
+
+func TestGetClusterClientWithStrictMode(t *testing.T) {
+	t.Run("strict mode enabled without token returns auth error", func(t *testing.T) {
+		ctx := context.Background() // No OAuth token
+
+		sharedClient := &mockK8sClient{}
+		perUserClient := &mockK8sClient{}
+
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(sharedClient),
+			server.WithLogger(&mockLogger{}),
+			server.WithDownstreamOAuth(true),
+			server.WithDownstreamOAuthStrict(true),
+			server.WithClientFactory(&mockClientFactory{client: perUserClient}),
+		)
+		if err != nil {
+			t.Fatalf("Failed to create server context: %v", err)
+		}
+		defer func() { _ = sc.Shutdown() }()
+
+		// With strict mode and no token, should fail with auth error
+		client, errMsg := GetClusterClient(ctx, sc, "")
+		if errMsg == "" {
+			t.Error("GetClusterClient in strict mode without token should fail")
+		}
+		if client != nil {
+			t.Error("GetClusterClient should not return a client on auth failure")
+		}
+		if !strings.Contains(errMsg, "authentication") {
+			t.Errorf("Error message should mention authentication, got: %s", errMsg)
+		}
+	})
+
+	t.Run("strict mode enabled with valid token returns per-user client", func(t *testing.T) {
+		// Add OAuth token to context
+		ctx := oauth.ContextWithAccessToken(context.Background(), "valid-token")
+
+		sharedClient := &mockK8sClient{}
+		perUserClient := &mockK8sClient{}
+
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(sharedClient),
+			server.WithLogger(&mockLogger{}),
+			server.WithDownstreamOAuth(true),
+			server.WithDownstreamOAuthStrict(true),
+			server.WithClientFactory(&mockClientFactory{client: perUserClient}),
+		)
+		if err != nil {
+			t.Fatalf("Failed to create server context: %v", err)
+		}
+		defer func() { _ = sc.Shutdown() }()
+
+		// With strict mode and valid token, should succeed
+		client, errMsg := GetClusterClient(ctx, sc, "")
+		if errMsg != "" {
+			t.Errorf("GetClusterClient with valid token should succeed, got error: %s", errMsg)
+		}
+		if client == nil {
+			t.Error("GetClusterClient should return a client")
+		}
+		// The returned client should be the per-user client, not the shared one
+		if client.K8s() != perUserClient {
+			t.Error("GetClusterClient should return per-user client, not shared client")
+		}
+	})
+
+	t.Run("strict mode enabled with client creation error returns auth error", func(t *testing.T) {
+		// Add OAuth token to context
+		ctx := oauth.ContextWithAccessToken(context.Background(), "invalid-token")
+
+		sharedClient := &mockK8sClient{}
+
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(sharedClient),
+			server.WithLogger(&mockLogger{}),
+			server.WithDownstreamOAuth(true),
+			server.WithDownstreamOAuthStrict(true),
+			server.WithClientFactory(&mockClientFactory{createErr: errors.New("token rejected")}),
+		)
+		if err != nil {
+			t.Fatalf("Failed to create server context: %v", err)
+		}
+		defer func() { _ = sc.Shutdown() }()
+
+		// With strict mode and invalid token, should fail with auth error
+		client, errMsg := GetClusterClient(ctx, sc, "")
+		if errMsg == "" {
+			t.Error("GetClusterClient with invalid token in strict mode should fail")
+		}
+		if client != nil {
+			t.Error("GetClusterClient should not return a client on auth failure")
+		}
+		if !strings.Contains(errMsg, "authentication") {
+			t.Errorf("Error message should mention authentication, got: %s", errMsg)
+		}
+	})
+
+	t.Run("strict mode disabled without token falls back to shared client", func(t *testing.T) {
+		ctx := context.Background() // No OAuth token
+
+		sharedClient := &mockK8sClient{}
+		perUserClient := &mockK8sClient{}
+
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(sharedClient),
+			server.WithLogger(&mockLogger{}),
+			server.WithDownstreamOAuth(true),
+			server.WithDownstreamOAuthStrict(false), // Strict mode disabled
+			server.WithClientFactory(&mockClientFactory{client: perUserClient}),
+		)
+		if err != nil {
+			t.Fatalf("Failed to create server context: %v", err)
+		}
+		defer func() { _ = sc.Shutdown() }()
+
+		// With strict mode disabled and no token, should fall back to shared client
+		client, errMsg := GetClusterClient(ctx, sc, "")
+		if errMsg != "" {
+			t.Errorf("GetClusterClient with strict mode disabled should succeed, got error: %s", errMsg)
+		}
+		if client == nil {
+			t.Error("GetClusterClient should return a client")
+		}
+		// The returned client should be the shared client (fallback)
+		if client.K8s() != sharedClient {
+			t.Error("GetClusterClient should fall back to shared client when strict mode is disabled")
+		}
+	})
+}
+
+func TestFormatAuthenticationError(t *testing.T) {
+	t.Run("nil error returns empty string", func(t *testing.T) {
+		result := FormatAuthenticationError(nil)
+		if result != "" {
+			t.Errorf("FormatAuthenticationError(nil) should return empty string, got: %s", result)
+		}
+	})
+
+	t.Run("token missing error returns login message", func(t *testing.T) {
+		result := FormatAuthenticationError(server.ErrOAuthTokenMissing)
+		if !strings.Contains(result, "log in") {
+			t.Errorf("Error message should suggest logging in, got: %s", result)
+		}
+	})
+
+	t.Run("client failed error returns session expired message", func(t *testing.T) {
+		result := FormatAuthenticationError(server.ErrOAuthClientFailed)
+		if !strings.Contains(result, "expired") {
+			t.Errorf("Error message should mention session expiration, got: %s", result)
+		}
+	})
+
+	t.Run("unknown error returns generic message", func(t *testing.T) {
+		result := FormatAuthenticationError(errors.New("some random error"))
+		if !strings.Contains(result, "authentication error") {
+			t.Errorf("Unknown error should return generic auth error, got: %s", result)
+		}
+	})
+}
+
+func TestIsAuthenticationError(t *testing.T) {
+	t.Run("token missing is auth error", func(t *testing.T) {
+		if !IsAuthenticationError(server.ErrOAuthTokenMissing) {
+			t.Error("ErrOAuthTokenMissing should be recognized as auth error")
+		}
+	})
+
+	t.Run("client failed is auth error", func(t *testing.T) {
+		if !IsAuthenticationError(server.ErrOAuthClientFailed) {
+			t.Error("ErrOAuthClientFailed should be recognized as auth error")
+		}
+	})
+
+	t.Run("wrapped token missing is auth error", func(t *testing.T) {
+		wrapped := fmt.Errorf("context: %w", server.ErrOAuthTokenMissing)
+		if !IsAuthenticationError(wrapped) {
+			t.Error("Wrapped ErrOAuthTokenMissing should be recognized as auth error")
+		}
+	})
+
+	t.Run("random error is not auth error", func(t *testing.T) {
+		if IsAuthenticationError(errors.New("some random error")) {
+			t.Error("Random error should not be recognized as auth error")
+		}
+	})
+
+	t.Run("nil is not auth error", func(t *testing.T) {
+		if IsAuthenticationError(nil) {
+			t.Error("nil should not be recognized as auth error")
 		}
 	})
 }

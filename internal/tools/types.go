@@ -33,22 +33,6 @@ func GetK8sClient(ctx context.Context, sc *server.ServerContext) (k8s.Client, er
 	return sc.K8sClientForContext(ctx)
 }
 
-// MustGetK8sClient returns the appropriate Kubernetes client for the given context.
-// Unlike GetK8sClient, this function panics if authentication fails in strict mode.
-//
-// Use this function only in contexts where authentication failures are unexpected
-// and indicate a programming error (e.g., internal operations that don't require
-// user authentication).
-//
-// Deprecated: Prefer GetK8sClient for proper error handling.
-func MustGetK8sClient(ctx context.Context, sc *server.ServerContext) k8s.Client {
-	client, err := sc.K8sClientForContext(ctx)
-	if err != nil {
-		panic("failed to get k8s client: " + err.Error())
-	}
-	return client
-}
-
 // IsAuthenticationError returns true if the error is an OAuth authentication error.
 // This can be used to distinguish between authentication failures and other errors.
 func IsAuthenticationError(err error) bool {

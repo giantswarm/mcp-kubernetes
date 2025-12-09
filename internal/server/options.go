@@ -154,21 +154,20 @@ func WithDownstreamOAuth(enabled bool) Option {
 }
 
 // WithDownstreamOAuthStrict enables strict mode for downstream OAuth authentication.
-// When strict mode is enabled, requests without valid OAuth tokens will fail with
-// an authentication error instead of falling back to the service account.
+// When strict mode is enabled (the default via CLI), requests without valid OAuth
+// tokens will fail with an authentication error instead of falling back to the
+// service account.
 //
-// Security implications of strict mode:
+// Security implications of strict mode (enabled by default):
 //   - Prevents privilege escalation through service account fallback
 //   - Ensures audit logs always reflect the actual user identity
 //   - Detects OIDC misconfiguration early (fails visibly instead of silently)
 //   - Complies with the security principle of "fail closed"
 //
-// When strict mode is disabled (default for backwards compatibility):
+// When strict mode is disabled (NOT recommended for production):
 //   - Falls back to service account if OAuth token is missing or invalid
 //   - May cause unexpected permission changes if OIDC is misconfigured
 //   - Audit logs may show service account instead of user
-//
-// Recommended: Enable strict mode for production deployments.
 func WithDownstreamOAuthStrict(enabled bool) Option {
 	return func(sc *ServerContext) error {
 		sc.downstreamOAuthStrict = enabled
