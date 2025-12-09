@@ -161,6 +161,15 @@ mcpKubernetes:
     # Enable downstream OAuth token passthrough to Kubernetes API
     # When enabled, user OAuth tokens are used for Kubernetes authentication
     # Requires inCluster mode and Kubernetes cluster configured with OIDC
+    #
+    # CRITICAL: This setting fundamentally changes the security model:
+    #   - When FALSE: ServiceAccount RBAC (from this chart) is used for all K8s API calls
+    #   - When TRUE:  User's OAuth token is used; ServiceAccount RBAC is NOT used
+    #
+    # In CAPI Mode with enableDownstreamOAuth: true:
+    #   - Management Cluster: User's OAuth token authenticates directly
+    #   - Workload Clusters: User identity is propagated via impersonation headers
+    #   - Users must have their own RBAC permissions (not the ServiceAccount's)
     enableDownstreamOAuth: false
     # Use an existing secret for OAuth credentials
     # The secret should contain keys: google-client-id, google-client-secret, dex-client-secret, registration-token, oauth-encryption-key (optional)
@@ -215,6 +224,21 @@ mcpKubernetes:
 # CAPI Mode Configuration
 # When enabled, the MCP server operates as a multi-cluster federation gateway
 # using Cluster API (CAPI) for cluster discovery and kubeconfig retrieval.
+#
+# IMPORTANT: RBAC Behavior in CAPI Mode
+# --------------------------------------
+# The RBAC resources created by this chart (ClusterRoles, Roles, RoleBindings)
+# are ONLY used when OAuth Downstream is DISABLED (enableDownstreamOAuth: false).
+#
+# When OAuth Downstream is ENABLED (enableDownstreamOAuth: true):
+#   - The ServiceAccount RBAC is NOT used for Kubernetes API operations
+#   - Users must have their own RBAC permissions on the Management Cluster to:
+#     * List CAPI Cluster resources (cluster.x-k8s.io/clusters)
+#     * Read kubeconfig secrets in organization namespaces
+#   - On Workload Clusters, user identity is propagated via impersonation headers
+#   - Users need appropriate RBAC on each Workload Cluster they access
+#
+# See docs/rbac-security.md for detailed RBAC requirements per deployment mode.
 capiMode:
   # Enable CAPI federation mode
   enabled: false
@@ -258,8 +282,10 @@ capiMode:
     maskSecrets: true
 
   # RBAC configuration for CAPI mode
+  # NOTE: This RBAC is for the ServiceAccount and is ONLY used when
+  # enableDownstreamOAuth is FALSE. See the oauth section above.
   rbac:
-    # Create CAPI-specific RBAC resources
+    # Create CAPI-specific RBAC resources (for ServiceAccount mode only)
     create: true
     # Namespaces to grant kubeconfig secret access
     # Use [] for cluster-wide access (not recommended)

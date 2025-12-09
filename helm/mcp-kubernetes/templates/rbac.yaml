@@ -1,3 +1,23 @@
+{{/*
+RBAC Configuration for mcp-kubernetes
+
+IMPORTANT: Authentication Mode Context
+======================================
+The RBAC resources in this file are used ONLY when OAuth Downstream is DISABLED.
+
+When enableDownstreamOAuth: false (Service Account Mode):
+  - These ClusterRoles/Roles grant permissions to the ServiceAccount
+  - All Kubernetes API operations use the ServiceAccount's identity
+  - All users share the ServiceAccount's RBAC permissions
+
+When enableDownstreamOAuth: true (OAuth Downstream Mode):
+  - These RBAC resources are NOT used for Kubernetes API operations
+  - User's OAuth token authenticates directly to the Management Cluster
+  - Users must have their own RBAC permissions on both MC and WCs
+  - The ServiceAccount only needs permissions for pod lifecycle (network, etc.)
+
+See docs/rbac-security.md for detailed requirements per deployment mode.
+*/}}
 {{- if .Values.serviceAccount.create -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -5,8 +25,19 @@ metadata:
   name: {{ include "mcp-kubernetes.fullname" . }}
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+  {{- if not .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+  annotations:
+    # This ClusterRole is actively used for Kubernetes API operations
+    mcp-kubernetes.giantswarm.io/rbac-mode: "service-account"
+  {{- else }}
+  annotations:
+    # OAuth Downstream is enabled - this RBAC is NOT used for API operations
+    # Users must have their own RBAC permissions
+    mcp-kubernetes.giantswarm.io/rbac-mode: "oauth-downstream"
+    mcp-kubernetes.giantswarm.io/note: "ServiceAccount RBAC not used when enableDownstreamOAuth is true"
+  {{- end }}
 rules:
-  # Core resources
+  # Core resources (used in Service Account Mode only)
   - apiGroups: [""]
     resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "events"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -75,18 +106,29 @@ subjects:
 
 {{/*
 CAPI Mode RBAC - Only created when CAPI mode is enabled
+
+NOTE: Like the base RBAC above, this is for Service Account Mode.
+When enableDownstreamOAuth is true, users need equivalent permissions
+in their own RoleBindings/ClusterRoleBindings.
 */}}
 {{- if and .Values.serviceAccount.create .Values.capiMode.enabled .Values.capiMode.rbac.create }}
 ---
 # ClusterRole for CAPI resource discovery and authentication
+# NOTE: Used by ServiceAccount when enableDownstreamOAuth: false
+#       Users need equivalent RBAC when enableDownstreamOAuth: true
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "mcp-kubernetes.fullname" . }}-capi
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+  {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/note: "Users need these permissions in their own RBAC when OAuth Downstream is enabled"
+  {{- end }}
 rules:
   # CAPI cluster discovery (read-only)
+  # In OAuth Downstream mode, users need this permission in their own ClusterRoleBinding
   - apiGroups: ["cluster.x-k8s.io"]
     resources:
       - clusters
@@ -174,6 +216,10 @@ subjects:
 {{/*
 Namespace-scoped secret access (recommended)
 Creates Role and RoleBinding for each allowed namespace
+
+NOTE: For kubeconfig secret retrieval in CAPI mode.
+- Service Account Mode: ServiceAccount needs this to read kubeconfig secrets
+- OAuth Downstream Mode: Users need equivalent Role/RoleBinding in their own RBAC
 */}}
 {{- range .Values.capiMode.rbac.allowedNamespaces }}
 ---
@@ -184,8 +230,13 @@ metadata:
   namespace: {{ . }}
   labels:
     {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+  {{- if $.Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/note: "Users need this permission in namespace {{ . }} when OAuth Downstream is enabled"
+  {{- end }}
 rules:
   # Access to kubeconfig secrets in this namespace
+  # In OAuth Downstream mode, users need this permission via their own RoleBinding
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]

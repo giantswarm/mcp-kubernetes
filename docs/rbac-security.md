@@ -2,6 +2,29 @@
 
 This document describes the RBAC (Role-Based Access Control) configuration and security model for `mcp-kubernetes`, including both single-cluster and multi-cluster (CAPI) federation modes.
 
+## TL;DR - Which RBAC Do I Need?
+
+| Deployment Mode | Who Needs RBAC | Helm Chart RBAC Used? |
+|-----------------|----------------|----------------------|
+| **Service Account Mode** (`enableDownstreamOAuth: false`) | ServiceAccount | **Yes** - SA permissions apply to all users |
+| **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User | **No** - Users need their own RBAC bindings |
+
+**Key Insight**: The Helm chart creates RBAC for the ServiceAccount. This RBAC is **only used when OAuth Downstream is disabled**. When OAuth Downstream is enabled, users authenticate with their own OAuth tokens and need their own RBAC permissions.
+
+### Quick Reference
+
+**Service Account Mode** (simpler, less secure):
+- Helm chart RBAC = what all users can do
+- All users share the same permissions
+- Good for: development, testing, trusted environments
+
+**OAuth Downstream Mode** (recommended for production):
+- Helm chart RBAC = not used for API operations
+- Each user has individual permissions via their OAuth identity
+- Good for: production, multi-tenant, compliance requirements
+
+---
+
 ## Authentication Modes
 
 `mcp-kubernetes` supports two distinct authentication modes that fundamentally change how RBAC permissions are evaluated:
@@ -88,7 +111,22 @@ In OAuth Downstream Mode, users need these permissions in their own RBAC configu
 
 ## CAPI Federation Mode with OAuth Downstream
 
-When operating in CAPI Mode with OAuth Downstream enabled (`enableDownstreamOAuth: true`), the security model is:
+When operating in CAPI Mode with OAuth Downstream enabled (`enableDownstreamOAuth: true`), the security model provides true per-user isolation.
+
+### How It Works: Management Cluster vs Workload Clusters
+
+**Management Cluster (MC)**: User's OAuth token authenticates directly
+- The Kubernetes API server validates the OAuth token via OIDC
+- User's RBAC bindings on the MC determine what they can access
+- Users need permission to list CAPI clusters and read kubeconfig secrets
+
+**Workload Clusters (WC)**: User identity is propagated via impersonation
+- The kubeconfig secret contains admin credentials (created by CAPI)
+- mcp-kubernetes uses these credentials BUT adds impersonation headers
+- The WC API server evaluates RBAC as if the user made the request directly
+- The `Impersonate-Extra-agent: mcp-kubernetes` header provides audit trail
+
+This means: **Users can only do what their own RBAC allows, on both MC and WCs.**
 
 ### User-Centric RBAC
 
