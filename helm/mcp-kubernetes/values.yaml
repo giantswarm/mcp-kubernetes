@@ -26,6 +26,59 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# RBAC Configuration
+# Controls the ClusterRole permissions granted to the ServiceAccount
+#
+# IMPORTANT: When enableDownstreamOAuth is true, this RBAC is NOT used for
+# Kubernetes API operations. Users authenticate with their own OAuth tokens.
+# In that case, use the "minimal" profile to follow least-privilege principles.
+rbac:
+  # Create RBAC resources (ClusterRole and ClusterRoleBinding)
+  create: true
+  
+  # RBAC profile controls the permission level
+  # Options:
+  #   - "minimal":  Only pod lifecycle permissions (for downstream OAuth mode)
+  #   - "readonly": Read-only access to common resources (no secrets)
+  #   - "standard": Read + limited write (includes CLUSTER-WIDE SECRET ACCESS)
+  #   - "admin":    Full access (requires explicit confirmation)
+  #
+  # Security recommendations:
+  #   - Use "minimal" when enableDownstreamOAuth: true
+  #   - Use "readonly" for monitoring/audit scenarios
+  #   - Use "standard" only when you need write operations
+  #
+  # WARNING: "standard" profile grants CLUSTER-WIDE SECRET ACCESS.
+  # Consider using "readonly" if you don't need write operations.
+  profile: "standard"
+  
+  # REQUIRED when using profile: "admin"
+  # The admin profile grants dangerous permissions:
+  #   - RBAC management (privilege escalation risk)
+  #   - Pod exec/logs/portforward (container escape risk)
+  #   - Webhook configurations (API interception risk)
+  # You must set this to true to acknowledge these risks.
+  adminConfirmation: false
+  
+  # Custom RBAC rules (overrides profile when enabled)
+  #
+  # WARNING: Custom rules BYPASS ALL PROFILE SAFETY CONTROLS!
+  # - No validation is performed on custom rules
+  # - You can accidentally grant excessive permissions
+  # - Review carefully before enabling
+  #
+  # Use this only when the predefined profiles don't meet your needs.
+  custom:
+    enabled: false
+    # Custom rules to apply (REPLACES profile rules entirely when enabled)
+    # The profile setting is IGNORED when custom.enabled is true
+    # Example:
+    # rules:
+    #   - apiGroups: [""]
+    #     resources: ["pods"]
+    #     verbs: ["get", "list"]
+    rules: []
+
 podAnnotations: {}
 podLabels: {}
 

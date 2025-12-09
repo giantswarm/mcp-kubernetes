@@ -1,0 +1,70 @@
+# Example values for readonly RBAC profile
+# Use this configuration for read-only access to Kubernetes resources.
+#
+# Security Model:
+# - ServiceAccount can read (but not modify) most Kubernetes resources
+# - Secrets are explicitly excluded from readonly profile for security
+# - Suitable for monitoring, debugging, or audit scenarios
+#
+# This configuration is recommended for:
+# - Monitoring and observability deployments
+# - Read-only debugging access
+# - Audit and compliance reporting
+# - Development environments with limited write access
+
+# RBAC Configuration - Readonly profile
+rbac:
+  create: true
+  # Readonly profile: Read access to common resources, no secrets
+  profile: "readonly"
+
+# MCP Kubernetes configuration
+mcpKubernetes:
+  kubernetes:
+    inCluster: true
+
+  # OAuth disabled - using ServiceAccount RBAC
+  oauth:
+    enabled: false
+    enableDownstreamOAuth: false
+
+  # Instrumentation for monitoring
+  instrumentation:
+    enabled: true
+    metricsExporter: "prometheus"
+    tracingExporter: "none"
+    serviceMonitor:
+      enabled: true
+
+# Resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Pod security
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  fsGroup: 1000
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+    - ALL
+
+# Network policy
+ciliumNetworkPolicy:
+  enabled: true
+

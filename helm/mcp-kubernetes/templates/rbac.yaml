@@ -15,29 +15,83 @@ When enableDownstreamOAuth: true (OAuth Downstream Mode):
   - User's OAuth token authenticates directly to the Management Cluster
   - Users must have their own RBAC permissions on both MC and WCs
   - The ServiceAccount only needs permissions for pod lifecycle (network, etc.)
+  - Use rbac.profile: "minimal" for production deployments
+
+RBAC Profiles:
+  - minimal:  Pod lifecycle only (recommended for downstream OAuth)
+  - readonly: Read-only access to common resources
+  - standard: Read + limited write operations
+  - admin:    Full access (explicit opt-in)
 
 See docs/rbac-security.md for detailed requirements per deployment mode.
 */}}
-{{- if .Values.serviceAccount.create -}}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "mcp-kubernetes.fullname" . }}
-  labels:
-    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
-  {{- if not .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
-  annotations:
-    # This ClusterRole is actively used for Kubernetes API operations
-    mcp-kubernetes.giantswarm.io/rbac-mode: "service-account"
-  {{- else }}
-  annotations:
-    # OAuth Downstream is enabled - this RBAC is NOT used for API operations
-    # Users must have their own RBAC permissions
-    mcp-kubernetes.giantswarm.io/rbac-mode: "oauth-downstream"
-    mcp-kubernetes.giantswarm.io/note: "ServiceAccount RBAC not used when enableDownstreamOAuth is true"
-  {{- end }}
+
+{{- define "mcp-kubernetes.rbac.minimalRules" -}}
+# Minimal profile: Only what's needed for pod lifecycle
+# Suitable for downstream OAuth mode where user tokens are used
+# No access to Kubernetes API resources - empty rules
+{{- end }}
+
+{{- define "mcp-kubernetes.rbac.readonlyRules" -}}
+# Readonly profile: Read-only access to common resources
 rules:
-  # Core resources (used in Service Account Mode only)
+  # Core resources (read-only)
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "persistentvolumes", "persistentvolumeclaims", "events"]
+    verbs: ["get", "list", "watch"]
+
+  # Secrets are excluded from readonly for security
+
+  # Apps resources (read-only)
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+  # Networking resources (read-only)
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+
+  # Storage resources (read-only)
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments"]
+    verbs: ["get", "list", "watch"]
+
+  # Metrics resources (read-only)
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+
+  # Custom resources (read-only)
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+
+  # RBAC resources (read-only, no create/update/delete)
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
+
+  # Batch resources (read-only)
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+
+  # Autoscaling resources (read-only)
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+
+  # Policy resources (read-only)
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+{{- end }}
+
+{{- define "mcp-kubernetes.rbac.standardRules" -}}
+# Standard profile: Read + limited write operations
+rules:
+  # Core resources
   - apiGroups: [""]
     resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "events"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -52,7 +106,7 @@ rules:
     resources: ["ingresses", "networkpolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
-  # Storage resources
+  # Storage resources (read-only, no create/delete)
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses", "volumeattachments"]
     verbs: ["get", "list", "watch"]
@@ -62,15 +116,15 @@ rules:
     resources: ["pods", "nodes"]
     verbs: ["get", "list"]
 
-  # Custom resources
+  # Custom resources (read-only)
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch"]
 
-  # RBAC resources
+  # RBAC resources (read-only, no create/update/delete for safety)
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "watch"]
 
   # Batch resources
   - apiGroups: ["batch"]
@@ -86,6 +140,116 @@ rules:
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+{{- end }}
+
+{{- define "mcp-kubernetes.rbac.adminRules" -}}
+# Admin profile: Full access (use with caution)
+rules:
+  # Core resources (full access)
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "events", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Pod exec and logs
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/log", "pods/portforward"]
+    verbs: ["get", "create"]
+
+  # Apps resources (full access)
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Networking resources (full access)
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Storage resources (full access)
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Metrics resources
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+
+  # Custom resources (full access)
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # RBAC resources (full access - HIGH PRIVILEGE)
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Batch resources (full access)
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Autoscaling resources (full access)
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Policy resources (full access)
+  # Note: PodSecurityPolicies removed - deprecated in K8s 1.21, removed in 1.25
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Admission resources
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+{{- end }}
+
+{{- if and .Values.serviceAccount.create .Values.rbac.create -}}
+{{- $profile := .Values.rbac.profile | default "standard" -}}
+{{- if and (eq $profile "admin") (not .Values.rbac.adminConfirmation) -}}
+{{- fail "SECURITY: The 'admin' RBAC profile grants dangerous permissions including RBAC management (privilege escalation), pod exec (container escape), and webhook configuration (API interception). To use this profile, you must explicitly set 'rbac.adminConfirmation: true' to confirm you understand these risks." -}}
+{{- end -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/rbac-profile: {{ $profile | quote }}
+    {{- if not .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+    # This ClusterRole is actively used for Kubernetes API operations
+    mcp-kubernetes.giantswarm.io/rbac-mode: "service-account"
+    {{- else }}
+    # OAuth Downstream is enabled - this RBAC is NOT used for API operations
+    # Users must have their own RBAC permissions
+    mcp-kubernetes.giantswarm.io/rbac-mode: "oauth-downstream"
+    mcp-kubernetes.giantswarm.io/note: "ServiceAccount RBAC not used when enableDownstreamOAuth is true"
+    {{- if ne $profile "minimal" }}
+    mcp-kubernetes.giantswarm.io/security-warning: "Consider using rbac.profile: minimal when enableDownstreamOAuth is true"
+    {{- end }}
+    {{- end }}
+    {{- if eq $profile "admin" }}
+    security.kubernetes.io/warning: "Admin profile grants extensive permissions. Use with caution."
+    {{- end }}
+{{- if .Values.rbac.custom.enabled }}
+# Custom RBAC rules
+rules:
+{{ toYaml .Values.rbac.custom.rules | indent 2 }}
+{{- else if eq $profile "minimal" }}
+{{- include "mcp-kubernetes.rbac.minimalRules" . }}
+{{- else if eq $profile "readonly" }}
+{{- include "mcp-kubernetes.rbac.readonlyRules" . }}
+{{- else if eq $profile "standard" }}
+{{- include "mcp-kubernetes.rbac.standardRules" . }}
+{{- else if eq $profile "admin" }}
+{{- include "mcp-kubernetes.rbac.adminRules" . }}
+{{- else }}
+{{- fail (printf "Unknown RBAC profile: %s. Valid profiles are: minimal, readonly, standard, admin" $profile) }}
+{{- end }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
