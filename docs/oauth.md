@@ -270,9 +270,44 @@ mcp-kubernetes serve \
   --registration-token=YOUR_SECURE_TOKEN
 ```
 
-### Fallback Behavior
+### Security Model (Fail-Closed)
 
-If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kubernetes` falls back to using its service account token. This ensures the server remains functional while logging warnings about the fallback.
+When downstream OAuth is enabled, the server operates in **strict mode** - this is mandatory and cannot be disabled. This design follows the security principle of "fail closed" to protect users from misconfigurations.
+
+#### How Fail-Closed Works
+
+With downstream OAuth enabled:
+- Requests **must** have a valid OAuth token to access Kubernetes resources
+- If no OAuth token is present, the request fails with an authentication error
+- If the OAuth token is invalid or expired, the request fails with an authentication error
+- **No fallback to service account occurs** - this prevents privilege escalation
+
+#### Security Benefits
+
+This fail-closed approach ensures:
+1. **Audit trail integrity**: All operations are always logged under the actual user identity
+2. **RBAC enforcement**: Users can only perform actions their own RBAC permissions allow
+3. **Misconfiguration detection**: OIDC misconfigurations fail visibly (immediately) rather than silently granting service account permissions
+4. **No privilege escalation**: Users cannot accidentally get elevated permissions through service account fallback
+
+#### Error Messages
+
+When authentication fails, users receive clear error messages:
+- "authentication required: please log in to access this resource" - when no OAuth token is present
+- "authentication failed: your session may have expired, please log in again" - when the OAuth token is invalid
+
+### Migration Notes
+
+**If upgrading from versions before fail-closed was enforced:**
+
+Previous versions allowed falling back to service account when OAuth tokens were missing. This behavior was a security risk and has been removed. After upgrading:
+
+1. **Ensure OIDC is properly configured** on your Kubernetes cluster before deploying
+2. **Test authentication flow** in a non-production environment first
+3. **Users must authenticate** - anonymous access via service account fallback is no longer possible
+4. **Check monitoring** for authentication failures after deployment (see Monitoring section below)
+
+If your deployment previously relied on service account fallback (not recommended), you will need to ensure all users authenticate properly via OAuth.
 
 ## Configuration Options
 
@@ -292,7 +327,7 @@ If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kube
 | `--registration-token` | OAuth client registration access token | - | Yes (unless public registration enabled) |
 | `--allow-public-registration` | Allow unauthenticated OAuth client registration | `false` | No |
 | `--disable-streaming` | Disable streaming for streamable-http transport | `false` | No |
-| `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth | `false` | No |
+| `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth (fail-closed: no service account fallback) | `false` | No |
 
 ### Secret Management (CRITICAL for Production)
 
@@ -536,22 +571,83 @@ Review logs regularly for:
 
 The server tracks metrics for downstream OAuth operations:
 
-```go
-// OAuth authentication metrics are available via OpenTelemetry instrumentation
-// Enable instrumentation to track OAuth downstream authentication:
-// - oauth_downstream_auth_total{result="success"}: Successful per-user K8s authentications
-// - oauth_downstream_auth_total{result="fallback"}: Fallbacks to service account
-// - oauth_downstream_auth_total{result="failure"}: Failed bearer token client creations
+```bash
+# OAuth authentication metrics are available via OpenTelemetry instrumentation
+# Enable instrumentation to track OAuth downstream authentication:
+# - oauth_downstream_auth_total{result="success"}: Successful per-user K8s authentications
+# - oauth_downstream_auth_total{result="denied"}: Requests blocked due to missing/invalid OAuth tokens
+# - oauth_downstream_auth_total{result="failure"}: Failed bearer token client creations
 
-// Configure instrumentation via environment variables:
-// INSTRUMENTATION_ENABLED=true
-// METRICS_EXPORTER=prometheus
+# Configure instrumentation via environment variables:
+# INSTRUMENTATION_ENABLED=true
+# METRICS_EXPORTER=prometheus
 ```
 
-**Recommended alerts**:
-- High fallback rate (>10% of requests): `rate(oauth_downstream_auth_total{result="fallback"}[5m]) > 0.1`
-- Increasing authentication failures: `rate(oauth_downstream_auth_total{result="failure"}[5m]) > 0`
-- Unusual authentication patterns: Monitor success/fallback ratio
+**Recommended Prometheus alerts**:
+
+```yaml
+groups:
+- name: mcp_kubernetes_oauth
+  rules:
+  # Alert when authentication denial rate is high
+  # This could indicate OIDC misconfiguration or users not logged in
+  - alert: HighOAuthDenialRate
+    expr: |
+      rate(oauth_downstream_auth_total{result="denied"}[5m]) 
+      / rate(oauth_downstream_auth_total[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High OAuth denial rate detected"
+      description: "More than 10% of requests are being denied due to missing/invalid OAuth tokens. Check OIDC configuration and user sessions."
+
+  # Alert when there are any bearer token client creation failures
+  # This indicates issues with token format or Kubernetes API connectivity
+  - alert: OAuthClientCreationFailures
+    expr: rate(oauth_downstream_auth_total{result="failure"}[5m]) > 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OAuth client creation failures"
+      description: "Bearer token clients are failing to be created. Check Kubernetes API server OIDC configuration."
+
+  # Alert when no successful authentications in 5 minutes
+  # Could indicate complete authentication failure
+  - alert: NoSuccessfulOAuthAuth
+    expr: |
+      absent(rate(oauth_downstream_auth_total{result="success"}[5m]) > 0)
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "No successful OAuth authentications"
+      description: "No users have successfully authenticated in the last 5 minutes. Check OAuth provider and OIDC configuration."
+```
+
+**Post-deployment monitoring checklist**:
+
+After enabling downstream OAuth, monitor the following for at least 24 hours:
+
+1. **Authentication success rate**: Should be >95% for active users
+2. **Denial rate**: High denial rates indicate OIDC misconfiguration or session issues
+3. **Error logs**: Check for "authentication required" or "authentication failed" messages
+4. **User feedback**: Ensure users are being prompted to log in and can complete authentication
+
+**Grafana dashboard queries**:
+
+```promql
+# Success rate over time
+sum(rate(oauth_downstream_auth_total{result="success"}[5m])) 
+/ sum(rate(oauth_downstream_auth_total[5m])) * 100
+
+# Denials by reason
+sum by (result) (rate(oauth_downstream_auth_total{result=~"denied|failure"}[5m]))
+
+# Total authentication attempts
+sum(increase(oauth_downstream_auth_total[1h]))
+```
 
 ### Dependency Security
 

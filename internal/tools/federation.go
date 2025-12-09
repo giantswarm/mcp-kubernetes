@@ -116,8 +116,13 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 	}
 
 	// No cluster specified - use local client
+	k8sClient, err := sc.K8sClientForContext(ctx)
+	if err != nil {
+		// Authentication failed in strict mode
+		return nil, FormatAuthenticationError(err)
+	}
 	return &ClusterClient{
-		k8sClient:   sc.K8sClientForContext(ctx),
+		k8sClient:   k8sClient,
 		clusterName: "",
 		federated:   false,
 	}, ""

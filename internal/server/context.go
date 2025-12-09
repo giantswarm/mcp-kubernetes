@@ -23,8 +23,9 @@ type ServerContext struct {
 	// OAuth downstream authentication support
 	// When clientFactory is set and downstreamOAuth is true, the server will
 	// create per-user Kubernetes clients using the user's OAuth token.
-	clientFactory   k8s.ClientFactory
-	downstreamOAuth bool
+	clientFactory         k8s.ClientFactory
+	downstreamOAuth       bool
+	downstreamOAuthStrict bool
 
 	// inCluster indicates whether the server is running inside a Kubernetes cluster
 	// using in-cluster authentication (service account token).
@@ -100,43 +101,69 @@ func (sc *ServerContext) K8sClient() k8s.Client {
 
 // K8sClientForContext returns a Kubernetes client appropriate for the request context.
 // If downstream OAuth is enabled and an access token is present in the context,
-// it returns a per-user client using the bearer token. Otherwise, it returns the
-// shared service account client.
-func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
+// it returns a per-user client using the bearer token.
+//
+// When downstream OAuth strict mode is enabled (the default via CLI):
+//   - If no access token is available, returns ErrOAuthTokenMissing
+//   - If the bearer token client cannot be created, returns ErrOAuthClientFailed
+//
+// When strict mode is disabled (NOT recommended for production):
+//   - Falls back to the shared service account client if authentication fails
+//
+// Returns (client, nil) on success, or (nil, error) when strict mode denies access.
+func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, error) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 
 	// If downstream OAuth is not enabled, use the shared client
 	if !sc.downstreamOAuth || sc.clientFactory == nil {
-		return sc.k8sClient
+		return sc.k8sClient, nil
 	}
 
 	// Try to get the access token from context
 	accessToken, ok := oauth.GetAccessTokenFromContext(ctx)
 	if !ok || accessToken == "" {
-		// No access token in context, fall back to shared client
+		// No access token in context
+		if sc.downstreamOAuthStrict {
+			// Strict mode: fail closed - do not fall back to service account
+			sc.logger.Warn("No access token in context, denying access (strict mode enabled)")
+			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
+			}
+			return nil, ErrOAuthTokenMissing
+		}
+		// Non-strict mode: fall back to shared client (legacy behavior)
 		sc.logger.Debug("No access token in context, using shared client")
 		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFallback)
 		}
-		return sc.k8sClient
+		return sc.k8sClient, nil
 	}
 
 	// Create a per-user client with the bearer token
 	client, err := sc.clientFactory.CreateBearerTokenClient(accessToken)
 	if err != nil {
+		if sc.downstreamOAuthStrict {
+			// Strict mode: fail closed - do not fall back to service account
+			sc.logger.Warn("Failed to create bearer token client, denying access (strict mode enabled)", "error", err)
+			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
+			}
+			return nil, fmt.Errorf("%w: %v", ErrOAuthClientFailed, err)
+		}
+		// Non-strict mode: fall back to shared client (legacy behavior)
 		sc.logger.Warn("Failed to create bearer token client, using shared client", "error", err)
 		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFailure)
 		}
-		return sc.k8sClient
+		return sc.k8sClient, nil
 	}
 
 	sc.logger.Debug("Created bearer token client for user request")
 	if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 		sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)
 	}
-	return client
+	return client, nil
 }
 
 // DownstreamOAuthEnabled returns true if downstream OAuth authentication is enabled.
@@ -144,6 +171,15 @@ func (sc *ServerContext) DownstreamOAuthEnabled() bool {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.downstreamOAuth
+}
+
+// DownstreamOAuthStrictEnabled returns true if downstream OAuth strict mode is enabled.
+// When strict mode is enabled, requests without valid OAuth tokens will fail with an
+// authentication error instead of falling back to the service account.
+func (sc *ServerContext) DownstreamOAuthStrictEnabled() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.downstreamOAuthStrict
 }
 
 // InClusterMode returns true if the server is running inside a Kubernetes cluster.

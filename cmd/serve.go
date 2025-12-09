@@ -322,7 +322,13 @@ func runServe(config ServeConfig) error {
 		}
 		serverContextOptions = append(serverContextOptions, server.WithClientFactory(clientFactory))
 		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuth(true))
-		log.Printf("Downstream OAuth enabled: user OAuth tokens will be used for Kubernetes API authentication")
+
+		// Strict mode is always enabled - fail closed for security
+		// This ensures requests without valid OAuth tokens fail with authentication errors
+		// rather than silently falling back to service account (which could be a security risk)
+		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuthStrict(true))
+
+		log.Printf("Downstream OAuth enabled: requests without valid OAuth tokens will fail with authentication error")
 	}
 
 	// Load CAPI mode configuration from environment variables
