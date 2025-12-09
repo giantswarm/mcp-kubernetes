@@ -156,6 +156,7 @@ const (
 	OAuthResultSuccess  = "success"
 	OAuthResultFallback = "fallback"
 	OAuthResultFailure  = "failure"
+	OAuthResultDenied   = "denied" // Used when strict mode blocks fallback
 
 	// Operation types
 	OperationGet    = "get"

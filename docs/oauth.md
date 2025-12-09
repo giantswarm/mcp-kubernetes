@@ -270,9 +270,60 @@ mcp-kubernetes serve \
   --registration-token=YOUR_SECURE_TOKEN
 ```
 
-### Fallback Behavior
+### Strict Mode (Recommended for Production)
 
-If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kubernetes` falls back to using its service account token. This ensures the server remains functional while logging warnings about the fallback.
+By default, downstream OAuth operates in **strict mode** (`--downstream-oauth-strict=true`), which is the recommended security posture for production deployments.
+
+#### Security Considerations
+
+When strict mode is **enabled** (default):
+- Requests without a valid OAuth token fail with an authentication error
+- No fallback to service account occurs
+- Audit logs always reflect the actual user identity
+- OIDC misconfiguration is detected immediately (fails visibly)
+- Complies with the "fail closed" security principle
+
+When strict mode is **disabled** (`--downstream-oauth-strict=false`):
+- Falls back to service account if OAuth token is missing or invalid
+- May cause unexpected permission escalation or restriction
+- Audit logs may show service account instead of actual user
+- OIDC misconfiguration may go unnoticed
+
+**Security Warning:** Disabling strict mode can lead to:
+1. Users silently getting service account permissions instead of their own RBAC permissions
+2. If the OIDC configuration is misconfigured (e.g., client ID mismatch), users silently get elevated/reduced permissions
+3. Audit trail gaps - operations may be logged under service account instead of user
+
+#### Enabling Strict Mode
+
+Strict mode is enabled by default. To explicitly disable it (NOT RECOMMENDED):
+
+```bash
+# Default: strict mode enabled (recommended)
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --in-cluster \
+  --downstream-oauth \
+  --oauth-base-url=https://mcp.example.com \
+  ...
+
+# Explicitly disable strict mode (NOT RECOMMENDED for production)
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --in-cluster \
+  --downstream-oauth \
+  --downstream-oauth-strict=false \
+  --oauth-base-url=https://mcp.example.com \
+  ...
+```
+
+#### Error Messages
+
+When strict mode blocks a request, users receive clear authentication errors:
+- "authentication required: please log in to access this resource" - when no OAuth token is present
+- "authentication failed: your session may have expired, please log in again" - when the OAuth token is invalid
 
 ## Configuration Options
 
@@ -293,6 +344,7 @@ If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kube
 | `--allow-public-registration` | Allow unauthenticated OAuth client registration | `false` | No |
 | `--disable-streaming` | Disable streaming for streamable-http transport | `false` | No |
 | `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth | `false` | No |
+| `--downstream-oauth-strict` | Fail with auth error instead of falling back to service account | `true` | No |
 
 ### Secret Management (CRITICAL for Production)
 

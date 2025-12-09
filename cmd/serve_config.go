@@ -54,8 +54,9 @@ type ServeConfig struct {
 	InCluster          bool
 
 	// OAuth configuration
-	OAuth           OAuthServeConfig
-	DownstreamOAuth bool
+	OAuth                 OAuthServeConfig
+	DownstreamOAuth       bool
+	DownstreamOAuthStrict bool
 
 	// CAPI Mode configuration (multi-cluster federation)
 	CAPIMode CAPIModeConfig

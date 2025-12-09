@@ -208,6 +208,9 @@ func TestMetricConstants(t *testing.T) {
 	if OAuthResultFailure == "" {
 		t.Error("OAuthResultFailure should not be empty")
 	}
+	if OAuthResultDenied == "" {
+		t.Error("OAuthResultDenied should not be empty")
+	}
 
 	// Verify operation constants
 	operations := []string{

@@ -14,7 +14,10 @@ import (
 // handleListContexts handles kubectl context list operations
 func handleListContexts(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	k8sClient, err := tools.GetK8sClient(ctx, sc)
+	if err != nil {
+		return mcp.NewToolResultError(tools.FormatAuthenticationError(err)), nil
+	}
 	contexts, err := k8sClient.ListContexts(ctx)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list contexts: %v", err)), nil
@@ -32,7 +35,10 @@ func handleListContexts(ctx context.Context, request mcp.CallToolRequest, sc *se
 // handleGetCurrentContext handles kubectl context get-current operations
 func handleGetCurrentContext(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	k8sClient, err := tools.GetK8sClient(ctx, sc)
+	if err != nil {
+		return mcp.NewToolResultError(tools.FormatAuthenticationError(err)), nil
+	}
 	currentContext, err := k8sClient.GetCurrentContext(ctx)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get current context: %v", err)), nil
@@ -57,8 +63,11 @@ func handleUseContext(ctx context.Context, request mcp.CallToolRequest, sc *serv
 	}
 
 	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
-	err := k8sClient.SwitchContext(ctx, contextName)
+	k8sClient, err := tools.GetK8sClient(ctx, sc)
+	if err != nil {
+		return mcp.NewToolResultError(tools.FormatAuthenticationError(err)), nil
+	}
+	err = k8sClient.SwitchContext(ctx, contextName)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to switch context: %v", err)), nil
 	}
