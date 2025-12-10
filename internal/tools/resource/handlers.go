@@ -106,6 +106,7 @@ func getOutputProcessor(sc *server.ServerContext) *output.Processor {
 
 // handleListResources handles kubectl list operations
 func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+	slog.Debug("handleListResources called", slog.String("method", request.Method))
 	args := request.GetArguments()
 
 	// Extract cluster parameter for multi-cluster support

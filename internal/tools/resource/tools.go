@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -176,6 +177,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 	listResourceTool := mcp.NewTool("kubernetes_list", listResourceOpts...)
 
 	s.AddTool(listResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("kubernetes_list tool invoked", slog.String("tool", "kubernetes_list"))
 		return handleListResources(ctx, request, sc)
 	})
 
