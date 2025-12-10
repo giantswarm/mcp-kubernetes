@@ -128,6 +128,7 @@ func newServeCmd() *cobra.Command {
 		registrationToken             string
 		allowPublicRegistration       bool
 		allowInsecureAuthWithoutState bool
+		allowPrivateOAuthURLs         bool
 		maxClientsPerIP               int
 		oauthEncryptionKey            string
 		downstreamOAuth               bool
@@ -210,6 +211,7 @@ Downstream OAuth (--downstream-oauth):
 					RegistrationToken:             registrationToken,
 					AllowPublicRegistration:       allowPublicRegistration,
 					AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
+					AllowPrivateURLs:              allowPrivateOAuthURLs,
 					MaxClientsPerIP:               maxClientsPerIP,
 					EncryptionKey:                 oauthEncryptionKey,
 					Storage:                       storageConfig,
@@ -249,6 +251,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
 	cmd.Flags().BoolVar(&allowInsecureAuthWithoutState, "allow-insecure-auth-without-state", false, "Allow authorization requests without state parameter (for older MCP client compatibility)")
+	cmd.Flags().BoolVar(&allowPrivateOAuthURLs, "allow-private-oauth-urls", false, "Allow OAuth URLs that resolve to private/internal IP addresses (for internal deployments)")
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
@@ -570,7 +573,7 @@ func runServe(config ServeConfig) error {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
 			// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
-			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL"); err != nil {
+			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL", config.OAuth.AllowPrivateURLs); err != nil {
 				return err
 			}
 
@@ -581,7 +584,7 @@ func runServe(config ServeConfig) error {
 					return fmt.Errorf("dex issuer URL is required when using Dex provider (--dex-issuer-url or DEX_ISSUER_URL)")
 				}
 				// Validate Dex issuer URL is HTTPS and not vulnerable to SSRF
-				if err := validateSecureURL(config.OAuth.DexIssuerURL, "Dex issuer URL"); err != nil {
+				if err := validateSecureURL(config.OAuth.DexIssuerURL, "Dex issuer URL", config.OAuth.AllowPrivateURLs); err != nil {
 					return err
 				}
 				if config.OAuth.DexClientID == "" {

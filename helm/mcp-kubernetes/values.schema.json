@@ -309,6 +309,10 @@
             "allowInsecureAuthWithoutState": {
               "type": "boolean"
             },
+            "allowPrivateURLs": {
+              "type": "boolean",
+              "description": "Allow OAuth URLs that resolve to private/internal IP addresses (for internal deployments)"
+            },
             "maxClientsPerIP": {
               "type": "integer"
             },
