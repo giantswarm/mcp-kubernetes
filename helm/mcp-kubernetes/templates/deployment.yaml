@@ -133,6 +133,10 @@ spec:
             - name: DEX_CONNECTOR_ID
               value: {{ .Values.mcpKubernetes.oauth.dex.connectorID | quote }}
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            - name: DEX_CA_FILE
+              value: "/etc/ssl/certs/dex-ca/{{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}"
+            {{- end }}
             {{- end }}
             {{- if not .Values.mcpKubernetes.oauth.allowPublicRegistration }}
             - name: REGISTRATION_TOKEN
@@ -257,6 +261,11 @@ spec:
             - name: sa-token
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
+            {{- if and .Values.mcpKubernetes.oauth.enabled .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            - name: dex-ca
+              mountPath: /etc/ssl/certs/dex-ca
+              readOnly: true
+            {{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -279,6 +288,14 @@ spec:
                     - path: namespace
                       fieldRef:
                         fieldPath: metadata.namespace
+        {{- if and .Values.mcpKubernetes.oauth.enabled .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+        - name: dex-ca
+          secret:
+            secretName: {{ .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            items:
+              - key: {{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}
+                path: {{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}
+        {{- end }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}

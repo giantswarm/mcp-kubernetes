@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -79,6 +80,42 @@ var (
 	}
 )
 
+// createHTTPClientWithCA creates an HTTP client that trusts certificates signed by
+// the CA in the specified file. The CA file should contain PEM-encoded certificate(s).
+// This is used for Dex deployments with private/internal CAs.
+func createHTTPClientWithCA(caFile string) (*http.Client, error) {
+	// #nosec G304 -- caFile is a configuration value from operator, not user input
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA file %s: %w", caFile, err)
+	}
+
+	// Create a certificate pool with system CAs and add the custom CA
+	caCertPool, err := x509.SystemCertPool()
+	if err != nil {
+		// If we can't load system certs, start with an empty pool
+		caCertPool = x509.NewCertPool()
+	}
+
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to parse CA certificate from %s", caFile)
+	}
+
+	tlsConfig := &tls.Config{
+		RootCAs:    caCertPool,
+		MinVersion: tls.VersionTLS12,
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+	}, nil
+}
+
 // OAuthStorageType represents the type of token storage backend.
 type OAuthStorageType string
 
@@ -142,6 +179,10 @@ type OAuthConfig struct {
 
 	// DexConnectorID is the optional Dex connector ID to bypass connector selection
 	DexConnectorID string
+
+	// DexCAFile is the path to a CA certificate file for Dex TLS verification
+	// Use this when Dex uses a private/internal CA
+	DexCAFile string
 
 	// DisableStreaming disables streaming for streamable-http transport
 	DisableStreaming bool
@@ -228,6 +269,15 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// Add optional connector ID if provided (bypasses connector selection)
 		if config.DexConnectorID != "" {
 			dexConfig.ConnectorID = config.DexConnectorID
+		}
+		// Configure custom HTTP client with CA if provided
+		if config.DexCAFile != "" {
+			httpClient, err := createHTTPClientWithCA(config.DexCAFile)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create HTTP client with CA: %w", err)
+			}
+			dexConfig.HTTPClient = httpClient
+			logger.Info("Using custom CA for Dex TLS verification", "caFile", config.DexCAFile)
 		}
 		provider, err = dex.NewProvider(dexConfig)
 		if err != nil {

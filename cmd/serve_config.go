@@ -80,6 +80,7 @@ type OAuthServeConfig struct {
 	DexClientID                   string
 	DexClientSecret               string
 	DexConnectorID                string // optional: bypasses connector selection screen
+	DexCAFile                     string // optional: CA certificate file for Dex TLS verification
 	DisableStreaming              bool
 	RegistrationToken             string
 	AllowPublicRegistration       bool
