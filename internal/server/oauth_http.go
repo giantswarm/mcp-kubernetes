@@ -647,6 +647,12 @@ func (s *OAuthHTTPServer) SetHealthChecker(hc *HealthChecker) {
 // for downstream Kubernetes API authentication.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Log entry to confirm middleware is being called
+		slog.Debug("AccessTokenInjector: middleware entry",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.String("content_type", r.Header.Get("Content-Type")))
+
 		ctx := r.Context()
 
 		// Get user info from context (set by ValidateToken middleware)
@@ -682,7 +688,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		idToken := mcpoauth.GetIDToken(token)
 		if idToken == "" {
 			slog.Debug("AccessTokenInjector: no ID token in stored token", logging.UserHash(userInfo.Email), slog.Bool("has_access_token", token.AccessToken != ""), slog.Bool("has_refresh_token", token.RefreshToken != ""))
+			slog.Debug("AccessTokenInjector: calling next handler without ID token")
 			next.ServeHTTP(w, r)
+			slog.Debug("AccessTokenInjector: next handler returned (no ID token path)")
 			return
 		}
 
@@ -690,7 +698,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
 		r = r.WithContext(ctx)
 
+		slog.Debug("AccessTokenInjector: calling next handler (mcp-go)")
 		next.ServeHTTP(w, r)
+		slog.Debug("AccessTokenInjector: next handler returned")
 	})
 }
 
