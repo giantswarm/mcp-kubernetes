@@ -133,17 +133,17 @@ func TestSanitizeToken(t *testing.T) {
 		{
 			name:     "short token",
 			token:    "abc",
-			expected: "****",
+			expected: "[token:3 chars]",
 		},
 		{
 			name:     "exactly 4 chars",
 			token:    "abcd",
-			expected: "****",
+			expected: "[token:4 chars]",
 		},
 		{
 			name:     "normal token",
 			token:    "eyJhbGciOiJSUzI1NiIsImtpZCI6...",
-			expected: "eyJh...",
+			expected: "[token:31 chars]",
 		},
 	}
 
@@ -153,6 +153,14 @@ func TestSanitizeToken(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+
+	// Verify no token content is leaked
+	t.Run("no token prefix leaked", func(t *testing.T) {
+		token := "eyJhbGciOiJSUzI1NiIsImtpZCI6..." //nolint:gosec // Test token, not a real credential
+		result := SanitizeToken(token)
+		assert.NotContains(t, result, "eyJ", "token prefix should not be leaked")
+		assert.NotContains(t, result, token[:4], "any token content should not be leaked")
+	})
 }
 
 func TestExtractDomain(t *testing.T) {

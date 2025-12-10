@@ -3,6 +3,7 @@ package logging
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"regexp"
@@ -168,15 +169,13 @@ func SanitizeHost(host string) string {
 }
 
 // SanitizeToken returns a masked version of a token for logging.
-// It shows only the first 4 characters followed by "...".
+// It returns a length indicator without exposing any token content,
+// as even partial token prefixes (like JWT headers) can aid attacks.
 func SanitizeToken(token string) string {
 	if token == "" {
 		return "<empty>"
 	}
-	if len(token) <= 4 {
-		return "****"
-	}
-	return token[:4] + "..."
+	return fmt.Sprintf("[token:%d chars]", len(token))
 }
 
 // ExtractDomain extracts the domain part from an email address.
