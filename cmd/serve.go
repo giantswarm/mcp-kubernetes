@@ -124,6 +124,7 @@ func newServeCmd() *cobra.Command {
 		dexClientID                   string
 		dexClientSecret               string
 		dexConnectorID                string
+		dexCAFile                     string
 		disableStreaming              bool
 		registrationToken             string
 		allowPublicRegistration       bool
@@ -207,6 +208,7 @@ Downstream OAuth (--downstream-oauth):
 					DexClientID:                   dexClientID,
 					DexClientSecret:               dexClientSecret,
 					DexConnectorID:                dexConnectorID,
+					DexCAFile:                     dexCAFile,
 					DisableStreaming:              disableStreaming,
 					RegistrationToken:             registrationToken,
 					AllowPublicRegistration:       allowPublicRegistration,
@@ -247,6 +249,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&dexClientID, "dex-client-id", "", "Dex OAuth Client ID (can also be set via DEX_CLIENT_ID env var)")
 	cmd.Flags().StringVar(&dexClientSecret, "dex-client-secret", "", "Dex OAuth Client Secret (can also be set via DEX_CLIENT_SECRET env var)")
 	cmd.Flags().StringVar(&dexConnectorID, "dex-connector-id", "", "Dex connector ID to bypass connector selection (optional, can also be set via DEX_CONNECTOR_ID env var)")
+	cmd.Flags().StringVar(&dexCAFile, "dex-ca-file", "", "Path to CA certificate file for Dex TLS verification (optional, can also be set via DEX_CA_FILE env var)")
 	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
 	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
@@ -565,6 +568,7 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.DexClientID, "DEX_CLIENT_ID")
 			loadEnvIfEmpty(&config.OAuth.DexClientSecret, "DEX_CLIENT_SECRET")
 			loadEnvIfEmpty(&config.OAuth.DexConnectorID, "DEX_CONNECTOR_ID")
+			loadEnvIfEmpty(&config.OAuth.DexCAFile, "DEX_CA_FILE")
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
 			// Note: Valkey storage env vars are loaded in RunE closure where cmd is available
 
@@ -651,6 +655,7 @@ func runServe(config ServeConfig) error {
 				DexClientID:                   config.OAuth.DexClientID,
 				DexClientSecret:               config.OAuth.DexClientSecret,
 				DexConnectorID:                config.OAuth.DexConnectorID,
+				DexCAFile:                     config.OAuth.DexCAFile,
 				DisableStreaming:              config.OAuth.DisableStreaming,
 				DebugMode:                     config.DebugMode,
 				AllowPublicClientRegistration: config.OAuth.AllowPublicRegistration,
