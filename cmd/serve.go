@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
@@ -51,7 +51,10 @@ func parseDurationEnv(value, envName string) (time.Duration, bool) {
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		log.Printf("Warning: invalid duration for %s=%q: %v", envName, value, err)
+		slog.Warn("invalid duration for environment variable",
+			"env", envName,
+			"value", value,
+			"error", err)
 		return 0, false
 	}
 	return d, true
@@ -66,7 +69,10 @@ func parseIntEnv(value, envName string) (int, bool) {
 	}
 	n, err := strconv.Atoi(value)
 	if err != nil {
-		log.Printf("Warning: invalid integer for %s=%q: %v", envName, value, err)
+		slog.Warn("invalid integer for environment variable",
+			"env", envName,
+			"value", value,
+			"error", err)
 		return 0, false
 	}
 	return n, true
@@ -81,7 +87,10 @@ func parseFloat32Env(value, envName string) (float32, bool) {
 	}
 	f, err := strconv.ParseFloat(value, 32)
 	if err != nil {
-		log.Printf("Warning: invalid float for %s=%q: %v", envName, value, err)
+		slog.Warn("invalid float for environment variable",
+			"env", envName,
+			"value", value,
+			"error", err)
 		return 0, false
 	}
 	return float32(f), true
@@ -169,8 +178,9 @@ Downstream OAuth (--downstream-oauth):
 
 			// Security warning: CLI password flags may be visible in process listings
 			if cmd.Flags().Changed("valkey-password") {
-				log.Printf("WARNING: Valkey password provided via CLI flag - password may be visible in process listings (ps aux)")
-				log.Printf("         For better security, use the VALKEY_PASSWORD environment variable instead")
+				slog.Warn("valkey password provided via CLI flag",
+					"warning", "password may be visible in process listings (ps aux)",
+					"recommendation", "use the VALKEY_PASSWORD environment variable instead")
 			}
 
 			config := ServeConfig{
@@ -286,8 +296,8 @@ func validateEncryptionKey(key []byte) error {
 
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
-	// Create Kubernetes client configuration
-	var k8sLogger = &simpleLogger{}
+	// Create Kubernetes client configuration with structured logging
+	var k8sLogger = newSlogLogger(slog.Default())
 
 	k8sConfig := &k8s.ClientConfig{
 		NonDestructiveMode: config.NonDestructiveMode,
@@ -331,14 +341,15 @@ func runServe(config ServeConfig) error {
 	defer func() {
 		if shutdownErr := instrumentationProvider.Shutdown(context.Background()); shutdownErr != nil {
 			if config.Transport != transportStdio {
-				log.Printf("Error during instrumentation shutdown: %v", shutdownErr)
+				slog.Error("error during instrumentation shutdown", "error", shutdownErr)
 			}
 		}
 	}()
 
 	if instrumentationProvider.Enabled() {
-		log.Printf("OpenTelemetry instrumentation enabled (metrics: %s, tracing: %s)",
-			instrumentationConfig.MetricsExporter, instrumentationConfig.TracingExporter)
+		slog.Info("opentelemetry instrumentation enabled",
+			"metrics_exporter", instrumentationConfig.MetricsExporter,
+			"tracing_exporter", instrumentationConfig.TracingExporter)
 	}
 
 	// Create server context with kubernetes client and shutdown context
@@ -365,7 +376,9 @@ func runServe(config ServeConfig) error {
 		// rather than silently falling back to service account (which could be a security risk)
 		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuthStrict(true))
 
-		log.Printf("Downstream OAuth enabled: requests without valid OAuth tokens will fail with authentication error")
+		slog.Info("downstream OAuth enabled",
+			"strict_mode", true,
+			"message", "requests without valid OAuth tokens will fail with authentication error")
 	}
 
 	// Load CAPI mode configuration from environment variables
@@ -413,19 +426,20 @@ func runServe(config ServeConfig) error {
 				if parsed, err := time.ParseDuration(config.CAPIMode.OAuthTokenLifetime); err == nil {
 					tokenLifetime = parsed
 				} else {
-					log.Printf("Warning: invalid OAUTH_TOKEN_LIFETIME=%q, using default %v: %v",
-						config.CAPIMode.OAuthTokenLifetime, defaultOAuthTokenLifetime, err)
+					slog.Warn("invalid OAUTH_TOKEN_LIFETIME, using default",
+						"value", config.CAPIMode.OAuthTokenLifetime,
+						"default", defaultOAuthTokenLifetime,
+						"error", err)
 				}
 			}
 
 			// Security warning: Cache TTL exceeding OAuth token lifetime
 			// could lead to using expired tokens for cached clients.
 			if ttl > tokenLifetime {
-				log.Printf("Warning: Cache TTL (%v) exceeds OAuth token lifetime (%v). "+
-					"This may cause authentication failures when cached clients use expired tokens. "+
-					"Consider setting CLIENT_CACHE_TTL <= %v or configuring longer token lifetimes in your OAuth provider "+
-					"(set OAUTH_TOKEN_LIFETIME to customize this threshold).",
-					ttl, tokenLifetime, tokenLifetime)
+				slog.Warn("cache TTL exceeds OAuth token lifetime",
+					"cache_ttl", ttl,
+					"token_lifetime", tokenLifetime,
+					"recommendation", "set CLIENT_CACHE_TTL <= token_lifetime or configure longer token lifetimes in your OAuth provider")
 			}
 
 			cacheConfig := federation.CacheConfig{
@@ -479,7 +493,8 @@ func runServe(config ServeConfig) error {
 
 		serverContextOptions = append(serverContextOptions, server.WithFederationManager(fedManager))
 
-		log.Printf("CAPI federation mode enabled: multi-cluster operations available")
+		slog.Info("CAPI federation mode enabled",
+			"message", "multi-cluster operations available")
 	}
 
 	serverContext, err := server.NewServerContext(shutdownCtx, serverContextOptions...)
@@ -490,14 +505,14 @@ func runServe(config ServeConfig) error {
 		if err := serverContext.Shutdown(); err != nil {
 			// Only log shutdown errors for non-stdio transports to avoid output interference
 			if config.Transport != transportStdio {
-				log.Printf("Error during server context shutdown: %v", err)
+				slog.Error("error during server context shutdown", "error", err)
 			}
 		}
 		// Close federation manager if it was created
 		if fedManager != nil {
 			if err := fedManager.Close(); err != nil {
 				if config.Transport != transportStdio {
-					log.Printf("Error during federation manager shutdown: %v", err)
+					slog.Error("error during federation manager shutdown", "error", err)
 				}
 			}
 		}

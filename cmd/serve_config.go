@@ -2,12 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
 	"strings"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
@@ -17,23 +18,35 @@ const (
 	OAuthProviderGoogle = server.OAuthProviderGoogle
 )
 
-// simpleLogger provides basic logging for the Kubernetes client
-type simpleLogger struct{}
-
-func (l *simpleLogger) Debug(msg string, args ...interface{}) {
-	log.Printf("[DEBUG] %s %v", msg, args)
+// slogLogger provides structured logging for the Kubernetes client using slog.
+// It implements the k8s.Logger interface while leveraging the slog package
+// for consistent, structured logging throughout the application.
+type slogLogger struct {
+	adapter *logging.SlogAdapter
 }
 
-func (l *simpleLogger) Info(msg string, args ...interface{}) {
-	log.Printf("[INFO] %s %v", msg, args)
+// newSlogLogger creates a new slogLogger with an optional custom slog.Logger.
+// If logger is nil, the default slog.Logger is used.
+func newSlogLogger(logger *slog.Logger) *slogLogger {
+	return &slogLogger{
+		adapter: logging.NewSlogAdapter(logger),
+	}
 }
 
-func (l *simpleLogger) Warn(msg string, args ...interface{}) {
-	log.Printf("[WARN] %s %v", msg, args)
+func (l *slogLogger) Debug(msg string, args ...interface{}) {
+	l.adapter.Debug(msg, args...)
 }
 
-func (l *simpleLogger) Error(msg string, args ...interface{}) {
-	log.Printf("[ERROR] %s %v", msg, args)
+func (l *slogLogger) Info(msg string, args ...interface{}) {
+	l.adapter.Info(msg, args...)
+}
+
+func (l *slogLogger) Warn(msg string, args ...interface{}) {
+	l.adapter.Warn(msg, args...)
+}
+
+func (l *slogLogger) Error(msg string, args ...interface{}) {
+	l.adapter.Error(msg, args...)
 }
 
 // ServeConfig holds all configuration for the serve command.
@@ -175,7 +188,10 @@ func validateSecureURL(urlStr string, fieldName string) error {
 	if err != nil {
 		// DNS lookup failure - this could be transient or the domain doesn't exist yet
 		// For development/testing purposes, we'll allow this but log a warning
-		log.Printf("[WARN] Could not resolve %s (%s) to validate IP address: %v", fieldName, hostname, err)
+		slog.Warn("could not resolve hostname to validate IP address",
+			"field", fieldName,
+			"hostname", hostname,
+			"error", err)
 		return nil
 	}
 

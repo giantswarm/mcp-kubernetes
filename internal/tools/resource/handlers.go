@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
@@ -204,8 +205,10 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 		// Warn on large result sets after filtering (potential performance issue)
 		if paginatedResponse.TotalItems > 1000 {
-			log.Printf("[WARN] Large result set after client-side filtering: %d items (resource: %s, criteria: %d filters)",
-				paginatedResponse.TotalItems, resourceType, len(filterCriteria))
+			slog.Warn("large result set after client-side filtering",
+				logging.ResourceType(resourceType),
+				slog.Int("item_count", paginatedResponse.TotalItems),
+				slog.Int("filter_count", len(filterCriteria)))
 		}
 	}
 	recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, duration)
@@ -228,8 +231,10 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 		// Log truncation warnings
 		if result.Metadata.Truncated {
-			log.Printf("[INFO] Response truncated: showing %d of %d items (resource: %s)",
-				result.Metadata.FinalCount, result.Metadata.OriginalCount, resourceType)
+			slog.Info("response truncated",
+				logging.ResourceType(resourceType),
+				slog.Int("final_count", result.Metadata.FinalCount),
+				slog.Int("original_count", result.Metadata.OriginalCount))
 		}
 	}
 

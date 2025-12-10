@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -16,10 +16,10 @@ import (
 // runSSEServer runs the server with SSE transport
 func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider) error {
 	if debugMode {
-		log.Printf("[DEBUG] Initializing SSE server with configuration:")
-		log.Printf("[DEBUG]   Address: %s", addr)
-		log.Printf("[DEBUG]   SSE Endpoint: %s", sseEndpoint)
-		log.Printf("[DEBUG]   Message Endpoint: %s", messageEndpoint)
+		slog.Debug("initializing SSE server",
+			"address", addr,
+			"sse_endpoint", sseEndpoint,
+			"message_endpoint", messageEndpoint)
 	}
 
 	// Create a custom HTTP server with metrics endpoint
@@ -42,7 +42,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	}
 
 	if debugMode {
-		log.Printf("[DEBUG] SSE server instance created successfully")
+		slog.Debug("SSE server instance created successfully")
 	}
 
 	fmt.Printf("SSE server starting on %s\n", addr)
@@ -63,54 +63,54 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	go func() {
 		defer close(serverDone)
 		if debugMode {
-			log.Printf("[DEBUG] Starting SSE server listener on %s", addr)
+			slog.Debug("starting SSE server listener", "address", addr)
 		}
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			if debugMode {
-				log.Printf("[DEBUG] SSE server start failed: %v", err)
+				slog.Debug("SSE server start failed", "error", err)
 			}
 			serverDone <- err
 		} else {
 			if debugMode {
-				log.Printf("[DEBUG] SSE server listener stopped cleanly")
+				slog.Debug("SSE server listener stopped cleanly")
 			}
 		}
 	}()
 
 	if debugMode {
-		log.Printf("[DEBUG] SSE server goroutine started, waiting for shutdown signal or server completion")
+		slog.Debug("SSE server goroutine started, waiting for shutdown signal or server completion")
 	}
 
 	// Wait for either shutdown signal or server completion
 	select {
 	case <-ctx.Done():
 		if debugMode {
-			log.Printf("[DEBUG] Shutdown signal received, initiating SSE server shutdown")
+			slog.Debug("shutdown signal received, initiating SSE server shutdown")
 		}
 		fmt.Println("Shutdown signal received, stopping SSE server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if debugMode {
-			log.Printf("[DEBUG] Starting graceful shutdown with 30s timeout")
+			slog.Debug("starting graceful shutdown", "timeout", "30s")
 		}
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			if debugMode {
-				log.Printf("[DEBUG] Error during SSE server shutdown: %v", err)
+				slog.Debug("error during SSE server shutdown", "error", err)
 			}
 			return fmt.Errorf("error shutting down SSE server: %w", err)
 		}
 		if debugMode {
-			log.Printf("[DEBUG] SSE server shutdown completed successfully")
+			slog.Debug("SSE server shutdown completed successfully")
 		}
 	case err := <-serverDone:
 		if err != nil {
 			if debugMode {
-				log.Printf("[DEBUG] SSE server stopped with error: %v", err)
+				slog.Debug("SSE server stopped with error", "error", err)
 			}
 			return fmt.Errorf("SSE server stopped with error: %w", err)
 		} else {
 			if debugMode {
-				log.Printf("[DEBUG] SSE server stopped normally")
+				slog.Debug("SSE server stopped normally")
 			}
 			fmt.Println("SSE server stopped normally")
 		}
@@ -118,7 +118,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 
 	fmt.Println("SSE server gracefully stopped")
 	if debugMode {
-		log.Printf("[DEBUG] SSE server shutdown sequence completed")
+		slog.Debug("SSE server shutdown sequence completed")
 	}
 	return nil
 }
