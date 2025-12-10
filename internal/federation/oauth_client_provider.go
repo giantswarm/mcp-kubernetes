@@ -4,7 +4,7 @@ package federation
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -182,7 +182,7 @@ func (p *OAuthClientProvider) SetTokenExtractor(extractor TokenExtractor) {
 	})
 	// Check if the extractor was actually set (Do only runs once)
 	if p.tokenExtractor != nil && fmt.Sprintf("%p", p.tokenExtractor) != fmt.Sprintf("%p", extractor) {
-		log.Printf("Warning: SetTokenExtractor called multiple times; subsequent calls are ignored for security")
+		slog.Warn("SetTokenExtractor called multiple times; subsequent calls are ignored for security")
 	}
 }
 

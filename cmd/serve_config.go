@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -16,25 +16,6 @@ const (
 	OAuthProviderDex    = server.OAuthProviderDex
 	OAuthProviderGoogle = server.OAuthProviderGoogle
 )
-
-// simpleLogger provides basic logging for the Kubernetes client
-type simpleLogger struct{}
-
-func (l *simpleLogger) Debug(msg string, args ...interface{}) {
-	log.Printf("[DEBUG] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Info(msg string, args ...interface{}) {
-	log.Printf("[INFO] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Warn(msg string, args ...interface{}) {
-	log.Printf("[WARN] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Error(msg string, args ...interface{}) {
-	log.Printf("[ERROR] %s %v", msg, args)
-}
 
 // ServeConfig holds all configuration for the serve command.
 type ServeConfig struct {
@@ -175,7 +156,10 @@ func validateSecureURL(urlStr string, fieldName string) error {
 	if err != nil {
 		// DNS lookup failure - this could be transient or the domain doesn't exist yet
 		// For development/testing purposes, we'll allow this but log a warning
-		log.Printf("[WARN] Could not resolve %s (%s) to validate IP address: %v", fieldName, hostname, err)
+		slog.Warn("could not resolve hostname to validate IP address",
+			"field", fieldName,
+			"hostname", hostname,
+			"error", err)
 		return nil
 	}
 

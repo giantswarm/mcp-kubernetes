@@ -16,6 +16,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 )
 
 // kubernetesClient implements the Client interface using client-go.
@@ -73,16 +75,12 @@ type ClientConfig struct {
 	DebugMode bool
 
 	// Logging
-	Logger Logger
+	Logger logging.Logger
 }
 
-// Logger interface for client logging (simple version for now).
-type Logger interface {
-	Debug(msg string, args ...interface{})
-	Info(msg string, args ...interface{})
-	Warn(msg string, args ...interface{})
-	Error(msg string, args ...interface{})
-}
+// Logger is an alias for logging.Logger for backward compatibility.
+// New code should use logging.Logger directly.
+type Logger = logging.Logger
 
 // NewClient creates a new Kubernetes client with the given configuration.
 func NewClient(config *ClientConfig) (*kubernetesClient, error) {

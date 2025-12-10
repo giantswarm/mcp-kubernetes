@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	mcpoauth "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
@@ -600,19 +601,44 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		// Get user info from context (set by ValidateToken middleware)
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
-		if ok && userInfo != nil && userInfo.Email != "" {
-			// Retrieve the user's stored Google OAuth token
-			token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
-			if err == nil && token != nil {
-				// Extract the ID token for Kubernetes OIDC authentication
-				// Kubernetes OIDC validates the ID token, not the access token
-				idToken := mcpoauth.GetIDToken(token)
-				if idToken != "" {
-					ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
-					r = r.WithContext(ctx)
-				}
-			}
+		if !ok || userInfo == nil {
+			slog.Debug("AccessTokenInjector: no user info in context")
+			next.ServeHTTP(w, r)
+			return
 		}
+		if userInfo.Email == "" {
+			slog.Debug("AccessTokenInjector: user info has no email", "user_id", userInfo.ID)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		slog.Debug("AccessTokenInjector: looking up token for user", logging.UserHash(userInfo.Email))
+
+		// Retrieve the user's stored OAuth token
+		token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
+		if err != nil {
+			slog.Debug("AccessTokenInjector: failed to get token from store", logging.UserHash(userInfo.Email), logging.Err(err))
+			next.ServeHTTP(w, r)
+			return
+		}
+		if token == nil {
+			slog.Debug("AccessTokenInjector: token is nil for user", logging.UserHash(userInfo.Email))
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Extract the ID token for Kubernetes OIDC authentication
+		// Kubernetes OIDC validates the ID token, not the access token
+		idToken := mcpoauth.GetIDToken(token)
+		if idToken == "" {
+			slog.Debug("AccessTokenInjector: no ID token in stored token", logging.UserHash(userInfo.Email), slog.Bool("has_access_token", token.AccessToken != ""), slog.Bool("has_refresh_token", token.RefreshToken != ""))
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		slog.Debug("AccessTokenInjector: successfully injected ID token", logging.UserHash(userInfo.Email))
+		ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
+		r = r.WithContext(ctx)
 
 		next.ServeHTTP(w, r)
 	})
