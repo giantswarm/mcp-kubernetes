@@ -103,6 +103,7 @@ type OAuthServeConfig struct {
 	RegistrationToken             string
 	AllowPublicRegistration       bool
 	AllowInsecureAuthWithoutState bool
+	AllowPrivateURLs              bool // skip private IP validation for internal deployments
 	MaxClientsPerIP               int
 	EncryptionKey                 string
 
@@ -138,9 +139,9 @@ func loadEnvIfEmpty(target *string, envKey string) {
 // It checks for:
 // - Valid URL format
 // - HTTPS scheme (HTTP not allowed)
-// - No private/local IP addresses
+// - No private/local IP addresses (unless allowPrivate is true)
 // - No localhost references
-func validateSecureURL(urlStr string, fieldName string) error {
+func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error {
 	// Check for empty URL
 	if urlStr == "" {
 		return fmt.Errorf("%s must be a valid URL: empty URL provided", fieldName)
@@ -179,10 +180,12 @@ func validateSecureURL(urlStr string, fieldName string) error {
 		return nil
 	}
 
-	// Check if any resolved IP is private or loopback
-	for _, ip := range ips {
-		if isPrivateOrLoopbackIP(ip) {
-			return fmt.Errorf("%s resolves to a private or loopback IP address (%s), which could be a security risk", fieldName, ip.String())
+	// Check if any resolved IP is private or loopback (unless allowPrivate is true)
+	if !allowPrivate {
+		for _, ip := range ips {
+			if isPrivateOrLoopbackIP(ip) {
+				return fmt.Errorf("%s resolves to a private or loopback IP address (%s), which could be a security risk", fieldName, ip.String())
+			}
 		}
 	}
 

@@ -275,7 +275,7 @@ func validateOAuthConfig(config OAuthServeConfig) error {
 		return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 	}
 	// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
-	if err := validateSecureURL(config.BaseURL, "OAuth base URL"); err != nil {
+	if err := validateSecureURL(config.BaseURL, "OAuth base URL", config.AllowPrivateURLs); err != nil {
 		return err
 	}
 
@@ -286,7 +286,7 @@ func validateOAuthConfig(config OAuthServeConfig) error {
 			return fmt.Errorf("dex issuer URL is required when using Dex provider (--dex-issuer-url or DEX_ISSUER_URL)")
 		}
 		// Validate Dex issuer URL is HTTPS and not vulnerable to SSRF
-		if err := validateSecureURL(config.DexIssuerURL, "Dex issuer URL"); err != nil {
+		if err := validateSecureURL(config.DexIssuerURL, "Dex issuer URL", config.AllowPrivateURLs); err != nil {
 			return err
 		}
 		if config.DexClientID == "" {

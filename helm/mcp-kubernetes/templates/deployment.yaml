@@ -68,6 +68,9 @@ spec:
             {{- else }}
             - --allow-insecure-auth-without-state=false
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.allowPrivateURLs }}
+            - --allow-private-oauth-urls=true
+            {{- end }}
             - --max-clients-per-ip={{ .Values.mcpKubernetes.oauth.maxClientsPerIP }}
             {{- if .Values.mcpKubernetes.oauth.disableStreaming }}
             - --disable-streaming=true
