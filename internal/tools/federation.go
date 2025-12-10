@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
@@ -78,6 +79,7 @@ func (cc *ClusterClient) IsFederated() bool {
 // Returns (ClusterClient, "") on success or (nil, errorMessage) on failure.
 // The error message is suitable for direct use in MCP tool responses.
 func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName string) (*ClusterClient, string) {
+	slog.Debug("GetClusterClient called", slog.String("cluster", clusterName))
 	fedManager := sc.FederationManager()
 
 	// If a cluster is specified, validate it early to provide fast feedback
