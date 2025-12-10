@@ -18,6 +18,7 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/capi"
@@ -297,7 +298,7 @@ func validateEncryptionKey(key []byte) error {
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
 	// Create Kubernetes client configuration with structured logging
-	var k8sLogger = newSlogLogger(slog.Default())
+	var k8sLogger = logging.NewSlogAdapter(slog.Default())
 
 	k8sConfig := &k8s.ClientConfig{
 		NonDestructiveMode: config.NonDestructiveMode,
@@ -376,9 +377,8 @@ func runServe(config ServeConfig) error {
 		// rather than silently falling back to service account (which could be a security risk)
 		serverContextOptions = append(serverContextOptions, server.WithDownstreamOAuthStrict(true))
 
-		slog.Info("downstream OAuth enabled",
-			"strict_mode", true,
-			"message", "requests without valid OAuth tokens will fail with authentication error")
+		slog.Info("downstream OAuth enabled: requests without valid tokens will fail",
+			"strict_mode", true)
 	}
 
 	// Load CAPI mode configuration from environment variables
@@ -493,8 +493,7 @@ func runServe(config ServeConfig) error {
 
 		serverContextOptions = append(serverContextOptions, server.WithFederationManager(fedManager))
 
-		slog.Info("CAPI federation mode enabled",
-			"message", "multi-cluster operations available")
+		slog.Info("CAPI federation mode enabled: multi-cluster operations available")
 	}
 
 	serverContext, err := server.NewServerContext(shutdownCtx, serverContextOptions...)

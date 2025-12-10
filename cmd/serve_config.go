@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
@@ -17,37 +16,6 @@ const (
 	OAuthProviderDex    = server.OAuthProviderDex
 	OAuthProviderGoogle = server.OAuthProviderGoogle
 )
-
-// slogLogger provides structured logging for the Kubernetes client using slog.
-// It implements the k8s.Logger interface while leveraging the slog package
-// for consistent, structured logging throughout the application.
-type slogLogger struct {
-	adapter *logging.SlogAdapter
-}
-
-// newSlogLogger creates a new slogLogger with an optional custom slog.Logger.
-// If logger is nil, the default slog.Logger is used.
-func newSlogLogger(logger *slog.Logger) *slogLogger {
-	return &slogLogger{
-		adapter: logging.NewSlogAdapter(logger),
-	}
-}
-
-func (l *slogLogger) Debug(msg string, args ...interface{}) {
-	l.adapter.Debug(msg, args...)
-}
-
-func (l *slogLogger) Info(msg string, args ...interface{}) {
-	l.adapter.Info(msg, args...)
-}
-
-func (l *slogLogger) Warn(msg string, args ...interface{}) {
-	l.adapter.Warn(msg, args...)
-}
-
-func (l *slogLogger) Error(msg string, args ...interface{}) {
-	l.adapter.Error(msg, args...)
-}
 
 // ServeConfig holds all configuration for the serve command.
 type ServeConfig struct {

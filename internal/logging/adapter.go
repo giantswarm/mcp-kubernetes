@@ -4,8 +4,9 @@ import (
 	"log/slog"
 )
 
-// Logger is the interface that the k8s package expects for logging.
-// This interface matches the k8s.Logger interface to allow for a drop-in replacement.
+// Logger is the canonical interface for structured logging throughout the application.
+// It provides a simple, level-based logging API compatible with slog.
+// The k8s package imports this interface via a type alias for backward compatibility.
 type Logger interface {
 	Debug(msg string, args ...interface{})
 	Info(msg string, args ...interface{})

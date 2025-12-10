@@ -33,6 +33,13 @@ const (
 // ipv4Regex matches IPv4 addresses for sanitization.
 var ipv4Regex = regexp.MustCompile(`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`)
 
+// ipv6Regex matches IPv6 addresses for sanitization.
+// This regex matches common IPv6 formats including:
+// - Full form: 2001:0db8:85a3:0000:0000:8a2e:0370:7334
+// - Compressed form: 2001:db8:85a3::8a2e:370:7334
+// - Bracketed form (used in URLs): [2001:db8::1]
+var ipv6Regex = regexp.MustCompile(`\[?([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\]?`)
+
 // WithOperation returns a logger with the operation attribute set.
 func WithOperation(logger *slog.Logger, operation string) *slog.Logger {
 	return logger.With(slog.String(KeyOperation, operation))
@@ -113,36 +120,46 @@ func UserHash(email string) slog.Attr {
 }
 
 // SanitizeHost returns a sanitized version of the host for logging purposes.
-// This function redacts IP addresses to prevent sensitive network topology
-// information from appearing in logs, while preserving enough context for debugging.
+// This function redacts IP addresses (both IPv4 and IPv6) to prevent sensitive
+// network topology information from appearing in logs, while preserving enough
+// context for debugging.
 //
 // Examples:
 //   - "https://192.168.1.100:6443" -> "https://<redacted-ip>:6443"
 //   - "https://api.cluster.example.com:6443" -> "https://api.cluster.example.com:6443"
 //   - "192.168.1.100" -> "<redacted-ip>"
+//   - "https://[2001:db8::1]:6443" -> "https://<redacted-ip>:6443"
+//   - "2001:db8::1" -> "<redacted-ip>"
 //   - "" -> "<empty>"
 func SanitizeHost(host string) string {
 	if host == "" {
 		return "<empty>"
 	}
 
+	// Helper to redact both IPv4 and IPv6
+	redactIPs := func(s string) string {
+		result := ipv4Regex.ReplaceAllString(s, "<redacted-ip>")
+		result = ipv6Regex.ReplaceAllString(result, "<redacted-ip>")
+		return result
+	}
+
 	// Check if host has a scheme (is a URL) - if not, it's just a host/IP
 	if !strings.Contains(host, "://") {
 		// No scheme - just redact any IP addresses directly
-		return ipv4Regex.ReplaceAllString(host, "<redacted-ip>")
+		return redactIPs(host)
 	}
 
 	// Parse as URL to properly handle host extraction
 	parsed, err := url.Parse(host)
 	if err != nil {
 		// If not a valid URL, just redact any IP addresses
-		return ipv4Regex.ReplaceAllString(host, "<redacted-ip>")
+		return redactIPs(host)
 	}
 
 	// For valid URLs, redact IP addresses in the host portion
-	if ipv4Regex.MatchString(parsed.Host) {
-		// Replace just the IP portion, keeping the port if present
-		sanitizedHost := ipv4Regex.ReplaceAllString(parsed.Host, "<redacted-ip>")
+	if ipv4Regex.MatchString(parsed.Host) || ipv6Regex.MatchString(parsed.Host) {
+		// Replace IP portion, keeping the port if present
+		sanitizedHost := redactIPs(parsed.Host)
 		parsed.Host = sanitizedHost
 		return parsed.String()
 	}

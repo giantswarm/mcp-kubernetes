@@ -2,6 +2,7 @@ package logging
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -86,6 +87,27 @@ func TestSanitizeHost(t *testing.T) {
 			name:     "IP with port no scheme",
 			host:     "10.0.0.1:6443",
 			expected: "<redacted-ip>:6443",
+		},
+		// IPv6 tests
+		{
+			name:     "IPv6 address URL with brackets",
+			host:     "https://[2001:db8::1]:6443",
+			expected: "https://<redacted-ip>:6443",
+		},
+		{
+			name:     "bare IPv6 address",
+			host:     "2001:db8::1",
+			expected: "<redacted-ip>",
+		},
+		{
+			name:     "IPv6 with brackets no scheme",
+			host:     "[2001:db8:85a3::8a2e:370:7334]:6443",
+			expected: "<redacted-ip>:6443",
+		},
+		{
+			name:     "full IPv6 address",
+			host:     "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+			expected: "<redacted-ip>",
 		},
 	}
 
@@ -216,6 +238,13 @@ func TestSlogAttributes(t *testing.T) {
 		attr := Err(nil)
 		assert.Equal(t, KeyError, attr.Key)
 		assert.Equal(t, "", attr.Value.String())
+	})
+
+	t.Run("Err with error", func(t *testing.T) {
+		testErr := fmt.Errorf("test error message")
+		attr := Err(testErr)
+		assert.Equal(t, KeyError, attr.Key)
+		assert.Equal(t, "test error message", attr.Value.String())
 	})
 
 	t.Run("UserHash", func(t *testing.T) {

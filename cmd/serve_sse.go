@@ -42,7 +42,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	}
 
 	if debugMode {
-		slog.Debug("SSE server instance created successfully")
+		slog.Debug("sse server instance created successfully")
 	}
 
 	fmt.Printf("SSE server starting on %s\n", addr)
@@ -63,29 +63,29 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	go func() {
 		defer close(serverDone)
 		if debugMode {
-			slog.Debug("starting SSE server listener", "address", addr)
+			slog.Debug("starting sse server listener", "address", addr)
 		}
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			if debugMode {
-				slog.Debug("SSE server start failed", "error", err)
+				slog.Debug("sse server start failed", "error", err)
 			}
 			serverDone <- err
 		} else {
 			if debugMode {
-				slog.Debug("SSE server listener stopped cleanly")
+				slog.Debug("sse server listener stopped cleanly")
 			}
 		}
 	}()
 
 	if debugMode {
-		slog.Debug("SSE server goroutine started, waiting for shutdown signal or server completion")
+		slog.Debug("sse server goroutine started, waiting for shutdown signal or server completion")
 	}
 
 	// Wait for either shutdown signal or server completion
 	select {
 	case <-ctx.Done():
 		if debugMode {
-			slog.Debug("shutdown signal received, initiating SSE server shutdown")
+			slog.Debug("shutdown signal received, initiating sse server shutdown")
 		}
 		fmt.Println("Shutdown signal received, stopping SSE server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -95,22 +95,22 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 		}
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			if debugMode {
-				slog.Debug("error during SSE server shutdown", "error", err)
+				slog.Debug("error during sse server shutdown", "error", err)
 			}
 			return fmt.Errorf("error shutting down SSE server: %w", err)
 		}
 		if debugMode {
-			slog.Debug("SSE server shutdown completed successfully")
+			slog.Debug("sse server shutdown completed successfully")
 		}
 	case err := <-serverDone:
 		if err != nil {
 			if debugMode {
-				slog.Debug("SSE server stopped with error", "error", err)
+				slog.Debug("sse server stopped with error", "error", err)
 			}
 			return fmt.Errorf("SSE server stopped with error: %w", err)
 		} else {
 			if debugMode {
-				slog.Debug("SSE server stopped normally")
+				slog.Debug("sse server stopped normally")
 			}
 			fmt.Println("SSE server stopped normally")
 		}
@@ -118,7 +118,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 
 	fmt.Println("SSE server gracefully stopped")
 	if debugMode {
-		slog.Debug("SSE server shutdown sequence completed")
+		slog.Debug("sse server shutdown sequence completed")
 	}
 	return nil
 }
