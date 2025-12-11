@@ -1,9 +1,69 @@
 package k8s
 
 import (
+	"container/list"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// mockMetrics implements CacheMetricsCallback for testing.
+type mockMetrics struct {
+	mu        sync.Mutex
+	hits      int
+	misses    int
+	evictions map[string]int
+	sizeLog   []int
+}
+
+func newMockMetrics() *mockMetrics {
+	return &mockMetrics{
+		evictions: make(map[string]int),
+	}
+}
+
+func (m *mockMetrics) OnCacheHit() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.hits++
+}
+
+func (m *mockMetrics) OnCacheMiss() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.misses++
+}
+
+func (m *mockMetrics) OnCacheEviction(reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.evictions[reason]++
+}
+
+func (m *mockMetrics) OnCacheSizeChange(size int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sizeLog = append(m.sizeLog, size)
+}
+
+func (m *mockMetrics) getHits() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hits
+}
+
+func (m *mockMetrics) getMisses() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.misses
+}
+
+func (m *mockMetrics) getEvictions(reason string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.evictions[reason]
+}
 
 // newTestCache creates a cache for testing with configurable cleanup behavior.
 // If autoCleanup is true, the cleanup goroutine runs normally.
@@ -14,9 +74,32 @@ func newTestCache(ttl time.Duration, autoCleanup bool) *clientCache {
 	}
 
 	// Create cache without automatic cleanup goroutine
+	return newTestCacheWithConfig(ClientCacheConfig{
+		TTL:        ttl,
+		MaxEntries: DefaultClientCacheMaxEntries,
+	}, false)
+}
+
+// newTestCacheWithConfig creates a cache for testing with full config control.
+func newTestCacheWithConfig(config ClientCacheConfig, autoCleanup bool) *clientCache {
+	if config.TTL <= 0 {
+		config.TTL = DefaultClientCacheTTL
+	}
+	if config.MaxEntries == 0 {
+		config.MaxEntries = DefaultClientCacheMaxEntries
+	}
+
+	if autoCleanup {
+		return newClientCacheWithConfig(config)
+	}
+
+	// Create cache without automatic cleanup goroutine
 	c := &clientCache{
-		entries:     make(map[string]*clientCacheEntry),
-		ttl:         ttl,
+		entries:     make(map[string]*list.Element),
+		lruList:     list.New(),
+		ttl:         config.TTL,
+		maxSize:     config.MaxEntries,
+		metrics:     config.Metrics,
 		stopCleanup: make(chan struct{}),
 		cleanupDone: make(chan struct{}),
 	}
@@ -183,6 +266,221 @@ func TestClientCacheClose(t *testing.T) {
 	if cache.Size() != 0 {
 		t.Errorf("expected size 0 after close, got %d", cache.Size())
 	}
+}
+
+func TestClientCacheLRUEviction(t *testing.T) {
+	// Create cache with max 3 entries
+	cache := newClientCacheWithConfig(ClientCacheConfig{
+		TTL:        1 * time.Hour,
+		MaxEntries: 3,
+	})
+	defer cache.Close()
+
+	// Add 3 entries
+	cache.Set("token1", &bearerTokenClient{bearerToken: "1"})
+	cache.Set("token2", &bearerTokenClient{bearerToken: "2"})
+	cache.Set("token3", &bearerTokenClient{bearerToken: "3"})
+
+	if cache.Size() != 3 {
+		t.Errorf("expected size 3, got %d", cache.Size())
+	}
+
+	// Add 4th entry - should evict token1 (oldest)
+	cache.Set("token4", &bearerTokenClient{bearerToken: "4"})
+
+	if cache.Size() != 3 {
+		t.Errorf("expected size 3 after LRU eviction, got %d", cache.Size())
+	}
+
+	// token1 should be evicted
+	if cache.Get("token1") != nil {
+		t.Error("expected token1 to be evicted")
+	}
+
+	// Others should still be present
+	if cache.Get("token2") == nil {
+		t.Error("expected token2 to be present")
+	}
+	if cache.Get("token3") == nil {
+		t.Error("expected token3 to be present")
+	}
+	if cache.Get("token4") == nil {
+		t.Error("expected token4 to be present")
+	}
+}
+
+func TestClientCacheLRUOrderUpdate(t *testing.T) {
+	// Create cache with max 3 entries
+	cache := newClientCacheWithConfig(ClientCacheConfig{
+		TTL:        1 * time.Hour,
+		MaxEntries: 3,
+	})
+	defer cache.Close()
+
+	// Add 3 entries
+	cache.Set("token1", &bearerTokenClient{bearerToken: "1"})
+	cache.Set("token2", &bearerTokenClient{bearerToken: "2"})
+	cache.Set("token3", &bearerTokenClient{bearerToken: "3"})
+
+	// Access token1 to make it recently used
+	cache.Get("token1")
+
+	// Add 4th entry - should evict token2 (now oldest)
+	cache.Set("token4", &bearerTokenClient{bearerToken: "4"})
+
+	// token2 should be evicted (was oldest after token1 was accessed)
+	if cache.Get("token2") != nil {
+		t.Error("expected token2 to be evicted")
+	}
+
+	// token1 should still be present (was accessed, moved to front)
+	if cache.Get("token1") == nil {
+		t.Error("expected token1 to be present after access")
+	}
+}
+
+func TestClientCacheMetricsHitMiss(t *testing.T) {
+	metrics := newMockMetrics()
+
+	cache := newClientCacheWithConfig(ClientCacheConfig{
+		TTL:        1 * time.Hour,
+		MaxEntries: 10,
+		Metrics:    metrics,
+	})
+	defer cache.Close()
+
+	// Miss on empty cache
+	cache.Get("token1")
+	// Give goroutine time to record metric
+	time.Sleep(10 * time.Millisecond)
+	if metrics.getMisses() != 1 {
+		t.Errorf("expected 1 miss, got %d", metrics.getMisses())
+	}
+
+	// Set and hit
+	cache.Set("token1", &bearerTokenClient{})
+	cache.Get("token1")
+	time.Sleep(10 * time.Millisecond)
+	if metrics.getHits() != 1 {
+		t.Errorf("expected 1 hit, got %d", metrics.getHits())
+	}
+
+	// Another miss
+	cache.Get("token2")
+	time.Sleep(10 * time.Millisecond)
+	if metrics.getMisses() != 2 {
+		t.Errorf("expected 2 misses, got %d", metrics.getMisses())
+	}
+}
+
+func TestClientCacheMetricsEviction(t *testing.T) {
+	metrics := newMockMetrics()
+
+	cache := newClientCacheWithConfig(ClientCacheConfig{
+		TTL:        50 * time.Millisecond,
+		MaxEntries: 2,
+		Metrics:    metrics,
+	})
+	defer cache.Close()
+
+	// Add 2 entries
+	cache.Set("token1", &bearerTokenClient{})
+	cache.Set("token2", &bearerTokenClient{})
+
+	// Add 3rd - triggers LRU eviction
+	cache.Set("token3", &bearerTokenClient{})
+	time.Sleep(20 * time.Millisecond)
+
+	if metrics.getEvictions("lru") != 1 {
+		t.Errorf("expected 1 LRU eviction, got %d", metrics.getEvictions("lru"))
+	}
+
+	// Wait for expiration
+	time.Sleep(100 * time.Millisecond)
+
+	// Access expired entry - triggers expired eviction
+	cache.Get("token2")
+	time.Sleep(20 * time.Millisecond)
+
+	if metrics.getEvictions("expired") < 1 {
+		t.Errorf("expected at least 1 expired eviction, got %d", metrics.getEvictions("expired"))
+	}
+}
+
+func TestClientCacheMaxSize(t *testing.T) {
+	cache := newClientCacheWithConfig(ClientCacheConfig{
+		TTL:        1 * time.Hour,
+		MaxEntries: 5,
+	})
+	defer cache.Close()
+
+	if cache.MaxSize() != 5 {
+		t.Errorf("expected max size 5, got %d", cache.MaxSize())
+	}
+}
+
+func TestClientCacheStats(t *testing.T) {
+	cache := newClientCacheWithConfig(ClientCacheConfig{
+		TTL:        1 * time.Hour,
+		MaxEntries: 10,
+	})
+	defer cache.Close()
+
+	cache.Set("token1", &bearerTokenClient{})
+	cache.Set("token2", &bearerTokenClient{})
+
+	stats := cache.Stats()
+	if stats.Size != 2 {
+		t.Errorf("expected stats.Size 2, got %d", stats.Size)
+	}
+	if stats.MaxSize != 10 {
+		t.Errorf("expected stats.MaxSize 10, got %d", stats.MaxSize)
+	}
+}
+
+func TestClientCacheConcurrentAccess(t *testing.T) {
+	cache := newClientCacheWithConfig(ClientCacheConfig{
+		TTL:        1 * time.Hour,
+		MaxEntries: 50,
+	})
+	defer cache.Close()
+
+	const goroutines = 100
+	const operations = 100
+
+	var wg sync.WaitGroup
+	var hits atomic.Int64
+	var misses atomic.Int64
+
+	// Concurrent writers and readers
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < operations; j++ {
+				token := string(rune('A' + (id+j)%26)) // Rotate through 26 tokens
+				if j%2 == 0 {
+					cache.Set(token, &bearerTokenClient{bearerToken: token})
+				} else {
+					if cache.Get(token) != nil {
+						hits.Add(1)
+					} else {
+						misses.Add(1)
+					}
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify cache is in consistent state
+	size := cache.Size()
+	if size < 0 || size > 50 {
+		t.Errorf("cache size out of bounds: %d", size)
+	}
+
+	t.Logf("Concurrent test: size=%d, hits=%d, misses=%d", size, hits.Load(), misses.Load())
 }
 
 func TestTryResolveBuiltinResource(t *testing.T) {

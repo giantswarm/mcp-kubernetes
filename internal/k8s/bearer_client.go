@@ -108,6 +108,13 @@ func NewBearerTokenClientFactory(config *ClientConfig) (*BearerTokenClientFactor
 	// Initialize builtin resources mapping
 	builtinResources := initBuiltinResources()
 
+	// Configure cache with optional metrics
+	cacheConfig := ClientCacheConfig{
+		TTL:        config.CacheTTL,
+		MaxEntries: config.CacheMaxEntries,
+		Metrics:    config.CacheMetrics,
+	}
+
 	return &BearerTokenClientFactory{
 		clusterHost:          inClusterConfig.Host,
 		caCertFile:           DefaultCACertPath,
@@ -121,7 +128,7 @@ func NewBearerTokenClientFactory(config *ClientConfig) (*BearerTokenClientFactor
 		debugMode:            config.DebugMode,
 		logger:               config.Logger,
 		builtinResources:     builtinResources,
-		cache:                newClientCache(DefaultClientCacheTTL),
+		cache:                newClientCacheWithConfig(cacheConfig),
 	}, nil
 }
 

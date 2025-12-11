@@ -71,6 +71,11 @@ type ClientConfig struct {
 	BurstLimit int
 	Timeout    time.Duration
 
+	// Cache settings (for bearer token client factory)
+	CacheTTL        time.Duration        // TTL for cached clients. Defaults to 5 minutes.
+	CacheMaxEntries int                  // Max entries before LRU eviction. Defaults to 100.
+	CacheMetrics    CacheMetricsCallback // Optional metrics callback for cache observability.
+
 	// Debug settings
 	DebugMode bool
 
