@@ -5,6 +5,31 @@ import (
 	"time"
 )
 
+// newTestCache creates a cache for testing with configurable cleanup behavior.
+// If autoCleanup is true, the cleanup goroutine runs normally.
+// If false, cleanup must be triggered manually via cache.cleanup().
+func newTestCache(ttl time.Duration, autoCleanup bool) *clientCache {
+	if autoCleanup {
+		return newClientCache(ttl)
+	}
+
+	// Create cache without automatic cleanup goroutine
+	c := &clientCache{
+		entries:     make(map[string]*clientCacheEntry),
+		ttl:         ttl,
+		stopCleanup: make(chan struct{}),
+		cleanupDone: make(chan struct{}),
+	}
+
+	// Start a dummy goroutine that just waits for close signal
+	go func() {
+		<-c.stopCleanup
+		close(c.cleanupDone)
+	}()
+
+	return c
+}
+
 func TestHashToken(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -123,18 +148,8 @@ func TestClientCacheSize(t *testing.T) {
 }
 
 func TestClientCacheCleanup(t *testing.T) {
-	// Use very short TTL for testing
-	cache := &clientCache{
-		entries:     make(map[string]*clientCacheEntry),
-		ttl:         50 * time.Millisecond,
-		stopCleanup: make(chan struct{}),
-		cleanupDone: make(chan struct{}),
-	}
-	// Don't start the cleanup goroutine - we'll call cleanup manually
-	go func() {
-		<-cache.stopCleanup
-		close(cache.cleanupDone)
-	}()
+	// Use test helper with manual cleanup (autoCleanup=false)
+	cache := newTestCache(50*time.Millisecond, false)
 	defer cache.Close()
 
 	cache.Set("token1", &bearerTokenClient{})

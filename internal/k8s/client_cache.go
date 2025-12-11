@@ -8,11 +8,20 @@ import (
 )
 
 // DefaultClientCacheTTL is the default time-to-live for cached clients.
-// This should be shorter than typical OAuth token expiry to ensure
-// we don't use stale credentials.
+//
+// This value is intentionally much shorter than typical OAuth token expiry
+// (usually 1 hour for Google OAuth) to ensure:
+//  1. We don't hold stale credentials longer than necessary
+//  2. Memory usage stays bounded with many distinct users
+//  3. Configuration changes (e.g., RBAC updates) take effect within a reasonable time
+//
+// The tradeoff is that users making requests more than 5 minutes apart will
+// incur the cost of creating a new client, but this is acceptable given the
+// security and resource benefits.
 const DefaultClientCacheTTL = 5 * time.Minute
 
 // DefaultClientCacheCleanupInterval is how often the cache cleanup runs.
+// This is separate from TTL - entries are also removed on access if expired.
 const DefaultClientCacheCleanupInterval = 1 * time.Minute
 
 // clientCacheEntry represents a cached client with expiration time.
@@ -62,6 +71,15 @@ func hashToken(token string) string {
 
 // Get retrieves a client from the cache if it exists and hasn't expired.
 // Returns nil if no valid cached client exists.
+//
+// Note: There is a benign race condition between checking expiration and
+// returning the client. Between releasing RLock and checking expiresAt,
+// another goroutine could delete the entry. This is safe because:
+//   - Worst case for expired check: we try to delete an already-deleted key (no-op)
+//   - Worst case for return: we return a client that was just expired by another
+//     goroutine, which will be replaced on the next request anyway
+//
+// This tradeoff is intentional to avoid holding locks during the time check.
 func (c *clientCache) Get(token string) Client {
 	key := hashToken(token)
 
@@ -73,9 +91,9 @@ func (c *clientCache) Get(token string) Client {
 		return nil
 	}
 
-	// Check if expired
+	// Check if expired (see note above about benign race condition)
 	if time.Now().After(entry.expiresAt) {
-		// Expired - remove it
+		// Expired - remove it (safe even if already removed by another goroutine)
 		c.mu.Lock()
 		delete(c.entries, key)
 		c.mu.Unlock()

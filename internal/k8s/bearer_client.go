@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,12 +29,12 @@ type bearerTokenClient struct {
 	clusterHost string
 	caCertFile  string
 
-	// Client cache (lazily initialized)
-	mu              sync.RWMutex
-	clientset       kubernetes.Interface
-	dynamicClient   dynamic.Interface
-	discoveryClient discovery.DiscoveryInterface
-	restConfig      *rest.Config
+	// Lazily initialized clients using thread-safe double-check locking.
+	// Each client has its own lazyValue to avoid lock contention.
+	restConfigLazy      lazyValue[*rest.Config]
+	clientsetLazy       lazyValue[kubernetes.Interface]
+	dynamicClientLazy   lazyValue[dynamic.Interface]
+	discoveryClientLazy lazyValue[discovery.DiscoveryInterface]
 
 	// Resource type mappings (shared with base client)
 	builtinResources map[string]schema.GroupVersionResource
@@ -181,136 +180,68 @@ func (f *BearerTokenClientFactory) CreateBearerTokenClient(bearerToken string) (
 }
 
 // getRestConfig returns the REST config with bearer token authentication.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getRestConfig() (*rest.Config, error) {
-	c.mu.RLock()
-	if c.restConfig != nil {
-		config := c.restConfig
-		c.mu.RUnlock()
-		return config, nil
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.restConfig != nil {
-		return c.restConfig, nil
-	}
-
-	// Create REST config with bearer token
-	config := &rest.Config{
-		Host:        c.clusterHost,
-		BearerToken: c.bearerToken,
-		TLSClientConfig: rest.TLSClientConfig{
-			CAFile: c.caCertFile,
-		},
-		QPS:     c.qpsLimit,
-		Burst:   c.burstLimit,
-		Timeout: c.timeout,
-	}
-
-	c.restConfig = config
-	return config, nil
+	return c.restConfigLazy.Get(func() (*rest.Config, error) {
+		return &rest.Config{
+			Host:        c.clusterHost,
+			BearerToken: c.bearerToken,
+			TLSClientConfig: rest.TLSClientConfig{
+				CAFile: c.caCertFile,
+			},
+			QPS:     c.qpsLimit,
+			Burst:   c.burstLimit,
+			Timeout: c.timeout,
+		}, nil
+	})
 }
 
 // getClientset returns the Kubernetes clientset.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getClientset() (kubernetes.Interface, error) {
-	c.mu.RLock()
-	if c.clientset != nil {
-		cs := c.clientset
-		c.mu.RUnlock()
-		return cs, nil
-	}
-	c.mu.RUnlock()
-
-	// Get rest config first (before acquiring write lock to avoid deadlock)
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.clientset != nil {
-		return c.clientset, nil
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create clientset: %w", err)
-	}
-
-	c.clientset = clientset
-	return clientset, nil
+	return c.clientsetLazy.Get(func() (kubernetes.Interface, error) {
+		config, err := c.getRestConfig()
+		if err != nil {
+			return nil, err
+		}
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create clientset: %w", err)
+		}
+		return clientset, nil
+	})
 }
 
 // getDynamicClient returns the dynamic client.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getDynamicClient() (dynamic.Interface, error) {
-	c.mu.RLock()
-	if c.dynamicClient != nil {
-		dc := c.dynamicClient
-		c.mu.RUnlock()
-		return dc, nil
-	}
-	c.mu.RUnlock()
-
-	// Get rest config first (before acquiring write lock to avoid deadlock)
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.dynamicClient != nil {
-		return c.dynamicClient, nil
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	c.dynamicClient = dynamicClient
-	return dynamicClient, nil
+	return c.dynamicClientLazy.Get(func() (dynamic.Interface, error) {
+		config, err := c.getRestConfig()
+		if err != nil {
+			return nil, err
+		}
+		dynamicClient, err := dynamic.NewForConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+		}
+		return dynamicClient, nil
+	})
 }
 
 // getDiscoveryClient returns the discovery client.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getDiscoveryClient() (discovery.DiscoveryInterface, error) {
-	c.mu.RLock()
-	if c.discoveryClient != nil {
-		dc := c.discoveryClient
-		c.mu.RUnlock()
-		return dc, nil
-	}
-	c.mu.RUnlock()
-
-	// Get rest config first (before acquiring write lock to avoid deadlock)
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.discoveryClient != nil {
-		return c.discoveryClient, nil
-	}
-
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create discovery client: %w", err)
-	}
-
-	c.discoveryClient = discoveryClient
-	return discoveryClient, nil
+	return c.discoveryClientLazy.Get(func() (discovery.DiscoveryInterface, error) {
+		config, err := c.getRestConfig()
+		if err != nil {
+			return nil, err
+		}
+		discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create discovery client: %w", err)
+		}
+		return discoveryClient, nil
+	})
 }
 
 // isOperationAllowed checks if an operation is allowed based on configuration.
