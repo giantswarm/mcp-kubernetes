@@ -401,6 +401,7 @@ func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, res
 
 // List retrieves resources with pagination support.
 func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
+	listStart := time.Now()
 	c.logOperation("list", kubeContext, namespace, resourceType, "")
 
 	if namespace != "" && !opts.AllNamespaces {
@@ -409,17 +410,36 @@ func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, re
 		}
 	}
 
+	if c.logger != nil {
+		c.logger.Debug("bearerTokenClient.List: getting dynamic client", "elapsed", time.Since(listStart).String())
+	}
 	dynamicClient, err := c.getDynamicClient()
 	if err != nil {
 		return nil, err
 	}
+	if c.logger != nil {
+		c.logger.Debug("bearerTokenClient.List: got dynamic client", "elapsed", time.Since(listStart).String())
+	}
 
+	if c.logger != nil {
+		c.logger.Debug("bearerTokenClient.List: getting discovery client", "elapsed", time.Since(listStart).String())
+	}
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
 	}
+	if c.logger != nil {
+		c.logger.Debug("bearerTokenClient.List: got discovery client", "elapsed", time.Since(listStart).String())
+	}
 
-	return listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
+	if c.logger != nil {
+		c.logger.Debug("bearerTokenClient.List: calling listResources", "elapsed", time.Since(listStart).String())
+	}
+	result, err := listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
+	if c.logger != nil {
+		c.logger.Debug("bearerTokenClient.List: listResources returned", "elapsed", time.Since(listStart).String(), "error", err)
+	}
+	return result, err
 }
 
 // Describe provides detailed information about a resource.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -56,10 +57,13 @@ func getResource(ctx context.Context, dynamicClient dynamic.Interface, discovery
 func listResources(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
 	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
 
+	listStart := time.Now()
+	slog.Debug("listResources: resolving resource type", slog.String("resourceType", resourceType), slog.String("apiGroup", apiGroup))
 	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
+	slog.Debug("listResources: resource type resolved", slog.Duration("elapsed", time.Since(listStart)), slog.String("gvr", gvr.String()), slog.Bool("namespaced", namespaced))
 
 	listOpts := metav1.ListOptions{
 		LabelSelector: opts.LabelSelector,
@@ -80,10 +84,13 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 		resourceInterface = dynamicClient.Resource(gvr)
 	}
 
+	slog.Debug("listResources: calling K8s API List", slog.Duration("elapsed", time.Since(listStart)), slog.Bool("allNamespaces", opts.AllNamespaces))
 	list, err := resourceInterface.List(ctx, listOpts)
 	if err != nil {
+		slog.Debug("listResources: K8s API List failed", slog.Duration("elapsed", time.Since(listStart)), slog.Any("error", err))
 		return nil, fmt.Errorf("failed to list %s: %w", resourceType, err)
 	}
+	slog.Debug("listResources: K8s API List returned", slog.Duration("elapsed", time.Since(listStart)), slog.Int("itemCount", len(list.Items)))
 
 	var objects []runtime.Object
 	for i := range list.Items {
@@ -102,6 +109,7 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 		response.RemainingItems = &remaining
 	}
 
+	slog.Debug("listResources: returning response", slog.Duration("total_elapsed", time.Since(listStart)), slog.Int("totalItems", response.TotalItems))
 	return response, nil
 }
 
