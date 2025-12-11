@@ -188,17 +188,18 @@ func (c *bearerTokenClient) getClientset() (kubernetes.Interface, error) {
 	}
 	c.mu.RUnlock()
 
+	// Get rest config first (before acquiring write lock to avoid deadlock)
+	config, err := c.getRestConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Double-check after acquiring write lock
 	if c.clientset != nil {
 		return c.clientset, nil
-	}
-
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
@@ -220,17 +221,18 @@ func (c *bearerTokenClient) getDynamicClient() (dynamic.Interface, error) {
 	}
 	c.mu.RUnlock()
 
+	// Get rest config first (before acquiring write lock to avoid deadlock)
+	config, err := c.getRestConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Double-check after acquiring write lock
 	if c.dynamicClient != nil {
 		return c.dynamicClient, nil
-	}
-
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(config)
@@ -252,17 +254,18 @@ func (c *bearerTokenClient) getDiscoveryClient() (discovery.DiscoveryInterface, 
 	}
 	c.mu.RUnlock()
 
+	// Get rest config first (before acquiring write lock to avoid deadlock)
+	config, err := c.getRestConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Double-check after acquiring write lock
 	if c.discoveryClient != nil {
 		return c.discoveryClient, nil
-	}
-
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
 	}
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
