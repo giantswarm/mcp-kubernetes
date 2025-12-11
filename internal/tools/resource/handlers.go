@@ -106,6 +106,7 @@ func getOutputProcessor(sc *server.ServerContext) *output.Processor {
 
 // handleListResources handles kubectl list operations
 func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+	handlerStart := time.Now()
 	slog.Debug("handleListResources called", slog.String("method", request.Method))
 	args := request.GetArguments()
 
@@ -180,15 +181,19 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	// Get the appropriate k8s client (local or federated)
+	slog.Debug("handleListResources: getting cluster client", slog.Duration("elapsed", time.Since(handlerStart)))
 	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
 	if errMsg != "" {
 		return mcp.NewToolResultError(errMsg), nil
 	}
 	k8sClient := client.K8s()
+	slog.Debug("handleListResources: got cluster client", slog.Duration("elapsed", time.Since(handlerStart)))
 
 	start := time.Now()
+	slog.Debug("handleListResources: calling k8s List", slog.String("resourceType", resourceType), slog.String("namespace", namespace))
 	paginatedResponse, err := k8sClient.List(ctx, kubeContext, namespace, resourceType, apiGroup, opts)
 	duration := time.Since(start)
+	slog.Debug("handleListResources: k8s List returned", slog.Duration("k8s_duration", duration), slog.Duration("elapsed", time.Since(handlerStart)))
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusError, duration)
@@ -223,12 +228,14 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	// Apply output processing (slim output, secret masking) based on output format
+	slog.Debug("handleListResources: processing output", slog.String("format", outputFormat), slog.Duration("elapsed", time.Since(handlerStart)))
 	if outputFormat == "slim" || outputFormat == "normal" {
 		processedItems, result, err := output.ProcessRuntimeObjects(processor, paginatedResponse.Items)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources: %v", err)), nil
 		}
 		paginatedResponse.Items = processedItems
+		slog.Debug("handleListResources: output processed", slog.Duration("elapsed", time.Since(handlerStart)))
 
 		// Log truncation warnings
 		if result.Metadata.Truncated {
@@ -249,6 +256,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	// Return summarized paginated output
+	slog.Debug("handleListResources: summarizing resources", slog.Duration("elapsed", time.Since(handlerStart)))
 	summary := SummarizePaginatedResources(
 		paginatedResponse.Items,
 		includeLabels,
@@ -257,11 +265,13 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		paginatedResponse.ResourceVersion,
 		paginatedResponse.RemainingItems,
 	)
+	slog.Debug("handleListResources: marshaling JSON", slog.Duration("elapsed", time.Since(handlerStart)))
 	jsonData, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal paginated resource summary: %v", err)), nil
 	}
 
+	slog.Debug("handleListResources: returning result", slog.Duration("total_elapsed", time.Since(handlerStart)), slog.Int("response_bytes", len(jsonData)))
 	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
