@@ -24,6 +24,8 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 )
 
 // Shared resource operation functions that can be used by both
@@ -65,7 +67,7 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 			slog.String("resourceType", resourceType),
 			slog.String("apiGroup", apiGroup),
 			slog.Duration("elapsed", time.Since(listStart)),
-			slog.Any("error", err))
+			logging.SanitizedErr(err))
 		return nil, err
 	}
 	slog.Debug("resolved resource type",
@@ -98,7 +100,7 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 			slog.String("resourceType", resourceType),
 			slog.Bool("allNamespaces", opts.AllNamespaces),
 			slog.Duration("elapsed", time.Since(listStart)),
-			slog.Any("error", err))
+			logging.SanitizedErr(err))
 		return nil, fmt.Errorf("failed to list %s: %w", resourceType, err)
 	}
 	slog.Debug("K8s API list completed",

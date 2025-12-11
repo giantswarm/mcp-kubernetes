@@ -15,6 +15,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 )
 
 // bearerTokenClient implements the Client interface using bearer token authentication.
@@ -435,7 +437,7 @@ func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, re
 
 	result, err := listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
 	if err != nil {
-		c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", err)
+		c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", logging.SanitizeHost(err.Error()))
 		return nil, err
 	}
 	c.debugLog("list operation completed", "elapsed", time.Since(listStart), "items", result.TotalItems)

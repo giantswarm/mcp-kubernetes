@@ -94,6 +94,17 @@ func Err(err error) slog.Attr {
 	return slog.String(KeyError, err.Error())
 }
 
+// SanitizedErr returns a slog attribute for an error with IP addresses redacted.
+// This should be used when logging errors that may contain hostnames or IP addresses
+// from Kubernetes API server responses, which could leak network topology information.
+func SanitizedErr(err error) slog.Attr {
+	if err == nil {
+		return slog.String(KeyError, "")
+	}
+	sanitized := SanitizeHost(err.Error())
+	return slog.String(KeyError, sanitized)
+}
+
 // Host returns a slog attribute for a host with IP addresses sanitized.
 func Host(host string) slog.Attr {
 	return slog.String(KeyHost, SanitizeHost(host))

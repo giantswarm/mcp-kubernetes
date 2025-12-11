@@ -197,7 +197,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		slog.Debug("K8s list failed",
 			slog.String("resourceType", resourceType),
 			slog.Duration("duration", k8sDuration),
-			slog.Any("error", err))
+			logging.SanitizedErr(err))
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
 	slog.Debug("K8s list completed",
