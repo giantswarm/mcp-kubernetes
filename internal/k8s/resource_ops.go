@@ -40,6 +40,14 @@ func getResource(ctx context.Context, dynamicClient dynamic.Interface, discovery
 		return nil, err
 	}
 
+	return getResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name)
+}
+
+// getResourceWithGVR retrieves a specific resource using a pre-resolved GVR.
+// This is an optimization path that avoids the discovery client when the GVR is already known.
+func getResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
+	namespaced bool, namespace, resourceType, name string) (runtime.Object, error) {
+
 	var resourceInterface dynamic.ResourceInterface
 	if namespaced && namespace != "" {
 		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
@@ -75,6 +83,16 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 		slog.Bool("namespaced", namespaced),
 		slog.Duration("elapsed", time.Since(listStart)))
 
+	return listResourcesWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, opts)
+}
+
+// listResourcesWithGVR retrieves resources using a pre-resolved GVR.
+// This is an optimization path that avoids the discovery client when the GVR is already known.
+func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
+	namespaced bool, namespace string, opts ListOptions) (*PaginatedListResponse, error) {
+
+	listStart := time.Now()
+
 	listOpts := metav1.ListOptions{
 		LabelSelector: opts.LabelSelector,
 		FieldSelector: opts.FieldSelector,
@@ -97,11 +115,11 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 	list, err := resourceInterface.List(ctx, listOpts)
 	if err != nil {
 		slog.Debug("K8s API list failed",
-			slog.String("resourceType", resourceType),
+			slog.String("gvr", gvr.String()),
 			slog.Bool("allNamespaces", opts.AllNamespaces),
 			slog.Duration("elapsed", time.Since(listStart)),
 			logging.SanitizedErr(err))
-		return nil, fmt.Errorf("failed to list %s: %w", resourceType, err)
+		return nil, fmt.Errorf("failed to list %s: %w", gvr.Resource, err)
 	}
 	slog.Debug("K8s API list completed",
 		slog.Int("items", len(list.Items)),
@@ -256,6 +274,14 @@ func deleteResource(ctx context.Context, dynamicClient dynamic.Interface, discov
 		return err
 	}
 
+	return deleteResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, dryRun)
+}
+
+// deleteResourceWithGVR removes a resource using a pre-resolved GVR.
+// This is an optimization path that avoids the discovery client when the GVR is already known.
+func deleteResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
+	namespaced bool, namespace, resourceType, name string, dryRun bool) error {
+
 	deleteOpts := metav1.DeleteOptions{}
 	if dryRun {
 		deleteOpts.DryRun = []string{metav1.DryRunAll}
@@ -268,7 +294,7 @@ func deleteResource(ctx context.Context, dynamicClient dynamic.Interface, discov
 		resourceInterface = dynamicClient.Resource(gvr)
 	}
 
-	err = resourceInterface.Delete(ctx, name, deleteOpts)
+	err := resourceInterface.Delete(ctx, name, deleteOpts)
 	if err != nil {
 		return fmt.Errorf("failed to delete %s %q: %w", resourceType, name, err)
 	}
@@ -285,6 +311,14 @@ func patchResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 	if err != nil {
 		return nil, err
 	}
+
+	return patchResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, patchType, data, dryRun)
+}
+
+// patchResourceWithGVR updates specific fields of a resource using a pre-resolved GVR.
+// This is an optimization path that avoids the discovery client when the GVR is already known.
+func patchResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
+	namespaced bool, namespace, resourceType, name string, patchType types.PatchType, data []byte, dryRun bool) (runtime.Object, error) {
 
 	patchOpts := metav1.PatchOptions{}
 	if dryRun {
@@ -311,19 +345,18 @@ func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string,
 	replicas int32, dryRun bool) error {
 
-	// For scale operations, we need to use a different approach with the dynamic client
-	// We'll use JSON patch to update the replicas field
-
-	patchData := fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas)
-	patchOpts := metav1.PatchOptions{}
-	if dryRun {
-		patchOpts.DryRun = []string{metav1.DryRunAll}
-	}
-
 	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
 	if err != nil {
 		return err
 	}
+
+	return scaleResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, replicas, dryRun)
+}
+
+// scaleResourceWithGVR changes the number of replicas using a pre-resolved GVR.
+// This is an optimization path that avoids the discovery client when the GVR is already known.
+func scaleResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
+	namespaced bool, namespace, resourceType, name string, replicas int32, dryRun bool) error {
 
 	// Validate this is a scalable resource
 	switch strings.ToLower(resourceType) {
@@ -335,6 +368,13 @@ func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 		return fmt.Errorf("resource type %q is not scalable", resourceType)
 	}
 
+	// For scale operations, we use JSON patch to update the replicas field
+	patchData := fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas)
+	patchOpts := metav1.PatchOptions{}
+	if dryRun {
+		patchOpts.DryRun = []string{metav1.DryRunAll}
+	}
+
 	var resourceInterface dynamic.ResourceInterface
 	if namespaced && namespace != "" {
 		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
@@ -342,7 +382,7 @@ func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 		resourceInterface = dynamicClient.Resource(gvr)
 	}
 
-	_, err = resourceInterface.Patch(ctx, name, types.MergePatchType, []byte(patchData), patchOpts)
+	_, err := resourceInterface.Patch(ctx, name, types.MergePatchType, []byte(patchData), patchOpts)
 	if err != nil {
 		return fmt.Errorf("failed to scale %s %q: %w", resourceType, name, err)
 	}
@@ -737,6 +777,25 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 }
 
 // Shared helper functions
+
+// tryResolveBuiltinResource attempts to resolve a resource type using only the builtin resources map.
+// Returns the GVR and namespaced flag if found, otherwise returns false for the found flag.
+// This is an optimization to avoid discovery API calls for common resources.
+func tryResolveBuiltinResource(resourceType, apiGroup string, builtinResources map[string]schema.GroupVersionResource) (schema.GroupVersionResource, bool, bool) {
+	resourceType = strings.ToLower(resourceType)
+	requestedGroup, _ := parseAPIGroup(apiGroup)
+
+	if builtinResources != nil {
+		if gvr, exists := builtinResources[resourceType]; exists {
+			if requestedGroup == "" || groupsMatch(requestedGroup, gvr.Group) {
+				namespaced := isResourceNamespacedShared(gvr)
+				return gvr, namespaced, true
+			}
+		}
+	}
+
+	return schema.GroupVersionResource{}, false, false
+}
 
 // groupsMatch determines if a requested API group matches an actual group value.
 // It treats "core" and "" (empty string) as equivalent for core resources.

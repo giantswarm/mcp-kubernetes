@@ -74,6 +74,9 @@ type BearerTokenClientFactory struct {
 
 	// Shared builtin resources mapping
 	builtinResources map[string]schema.GroupVersionResource
+
+	// Client cache for reusing clients across requests with the same token
+	cache *clientCache
 }
 
 // NewBearerTokenClientFactory creates a new factory for bearer token clients.
@@ -119,17 +122,38 @@ func NewBearerTokenClientFactory(config *ClientConfig) (*BearerTokenClientFactor
 		debugMode:            config.DebugMode,
 		logger:               config.Logger,
 		builtinResources:     builtinResources,
+		cache:                newClientCache(DefaultClientCacheTTL),
 	}, nil
 }
 
+// Close releases resources held by the factory, including the client cache.
+// This should be called when the factory is no longer needed.
+func (f *BearerTokenClientFactory) Close() {
+	if f.cache != nil {
+		f.cache.Close()
+	}
+}
+
 // CreateBearerTokenClient creates a new Kubernetes client that uses the provided
-// bearer token for authentication.
+// bearer token for authentication. Clients are cached by token hash to avoid
+// creating new clients for every request, improving performance significantly.
 func (f *BearerTokenClientFactory) CreateBearerTokenClient(bearerToken string) (Client, error) {
 	if bearerToken == "" {
 		return nil, fmt.Errorf("bearer token is required")
 	}
 
-	return &bearerTokenClient{
+	// Check cache first
+	if f.cache != nil {
+		if cachedClient := f.cache.Get(bearerToken); cachedClient != nil {
+			if f.logger != nil {
+				f.logger.Debug("using cached bearer token client")
+			}
+			return cachedClient, nil
+		}
+	}
+
+	// Create new client
+	client := &bearerTokenClient{
 		bearerToken:          bearerToken,
 		clusterHost:          f.clusterHost,
 		caCertFile:           f.caCertFile,
@@ -143,7 +167,17 @@ func (f *BearerTokenClientFactory) CreateBearerTokenClient(bearerToken string) (
 		timeout:              f.timeout,
 		debugMode:            f.debugMode,
 		logger:               f.logger,
-	}, nil
+	}
+
+	// Cache the new client
+	if f.cache != nil {
+		f.cache.Set(bearerToken, client)
+		if f.logger != nil {
+			f.logger.Debug("created and cached new bearer token client")
+		}
+	}
+
+	return client, nil
 }
 
 // getRestConfig returns the REST config with bearer token authentication.
@@ -403,6 +437,13 @@ func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, res
 		return nil, err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return getResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
@@ -429,11 +470,24 @@ func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, re
 	}
 	c.debugLog("acquired dynamic client", "elapsed", time.Since(listStart))
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "elapsed", time.Since(listStart), "gvr", gvr.String())
+		result, err := listResourcesWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, opts)
+		if err != nil {
+			c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", logging.SanitizeHost(err.Error()))
+			return nil, err
+		}
+		c.debugLog("list operation completed (builtin)", "elapsed", time.Since(listStart), "items", result.TotalItems)
+		return result, nil
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
 	}
-	c.debugLog("acquired discovery client", "elapsed", time.Since(listStart))
+	c.debugLog("acquired discovery client (non-builtin resource)", "elapsed", time.Since(listStart))
 
 	result, err := listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
 	if err != nil {
@@ -537,6 +591,13 @@ func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, 
 		return err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return deleteResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, c.dryRun)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return err
@@ -562,6 +623,13 @@ func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, r
 		return nil, err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return patchResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, patchType, data, c.dryRun)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
@@ -587,6 +655,13 @@ func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, r
 		return err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return scaleResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, replicas, c.dryRun)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return err
