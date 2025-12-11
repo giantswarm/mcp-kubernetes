@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -15,6 +14,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 )
 
 // bearerTokenClient implements the Client interface using bearer token authentication.
@@ -28,12 +29,12 @@ type bearerTokenClient struct {
 	clusterHost string
 	caCertFile  string
 
-	// Client cache (lazily initialized)
-	mu              sync.RWMutex
-	clientset       kubernetes.Interface
-	dynamicClient   dynamic.Interface
-	discoveryClient discovery.DiscoveryInterface
-	restConfig      *rest.Config
+	// Lazily initialized clients using thread-safe double-check locking.
+	// Each client has its own lazyValue to avoid lock contention.
+	restConfigLazy      lazyValue[*rest.Config]
+	clientsetLazy       lazyValue[kubernetes.Interface]
+	dynamicClientLazy   lazyValue[dynamic.Interface]
+	discoveryClientLazy lazyValue[discovery.DiscoveryInterface]
 
 	// Resource type mappings (shared with base client)
 	builtinResources map[string]schema.GroupVersionResource
@@ -72,6 +73,9 @@ type BearerTokenClientFactory struct {
 
 	// Shared builtin resources mapping
 	builtinResources map[string]schema.GroupVersionResource
+
+	// Client cache for reusing clients across requests with the same token
+	cache *clientCache
 }
 
 // NewBearerTokenClientFactory creates a new factory for bearer token clients.
@@ -104,6 +108,13 @@ func NewBearerTokenClientFactory(config *ClientConfig) (*BearerTokenClientFactor
 	// Initialize builtin resources mapping
 	builtinResources := initBuiltinResources()
 
+	// Configure cache with optional metrics
+	cacheConfig := ClientCacheConfig{
+		TTL:        config.CacheTTL,
+		MaxEntries: config.CacheMaxEntries,
+		Metrics:    config.CacheMetrics,
+	}
+
 	return &BearerTokenClientFactory{
 		clusterHost:          inClusterConfig.Host,
 		caCertFile:           DefaultCACertPath,
@@ -117,17 +128,38 @@ func NewBearerTokenClientFactory(config *ClientConfig) (*BearerTokenClientFactor
 		debugMode:            config.DebugMode,
 		logger:               config.Logger,
 		builtinResources:     builtinResources,
+		cache:                newClientCacheWithConfig(cacheConfig),
 	}, nil
 }
 
+// Close releases resources held by the factory, including the client cache.
+// This should be called when the factory is no longer needed.
+func (f *BearerTokenClientFactory) Close() {
+	if f.cache != nil {
+		f.cache.Close()
+	}
+}
+
 // CreateBearerTokenClient creates a new Kubernetes client that uses the provided
-// bearer token for authentication.
+// bearer token for authentication. Clients are cached by token hash to avoid
+// creating new clients for every request, improving performance significantly.
 func (f *BearerTokenClientFactory) CreateBearerTokenClient(bearerToken string) (Client, error) {
 	if bearerToken == "" {
 		return nil, fmt.Errorf("bearer token is required")
 	}
 
-	return &bearerTokenClient{
+	// Check cache first
+	if f.cache != nil {
+		if cachedClient := f.cache.Get(bearerToken); cachedClient != nil {
+			if f.logger != nil {
+				f.logger.Debug("using cached bearer token client")
+			}
+			return cachedClient, nil
+		}
+	}
+
+	// Create new client
+	client := &bearerTokenClient{
 		bearerToken:          bearerToken,
 		clusterHost:          f.clusterHost,
 		caCertFile:           f.caCertFile,
@@ -141,137 +173,82 @@ func (f *BearerTokenClientFactory) CreateBearerTokenClient(bearerToken string) (
 		timeout:              f.timeout,
 		debugMode:            f.debugMode,
 		logger:               f.logger,
-	}, nil
+	}
+
+	// Cache the new client
+	if f.cache != nil {
+		f.cache.Set(bearerToken, client)
+		if f.logger != nil {
+			f.logger.Debug("created and cached new bearer token client")
+		}
+	}
+
+	return client, nil
 }
 
 // getRestConfig returns the REST config with bearer token authentication.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getRestConfig() (*rest.Config, error) {
-	c.mu.RLock()
-	if c.restConfig != nil {
-		config := c.restConfig
-		c.mu.RUnlock()
-		return config, nil
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.restConfig != nil {
-		return c.restConfig, nil
-	}
-
-	// Create REST config with bearer token
-	config := &rest.Config{
-		Host:        c.clusterHost,
-		BearerToken: c.bearerToken,
-		TLSClientConfig: rest.TLSClientConfig{
-			CAFile: c.caCertFile,
-		},
-		QPS:     c.qpsLimit,
-		Burst:   c.burstLimit,
-		Timeout: c.timeout,
-	}
-
-	c.restConfig = config
-	return config, nil
+	return c.restConfigLazy.Get(func() (*rest.Config, error) {
+		return &rest.Config{
+			Host:        c.clusterHost,
+			BearerToken: c.bearerToken,
+			TLSClientConfig: rest.TLSClientConfig{
+				CAFile: c.caCertFile,
+			},
+			QPS:     c.qpsLimit,
+			Burst:   c.burstLimit,
+			Timeout: c.timeout,
+		}, nil
+	})
 }
 
 // getClientset returns the Kubernetes clientset.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getClientset() (kubernetes.Interface, error) {
-	c.mu.RLock()
-	if c.clientset != nil {
-		cs := c.clientset
-		c.mu.RUnlock()
-		return cs, nil
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.clientset != nil {
-		return c.clientset, nil
-	}
-
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create clientset: %w", err)
-	}
-
-	c.clientset = clientset
-	return clientset, nil
+	return c.clientsetLazy.Get(func() (kubernetes.Interface, error) {
+		config, err := c.getRestConfig()
+		if err != nil {
+			return nil, err
+		}
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create clientset: %w", err)
+		}
+		return clientset, nil
+	})
 }
 
 // getDynamicClient returns the dynamic client.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getDynamicClient() (dynamic.Interface, error) {
-	c.mu.RLock()
-	if c.dynamicClient != nil {
-		dc := c.dynamicClient
-		c.mu.RUnlock()
-		return dc, nil
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.dynamicClient != nil {
-		return c.dynamicClient, nil
-	}
-
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	c.dynamicClient = dynamicClient
-	return dynamicClient, nil
+	return c.dynamicClientLazy.Get(func() (dynamic.Interface, error) {
+		config, err := c.getRestConfig()
+		if err != nil {
+			return nil, err
+		}
+		dynamicClient, err := dynamic.NewForConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+		}
+		return dynamicClient, nil
+	})
 }
 
 // getDiscoveryClient returns the discovery client.
+// Uses lazyValue for thread-safe lazy initialization with double-check locking.
 func (c *bearerTokenClient) getDiscoveryClient() (discovery.DiscoveryInterface, error) {
-	c.mu.RLock()
-	if c.discoveryClient != nil {
-		dc := c.discoveryClient
-		c.mu.RUnlock()
-		return dc, nil
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if c.discoveryClient != nil {
-		return c.discoveryClient, nil
-	}
-
-	config, err := c.getRestConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create discovery client: %w", err)
-	}
-
-	c.discoveryClient = discoveryClient
-	return discoveryClient, nil
+	return c.discoveryClientLazy.Get(func() (discovery.DiscoveryInterface, error) {
+		config, err := c.getRestConfig()
+		if err != nil {
+			return nil, err
+		}
+		discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create discovery client: %w", err)
+		}
+		return discoveryClient, nil
+	})
 }
 
 // isOperationAllowed checks if an operation is allowed based on configuration.
@@ -324,6 +301,14 @@ func (c *bearerTokenClient) logOperation(operation, context, namespace, resource
 			"resource", resource,
 			"name", name,
 		)
+	}
+}
+
+// debugLog logs a debug message if the logger is configured.
+// This is a convenience wrapper that handles nil logger checks.
+func (c *bearerTokenClient) debugLog(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Debug(msg, args...)
 	}
 }
 
@@ -390,6 +375,13 @@ func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, res
 		return nil, err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return getResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
@@ -401,6 +393,7 @@ func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, res
 
 // List retrieves resources with pagination support.
 func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
+	listStart := time.Now()
 	c.logOperation("list", kubeContext, namespace, resourceType, "")
 
 	if namespace != "" && !opts.AllNamespaces {
@@ -413,13 +406,34 @@ func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, re
 	if err != nil {
 		return nil, err
 	}
+	c.debugLog("acquired dynamic client", "elapsed", time.Since(listStart))
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "elapsed", time.Since(listStart), "gvr", gvr.String())
+		result, err := listResourcesWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, opts)
+		if err != nil {
+			c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", logging.SanitizeHost(err.Error()))
+			return nil, err
+		}
+		c.debugLog("list operation completed (builtin)", "elapsed", time.Since(listStart), "items", result.TotalItems)
+		return result, nil
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
 	}
+	c.debugLog("acquired discovery client (non-builtin resource)", "elapsed", time.Since(listStart))
 
-	return listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
+	result, err := listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
+	if err != nil {
+		c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", logging.SanitizeHost(err.Error()))
+		return nil, err
+	}
+	c.debugLog("list operation completed", "elapsed", time.Since(listStart), "items", result.TotalItems)
+	return result, nil
 }
 
 // Describe provides detailed information about a resource.
@@ -515,6 +529,13 @@ func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, 
 		return err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return deleteResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, c.dryRun)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return err
@@ -540,6 +561,13 @@ func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, r
 		return nil, err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return patchResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, patchType, data, c.dryRun)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
@@ -565,6 +593,13 @@ func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, r
 		return err
 	}
 
+	// Try to resolve using builtin resources first (avoids discovery client creation)
+	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
+		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
+		return scaleResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, replicas, c.dryRun)
+	}
+
+	// Fallback to discovery for non-builtin resources
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return err

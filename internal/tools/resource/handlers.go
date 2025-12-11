@@ -106,7 +106,8 @@ func getOutputProcessor(sc *server.ServerContext) *output.Processor {
 
 // handleListResources handles kubectl list operations
 func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
-	slog.Debug("handleListResources called", slog.String("method", request.Method))
+	handlerStart := time.Now()
+	slog.Debug("list resources handler started", slog.String("method", request.Method))
 	args := request.GetArguments()
 
 	// Extract cluster parameter for multi-cluster support
@@ -185,15 +186,24 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(errMsg), nil
 	}
 	k8sClient := client.K8s()
+	slog.Debug("acquired cluster client", slog.Duration("elapsed", time.Since(handlerStart)))
 
-	start := time.Now()
+	k8sStart := time.Now()
 	paginatedResponse, err := k8sClient.List(ctx, kubeContext, namespace, resourceType, apiGroup, opts)
-	duration := time.Since(start)
+	k8sDuration := time.Since(k8sStart)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusError, k8sDuration)
+		slog.Debug("K8s list failed",
+			slog.String("resourceType", resourceType),
+			slog.Duration("duration", k8sDuration),
+			logging.SanitizedErr(err))
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
+	slog.Debug("K8s list completed",
+		slog.String("resourceType", resourceType),
+		slog.Int("items", paginatedResponse.TotalItems),
+		slog.Duration("duration", k8sDuration))
 
 	// Apply client-side filtering if criteria provided
 	if len(filterCriteria) > 0 {
@@ -212,7 +222,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 				slog.Int("filter_count", len(filterCriteria)))
 		}
 	}
-	recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, k8sDuration)
 
 	// Get output processor for slim output and secret masking
 	processor := getOutputProcessor(sc)
@@ -245,6 +255,9 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal paginated resources: %v", err)), nil
 		}
+		slog.Debug("list resources handler completed",
+			slog.Int("bytes", len(jsonData)),
+			slog.Duration("elapsed", time.Since(handlerStart)))
 		return mcp.NewToolResultText(string(jsonData)), nil
 	}
 
@@ -262,6 +275,9 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal paginated resource summary: %v", err)), nil
 	}
 
+	slog.Debug("list resources handler completed",
+		slog.Int("bytes", len(jsonData)),
+		slog.Duration("elapsed", time.Since(handlerStart)))
 	return mcp.NewToolResultText(string(jsonData)), nil
 }
 

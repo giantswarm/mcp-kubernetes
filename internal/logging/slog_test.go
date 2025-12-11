@@ -255,6 +255,28 @@ func TestSlogAttributes(t *testing.T) {
 		assert.Equal(t, "test error message", attr.Value.String())
 	})
 
+	t.Run("SanitizedErr with nil", func(t *testing.T) {
+		attr := SanitizedErr(nil)
+		assert.Equal(t, KeyError, attr.Key)
+		assert.Equal(t, "", attr.Value.String())
+	})
+
+	t.Run("SanitizedErr with IP in error message", func(t *testing.T) {
+		testErr := fmt.Errorf("failed to connect to https://192.168.1.100:6443: connection refused")
+		attr := SanitizedErr(testErr)
+		assert.Equal(t, KeyError, attr.Key)
+		assert.NotContains(t, attr.Value.String(), "192.168.1.100", "IP address should be sanitized")
+		assert.Contains(t, attr.Value.String(), "<redacted-ip>", "IP should be replaced with redacted marker")
+		assert.Contains(t, attr.Value.String(), "connection refused", "rest of error should be preserved")
+	})
+
+	t.Run("SanitizedErr with hostname only", func(t *testing.T) {
+		testErr := fmt.Errorf("failed to connect to https://api.cluster.example.com:6443")
+		attr := SanitizedErr(testErr)
+		assert.Equal(t, KeyError, attr.Key)
+		assert.Contains(t, attr.Value.String(), "api.cluster.example.com", "hostname should be preserved")
+	})
+
 	t.Run("UserHash", func(t *testing.T) {
 		attr := UserHash("user@example.com")
 		assert.Equal(t, KeyUserHash, attr.Key)
