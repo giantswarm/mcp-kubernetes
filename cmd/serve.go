@@ -303,6 +303,14 @@ func validateEncryptionKey(key []byte) error {
 
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
+	// Configure default slog logger level based on debug mode
+	// This ensures all slog.Debug() calls throughout the codebase respect the --debug flag
+	if config.DebugMode {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})))
+	}
+
 	// Create Kubernetes client configuration with structured logging
 	var k8sLogger = logging.NewSlogAdapter(slog.Default())
 
