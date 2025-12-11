@@ -330,6 +330,14 @@ func (c *bearerTokenClient) logOperation(operation, context, namespace, resource
 	}
 }
 
+// debugLog logs a debug message if the logger is configured.
+// This is a convenience wrapper that handles nil logger checks.
+func (c *bearerTokenClient) debugLog(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Debug(msg, args...)
+	}
+}
+
 // getInClusterNamespace reads the namespace from the service account namespace file.
 func (c *bearerTokenClient) getInClusterNamespace() string {
 	data, err := os.ReadFile(DefaultNamespacePath)
@@ -413,36 +421,25 @@ func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, re
 		}
 	}
 
-	if c.logger != nil {
-		c.logger.Debug("bearerTokenClient.List: getting dynamic client", "elapsed", time.Since(listStart).String())
-	}
 	dynamicClient, err := c.getDynamicClient()
 	if err != nil {
 		return nil, err
 	}
-	if c.logger != nil {
-		c.logger.Debug("bearerTokenClient.List: got dynamic client", "elapsed", time.Since(listStart).String())
-	}
+	c.debugLog("acquired dynamic client", "elapsed", time.Since(listStart))
 
-	if c.logger != nil {
-		c.logger.Debug("bearerTokenClient.List: getting discovery client", "elapsed", time.Since(listStart).String())
-	}
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
 	}
-	if c.logger != nil {
-		c.logger.Debug("bearerTokenClient.List: got discovery client", "elapsed", time.Since(listStart).String())
-	}
+	c.debugLog("acquired discovery client", "elapsed", time.Since(listStart))
 
-	if c.logger != nil {
-		c.logger.Debug("bearerTokenClient.List: calling listResources", "elapsed", time.Since(listStart).String())
-	}
 	result, err := listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
-	if c.logger != nil {
-		c.logger.Debug("bearerTokenClient.List: listResources returned", "elapsed", time.Since(listStart).String(), "error", err)
+	if err != nil {
+		c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", err)
+		return nil, err
 	}
-	return result, err
+	c.debugLog("list operation completed", "elapsed", time.Since(listStart), "items", result.TotalItems)
+	return result, nil
 }
 
 // Describe provides detailed information about a resource.
