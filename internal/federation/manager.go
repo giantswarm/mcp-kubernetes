@@ -35,6 +35,14 @@ type ClusterClientManager interface {
 	// Like GetClient, the returned client is configured for user impersonation.
 	GetDynamicClient(ctx context.Context, clusterName string, user *UserInfo) (dynamic.Interface, error)
 
+	// GetRestConfig returns the REST configuration for the target cluster.
+	// This is needed for operations that require direct REST access,
+	// such as exec and port-forward which create SPDY connections.
+	// If clusterName is empty, returns the local (Management Cluster) config.
+	//
+	// Like GetClient, the returned config is configured for user impersonation.
+	GetRestConfig(ctx context.Context, clusterName string, user *UserInfo) (*rest.Config, error)
+
 	// ListClusters returns a list of available workload clusters.
 	// The list is filtered based on the user's RBAC permissions - only clusters
 	// the user has access to view will be returned.
@@ -319,6 +327,33 @@ func (m *Manager) GetDynamicClient(ctx context.Context, clusterName string, user
 	return m.getRemoteDynamicWithImpersonation(ctx, clusterName, user)
 }
 
+// GetRestConfig returns the REST configuration for the target cluster.
+// Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
+// Returns ErrInvalidClusterName if the cluster name fails validation.
+func (m *Manager) GetRestConfig(ctx context.Context, clusterName string, user *UserInfo) (*rest.Config, error) {
+	if err := m.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// Validate user info (required to prevent privilege escalation)
+	if err := ValidateUserInfo(user); err != nil {
+		return nil, err
+	}
+
+	// If no cluster specified, return local rest config with impersonation
+	if clusterName == "" {
+		return m.getLocalRestConfigWithImpersonation(ctx, user)
+	}
+
+	// Validate cluster name
+	if err := ValidateClusterName(clusterName); err != nil {
+		return nil, err
+	}
+
+	// Get remote cluster rest config with impersonation
+	return m.getRemoteRestConfigWithImpersonation(ctx, clusterName, user)
+}
+
 // ListClusters returns all available workload clusters.
 // Returns ErrUserInfoRequired if user is nil (to prevent privilege escalation).
 //
@@ -475,6 +510,38 @@ func (m *Manager) getRemoteDynamicWithImpersonation(ctx context.Context, cluster
 	}
 
 	return dynamicClient, nil
+}
+
+// getLocalRestConfigWithImpersonation returns the local rest config for the user.
+// With OAuth downstream, the ClientProvider returns a config authenticated as the user.
+// Note: user is guaranteed to be non-nil and validated by the public API methods.
+func (m *Manager) getLocalRestConfigWithImpersonation(ctx context.Context, user *UserInfo) (*rest.Config, error) {
+	// Use empty string for local cluster
+	const localClusterName = ""
+
+	// Try to get from cache or create new
+	_, _, restConfig, err := m.cache.GetOrCreateFull(ctx, localClusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+		return m.clientProvider.GetClientsForUser(ctx, user)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local rest config for user: %w", err)
+	}
+
+	return restConfig, nil
+}
+
+// getRemoteRestConfigWithImpersonation returns a rest config for a remote workload cluster.
+// Note: user is guaranteed to be non-nil and validated by the public API methods.
+func (m *Manager) getRemoteRestConfigWithImpersonation(ctx context.Context, clusterName string, user *UserInfo) (*rest.Config, error) {
+	// Get config from cache or create new
+	_, _, restConfig, err := m.cache.GetOrCreateFull(ctx, clusterName, user.Email, func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+		return m.createRemoteClusterClient(ctx, clusterName, user)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return restConfig, nil
 }
 
 // createRemoteClusterClient creates Kubernetes clients for a remote workload cluster.
