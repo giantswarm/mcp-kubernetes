@@ -327,6 +327,53 @@
             },
             "existingSecret": {
               "type": "string"
+            },
+            "provider": {
+              "type": "string",
+              "enum": ["dex", "google"],
+              "description": "OAuth provider: dex or google"
+            },
+            "dex": {
+              "type": "object",
+              "description": "Dex OIDC provider configuration",
+              "properties": {
+                "issuerURL": {
+                  "type": "string",
+                  "description": "Dex OIDC issuer URL"
+                },
+                "clientID": {
+                  "type": "string",
+                  "description": "Dex OAuth Client ID"
+                },
+                "clientSecret": {
+                  "type": "string",
+                  "description": "Dex OAuth Client Secret"
+                },
+                "connectorID": {
+                  "type": "string",
+                  "description": "Dex connector ID to bypass connector selection screen"
+                },
+                "kubernetesAuthenticatorClientID": {
+                  "type": "string",
+                  "description": "Kubernetes authenticator client ID for cross-client audience tokens"
+                },
+                "caSecret": {
+                  "type": "object",
+                  "description": "CA certificate secret for Dex TLS verification",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "enableDownstreamOAuth": {
+              "type": "boolean",
+              "description": "Enable downstream OAuth token passthrough to Kubernetes API"
             }
           }
         },

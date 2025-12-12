@@ -115,24 +115,25 @@ func newServeCmd() *cobra.Command {
 		httpEndpoint    string
 
 		// OAuth options
-		enableOAuth                   bool
-		oauthBaseURL                  string
-		oauthProvider                 string
-		googleClientID                string
-		googleClientSecret            string
-		dexIssuerURL                  string
-		dexClientID                   string
-		dexClientSecret               string
-		dexConnectorID                string
-		dexCAFile                     string
-		disableStreaming              bool
-		registrationToken             string
-		allowPublicRegistration       bool
-		allowInsecureAuthWithoutState bool
-		allowPrivateOAuthURLs         bool
-		maxClientsPerIP               int
-		oauthEncryptionKey            string
-		downstreamOAuth               bool
+		enableOAuth                        bool
+		oauthBaseURL                       string
+		oauthProvider                      string
+		googleClientID                     string
+		googleClientSecret                 string
+		dexIssuerURL                       string
+		dexClientID                        string
+		dexClientSecret                    string
+		dexConnectorID                     string
+		dexCAFile                          string
+		dexKubernetesAuthenticatorClientID string
+		disableStreaming                   bool
+		registrationToken                  string
+		allowPublicRegistration            bool
+		allowInsecureAuthWithoutState      bool
+		allowPrivateOAuthURLs              bool
+		maxClientsPerIP                    int
+		oauthEncryptionKey                 string
+		downstreamOAuth                    bool
 
 		// OAuth storage options
 		oauthStorageType string
@@ -199,24 +200,25 @@ Downstream OAuth (--downstream-oauth):
 				DebugMode:          debugMode,
 				InCluster:          inCluster,
 				OAuth: OAuthServeConfig{
-					Enabled:                       enableOAuth,
-					BaseURL:                       oauthBaseURL,
-					Provider:                      oauthProvider,
-					GoogleClientID:                googleClientID,
-					GoogleClientSecret:            googleClientSecret,
-					DexIssuerURL:                  dexIssuerURL,
-					DexClientID:                   dexClientID,
-					DexClientSecret:               dexClientSecret,
-					DexConnectorID:                dexConnectorID,
-					DexCAFile:                     dexCAFile,
-					DisableStreaming:              disableStreaming,
-					RegistrationToken:             registrationToken,
-					AllowPublicRegistration:       allowPublicRegistration,
-					AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
-					AllowPrivateURLs:              allowPrivateOAuthURLs,
-					MaxClientsPerIP:               maxClientsPerIP,
-					EncryptionKey:                 oauthEncryptionKey,
-					Storage:                       storageConfig,
+					Enabled:                            enableOAuth,
+					BaseURL:                            oauthBaseURL,
+					Provider:                           oauthProvider,
+					GoogleClientID:                     googleClientID,
+					GoogleClientSecret:                 googleClientSecret,
+					DexIssuerURL:                       dexIssuerURL,
+					DexClientID:                        dexClientID,
+					DexClientSecret:                    dexClientSecret,
+					DexConnectorID:                     dexConnectorID,
+					DexCAFile:                          dexCAFile,
+					DexKubernetesAuthenticatorClientID: dexKubernetesAuthenticatorClientID,
+					DisableStreaming:                   disableStreaming,
+					RegistrationToken:                  registrationToken,
+					AllowPublicRegistration:            allowPublicRegistration,
+					AllowInsecureAuthWithoutState:      allowInsecureAuthWithoutState,
+					AllowPrivateURLs:                   allowPrivateOAuthURLs,
+					MaxClientsPerIP:                    maxClientsPerIP,
+					EncryptionKey:                      oauthEncryptionKey,
+					Storage:                            storageConfig,
 				},
 				DownstreamOAuth: downstreamOAuth,
 			}
@@ -250,6 +252,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&dexClientSecret, "dex-client-secret", "", "Dex OAuth Client Secret (can also be set via DEX_CLIENT_SECRET env var)")
 	cmd.Flags().StringVar(&dexConnectorID, "dex-connector-id", "", "Dex connector ID to bypass connector selection (optional, can also be set via DEX_CONNECTOR_ID env var)")
 	cmd.Flags().StringVar(&dexCAFile, "dex-ca-file", "", "Path to CA certificate file for Dex TLS verification (optional, can also be set via DEX_CA_FILE env var)")
+	cmd.Flags().StringVar(&dexKubernetesAuthenticatorClientID, "dex-k8s-authenticator-client-id", "", "Dex client ID for Kubernetes API authentication (enables cross-client audience, can also be set via DEX_K8S_AUTHENTICATOR_CLIENT_ID env var)")
 	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
 	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
@@ -577,6 +580,7 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.DexClientSecret, "DEX_CLIENT_SECRET")
 			loadEnvIfEmpty(&config.OAuth.DexConnectorID, "DEX_CONNECTOR_ID")
 			loadEnvIfEmpty(&config.OAuth.DexCAFile, "DEX_CA_FILE")
+			loadEnvIfEmpty(&config.OAuth.DexKubernetesAuthenticatorClientID, "DEX_K8S_AUTHENTICATOR_CLIENT_ID")
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
 			// Note: Valkey storage env vars are loaded in RunE closure where cmd is available
 
@@ -604,6 +608,15 @@ func runServe(config ServeConfig) error {
 				}
 				if config.OAuth.DexClientSecret == "" {
 					return fmt.Errorf("dex client secret is required when using Dex provider (--dex-client-secret or DEX_CLIENT_SECRET)")
+				}
+				// Validate Kubernetes authenticator client ID format (if provided)
+				if err := validateOAuthClientID(config.OAuth.DexKubernetesAuthenticatorClientID, "Dex Kubernetes authenticator client ID"); err != nil {
+					return err
+				}
+				// Warn if Kubernetes authenticator client ID is set but downstream OAuth is not enabled
+				if config.OAuth.DexKubernetesAuthenticatorClientID != "" && !config.DownstreamOAuth {
+					slog.Warn("Dex Kubernetes authenticator client ID is configured but downstream OAuth is disabled; cross-client audience tokens will be requested but not used for Kubernetes API authentication",
+						"hint", "enable --downstream-oauth to use OAuth tokens for Kubernetes API authentication")
 				}
 			case OAuthProviderGoogle:
 				if config.OAuth.GoogleClientID == "" {
@@ -655,26 +668,27 @@ func runServe(config ServeConfig) error {
 			}
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
-				BaseURL:                       config.OAuth.BaseURL,
-				Provider:                      config.OAuth.Provider,
-				GoogleClientID:                config.OAuth.GoogleClientID,
-				GoogleClientSecret:            config.OAuth.GoogleClientSecret,
-				DexIssuerURL:                  config.OAuth.DexIssuerURL,
-				DexClientID:                   config.OAuth.DexClientID,
-				DexClientSecret:               config.OAuth.DexClientSecret,
-				DexConnectorID:                config.OAuth.DexConnectorID,
-				DexCAFile:                     config.OAuth.DexCAFile,
-				DisableStreaming:              config.OAuth.DisableStreaming,
-				DebugMode:                     config.DebugMode,
-				AllowPublicClientRegistration: config.OAuth.AllowPublicRegistration,
-				RegistrationAccessToken:       config.OAuth.RegistrationToken,
-				AllowInsecureAuthWithoutState: config.OAuth.AllowInsecureAuthWithoutState,
-				MaxClientsPerIP:               config.OAuth.MaxClientsPerIP,
-				EncryptionKey:                 encryptionKey,
-				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == envValueTrue,
-				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
-				InstrumentationProvider:       instrumentationProvider,
-				Storage:                       config.OAuth.Storage, // Same type, no conversion needed
+				BaseURL:                            config.OAuth.BaseURL,
+				Provider:                           config.OAuth.Provider,
+				GoogleClientID:                     config.OAuth.GoogleClientID,
+				GoogleClientSecret:                 config.OAuth.GoogleClientSecret,
+				DexIssuerURL:                       config.OAuth.DexIssuerURL,
+				DexClientID:                        config.OAuth.DexClientID,
+				DexClientSecret:                    config.OAuth.DexClientSecret,
+				DexConnectorID:                     config.OAuth.DexConnectorID,
+				DexCAFile:                          config.OAuth.DexCAFile,
+				DexKubernetesAuthenticatorClientID: config.OAuth.DexKubernetesAuthenticatorClientID,
+				DisableStreaming:                   config.OAuth.DisableStreaming,
+				DebugMode:                          config.DebugMode,
+				AllowPublicClientRegistration:      config.OAuth.AllowPublicRegistration,
+				RegistrationAccessToken:            config.OAuth.RegistrationToken,
+				AllowInsecureAuthWithoutState:      config.OAuth.AllowInsecureAuthWithoutState,
+				MaxClientsPerIP:                    config.OAuth.MaxClientsPerIP,
+				EncryptionKey:                      encryptionKey,
+				EnableHSTS:                         os.Getenv("ENABLE_HSTS") == envValueTrue,
+				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
+				InstrumentationProvider:            instrumentationProvider,
+				Storage:                            config.OAuth.Storage, // Same type, no conversion needed
 			}, serverContext)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)

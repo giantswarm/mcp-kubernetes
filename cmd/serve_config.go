@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
@@ -71,23 +72,24 @@ type CAPIModeConfig struct {
 
 // OAuthServeConfig holds OAuth-specific configuration.
 type OAuthServeConfig struct {
-	Enabled                       bool
-	BaseURL                       string
-	Provider                      string // "dex" or "google"
-	GoogleClientID                string
-	GoogleClientSecret            string
-	DexIssuerURL                  string
-	DexClientID                   string
-	DexClientSecret               string
-	DexConnectorID                string // optional: bypasses connector selection screen
-	DexCAFile                     string // optional: CA certificate file for Dex TLS verification
-	DisableStreaming              bool
-	RegistrationToken             string
-	AllowPublicRegistration       bool
-	AllowInsecureAuthWithoutState bool
-	AllowPrivateURLs              bool // skip private IP validation for internal deployments
-	MaxClientsPerIP               int
-	EncryptionKey                 string
+	Enabled                            bool
+	BaseURL                            string
+	Provider                           string // "dex" or "google"
+	GoogleClientID                     string
+	GoogleClientSecret                 string
+	DexIssuerURL                       string
+	DexClientID                        string
+	DexClientSecret                    string
+	DexConnectorID                     string // optional: bypasses connector selection screen
+	DexCAFile                          string // optional: CA certificate file for Dex TLS verification
+	DexKubernetesAuthenticatorClientID string // optional: enables cross-client audience for K8s API auth
+	DisableStreaming                   bool
+	RegistrationToken                  string
+	AllowPublicRegistration            bool
+	AllowInsecureAuthWithoutState      bool
+	AllowPrivateURLs                   bool // skip private IP validation for internal deployments
+	MaxClientsPerIP                    int
+	EncryptionKey                      string
 
 	// Storage configuration
 	Storage server.OAuthStorageConfig
@@ -172,6 +174,32 @@ func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error
 				return fmt.Errorf("%s resolves to a private or loopback IP address (%s), which could be a security risk", fieldName, ip.String())
 			}
 		}
+	}
+
+	return nil
+}
+
+// validOAuthClientIDPattern defines allowed characters for OAuth client IDs.
+// Client IDs should only contain alphanumeric characters, hyphens, underscores, and periods.
+// This is a defensive validation to prevent injection attacks via malformed client IDs.
+var validOAuthClientIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+// validateOAuthClientID validates that an OAuth client ID contains only safe characters.
+// This is a defense-in-depth measure - the OAuth provider will also validate client IDs,
+// but we validate early to provide clear error messages and prevent any injection attempts.
+func validateOAuthClientID(clientID, fieldName string) error {
+	if clientID == "" {
+		return nil // Empty is valid (optional field)
+	}
+
+	// Check length bounds (reasonable limits for client IDs)
+	if len(clientID) > 256 {
+		return fmt.Errorf("%s is too long (max 256 characters)", fieldName)
+	}
+
+	// Validate character set
+	if !validOAuthClientIDPattern.MatchString(clientID) {
+		return fmt.Errorf("%s contains invalid characters (allowed: alphanumeric, hyphens, underscores, periods; must start with alphanumeric)", fieldName)
 	}
 
 	return nil
