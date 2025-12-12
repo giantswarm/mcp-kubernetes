@@ -237,6 +237,59 @@ func TestOAuthProviderValidation(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "valid Dex config with Kubernetes authenticator client ID",
+			config: ServeConfig{
+				Transport: "streamable-http",
+				OAuth: OAuthServeConfig{
+					Enabled:                            true,
+					Provider:                           OAuthProviderDex,
+					BaseURL:                            "https://mcp.example.com",
+					DexIssuerURL:                       "https://dex.example.com",
+					DexClientID:                        "test-client-id",
+					DexClientSecret:                    "test-client-secret",
+					DexKubernetesAuthenticatorClientID: "dex-k8s-authenticator",
+					AllowPublicRegistration:            true,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid Kubernetes authenticator client ID with spaces",
+			config: ServeConfig{
+				Transport: "streamable-http",
+				OAuth: OAuthServeConfig{
+					Enabled:                            true,
+					Provider:                           OAuthProviderDex,
+					BaseURL:                            "https://mcp.example.com",
+					DexIssuerURL:                       "https://dex.example.com",
+					DexClientID:                        "test-client-id",
+					DexClientSecret:                    "test-client-secret",
+					DexKubernetesAuthenticatorClientID: "dex k8s authenticator",
+					AllowPublicRegistration:            true,
+				},
+			},
+			wantErr: true,
+			errMsg:  "contains invalid characters",
+		},
+		{
+			name: "invalid Kubernetes authenticator client ID with injection attempt",
+			config: ServeConfig{
+				Transport: "streamable-http",
+				OAuth: OAuthServeConfig{
+					Enabled:                            true,
+					Provider:                           OAuthProviderDex,
+					BaseURL:                            "https://mcp.example.com",
+					DexIssuerURL:                       "https://dex.example.com",
+					DexClientID:                        "test-client-id",
+					DexClientSecret:                    "test-client-secret",
+					DexKubernetesAuthenticatorClientID: "client:openid:profile",
+					AllowPublicRegistration:            true,
+				},
+			},
+			wantErr: true,
+			errMsg:  "contains invalid characters",
+		},
 	}
 
 	for _, tt := range tests {
@@ -294,6 +347,10 @@ func validateOAuthConfig(config OAuthServeConfig) error {
 		}
 		if config.DexClientSecret == "" {
 			return fmt.Errorf("dex client secret is required when using Dex provider (--dex-client-secret or DEX_CLIENT_SECRET)")
+		}
+		// Validate Kubernetes authenticator client ID format (if provided)
+		if err := validateOAuthClientID(config.DexKubernetesAuthenticatorClientID, "Dex Kubernetes authenticator client ID"); err != nil {
+			return err
 		}
 	case OAuthProviderGoogle:
 		if config.GoogleClientID == "" {

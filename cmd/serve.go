@@ -609,6 +609,15 @@ func runServe(config ServeConfig) error {
 				if config.OAuth.DexClientSecret == "" {
 					return fmt.Errorf("dex client secret is required when using Dex provider (--dex-client-secret or DEX_CLIENT_SECRET)")
 				}
+				// Validate Kubernetes authenticator client ID format (if provided)
+				if err := validateOAuthClientID(config.OAuth.DexKubernetesAuthenticatorClientID, "Dex Kubernetes authenticator client ID"); err != nil {
+					return err
+				}
+				// Warn if Kubernetes authenticator client ID is set but downstream OAuth is not enabled
+				if config.OAuth.DexKubernetesAuthenticatorClientID != "" && !config.DownstreamOAuth {
+					slog.Warn("Dex Kubernetes authenticator client ID is configured but downstream OAuth is disabled; cross-client audience tokens will be requested but not used for Kubernetes API authentication",
+						"hint", "enable --downstream-oauth to use OAuth tokens for Kubernetes API authentication")
+				}
 			case OAuthProviderGoogle:
 				if config.OAuth.GoogleClientID == "" {
 					return fmt.Errorf("google client ID is required when using Google provider (--google-client-id or GOOGLE_CLIENT_ID)")
