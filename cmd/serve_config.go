@@ -71,23 +71,24 @@ type CAPIModeConfig struct {
 
 // OAuthServeConfig holds OAuth-specific configuration.
 type OAuthServeConfig struct {
-	Enabled                       bool
-	BaseURL                       string
-	Provider                      string // "dex" or "google"
-	GoogleClientID                string
-	GoogleClientSecret            string
-	DexIssuerURL                  string
-	DexClientID                   string
-	DexClientSecret               string
-	DexConnectorID                string // optional: bypasses connector selection screen
-	DexCAFile                     string // optional: CA certificate file for Dex TLS verification
-	DisableStreaming              bool
-	RegistrationToken             string
-	AllowPublicRegistration       bool
-	AllowInsecureAuthWithoutState bool
-	AllowPrivateURLs              bool // skip private IP validation for internal deployments
-	MaxClientsPerIP               int
-	EncryptionKey                 string
+	Enabled                            bool
+	BaseURL                            string
+	Provider                           string // "dex" or "google"
+	GoogleClientID                     string
+	GoogleClientSecret                 string
+	DexIssuerURL                       string
+	DexClientID                        string
+	DexClientSecret                    string
+	DexConnectorID                     string // optional: bypasses connector selection screen
+	DexCAFile                          string // optional: CA certificate file for Dex TLS verification
+	DexKubernetesAuthenticatorClientID string // optional: enables cross-client audience for K8s API auth
+	DisableStreaming                   bool
+	RegistrationToken                  string
+	AllowPublicRegistration            bool
+	AllowInsecureAuthWithoutState      bool
+	AllowPrivateURLs                   bool // skip private IP validation for internal deployments
+	MaxClientsPerIP                    int
+	EncryptionKey                      string
 
 	// Storage configuration
 	Storage server.OAuthStorageConfig

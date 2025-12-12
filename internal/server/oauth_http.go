@@ -184,6 +184,12 @@ type OAuthConfig struct {
 	// Use this when Dex uses a private/internal CA
 	DexCAFile string
 
+	// DexKubernetesAuthenticatorClientID is the client ID of the Kubernetes authenticator
+	// in Dex (typically "dex-k8s-authenticator"). When set, requests tokens with this
+	// audience via Dex cross-client authentication, enabling the ID token to be used
+	// for Kubernetes API authentication.
+	DexKubernetesAuthenticatorClientID string
+
 	// DisableStreaming disables streaming for streamable-http transport
 	DisableStreaming bool
 
@@ -259,12 +265,24 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 	switch config.Provider {
 	case OAuthProviderDex:
+		// Build scopes list, adding cross-client audience if configured
+		scopes := make([]string, len(dexOAuthScopes))
+		copy(scopes, dexOAuthScopes)
+		if config.DexKubernetesAuthenticatorClientID != "" {
+			// Request cross-client audience for Kubernetes API authentication
+			// See: https://dexidp.io/docs/custom-scopes-claims-clients/#cross-client-trust-and-authorized-party
+			audienceScope := "audience:server:client_id:" + config.DexKubernetesAuthenticatorClientID
+			scopes = append(scopes, audienceScope)
+			logger.Info("Requesting cross-client audience for Kubernetes API authentication",
+				"kubernetesAuthenticatorClientID", config.DexKubernetesAuthenticatorClientID)
+		}
+
 		dexConfig := &dex.Config{
 			IssuerURL:    config.DexIssuerURL,
 			ClientID:     config.DexClientID,
 			ClientSecret: config.DexClientSecret,
 			RedirectURL:  redirectURL,
-			Scopes:       dexOAuthScopes,
+			Scopes:       scopes,
 		}
 		// Add optional connector ID if provided (bypasses connector selection)
 		if config.DexConnectorID != "" {

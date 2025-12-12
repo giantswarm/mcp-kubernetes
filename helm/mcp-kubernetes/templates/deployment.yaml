@@ -133,6 +133,10 @@ spec:
             - name: DEX_CONNECTOR_ID
               value: {{ .Values.mcpKubernetes.oauth.dex.connectorID | quote }}
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.dex.kubernetesAuthenticatorClientID }}
+            - name: DEX_K8S_AUTHENTICATOR_CLIENT_ID
+              value: {{ .Values.mcpKubernetes.oauth.dex.kubernetesAuthenticatorClientID | quote }}
+            {{- end }}
             {{- if .Values.mcpKubernetes.oauth.dex.caSecret.name }}
             - name: DEX_CA_FILE
               value: "/etc/ssl/certs/dex-ca/{{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}"

@@ -192,6 +192,12 @@ mcpKubernetes:
       # Dex connector ID (optional)
       # When set, bypasses the connector selection screen for better UX
       connectorID: ""
+      # Kubernetes authenticator client ID (optional)
+      # When set, requests cross-client audience tokens from Dex to enable
+      # Kubernetes API authentication with the ID token. This is required when
+      # enableDownstreamOAuth is true and the K8s API server is configured with
+      # OIDC authentication using a different client ID (e.g., "dex-k8s-authenticator").
+      kubernetesAuthenticatorClientID: ""
       # CA certificate for Dex TLS verification (optional)
       # Use this when Dex uses a private/internal CA
       # Can reference a secret containing the CA certificate

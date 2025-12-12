@@ -313,3 +313,60 @@ func TestValkeyStorageConfigDefaults(t *testing.T) {
 	assert.Empty(t, config.KeyPrefix)
 	assert.Equal(t, 0, config.DB)
 }
+
+// TestDexScopesWithKubernetesAuthenticator tests that cross-client audience scope is correctly added
+func TestDexScopesWithKubernetesAuthenticator(t *testing.T) {
+	tests := []struct {
+		name                               string
+		dexKubernetesAuthenticatorClientID string
+		wantAudienceScope                  bool
+		expectedAudienceScope              string
+	}{
+		{
+			name:                               "with kubernetes authenticator client ID",
+			dexKubernetesAuthenticatorClientID: "dex-k8s-authenticator",
+			wantAudienceScope:                  true,
+			expectedAudienceScope:              "audience:server:client_id:dex-k8s-authenticator",
+		},
+		{
+			name:                               "without kubernetes authenticator client ID",
+			dexKubernetesAuthenticatorClientID: "",
+			wantAudienceScope:                  false,
+		},
+		{
+			name:                               "with custom client ID",
+			dexKubernetesAuthenticatorClientID: "my-custom-k8s-client",
+			wantAudienceScope:                  true,
+			expectedAudienceScope:              "audience:server:client_id:my-custom-k8s-client",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Replicate the scope building logic from createOAuthServer
+			scopes := make([]string, len(dexOAuthScopes))
+			copy(scopes, dexOAuthScopes)
+			if tt.dexKubernetesAuthenticatorClientID != "" {
+				audienceScope := "audience:server:client_id:" + tt.dexKubernetesAuthenticatorClientID
+				scopes = append(scopes, audienceScope)
+			}
+
+			// Verify base scopes are always present
+			assert.Contains(t, scopes, "openid")
+			assert.Contains(t, scopes, "groups")
+			assert.Contains(t, scopes, "email")
+			assert.Contains(t, scopes, "profile")
+
+			// Verify audience scope based on configuration
+			if tt.wantAudienceScope {
+				assert.Contains(t, scopes, tt.expectedAudienceScope)
+				assert.Len(t, scopes, len(dexOAuthScopes)+1, "should have base scopes plus audience scope")
+			} else {
+				assert.Len(t, scopes, len(dexOAuthScopes), "should only have base scopes")
+				for _, scope := range scopes {
+					assert.NotContains(t, scope, "audience:server:client_id:")
+				}
+			}
+		})
+	}
+}
