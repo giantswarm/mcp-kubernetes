@@ -17,9 +17,9 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if .Values.mcpKubernetes.instrumentation.enabled }}
+        {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
         prometheus.io/scrape: "true"
-        prometheus.io/port: "{{ .Values.mcpKubernetes.service.port }}"
+        prometheus.io/port: "{{ .Values.mcpKubernetes.metrics.port }}"
         prometheus.io/path: "/metrics"
         {{- end }}
       labels:
@@ -79,10 +79,21 @@ spec:
             - --downstream-oauth
             {{- end }}
             {{- end }}
+            {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+            - --metrics-enabled=true
+            - --metrics-addr=:{{ .Values.mcpKubernetes.metrics.port }}
+            {{- else }}
+            - --metrics-enabled=false
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.mcpKubernetes.metrics.port }}
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

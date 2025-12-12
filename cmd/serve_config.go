@@ -43,6 +43,18 @@ type ServeConfig struct {
 
 	// CAPI Mode configuration (multi-cluster federation)
 	CAPIMode CAPIModeConfig
+
+	// Metrics server configuration
+	Metrics MetricsServeConfig
+}
+
+// MetricsServeConfig holds configuration for the metrics server.
+type MetricsServeConfig struct {
+	// Enabled determines whether to start the metrics server (default: true)
+	Enabled bool
+
+	// Addr is the address for the metrics server (e.g., ":9090")
+	Addr string
 }
 
 // CAPIModeConfig holds CAPI federation mode configuration.

@@ -8,13 +8,13 @@ import (
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
+	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
 // runSSEServer runs the server with SSE transport
-func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider) error {
+func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, metricsConfig MetricsServeConfig) error {
 	if debugMode {
 		slog.Debug("initializing SSE server",
 			"address", addr,
@@ -22,7 +22,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 			"message_endpoint", messageEndpoint)
 	}
 
-	// Create a custom HTTP server with metrics endpoint
+	// Create a custom HTTP server (metrics are now on a separate server)
 	mux := http.NewServeMux()
 
 	// Create SSE handler
@@ -35,11 +35,8 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	mux.Handle(sseEndpoint, sseHandler)
 	mux.Handle(messageEndpoint, sseHandler)
 
-	// Add metrics endpoint if instrumentation is enabled
-	if provider != nil && provider.Enabled() {
-		mux.Handle("/metrics", promhttp.Handler())
-		fmt.Printf("  Metrics endpoint: /metrics\n")
-	}
+	// Note: Metrics are served on a separate metrics server for security
+	// See startMetricsServer() for the dedicated /metrics endpoint
 
 	if debugMode {
 		slog.Debug("sse server instance created successfully")
@@ -48,6 +45,16 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	fmt.Printf("SSE server starting on %s\n", addr)
 	fmt.Printf("  SSE endpoint: %s\n", sseEndpoint)
 	fmt.Printf("  Message endpoint: %s\n", messageEndpoint)
+
+	// Start metrics server if enabled
+	var metricsServer *server.MetricsServer
+	if metricsConfig.Enabled && provider != nil && provider.Enabled() {
+		var err error
+		metricsServer, err = startMetricsServer(metricsConfig, provider)
+		if err != nil {
+			return fmt.Errorf("failed to start metrics server: %w", err)
+		}
+	}
 
 	// Create HTTP server with security timeouts
 	httpServer := &http.Server{
@@ -93,6 +100,14 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 		if debugMode {
 			slog.Debug("starting graceful shutdown", "timeout", "30s")
 		}
+
+		// Shutdown metrics server first
+		if metricsServer != nil {
+			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+				slog.Error("error shutting down metrics server", "error", err)
+			}
+		}
+
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			if debugMode {
 				slog.Debug("error during sse server shutdown", "error", err)

@@ -1,4 +1,4 @@
-{{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.instrumentation.serviceMonitor.enabled }}
+{{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.instrumentation.serviceMonitor.enabled .Values.mcpKubernetes.metrics.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -20,7 +20,8 @@ spec:
     matchNames:
       - {{ .Release.Namespace }}
   endpoints:
-    - port: http
+    # Use the dedicated metrics port (not the main HTTP port) for security
+    - port: metrics
       path: /metrics
       {{- with .Values.mcpKubernetes.instrumentation.serviceMonitor.interval }}
       interval: {{ . }}

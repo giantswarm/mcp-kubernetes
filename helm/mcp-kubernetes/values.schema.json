@@ -391,6 +391,22 @@
             },
             "required": ["name"]
           }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Metrics server configuration. Runs on a separate port for security.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable the dedicated metrics server (default: true)"
+            },
+            "port": {
+              "type": "integer",
+              "description": "Port for the metrics server (default: 9090)",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          }
         }
       }
     },
