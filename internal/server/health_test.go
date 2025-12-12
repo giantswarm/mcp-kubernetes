@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 )
@@ -29,6 +30,10 @@ func (m *mockFederationManager) GetClient(ctx context.Context, clusterName strin
 
 func (m *mockFederationManager) GetDynamicClient(ctx context.Context, clusterName string, user *federation.UserInfo) (dynamic.Interface, error) {
 	return nil, nil
+}
+
+func (m *mockFederationManager) GetRestConfig(ctx context.Context, clusterName string, user *federation.UserInfo) (*rest.Config, error) {
+	return &rest.Config{Host: "https://mock-cluster:6443"}, nil
 }
 
 func (m *mockFederationManager) ListClusters(ctx context.Context, user *federation.UserInfo) ([]federation.ClusterSummary, error) {

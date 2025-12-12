@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
@@ -36,6 +37,11 @@ func (m *MockFederationManager) GetClient(_ context.Context, _ string, _ *federa
 // GetDynamicClient implements federation.ClusterClientManager.
 func (m *MockFederationManager) GetDynamicClient(_ context.Context, _ string, _ *federation.UserInfo) (dynamic.Interface, error) {
 	return nil, nil
+}
+
+// GetRestConfig implements federation.ClusterClientManager.
+func (m *MockFederationManager) GetRestConfig(_ context.Context, _ string, _ *federation.UserInfo) (*rest.Config, error) {
+	return &rest.Config{Host: "https://mock-cluster:6443"}, nil
 }
 
 // ListClusters implements federation.ClusterClientManager.
