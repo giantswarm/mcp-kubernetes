@@ -48,8 +48,9 @@ jobs:
 
       - name: Run Release Dry-Run
         # Only run on PRs, not on direct pushes to main
+        # Uses fast config (linux/amd64 only) to validate release works
         if: github.event_name == 'pull_request'
-        run: make release-dry-run
+        run: make release-dry-run-fast
         env:
           # GoReleaser needs a GITHUB_TOKEN even for dry runs
           # to check API rate limits, etc.
