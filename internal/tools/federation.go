@@ -195,9 +195,6 @@ func ExtractClusterParam(args map[string]interface{}) string {
 //
 // This function uses UserFacingError() methods from federation error types
 // to ensure no internal details (cluster names, network topology) are leaked.
-//
-// TODO: This function will be used when federated k8s.Client wrapper is implemented
-// to provide user-friendly error messages for multi-cluster operations.
 func FormatClusterError(err error, clusterName string) string {
 	if err == nil {
 		return ""
