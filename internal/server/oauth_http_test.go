@@ -314,6 +314,55 @@ func TestValkeyStorageConfigDefaults(t *testing.T) {
 	assert.Equal(t, 0, config.DB)
 }
 
+// TestClientRegistrationRateLimiterConfiguration tests that maxClientsPerIP is properly passed
+// to the client registration rate limiter
+func TestClientRegistrationRateLimiterConfiguration(t *testing.T) {
+	tests := []struct {
+		name            string
+		maxClientsPerIP int
+		expectedMax     int
+	}{
+		{
+			name:            "custom maxClientsPerIP",
+			maxClientsPerIP: 5,
+			expectedMax:     5,
+		},
+		{
+			name:            "higher maxClientsPerIP",
+			maxClientsPerIP: 25,
+			expectedMax:     25,
+		},
+		{
+			name:            "default maxClientsPerIP (zero value uses default)",
+			maxClientsPerIP: 0,
+			expectedMax:     DefaultMaxClientsPerIP,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := OAuthConfig{
+				BaseURL:            "https://mcp.example.com",
+				Provider:           OAuthProviderGoogle,
+				GoogleClientID:     "test-client-id",
+				GoogleClientSecret: "test-client-secret",
+				MaxClientsPerIP:    tt.maxClientsPerIP,
+			}
+
+			oauthServer, _, err := createOAuthServer(config)
+			assert.NoError(t, err)
+			assert.NotNil(t, oauthServer)
+
+			// Verify the client registration rate limiter is configured
+			assert.NotNil(t, oauthServer.ClientRegistrationRateLimiter, "client registration rate limiter should be set")
+
+			// Get stats to verify configuration
+			stats := oauthServer.ClientRegistrationRateLimiter.GetStats()
+			assert.Equal(t, tt.expectedMax, stats.MaxPerWindow, "maxClientsPerIP should match configured value")
+		})
+	}
+}
+
 // TestDexScopesWithKubernetesAuthenticator tests that cross-client audience scope is correctly added
 func TestDexScopesWithKubernetesAuthenticator(t *testing.T) {
 	tests := []struct {

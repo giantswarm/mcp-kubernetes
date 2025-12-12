@@ -453,9 +453,18 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	server.SetUserRateLimiter(userRateLimiter)
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
 
-	// Set up client registration rate limiting
-	clientRegRL := security.NewClientRegistrationRateLimiter(logger)
+	// Set up client registration rate limiting with configured maxClientsPerIP
+	// This aligns the rate limiter with the server's MaxClientsPerIP configuration
+	clientRegRL := security.NewClientRegistrationRateLimiterWithConfig(
+		maxClientsPerIP,
+		security.DefaultRegistrationWindow,
+		security.DefaultMaxRegistrationEntries,
+		logger,
+	)
 	server.SetClientRegistrationRateLimiter(clientRegRL)
+	logger.Info("Client registration rate limiting enabled",
+		"maxClientsPerIP", maxClientsPerIP,
+		"window", security.DefaultRegistrationWindow)
 
 	return server, tokenStore, nil
 }
