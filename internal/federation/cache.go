@@ -353,6 +353,46 @@ func (c *ClientCache) GetOrCreate(
 	return cached.clientset, cached.dynamicClient, nil
 }
 
+// GetOrCreateFull is like GetOrCreate but also returns the rest.Config.
+// This is needed for operations that require the raw REST config,
+// such as exec and port-forward which need to create SPDY connections.
+func (c *ClientCache) GetOrCreateFull(
+	ctx context.Context,
+	clusterName, userEmail string,
+	factory func(ctx context.Context) (kubernetes.Interface, dynamic.Interface, *rest.Config, error),
+) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	// Check cache first (fast path)
+	if cached := c.Get(ctx, clusterName, userEmail); cached != nil {
+		return cached.clientset, cached.dynamicClient, cached.restConfig, nil
+	}
+
+	// Use singleflight to prevent duplicate creation
+	key := cacheKey(clusterName, userEmail)
+
+	result, err, _ := c.createGroup.Do(key, func() (interface{}, error) {
+		// Double-check cache inside singleflight
+		if cached := c.Get(ctx, clusterName, userEmail); cached != nil {
+			return cached, nil
+		}
+
+		// Create new client
+		clientset, dynamicClient, restConfig, err := factory(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Store in cache and return the entry directly (avoiding redundant Get)
+		return c.setAndReturn(ctx, clusterName, userEmail, clientset, dynamicClient, restConfig), nil
+	})
+
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	cached := result.(*cachedClient)
+	return cached.clientset, cached.dynamicClient, cached.restConfig, nil
+}
+
 // Delete removes a cached client for the given cluster and user.
 // This is useful for invalidating cache entries when credentials change.
 func (c *ClientCache) Delete(ctx context.Context, clusterName, userEmail string) {

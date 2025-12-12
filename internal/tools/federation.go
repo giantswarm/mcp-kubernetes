@@ -13,6 +13,11 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
+// Error message constants for consistent user-facing error messages.
+const (
+	errMsgInvalidClusterName = "invalid cluster name provided"
+)
+
 // ClusterClient provides access to Kubernetes operations with multi-cluster support.
 // It wraps either the local k8s.Client or federation-based clients.
 //
@@ -67,8 +72,9 @@ func (cc *ClusterClient) IsFederated() bool {
 // # Federation Behavior
 //
 // When federation is enabled AND a cluster name is specified:
-//   - Returns an error (federation-based operations not yet implemented in k8s.Client)
-//   - Future: will create a federated client with user impersonation
+//   - Creates a FederatedClient using the federation manager
+//   - The client is configured with user impersonation for security
+//   - All operations are performed under the authenticated user's identity
 //
 // When federation is NOT enabled or cluster is empty:
 //   - Returns the standard k8s client from ServerContext
@@ -86,7 +92,7 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 	// and prevent unnecessary processing with invalid input
 	if clusterName != "" {
 		if err := federation.ValidateClusterName(clusterName); err != nil {
-			return nil, "invalid cluster name provided"
+			return nil, errMsgInvalidClusterName
 		}
 	}
 
@@ -109,12 +115,54 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 			return nil, "failed to convert user info for federation"
 		}
 
-		// For now, multi-cluster support requires integration with the k8s package
-		// The federation manager provides kubernetes.Interface, but we need k8s.Client
-		// This is a future enhancement - for now we return an error
-		//
-		// TODO: Implement federated k8s.Client wrapper that uses federation.ClusterClientManager
-		return nil, fmt.Sprintf("multi-cluster operations to cluster '%s' are not yet implemented - this feature is coming soon", clusterName)
+		// Get clients from federation manager for the target cluster
+		clientset, err := fedManager.GetClient(ctx, clusterName, user)
+		if err != nil {
+			slog.Warn("failed to get federated clientset",
+				slog.String("cluster", clusterName),
+				slog.Any("error", err))
+			return nil, FormatClusterError(err, clusterName)
+		}
+
+		dynamicClient, err := fedManager.GetDynamicClient(ctx, clusterName, user)
+		if err != nil {
+			slog.Warn("failed to get federated dynamic client",
+				slog.String("cluster", clusterName),
+				slog.Any("error", err))
+			return nil, FormatClusterError(err, clusterName)
+		}
+
+		restConfig, err := fedManager.GetRestConfig(ctx, clusterName, user)
+		if err != nil {
+			slog.Warn("failed to get federated rest config",
+				slog.String("cluster", clusterName),
+				slog.Any("error", err))
+			return nil, FormatClusterError(err, clusterName)
+		}
+
+		// Create federated k8s.Client wrapper
+		federatedClient, err := k8s.NewFederatedClient(&k8s.FederatedClientConfig{
+			ClusterName:   clusterName,
+			Clientset:     clientset,
+			DynamicClient: dynamicClient,
+			RestConfig:    restConfig,
+		})
+		if err != nil {
+			slog.Error("failed to create federated client",
+				slog.String("cluster", clusterName),
+				slog.Any("error", err))
+			return nil, "failed to initialize cluster client"
+		}
+
+		slog.Debug("created federated client",
+			slog.String("cluster", clusterName))
+
+		return &ClusterClient{
+			k8sClient:   federatedClient,
+			user:        user,
+			clusterName: clusterName,
+			federated:   true,
+		}, ""
 	}
 
 	// No cluster specified - use local client
@@ -216,7 +264,7 @@ func FormatClusterError(err error, clusterName string) string {
 	case errors.Is(err, federation.ErrUserInfoRequired):
 		return "authentication required for multi-cluster operations"
 	case errors.Is(err, federation.ErrInvalidClusterName):
-		return "invalid cluster name provided"
+		return errMsgInvalidClusterName
 	}
 
 	// For unhandled errors, return a generic message that doesn't leak internal details.
@@ -226,7 +274,7 @@ func FormatClusterError(err error, clusterName string) string {
 
 // ValidateClusterParam validates that the cluster parameter can be used.
 // Returns an error message if the cluster parameter is specified but
-// federation is not enabled or not yet supported.
+// federation is not enabled.
 //
 // This is a convenience function for handlers that don't yet support
 // multi-cluster operations but want to provide clear error messages.
@@ -240,6 +288,11 @@ func ValidateClusterParam(sc *server.ServerContext, clusterName string) string {
 		return "multi-cluster operations require federation mode to be enabled"
 	}
 
-	// Federation is enabled, but multi-cluster k8s.Client wrapper is not yet implemented
-	return fmt.Sprintf("multi-cluster operations to cluster '%s' are not yet implemented - this feature is coming soon", clusterName)
+	// Validate cluster name format
+	if err := federation.ValidateClusterName(clusterName); err != nil {
+		return errMsgInvalidClusterName
+	}
+
+	// Federation is enabled and cluster name is valid
+	return ""
 }
