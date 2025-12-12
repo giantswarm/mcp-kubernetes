@@ -21,7 +21,6 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 	mcpserver "github.com/mark3labs/mcp-go/server"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/logging"
@@ -63,9 +62,6 @@ const (
 
 	// DefaultIdleTimeout is the default idle timeout for keepalive connections
 	DefaultIdleTimeout = 120 * time.Second
-
-	// DefaultShutdownTimeout is the default timeout for graceful server shutdown
-	DefaultShutdownTimeout = 30 * time.Second
 )
 
 var (
@@ -604,14 +600,10 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		return err
 	}
 
-	// Setup Prometheus metrics endpoint if instrumentation is enabled
-	if s.instrumentationProvider != nil && s.instrumentationProvider.Enabled() {
-		if prometheusHandler := s.instrumentationProvider.PrometheusHandler(); prometheusHandler != nil {
-			// The prometheus exporter is registered with the global prometheus registry
-			// Use promhttp.Handler() to expose metrics
-			mux.Handle("/metrics", promhttp.Handler())
-		}
-	}
+	// Note: Prometheus metrics are now served on a separate metrics server
+	// for security. The /metrics endpoint should NOT be exposed on the main
+	// HTTP server to prevent unauthorized access to operational information.
+	// See MetricsServer for the dedicated metrics endpoint.
 
 	// Setup health check endpoints
 	if s.healthChecker != nil {

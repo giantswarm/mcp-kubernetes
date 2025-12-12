@@ -114,6 +114,10 @@ func newServeCmd() *cobra.Command {
 		messageEndpoint string
 		httpEndpoint    string
 
+		// Metrics server options
+		metricsEnabled bool
+		metricsAddr    string
+
 		// OAuth options
 		enableOAuth                        bool
 		oauthBaseURL                       string
@@ -221,6 +225,10 @@ Downstream OAuth (--downstream-oauth):
 					Storage:                            storageConfig,
 				},
 				DownstreamOAuth: downstreamOAuth,
+				Metrics: MetricsServeConfig{
+					Enabled: metricsEnabled,
+					Addr:    metricsAddr,
+				},
 			}
 			return runServe(config)
 		},
@@ -240,6 +248,10 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&sseEndpoint, "sse-endpoint", "/sse", "SSE endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&messageEndpoint, "message-endpoint", "/message", "Message endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&httpEndpoint, "http-endpoint", "/mcp", "HTTP endpoint path (for streamable-http transport)")
+
+	// Metrics server flags
+	cmd.Flags().BoolVar(&metricsEnabled, "metrics-enabled", true, "Enable dedicated metrics server (default: true)")
+	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", ":9090", "Metrics server address (default: :9090)")
 
 	// OAuth flags
 	cmd.Flags().BoolVar(&enableOAuth, "enable-oauth", false, "Enable OAuth 2.1 authentication (for HTTP transports)")
@@ -568,7 +580,7 @@ func runServe(config ServeConfig) error {
 		return runStdioServer(mcpSrv)
 	case transportSSE:
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
-		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider)
+		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, config.Metrics)
 	case transportStreamableHTTP:
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
 		if config.OAuth.Enabled {
@@ -689,9 +701,9 @@ func runServe(config ServeConfig) error {
 				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:            instrumentationProvider,
 				Storage:                            config.OAuth.Storage, // Same type, no conversion needed
-			}, serverContext)
+			}, serverContext, config.Metrics)
 		}
-		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}

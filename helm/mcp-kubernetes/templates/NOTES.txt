@@ -161,5 +161,32 @@
    {{- end }}
 {{- end }}
 
-9. For more information about using the MCP Kubernetes server, visit:
-   https://github.com/giantswarm/mcp-kubernetes
+{{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+
+9. Metrics Configuration:
+   - Prometheus metrics are served on a DEDICATED port for security
+   - Metrics port: {{ .Values.mcpKubernetes.metrics.port }}
+   - Metrics endpoint: http://{{ include "mcp-kubernetes.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcpKubernetes.metrics.port }}/metrics
+   
+   The metrics endpoint is NOT exposed on the main application port ({{ .Values.service.port }})
+   to prevent unauthorized access to operational information.
+   
+   {{- if .Values.mcpKubernetes.instrumentation.serviceMonitor.enabled }}
+   ServiceMonitor is ENABLED - Prometheus Operator will automatically scrape metrics.
+   {{- else }}
+   To enable Prometheus Operator integration, set:
+     mcpKubernetes.instrumentation.serviceMonitor.enabled: true
+   {{- end }}
+
+   SECURITY NOTE (Multi-Tenant Clusters):
+   The metrics port is accessible to all workloads in the cluster by default.
+   In multi-tenant environments, consider creating a NetworkPolicy to restrict
+   metrics access to only Prometheus pods. See README.md for an example.
+   
+   To completely disable metrics in high-security environments:
+     mcpKubernetes.metrics.enabled: false
+     mcpKubernetes.instrumentation.enabled: false
+{{- end }}
+
+10. For more information about using the MCP Kubernetes server, visit:
+    https://github.com/giantswarm/mcp-kubernetes
