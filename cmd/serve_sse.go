@@ -95,10 +95,10 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 			slog.Debug("shutdown signal received, initiating sse server shutdown")
 		}
 		fmt.Println("Shutdown signal received, stopping SSE server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.DefaultShutdownTimeout)
 		defer cancel()
 		if debugMode {
-			slog.Debug("starting graceful shutdown", "timeout", "30s")
+			slog.Debug("starting graceful shutdown", "timeout", server.DefaultShutdownTimeout)
 		}
 
 		// Shutdown metrics server first

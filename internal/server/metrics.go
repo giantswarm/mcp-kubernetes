@@ -24,6 +24,9 @@ const (
 
 	// DefaultMetricsIdleTimeout is the default idle timeout for the metrics server.
 	DefaultMetricsIdleTimeout = 60 * time.Second
+
+	// DefaultShutdownTimeout is the default timeout for graceful server shutdown.
+	DefaultShutdownTimeout = 30 * time.Second
 )
 
 // MetricsServerConfig holds configuration for the metrics server.
@@ -42,9 +45,8 @@ type MetricsServerConfig struct {
 // This isolates metrics from the main application traffic for security,
 // preventing unauthorized access to operational metrics.
 type MetricsServer struct {
-	httpServer              *http.Server
-	instrumentationProvider *instrumentation.Provider
-	addr                    string
+	httpServer *http.Server
+	addr       string
 }
 
 // NewMetricsServer creates a new metrics server with the given configuration.
@@ -63,8 +65,7 @@ func NewMetricsServer(config MetricsServerConfig) (*MetricsServer, error) {
 	}
 
 	return &MetricsServer{
-		instrumentationProvider: config.InstrumentationProvider,
-		addr:                    config.Addr,
+		addr: config.Addr,
 	}, nil
 }
 

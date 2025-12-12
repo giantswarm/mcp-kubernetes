@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,15 @@ func TestNewMetricsServer(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "instrumentation provider is required",
+		},
+		{
+			name: "disabled instrumentation provider",
+			config: MetricsServerConfig{
+				Addr:                    ":9090",
+				InstrumentationProvider: createDisabledTestProvider(t),
+			},
+			wantErr:     true,
+			errContains: "instrumentation provider is not enabled",
 		},
 		{
 			name: "valid config uses default addr",
@@ -51,7 +61,7 @@ func TestNewMetricsServer(t *testing.T) {
 					t.Errorf("NewMetricsServer() expected error, got nil")
 					return
 				}
-				if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("NewMetricsServer() error = %v, want error containing %q", err, tt.errContains)
 				}
 				return
@@ -94,11 +104,25 @@ func TestMetricsServer_StartAndShutdown(t *testing.T) {
 		serverErr <- server.Start()
 	}()
 
-	// Give the server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for server to be ready by polling the health endpoint
+	var resp *http.Response
+	var lastErr error
+	for i := 0; i < 50; i++ {
+		resp, lastErr = http.Get("http://localhost:9092/healthz")
+		if lastErr == nil {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Warning: failed to close response body: %v", err)
+			}
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("Server failed to start within timeout: %v", lastErr)
+	}
 
 	// Test that the /metrics endpoint is accessible
-	resp, err := http.Get("http://localhost:9092/metrics")
+	resp, err = http.Get("http://localhost:9092/metrics")
 	if err != nil {
 		t.Errorf("Failed to reach /metrics endpoint: %v", err)
 	} else {
@@ -185,16 +209,18 @@ func createTestProvider(t *testing.T) *instrumentation.Provider {
 	return provider
 }
 
-// contains checks if substr is contained in s.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+// createDisabledTestProvider creates a disabled instrumentation provider for testing.
+func createDisabledTestProvider(t *testing.T) *instrumentation.Provider {
+	t.Helper()
+	ctx := context.Background()
+	config := instrumentation.Config{
+		Enabled:         false,
+		MetricsExporter: "none",
+		TracingExporter: "none",
 	}
-	return false
+	provider, err := instrumentation.NewProvider(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to create disabled test provider: %v", err)
+	}
+	return provider
 }

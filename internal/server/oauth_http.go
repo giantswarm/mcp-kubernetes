@@ -62,9 +62,6 @@ const (
 
 	// DefaultIdleTimeout is the default idle timeout for keepalive connections
 	DefaultIdleTimeout = 120 * time.Second
-
-	// DefaultShutdownTimeout is the default timeout for graceful server shutdown
-	DefaultShutdownTimeout = 30 * time.Second
 )
 
 var (

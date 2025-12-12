@@ -69,7 +69,7 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	select {
 	case <-ctx.Done():
 		fmt.Println("Shutdown signal received, stopping HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.DefaultShutdownTimeout)
 		defer cancel()
 
 		// Shutdown metrics server first
@@ -142,7 +142,7 @@ func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Co
 	select {
 	case <-ctx.Done():
 		fmt.Println("Shutdown signal received, stopping OAuth HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.DefaultShutdownTimeout)
 		defer cancel()
 
 		// Shutdown metrics server first
