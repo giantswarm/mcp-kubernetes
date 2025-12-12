@@ -323,11 +323,20 @@ mcpKubernetes:
   # Metrics server configuration
   # The metrics server runs on a separate port from the main application for security.
   # This prevents unauthorized access to operational metrics via the public API endpoint.
+  #
+  # SECURITY NOTES:
+  # - Metrics are NOT exposed via Ingress (only the main application port 8080 is)
+  # - The /metrics endpoint reveals operational information (Go version, memory stats, etc.)
+  # - In multi-tenant clusters, consider adding a NetworkPolicy to restrict metrics access
+  #   to only Prometheus pods (see README.md for an example)
+  # - For high-security environments, set enabled: false to completely disable metrics
   metrics:
     # Enable the dedicated metrics server (default: true)
+    # Set to false in high-security environments where metrics exposure is not acceptable
     enabled: true
     # Port for the metrics server (default: 9090)
-    # This port is NOT exposed publicly via the main Service/Ingress
+    # This port is exposed in the Service but NOT via Ingress
+    # Only cluster-internal workloads can access this port by default
     port: 9090
 
   # Service configuration

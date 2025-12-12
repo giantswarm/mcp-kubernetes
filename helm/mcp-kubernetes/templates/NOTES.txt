@@ -177,6 +177,15 @@
    To enable Prometheus Operator integration, set:
      mcpKubernetes.instrumentation.serviceMonitor.enabled: true
    {{- end }}
+
+   SECURITY NOTE (Multi-Tenant Clusters):
+   The metrics port is accessible to all workloads in the cluster by default.
+   In multi-tenant environments, consider creating a NetworkPolicy to restrict
+   metrics access to only Prometheus pods. See README.md for an example.
+   
+   To completely disable metrics in high-security environments:
+     mcpKubernetes.metrics.enabled: false
+     mcpKubernetes.instrumentation.enabled: false
 {{- end }}
 
 10. For more information about using the MCP Kubernetes server, visit:
