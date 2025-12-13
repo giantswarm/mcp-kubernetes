@@ -234,6 +234,8 @@ type OAuthConfig struct {
 
 	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
 	// client registration. Enables Cursor/VSCode without registration tokens.
+	// Best suited for internal/development deployments due to platform-specific
+	// limitations in custom URI scheme security. Schemes must conform to RFC 3986.
 	TrustedPublicRegistrationSchemes []string
 
 	// DisableStrictSchemeMatching allows mixed scheme clients to register without token

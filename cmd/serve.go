@@ -317,7 +317,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&disableAuthorizationTimeValidation, "disable-authorization-time-validation", false, "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks")
 
 	// Trusted scheme registration for Cursor/VSCode compatibility
-	cmd.Flags().StringSliceVar(&trustedPublicRegistrationSchemes, "trusted-public-registration-schemes", nil, "URI schemes allowed for unauthenticated client registration (e.g., cursor,vscode). Enables MCP clients that don't support registration tokens")
+	cmd.Flags().StringSliceVar(&trustedPublicRegistrationSchemes, "trusted-public-registration-schemes", nil, "URI schemes allowed for unauthenticated client registration (e.g., cursor,vscode). Best for internal/dev deployments. Must conform to RFC 3986 scheme syntax")
 	cmd.Flags().BoolVar(&disableStrictSchemeMatching, "disable-strict-scheme-matching", false, "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security")
 
 	return cmd
@@ -679,8 +679,18 @@ func runServe(config ServeConfig) error {
 				return fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.OAuth.Provider, OAuthProviderDex, OAuthProviderGoogle)
 			}
 
-			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" {
-				return fmt.Errorf("--registration-token is required when public registration is disabled")
+			// Validate trusted schemes if configured (RFC 3986 compliance)
+			if err := validateTrustedSchemes(config.OAuth.TrustedPublicRegistrationSchemes); err != nil {
+				return fmt.Errorf("invalid trusted public registration scheme: %w", err)
+			}
+
+			// Registration token is required unless:
+			// 1. Public registration is enabled (anyone can register), OR
+			// 2. Trusted schemes are configured (Cursor/VSCode can register without token)
+			hasTrustedSchemes := len(config.OAuth.TrustedPublicRegistrationSchemes) > 0
+			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" && !hasTrustedSchemes {
+				return fmt.Errorf("--registration-token is required when public registration is disabled and no trusted schemes are configured. " +
+					"Either set --registration-token, enable --allow-public-registration, or configure --trusted-public-registration-schemes for Cursor/VSCode")
 			}
 
 			// Prepare encryption key if provided (must be base64 encoded)

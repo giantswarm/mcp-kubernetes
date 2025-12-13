@@ -336,9 +336,27 @@ mcpKubernetes:
     # specific custom URI schemes (e.g., cursor://, vscode://), while requiring
     # registration tokens for all other clients.
     #
-    # Security: Custom URI schemes can only be intercepted by the application
-    # that registered the scheme with the OS. An attacker cannot register a
-    # malicious client with cursor:// because they cannot receive the callback.
+    # Security Model:
+    # Custom URI schemes can only be intercepted by the application that registered
+    # the scheme with the OS. An attacker cannot register a malicious OAuth client
+    # with cursor:// because they cannot receive the authorization callback.
+    #
+    # IMPORTANT: This security model has platform-specific limitations:
+    # - On macOS, multiple apps can register for the same scheme (OS prompts user)
+    # - On some platforms, scheme registration is first-come-first-served
+    # - Malware with elevated privileges could potentially hijack scheme handlers
+    #
+    # Recommendation: This feature is most appropriate for:
+    # - Internal/corporate deployments where client machines are managed
+    # - Development environments
+    # - Scenarios where the convenience outweighs the platform-specific risks
+    #
+    # For high-security production deployments exposed to the internet, consider
+    # using registration tokens instead (--registration-token).
+    #
+    # Schemes must conform to RFC 3986: start with a letter, followed by letters,
+    # digits, plus (+), hyphen (-), or period (.). Dangerous schemes (javascript,
+    # data, file, ftp) are blocked.
     #
     # Example: ["cursor", "vscode", "vscode-insiders", "windsurf"]
     # Default: [] (all registrations require a token)
