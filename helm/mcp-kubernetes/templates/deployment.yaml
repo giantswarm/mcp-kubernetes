@@ -78,6 +78,37 @@ spec:
             {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
             - --downstream-oauth
             {{- end }}
+            {{- /* Redirect URI Security Configuration */ -}}
+            {{- with .Values.mcpKubernetes.oauth.redirectURISecurity }}
+            {{- if .disableProductionMode }}
+            - --disable-production-mode=true
+            {{- end }}
+            {{- if .allowLocalhostRedirectURIs }}
+            - --allow-localhost-redirect-uris=true
+            {{- end }}
+            {{- if .allowPrivateIPRedirectURIs }}
+            - --allow-private-ip-redirect-uris=true
+            {{- end }}
+            {{- if .allowLinkLocalRedirectURIs }}
+            - --allow-link-local-redirect-uris=true
+            {{- end }}
+            {{- if .disableDNSValidation }}
+            - --disable-dns-validation=true
+            {{- end }}
+            {{- if .disableDNSValidationStrict }}
+            - --disable-dns-validation-strict=true
+            {{- end }}
+            {{- if .disableAuthorizationTimeValidation }}
+            - --disable-authorization-time-validation=true
+            {{- end }}
+            {{- end }}
+            {{- /* Trusted Scheme Registration for Cursor/VSCode */ -}}
+            {{- if .Values.mcpKubernetes.oauth.trustedPublicRegistrationSchemes }}
+            - --trusted-public-registration-schemes={{ .Values.mcpKubernetes.oauth.trustedPublicRegistrationSchemes | join "," }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.disableStrictSchemeMatching }}
+            - --disable-strict-scheme-matching=true
+            {{- end }}
             {{- end }}
             {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
             - --metrics-enabled=true
@@ -153,7 +184,11 @@ spec:
               value: "/etc/ssl/certs/dex-ca/{{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}"
             {{- end }}
             {{- end }}
-            {{- if not .Values.mcpKubernetes.oauth.allowPublicRegistration }}
+            {{- /* Only reference registration token if:
+                   1. Not using public registration, AND
+                   2. Either using existingSecret OR registrationAccessToken is explicitly provided
+                   When only trustedPublicRegistrationSchemes is used, no token is needed */}}
+            {{- if and (not .Values.mcpKubernetes.oauth.allowPublicRegistration) (or .Values.mcpKubernetes.oauth.existingSecret .Values.mcpKubernetes.oauth.registrationAccessToken) }}
             - name: REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:

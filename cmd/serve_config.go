@@ -103,9 +103,38 @@ type OAuthServeConfig struct {
 	MaxClientsPerIP                    int
 	EncryptionKey                      string
 
+	// Redirect URI Security Configuration
+	// These settings control security validation of redirect URIs during client registration.
+	// All settings default to secure values - operators must explicitly opt-out.
+	RedirectURISecurity RedirectURISecurityConfig
+
+	// TrustedPublicRegistrationSchemes lists URI schemes that are allowed for
+	// unauthenticated client registration. Clients registering with redirect URIs
+	// using ONLY these schemes do NOT need a RegistrationAccessToken.
+	// This enables Cursor and other MCP clients that don't support registration tokens.
+	//
+	// Security: Custom URI schemes can only be intercepted by the app that registered
+	// the scheme with the OS. However, this has platform-specific limitations and is
+	// most appropriate for internal/development deployments. For high-security production
+	// deployments, use registration tokens instead.
+	//
+	// Schemes must conform to RFC 3986 syntax. Dangerous schemes are blocked.
+	// Example: ["cursor", "vscode", "vscode-insiders", "windsurf"]
+	TrustedPublicRegistrationSchemes []string
+
+	// DisableStrictSchemeMatching allows clients with mixed redirect URI schemes
+	// (e.g., cursor:// AND https://) to register without a token if ANY URI uses
+	// a trusted scheme. Default: false (all URIs must use trusted schemes).
+	// WARNING: Reduces security - only enable if you have specific requirements.
+	DisableStrictSchemeMatching bool
+
 	// Storage configuration
 	Storage server.OAuthStorageConfig
 }
+
+// RedirectURISecurityConfig is an alias to server.RedirectURISecurityConfig.
+// See server.RedirectURISecurityConfig for field documentation.
+type RedirectURISecurityConfig = server.RedirectURISecurityConfig
 
 // Type aliases for OAuth storage configuration - use server package types directly
 // to avoid duplication and ensure consistency across the codebase.
@@ -196,6 +225,12 @@ func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error
 // This is a defensive validation to prevent injection attacks via malformed client IDs.
 var validOAuthClientIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
+// validURISchemePattern defines valid URI scheme syntax per RFC 3986 Section 3.1.
+// Scheme must start with a letter and be followed by any combination of letters,
+// digits, plus (+), hyphen (-), or period (.).
+// Examples: http, https, cursor, vscode, vscode-insiders, my.app
+var validURISchemePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*$`)
+
 // validateOAuthClientID validates that an OAuth client ID contains only safe characters.
 // This is a defense-in-depth measure - the OAuth provider will also validate client IDs,
 // but we validate early to provide clear error messages and prevent any injection attempts.
@@ -212,6 +247,48 @@ func validateOAuthClientID(clientID, fieldName string) error {
 	// Validate character set
 	if !validOAuthClientIDPattern.MatchString(clientID) {
 		return fmt.Errorf("%s contains invalid characters (allowed: alphanumeric, hyphens, underscores, periods; must start with alphanumeric)", fieldName)
+	}
+
+	return nil
+}
+
+// validateTrustedSchemes validates that all trusted URI schemes conform to RFC 3986 syntax.
+// This is a defense-in-depth measure to ensure only valid scheme names are accepted.
+// Per RFC 3986 Section 3.1, schemes must:
+// - Start with a letter (a-z, A-Z)
+// - Followed by any combination of letters, digits, plus (+), hyphen (-), or period (.)
+// Schemes are normalized to lowercase for comparison.
+func validateTrustedSchemes(schemes []string) error {
+	if len(schemes) == 0 {
+		return nil // Empty is valid (feature disabled)
+	}
+
+	for _, scheme := range schemes {
+		// Check for empty scheme
+		if scheme == "" {
+			return fmt.Errorf("trusted scheme cannot be empty")
+		}
+
+		// Check length bounds (reasonable limit for scheme names)
+		if len(scheme) > 64 {
+			return fmt.Errorf("trusted scheme %q is too long (max 64 characters)", scheme)
+		}
+
+		// Validate against RFC 3986 scheme syntax
+		if !validURISchemePattern.MatchString(scheme) {
+			return fmt.Errorf("trusted scheme %q is invalid per RFC 3986 (must start with letter, followed by letters, digits, +, -, or .)", scheme)
+		}
+
+		// Warn about potentially dangerous schemes (but still allow them - operator's choice)
+		lowerScheme := strings.ToLower(scheme)
+		switch lowerScheme {
+		case "http", "https":
+			slog.Warn("trustedPublicRegistrationSchemes includes a web scheme - this allows unauthenticated registration for web clients which may be a security risk",
+				"scheme", scheme,
+				"recommendation", "Consider using a registration token for web clients instead")
+		case "javascript", "data", "file", "ftp":
+			return fmt.Errorf("trusted scheme %q is not allowed - these schemes pose security risks (XSS, local file access)", scheme)
+		}
 	}
 
 	return nil

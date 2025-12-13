@@ -227,6 +227,44 @@ type OAuthConfig struct {
 	// Storage configures the token storage backend
 	// Defaults to in-memory storage if not specified
 	Storage OAuthStorageConfig
+
+	// RedirectURISecurity configures security validation for redirect URIs
+	// All options default to secure values in mcp-oauth
+	RedirectURISecurity RedirectURISecurityConfig
+
+	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
+	// client registration. Enables Cursor/VSCode without registration tokens.
+	// Best suited for internal/development deployments due to platform-specific
+	// limitations in custom URI scheme security. Schemes must conform to RFC 3986.
+	TrustedPublicRegistrationSchemes []string
+
+	// DisableStrictSchemeMatching allows mixed scheme clients to register without token
+	DisableStrictSchemeMatching bool
+}
+
+// RedirectURISecurityConfig holds configuration for redirect URI security validation.
+// All options default to secure values in mcp-oauth. Use Disable* flags to opt-out.
+type RedirectURISecurityConfig struct {
+	// DisableProductionMode disables strict HTTPS/private IP enforcement
+	DisableProductionMode bool
+
+	// AllowLocalhostRedirectURIs allows http://localhost for native apps (RFC 8252)
+	AllowLocalhostRedirectURIs bool
+
+	// AllowPrivateIPRedirectURIs allows private IP addresses in redirect URIs
+	AllowPrivateIPRedirectURIs bool
+
+	// AllowLinkLocalRedirectURIs allows link-local addresses (169.254.x.x)
+	AllowLinkLocalRedirectURIs bool
+
+	// DisableDNSValidation disables hostname resolution checks
+	DisableDNSValidation bool
+
+	// DisableDNSValidationStrict disables fail-closed DNS validation
+	DisableDNSValidationStrict bool
+
+	// DisableAuthorizationTimeValidation disables redirect URI checks at auth time
+	DisableAuthorizationTimeValidation bool
 }
 
 // OAuthHTTPServer wraps an MCP server with OAuth 2.1 authentication
@@ -404,6 +442,21 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		RegistrationAccessToken:       config.RegistrationAccessToken,
 		AllowNoStateParameter:         config.AllowInsecureAuthWithoutState,
 		MaxClientsPerIP:               maxClientsPerIP,
+
+		// Trusted scheme registration for Cursor/VSCode compatibility
+		// Allows unauthenticated registration for clients using these schemes only
+		TrustedPublicRegistrationSchemes: config.TrustedPublicRegistrationSchemes,
+		DisableStrictSchemeMatching:      config.DisableStrictSchemeMatching,
+
+		// Redirect URI Security Configuration
+		// mcp-oauth defaults to secure values; we pass explicit disable flags
+		DisableProductionMode:              config.RedirectURISecurity.DisableProductionMode,
+		AllowLocalhostRedirectURIs:         config.RedirectURISecurity.AllowLocalhostRedirectURIs,
+		AllowPrivateIPRedirectURIs:         config.RedirectURISecurity.AllowPrivateIPRedirectURIs,
+		AllowLinkLocalRedirectURIs:         config.RedirectURISecurity.AllowLinkLocalRedirectURIs,
+		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
+		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
+		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
 	}
 
 	// Configure interstitial page branding if provided

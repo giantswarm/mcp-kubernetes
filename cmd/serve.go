@@ -146,6 +146,19 @@ func newServeCmd() *cobra.Command {
 		valkeyTLS        bool
 		valkeyKeyPrefix  string
 		valkeyDB         int
+
+		// Redirect URI security options (all default to secure values)
+		disableProductionMode              bool
+		allowLocalhostRedirectURIs         bool
+		allowPrivateIPRedirectURIs         bool
+		allowLinkLocalRedirectURIs         bool
+		disableDNSValidation               bool
+		disableDNSValidationStrict         bool
+		disableAuthorizationTimeValidation bool
+
+		// Trusted scheme registration for Cursor/VSCode
+		trustedPublicRegistrationSchemes []string
+		disableStrictSchemeMatching      bool
 	)
 
 	cmd := &cobra.Command{
@@ -223,6 +236,17 @@ Downstream OAuth (--downstream-oauth):
 					MaxClientsPerIP:                    maxClientsPerIP,
 					EncryptionKey:                      oauthEncryptionKey,
 					Storage:                            storageConfig,
+					RedirectURISecurity: RedirectURISecurityConfig{
+						DisableProductionMode:              disableProductionMode,
+						AllowLocalhostRedirectURIs:         allowLocalhostRedirectURIs,
+						AllowPrivateIPRedirectURIs:         allowPrivateIPRedirectURIs,
+						AllowLinkLocalRedirectURIs:         allowLinkLocalRedirectURIs,
+						DisableDNSValidation:               disableDNSValidation,
+						DisableDNSValidationStrict:         disableDNSValidationStrict,
+						DisableAuthorizationTimeValidation: disableAuthorizationTimeValidation,
+					},
+					TrustedPublicRegistrationSchemes: trustedPublicRegistrationSchemes,
+					DisableStrictSchemeMatching:      disableStrictSchemeMatching,
 				},
 				DownstreamOAuth: downstreamOAuth,
 				Metrics: MetricsServeConfig{
@@ -281,6 +305,20 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&valkeyTLS, "valkey-tls", false, "Enable TLS for Valkey connections (can also be set via VALKEY_TLS_ENABLED env var)")
 	cmd.Flags().StringVar(&valkeyKeyPrefix, "valkey-key-prefix", "mcp:", "Prefix for all Valkey keys (can also be set via VALKEY_KEY_PREFIX env var)")
 	cmd.Flags().IntVar(&valkeyDB, "valkey-db", 0, "Valkey database number (can also be set via VALKEY_DB env var)")
+
+	// Redirect URI security flags (all default to secure values)
+	// Use --disable-* flags to explicitly opt-out of security features
+	cmd.Flags().BoolVar(&disableProductionMode, "disable-production-mode", false, "Disable production mode security (allows HTTP, private IPs in redirect URIs). WARNING: Significantly weakens security")
+	cmd.Flags().BoolVar(&allowLocalhostRedirectURIs, "allow-localhost-redirect-uris", false, "Allow http://localhost redirect URIs for native apps (RFC 8252)")
+	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk")
+	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk")
+	cmd.Flags().BoolVar(&disableDNSValidation, "disable-dns-validation", false, "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks")
+	cmd.Flags().BoolVar(&disableDNSValidationStrict, "disable-dns-validation-strict", false, "Disable fail-closed DNS validation (allow registration on DNS failures). WARNING: Validation bypass risk")
+	cmd.Flags().BoolVar(&disableAuthorizationTimeValidation, "disable-authorization-time-validation", false, "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks")
+
+	// Trusted scheme registration for Cursor/VSCode compatibility
+	cmd.Flags().StringSliceVar(&trustedPublicRegistrationSchemes, "trusted-public-registration-schemes", nil, "URI schemes allowed for unauthenticated client registration (e.g., cursor,vscode). Best for internal/dev deployments. Must conform to RFC 3986 scheme syntax")
+	cmd.Flags().BoolVar(&disableStrictSchemeMatching, "disable-strict-scheme-matching", false, "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security")
 
 	return cmd
 }
@@ -641,8 +679,18 @@ func runServe(config ServeConfig) error {
 				return fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.OAuth.Provider, OAuthProviderDex, OAuthProviderGoogle)
 			}
 
-			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" {
-				return fmt.Errorf("--registration-token is required when public registration is disabled")
+			// Validate trusted schemes if configured (RFC 3986 compliance)
+			if err := validateTrustedSchemes(config.OAuth.TrustedPublicRegistrationSchemes); err != nil {
+				return fmt.Errorf("invalid trusted public registration scheme: %w", err)
+			}
+
+			// Registration token is required unless:
+			// 1. Public registration is enabled (anyone can register), OR
+			// 2. Trusted schemes are configured (Cursor/VSCode can register without token)
+			hasTrustedSchemes := len(config.OAuth.TrustedPublicRegistrationSchemes) > 0
+			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" && !hasTrustedSchemes {
+				return fmt.Errorf("--registration-token is required when public registration is disabled and no trusted schemes are configured. " +
+					"Either set --registration-token, enable --allow-public-registration, or configure --trusted-public-registration-schemes for Cursor/VSCode")
 			}
 
 			// Prepare encryption key if provided (must be base64 encoded)
@@ -700,7 +748,11 @@ func runServe(config ServeConfig) error {
 				EnableHSTS:                         os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:            instrumentationProvider,
-				Storage:                            config.OAuth.Storage, // Same type, no conversion needed
+				Storage:                            config.OAuth.Storage,
+				RedirectURISecurity:                config.OAuth.RedirectURISecurity,
+				// Trusted scheme registration for Cursor/VSCode compatibility
+				TrustedPublicRegistrationSchemes: config.OAuth.TrustedPublicRegistrationSchemes,
+				DisableStrictSchemeMatching:      config.OAuth.DisableStrictSchemeMatching,
 			}, serverContext, config.Metrics)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
