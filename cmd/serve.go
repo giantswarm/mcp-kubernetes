@@ -739,16 +739,7 @@ func runServe(config ServeConfig) error {
 				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
 				InstrumentationProvider:            instrumentationProvider,
 				Storage:                            config.OAuth.Storage,
-				// Redirect URI security configuration
-				RedirectURISecurity: server.RedirectURISecurityConfig{
-					DisableProductionMode:              config.OAuth.RedirectURISecurity.DisableProductionMode,
-					AllowLocalhostRedirectURIs:         config.OAuth.RedirectURISecurity.AllowLocalhostRedirectURIs,
-					AllowPrivateIPRedirectURIs:         config.OAuth.RedirectURISecurity.AllowPrivateIPRedirectURIs,
-					AllowLinkLocalRedirectURIs:         config.OAuth.RedirectURISecurity.AllowLinkLocalRedirectURIs,
-					DisableDNSValidation:               config.OAuth.RedirectURISecurity.DisableDNSValidation,
-					DisableDNSValidationStrict:         config.OAuth.RedirectURISecurity.DisableDNSValidationStrict,
-					DisableAuthorizationTimeValidation: config.OAuth.RedirectURISecurity.DisableAuthorizationTimeValidation,
-				},
+				RedirectURISecurity:                config.OAuth.RedirectURISecurity,
 				// Trusted scheme registration for Cursor/VSCode compatibility
 				TrustedPublicRegistrationSchemes: config.OAuth.TrustedPublicRegistrationSchemes,
 				DisableStrictSchemeMatching:      config.OAuth.DisableStrictSchemeMatching,
