@@ -103,8 +103,70 @@ type OAuthServeConfig struct {
 	MaxClientsPerIP                    int
 	EncryptionKey                      string
 
+	// Redirect URI Security Configuration
+	// These settings control security validation of redirect URIs during client registration.
+	// All settings default to secure values - operators must explicitly opt-out.
+	RedirectURISecurity RedirectURISecurityConfig
+
+	// TrustedPublicRegistrationSchemes lists URI schemes that are allowed for
+	// unauthenticated client registration. Clients registering with redirect URIs
+	// using ONLY these schemes do NOT need a RegistrationAccessToken.
+	// This enables Cursor and other MCP clients that don't support registration tokens.
+	// Example: ["cursor", "vscode", "vscode-insiders", "windsurf"]
+	TrustedPublicRegistrationSchemes []string
+
+	// DisableStrictSchemeMatching allows clients with mixed redirect URI schemes
+	// (e.g., cursor:// AND https://) to register without a token if ANY URI uses
+	// a trusted scheme. Default: false (all URIs must use trusted schemes).
+	// WARNING: Reduces security - only enable if you have specific requirements.
+	DisableStrictSchemeMatching bool
+
 	// Storage configuration
 	Storage server.OAuthStorageConfig
+}
+
+// RedirectURISecurityConfig holds configuration for redirect URI security validation.
+// All options default to secure values. Use Disable* flags to explicitly opt-out.
+type RedirectURISecurityConfig struct {
+	// DisableProductionMode explicitly disables ProductionMode for development.
+	// ProductionMode enforces: HTTPS required, private IPs blocked, dangerous schemes blocked.
+	// WARNING: Disabling significantly weakens redirect URI security.
+	// Default: false (ProductionMode is enabled)
+	DisableProductionMode bool
+
+	// AllowLocalhostRedirectURIs allows http://localhost and http://127.0.0.1 redirect URIs.
+	// Required for native apps per RFC 8252 Section 7.3.
+	// Default: false (must explicitly enable for native app support)
+	AllowLocalhostRedirectURIs bool
+
+	// AllowPrivateIPRedirectURIs allows redirect URIs with private IP addresses
+	// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 per RFC 1918).
+	// WARNING: Enables SSRF attacks to internal networks if not properly secured.
+	// Default: false (blocked for security)
+	AllowPrivateIPRedirectURIs bool
+
+	// AllowLinkLocalRedirectURIs allows link-local addresses (169.254.0.0/16, fe80::/10).
+	// WARNING: Could enable access to cloud metadata services (169.254.169.254).
+	// Default: false (blocked for security)
+	AllowLinkLocalRedirectURIs bool
+
+	// DisableDNSValidation explicitly disables DNS resolution of redirect URI hostnames.
+	// DNS validation checks if hostnames resolve to private/internal IPs.
+	// WARNING: Disabling allows potential DNS rebinding attacks.
+	// Default: false (DNSValidation is enabled)
+	DisableDNSValidation bool
+
+	// DisableDNSValidationStrict explicitly disables fail-closed DNS validation.
+	// When strict mode is enabled, DNS resolution failures block client registration.
+	// WARNING: Disabling allows potential DNS validation bypass via intentional failures.
+	// Default: false (strict mode is enabled)
+	DisableDNSValidationStrict bool
+
+	// DisableAuthorizationTimeValidation explicitly disables redirect URI validation
+	// during authorization requests (only validates at registration time).
+	// WARNING: Disabling allows DNS rebinding attacks between registration and use.
+	// Default: false (authorization-time validation is enabled)
+	DisableAuthorizationTimeValidation bool
 }
 
 // Type aliases for OAuth storage configuration - use server package types directly
