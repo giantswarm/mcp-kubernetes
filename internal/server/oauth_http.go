@@ -33,6 +33,10 @@ const (
 	OAuthProviderDex    = "dex"
 	OAuthProviderGoogle = "google"
 
+	// mcpOAuthVersion is the version of the mcp-oauth library for instrumentation.
+	// NOTE: Keep this in sync with the version in go.mod when updating the dependency.
+	mcpOAuthVersion = "0.2.22"
+
 	// DefaultOAuthScopes are the default Google OAuth scopes for Kubernetes management
 	DefaultOAuthScopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
 
@@ -474,7 +478,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		Instrumentation: oauthserver.InstrumentationConfig{
 			Enabled:         true,
 			ServiceName:     "mcp-oauth",
-			ServiceVersion:  "0.2.22",
+			ServiceVersion:  mcpOAuthVersion,
 			MetricsExporter: "prometheus",
 		},
 	}

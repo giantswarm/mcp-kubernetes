@@ -205,6 +205,11 @@ Downstream OAuth (--downstream-oauth):
 				if envVal := os.Getenv("ENABLE_CIMD"); envVal != "" {
 					if parsed, err := strconv.ParseBool(envVal); err == nil {
 						enableCIMD = parsed
+					} else {
+						slog.Warn("invalid ENABLE_CIMD value, using default",
+							"value", envVal,
+							"default", enableCIMD,
+							"error", err)
 					}
 				}
 			}

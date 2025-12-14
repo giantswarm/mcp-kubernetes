@@ -426,15 +426,15 @@ CIMD can be controlled via:
 
 ### Observability
 
-CIMD operations are instrumented by the mcp-oauth library with the following Prometheus metrics:
+CIMD operations are instrumented by the mcp-oauth library with the following metrics:
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `oauth.cimd.fetch.total` | Counter | Total CIMD metadata fetch attempts (by result: success, error, blocked) |
-| `oauth.cimd.fetch.duration` | Histogram | CIMD metadata fetch duration in milliseconds |
-| `oauth.cimd.cache.total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
+| Metric (OpenTelemetry) | Metric (Prometheus) | Type | Description |
+|------------------------|---------------------|------|-------------|
+| `oauth.cimd.fetch.total` | `oauth_cimd_fetch_total` | Counter | Total CIMD metadata fetch attempts (by result: success, error, blocked) |
+| `oauth.cimd.fetch.duration` | `oauth_cimd_fetch_duration` | Histogram | CIMD metadata fetch duration in milliseconds |
+| `oauth.cimd.cache.total` | `oauth_cimd_cache_total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
 
-These metrics are automatically exposed via the `/metrics` endpoint when OAuth is enabled.
+These metrics are automatically exposed via the `/metrics` endpoint when OAuth is enabled. The Prometheus exporter automatically converts OpenTelemetry metric names (dots) to Prometheus-compatible names (underscores).
 
 ## Security Considerations
 
