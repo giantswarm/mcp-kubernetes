@@ -188,11 +188,16 @@ spec:
               value: "/etc/ssl/certs/dex-ca/{{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}"
             {{- end }}
             {{- end }}
-            {{- /* Only reference registration token if:
-                   1. Not using public registration, AND
-                   2. Either using existingSecret OR registrationAccessToken is explicitly provided
-                   When only trustedPublicRegistrationSchemes is used, no token is needed */}}
-            {{- if and (not .Values.mcpKubernetes.oauth.allowPublicRegistration) (or .Values.mcpKubernetes.oauth.existingSecret .Values.mcpKubernetes.oauth.registrationAccessToken) }}
+            {{- /* Only mount REGISTRATION_TOKEN if registrationAccessToken is explicitly configured.
+                   DCR behavior matrix:
+                   - No token + no schemes: fully open (not recommended)
+                   - No token + schemes: only trusted schemes work
+                   - Token + no schemes: only registration token works
+                   - Token + schemes: token OR trusted scheme
+                   Note: existingSecret may be used for other credentials (dex-client-secret,
+                   oauth-encryption-key) without requiring a registration-token key.
+                   CIMD is the preferred client authentication method over DCR. */}}
+            {{- if .Values.mcpKubernetes.oauth.registrationAccessToken }}
             - name: REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
