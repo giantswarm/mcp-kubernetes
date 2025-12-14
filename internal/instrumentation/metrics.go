@@ -56,11 +56,6 @@ type Metrics struct {
 	impersonationTotal        metric.Int64Counter
 	federationClientCreations metric.Int64Counter
 
-	// OAuth CIMD (Client ID Metadata Documents) metrics
-	cimdFetchTotal    metric.Int64Counter
-	cimdFetchDuration metric.Float64Histogram
-	cimdCacheTotal    metric.Int64Counter
-
 	// Configuration
 	// detailedLabels controls whether high-cardinality labels (namespace, resource_type)
 	// are included in Kubernetes operation metrics
@@ -236,36 +231,6 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mcp_federation_client_creations_total counter: %w", err)
-	}
-
-	// OAuth CIMD (Client ID Metadata Documents) Metrics
-	// These track the decentralized client registration flow per MCP 2025-11-25
-	m.cimdFetchTotal, err = meter.Int64Counter(
-		"oauth_cimd_fetch_total",
-		metric.WithDescription("Total CIMD metadata fetch attempts. Labels: result (success, error, blocked)"),
-		metric.WithUnit("{fetch}"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create oauth_cimd_fetch_total counter: %w", err)
-	}
-
-	m.cimdFetchDuration, err = meter.Float64Histogram(
-		"oauth_cimd_fetch_duration_seconds",
-		metric.WithDescription("CIMD metadata fetch duration in seconds. Labels: result"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create oauth_cimd_fetch_duration_seconds histogram: %w", err)
-	}
-
-	m.cimdCacheTotal, err = meter.Int64Counter(
-		"oauth_cimd_cache_total",
-		metric.WithDescription("Total CIMD cache operations. Labels: operation (hit, miss, negative_hit)"),
-		metric.WithUnit("{operation}"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create oauth_cimd_cache_total counter: %w", err)
 	}
 
 	return m, nil
@@ -504,45 +469,4 @@ func (m *Metrics) RecordFederationClientCreation(ctx context.Context, clusterNam
 	}
 
 	m.federationClientCreations.Add(ctx, 1, metric.WithAttributes(attrs...))
-}
-
-// RecordCIMDFetch records a CIMD (Client ID Metadata Documents) metadata fetch attempt.
-// This tracks the decentralized client registration flow per MCP 2025-11-25.
-//
-// Note: This method is registered and ready for use, pending instrumentation
-// callback integration with the mcp-oauth library.
-//
-// Parameters:
-//   - result: Result of the fetch ("success", "error", "blocked")
-//   - duration: Time taken for the fetch operation
-func (m *Metrics) RecordCIMDFetch(ctx context.Context, result string, duration time.Duration) {
-	if m.cimdFetchTotal == nil || m.cimdFetchDuration == nil {
-		return // Instrumentation not initialized
-	}
-
-	attrs := []attribute.KeyValue{
-		attribute.String(attrResult, result),
-	}
-
-	m.cimdFetchTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
-	m.cimdFetchDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
-}
-
-// RecordCIMDCache records a CIMD cache operation.
-//
-// Note: This method is registered and ready for use, pending instrumentation
-// callback integration with the mcp-oauth library.
-//
-// Parameters:
-//   - operation: Type of cache operation ("hit", "miss", "negative_hit")
-func (m *Metrics) RecordCIMDCache(ctx context.Context, operation string) {
-	if m.cimdCacheTotal == nil {
-		return // Instrumentation not initialized
-	}
-
-	attrs := []attribute.KeyValue{
-		attribute.String(attrOperation, operation),
-	}
-
-	m.cimdCacheTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 }

@@ -468,6 +468,15 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
 		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
 		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
+
+		// Instrumentation for mcp-oauth internal metrics (CIMD, rate limiting, etc.)
+		// Uses Prometheus exporter to expose metrics alongside mcp-kubernetes metrics
+		Instrumentation: oauthserver.InstrumentationConfig{
+			Enabled:         true,
+			ServiceName:     "mcp-oauth",
+			ServiceVersion:  "0.2.22",
+			MetricsExporter: "prometheus",
+		},
 	}
 
 	// Configure interstitial page branding if provided

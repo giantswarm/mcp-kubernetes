@@ -426,15 +426,15 @@ CIMD can be controlled via:
 
 ### Observability
 
-The server defines Prometheus metrics for CIMD operations. These metrics are registered and ready for use, pending callback integration with the mcp-oauth library:
+CIMD operations are instrumented by the mcp-oauth library with the following Prometheus metrics:
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `oauth_cimd_fetch_total` | Counter | Total CIMD metadata fetch attempts (by result: success, error, blocked) |
-| `oauth_cimd_fetch_duration_seconds` | Histogram | CIMD metadata fetch duration |
-| `oauth_cimd_cache_total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
+| `oauth.cimd.fetch.total` | Counter | Total CIMD metadata fetch attempts (by result: success, error, blocked) |
+| `oauth.cimd.fetch.duration` | Histogram | CIMD metadata fetch duration in milliseconds |
+| `oauth.cimd.cache.total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
 
-> **Note:** CIMD operations are currently handled internally by the mcp-oauth library. These metrics will be populated when the library exposes instrumentation callbacks. See [mcp-oauth#148](https://github.com/giantswarm/mcp-oauth/issues/148) for tracking.
+These metrics are automatically exposed via the `/metrics` endpoint when OAuth is enabled.
 
 ## Security Considerations
 
