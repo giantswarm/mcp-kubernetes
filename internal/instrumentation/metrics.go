@@ -509,6 +509,9 @@ func (m *Metrics) RecordFederationClientCreation(ctx context.Context, clusterNam
 // RecordCIMDFetch records a CIMD (Client ID Metadata Documents) metadata fetch attempt.
 // This tracks the decentralized client registration flow per MCP 2025-11-25.
 //
+// Note: This method is registered and ready for use, pending instrumentation
+// callback integration with the mcp-oauth library.
+//
 // Parameters:
 //   - result: Result of the fetch ("success", "error", "blocked")
 //   - duration: Time taken for the fetch operation
@@ -526,6 +529,9 @@ func (m *Metrics) RecordCIMDFetch(ctx context.Context, result string, duration t
 }
 
 // RecordCIMDCache records a CIMD cache operation.
+//
+// Note: This method is registered and ready for use, pending instrumentation
+// callback integration with the mcp-oauth library.
 //
 // Parameters:
 //   - operation: Type of cache operation ("hit", "miss", "negative_hit")

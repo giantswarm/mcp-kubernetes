@@ -202,8 +202,10 @@ Downstream OAuth (--downstream-oauth):
 
 			// CIMD env var - only apply if flag was not explicitly set
 			if !cmd.Flags().Changed("enable-cimd") {
-				if os.Getenv("ENABLE_CIMD") == "false" {
-					enableCIMD = false
+				if envVal := os.Getenv("ENABLE_CIMD"); envVal != "" {
+					if parsed, err := strconv.ParseBool(envVal); err == nil {
+						enableCIMD = parsed
+					}
 				}
 			}
 

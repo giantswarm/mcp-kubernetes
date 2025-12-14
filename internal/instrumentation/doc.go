@@ -30,6 +30,7 @@
 //   - oauth_downstream_auth_total: Counter of OAuth authentication events by result
 //
 // OAuth CIMD (Client ID Metadata Documents) Metrics:
+// (Registered and ready for use, pending mcp-oauth library instrumentation callbacks)
 //   - oauth_cimd_fetch_total: Counter of CIMD metadata fetch attempts (by result: success, error, blocked)
 //   - oauth_cimd_fetch_duration_seconds: Histogram of CIMD metadata fetch durations
 //   - oauth_cimd_cache_total: Counter of CIMD cache operations (by operation: hit, miss, negative_hit)
