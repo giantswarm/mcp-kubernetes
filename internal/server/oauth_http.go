@@ -473,7 +473,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// Uses Prometheus exporter to expose metrics alongside mcp-kubernetes metrics
 		Instrumentation: oauthserver.InstrumentationConfig{
 			Enabled:         true,
-			ServiceName:     "mcp-oauth",
+			ServiceName:     "mcp-kubernetes",
 			MetricsExporter: "prometheus",
 		},
 	}
