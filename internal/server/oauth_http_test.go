@@ -91,6 +91,8 @@ func TestCreateOAuthServer(t *testing.T) {
 	assert.Equal(t, config.RegistrationAccessToken, oauthServer.Config.RegistrationAccessToken)
 	assert.Equal(t, config.AllowInsecureAuthWithoutState, oauthServer.Config.AllowNoStateParameter)
 	assert.Equal(t, config.MaxClientsPerIP, oauthServer.Config.MaxClientsPerIP)
+	// CIMD (Client ID Metadata Documents) should be enabled by default per MCP 2025-11-25
+	assert.True(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be enabled by default")
 }
 
 // TestCreateOAuthServerWithDefaults tests OAuth server creation with default values
