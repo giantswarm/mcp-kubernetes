@@ -419,6 +419,10 @@
             "disableStrictSchemeMatching": {
               "type": "boolean",
               "description": "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security."
+            },
+            "enableCIMD": {
+              "type": "boolean",
+              "description": "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers for decentralized registration. Default: true."
             }
           }
         },
