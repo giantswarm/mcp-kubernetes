@@ -152,6 +152,9 @@ type ValkeyStorageConfig struct {
 // OAuthConfig holds MCP-specific OAuth configuration
 // Uses the mcp-oauth library's types directly to avoid duplication
 type OAuthConfig struct {
+	// ServiceVersion is the version of mcp-kubernetes for instrumentation
+	ServiceVersion string
+
 	// BaseURL is the MCP server base URL (e.g., https://mcp.example.com)
 	BaseURL string
 
@@ -474,6 +477,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		Instrumentation: oauthserver.InstrumentationConfig{
 			Enabled:         true,
 			ServiceName:     "mcp-kubernetes",
+			ServiceVersion:  config.ServiceVersion,
 			MetricsExporter: "prometheus",
 		},
 	}

@@ -749,6 +749,7 @@ func runServe(config ServeConfig) error {
 			}
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
+				ServiceVersion:                     rootCmd.Version,
 				BaseURL:                            config.OAuth.BaseURL,
 				Provider:                           config.OAuth.Provider,
 				GoogleClientID:                     config.OAuth.GoogleClientID,
