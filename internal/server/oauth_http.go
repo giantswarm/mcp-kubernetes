@@ -443,6 +443,11 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		AllowNoStateParameter:         config.AllowInsecureAuthWithoutState,
 		MaxClientsPerIP:               maxClientsPerIP,
 
+		// Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25
+		// Allows clients to use HTTPS URLs as client identifiers
+		// The authorization server fetches client metadata from that URL
+		EnableClientIDMetadataDocuments: true,
+
 		// Trusted scheme registration for Cursor/VSCode compatibility
 		// Allows unauthenticated registration for clients using these schemes only
 		TrustedPublicRegistrationSchemes: config.TrustedPublicRegistrationSchemes,
