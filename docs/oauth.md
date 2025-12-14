@@ -434,7 +434,7 @@ The server defines Prometheus metrics for CIMD operations. These metrics are reg
 | `oauth_cimd_fetch_duration_seconds` | Histogram | CIMD metadata fetch duration |
 | `oauth_cimd_cache_total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
 
-> **Note:** CIMD operations are currently handled internally by the mcp-oauth library. These metrics will be populated when the library exposes instrumentation callbacks.
+> **Note:** CIMD operations are currently handled internally by the mcp-oauth library. These metrics will be populated when the library exposes instrumentation callbacks. See [mcp-oauth#148](https://github.com/giantswarm/mcp-oauth/issues/148) for tracking.
 
 ## Security Considerations
 
