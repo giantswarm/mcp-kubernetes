@@ -240,6 +240,11 @@ type OAuthConfig struct {
 
 	// DisableStrictSchemeMatching allows mixed scheme clients to register without token
 	DisableStrictSchemeMatching bool
+
+	// EnableCIMD enables Client ID Metadata Documents per MCP 2025-11-25.
+	// When enabled, clients can use HTTPS URLs as client identifiers.
+	// Default: true (enabled for MCP 2025-11-25 compliance)
+	EnableCIMD bool
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -446,7 +451,8 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25
 		// Allows clients to use HTTPS URLs as client identifiers
 		// The authorization server fetches client metadata from that URL
-		EnableClientIDMetadataDocuments: true,
+		// Configurable via config.EnableCIMD (defaults to true for MCP compliance)
+		EnableClientIDMetadataDocuments: config.EnableCIMD,
 
 		// Trusted scheme registration for Cursor/VSCode compatibility
 		// Allows unauthenticated registration for clients using these schemes only

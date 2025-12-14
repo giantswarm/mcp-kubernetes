@@ -5,7 +5,7 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
 ## Features
 
 - **OAuth 2.1 Compliance**: Implements the latest OAuth 2.1 specification with PKCE enforcement
-- **Client ID Metadata Documents (CIMD)**: Supports HTTPS URLs as client identifiers per MCP 2025-11-25 specification. Clients can use their metadata document URL for dynamic registration.
+- **Client ID Metadata Documents (CIMD)**: Supports HTTPS URLs as client identifiers per MCP 2025-11-25 specification. Clients can use their metadata document URL for dynamic registration. Configurable via `--enable-cimd` flag or `ENABLE_CIMD` environment variable (default: enabled).
 - **Multiple OAuth Providers**:
   - **Dex OIDC Provider** (default): Full OIDC support with connector selection, groups claim, and custom connector ID
   - **Google OAuth Provider**: Supports Google OAuth for authentication with GCP/GKE integration
@@ -416,6 +416,23 @@ A client would host a JSON document at their client ID URL:
 - The client ID must be a valid HTTPS URL
 - The metadata document must be served over HTTPS
 - The `client_id` in the metadata must match the URL where it's hosted
+
+### Configuration
+
+CIMD can be controlled via:
+
+- **CLI Flag**: `--enable-cimd=true|false` (default: `true`)
+- **Environment Variable**: `ENABLE_CIMD=true|false`
+
+### Observability
+
+The server exposes Prometheus metrics for CIMD operations:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `oauth_cimd_fetch_total` | Counter | Total CIMD metadata fetch attempts (by result: success, error, blocked) |
+| `oauth_cimd_fetch_duration_seconds` | Histogram | CIMD metadata fetch duration |
+| `oauth_cimd_cache_total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
 
 ## Security Considerations
 

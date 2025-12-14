@@ -159,6 +159,9 @@ func newServeCmd() *cobra.Command {
 		// Trusted scheme registration for Cursor/VSCode
 		trustedPublicRegistrationSchemes []string
 		disableStrictSchemeMatching      bool
+
+		// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
+		enableCIMD bool
 	)
 
 	cmd := &cobra.Command{
@@ -196,6 +199,13 @@ Downstream OAuth (--downstream-oauth):
 			}
 			// Load env vars only for flags not explicitly set by user
 			loadOAuthStorageEnvVars(cmd, &storageConfig)
+
+			// CIMD env var - only apply if flag was not explicitly set
+			if !cmd.Flags().Changed("enable-cimd") {
+				if os.Getenv("ENABLE_CIMD") == "false" {
+					enableCIMD = false
+				}
+			}
 
 			// Security warning: CLI password flags may be visible in process listings
 			if cmd.Flags().Changed("valkey-password") {
@@ -247,6 +257,7 @@ Downstream OAuth (--downstream-oauth):
 					},
 					TrustedPublicRegistrationSchemes: trustedPublicRegistrationSchemes,
 					DisableStrictSchemeMatching:      disableStrictSchemeMatching,
+					EnableCIMD:                       enableCIMD,
 				},
 				DownstreamOAuth: downstreamOAuth,
 				Metrics: MetricsServeConfig{
@@ -319,6 +330,9 @@ Downstream OAuth (--downstream-oauth):
 	// Trusted scheme registration for Cursor/VSCode compatibility
 	cmd.Flags().StringSliceVar(&trustedPublicRegistrationSchemes, "trusted-public-registration-schemes", nil, "URI schemes allowed for unauthenticated client registration (e.g., cursor,vscode). Best for internal/dev deployments. Must conform to RFC 3986 scheme syntax")
 	cmd.Flags().BoolVar(&disableStrictSchemeMatching, "disable-strict-scheme-matching", false, "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security")
+
+	// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
+	cmd.Flags().BoolVar(&enableCIMD, "enable-cimd", true, "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers (can also be set via ENABLE_CIMD env var)")
 
 	return cmd
 }
@@ -632,7 +646,7 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.DexCAFile, "DEX_CA_FILE")
 			loadEnvIfEmpty(&config.OAuth.DexKubernetesAuthenticatorClientID, "DEX_K8S_AUTHENTICATOR_CLIENT_ID")
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
-			// Note: Valkey storage env vars are loaded in RunE closure where cmd is available
+			// Note: Valkey storage and CIMD env vars are loaded in RunE closure where cmd is available
 
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
@@ -753,6 +767,8 @@ func runServe(config ServeConfig) error {
 				// Trusted scheme registration for Cursor/VSCode compatibility
 				TrustedPublicRegistrationSchemes: config.OAuth.TrustedPublicRegistrationSchemes,
 				DisableStrictSchemeMatching:      config.OAuth.DisableStrictSchemeMatching,
+				// CIMD (Client ID Metadata Documents) per MCP 2025-11-25
+				EnableCIMD: config.OAuth.EnableCIMD,
 			}, serverContext, config.Metrics)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
