@@ -5,6 +5,7 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
 ## Features
 
 - **OAuth 2.1 Compliance**: Implements the latest OAuth 2.1 specification with PKCE enforcement
+- **Client ID Metadata Documents (CIMD)**: Supports HTTPS URLs as client identifiers per MCP 2025-11-25 specification. Clients can use their metadata document URL for dynamic registration. Configurable via `--enable-cimd` flag or `ENABLE_CIMD` environment variable (default: enabled).
 - **Multiple OAuth Providers**:
   - **Dex OIDC Provider** (default): Full OIDC support with connector selection, groups claim, and custom connector ID
   - **Google OAuth Provider**: Supports Google OAuth for authentication with GCP/GKE integration
@@ -378,6 +379,62 @@ The server exposes the following OAuth 2.1 endpoints:
 | `/oauth/callback` | OAuth Callback (from Google) | RFC 6749 |
 | `/oauth/revoke` | Token Revocation | RFC 7009 |
 | `/oauth/introspect` | Token Introspection | RFC 7662 |
+
+## Client ID Metadata Documents (CIMD)
+
+The server supports Client ID Metadata Documents per the MCP 2025-11-25 specification. This feature allows OAuth clients to use HTTPS URLs as client identifiers instead of opaque strings.
+
+### How CIMD Works
+
+1. **Client Registration**: A client registers using an HTTPS URL as its `client_id` (e.g., `https://myapp.example.com/.well-known/oauth-client`)
+2. **Metadata Fetching**: The authorization server fetches client metadata from that URL
+3. **Validation**: The server validates that the metadata matches the registration request
+
+### Benefits
+
+- **Self-describing clients**: Client metadata is hosted by the client itself
+- **Decentralized trust**: No need to pre-register clients with the authorization server
+- **Automatic updates**: Client metadata can be updated without re-registration
+
+### Example Client Metadata Document
+
+A client would host a JSON document at their client ID URL:
+
+```json
+{
+  "client_id": "https://myapp.example.com/.well-known/oauth-client",
+  "client_name": "My MCP Application",
+  "redirect_uris": ["https://myapp.example.com/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+### Requirements
+
+- The client ID must be a valid HTTPS URL
+- The metadata document must be served over HTTPS
+- The `client_id` in the metadata must match the URL where it's hosted
+
+### Configuration
+
+CIMD can be controlled via:
+
+- **CLI Flag**: `--enable-cimd=true|false` (default: `true`)
+- **Environment Variable**: `ENABLE_CIMD=true|false`
+
+### Observability
+
+CIMD operations are instrumented by the mcp-oauth library with the following metrics:
+
+| Metric (OpenTelemetry) | Metric (Prometheus) | Type | Description |
+|------------------------|---------------------|------|-------------|
+| `oauth.cimd.fetch.total` | `oauth_cimd_fetch_total` | Counter | Total CIMD metadata fetch attempts (by result: success, error, blocked) |
+| `oauth.cimd.fetch.duration` | `oauth_cimd_fetch_duration` | Histogram | CIMD metadata fetch duration in milliseconds |
+| `oauth.cimd.cache.total` | `oauth_cimd_cache_total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
+
+These metrics are automatically exposed via the `/metrics` endpoint when OAuth is enabled. The Prometheus exporter automatically converts OpenTelemetry metric names (dots) to Prometheus-compatible names (underscores).
 
 ## Security Considerations
 

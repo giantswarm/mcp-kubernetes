@@ -128,6 +128,14 @@ type OAuthServeConfig struct {
 	// WARNING: Reduces security - only enable if you have specific requirements.
 	DisableStrictSchemeMatching bool
 
+	// EnableCIMD enables Client ID Metadata Documents (CIMD) per MCP 2025-11-25.
+	// When enabled, clients can use HTTPS URLs as client identifiers, and the
+	// authorization server will fetch client metadata from that URL.
+	// This enables decentralized client registration where clients host their
+	// own metadata documents.
+	// Default: true (enabled per MCP 2025-11-25 specification)
+	EnableCIMD bool
+
 	// Storage configuration
 	Storage server.OAuthStorageConfig
 }

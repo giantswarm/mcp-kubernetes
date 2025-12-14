@@ -370,6 +370,20 @@ mcpKubernetes:
     # Default: false (strict matching is enabled)
     disableStrictSchemeMatching: false
 
+    # Client ID Metadata Documents (CIMD) - MCP 2025-11-25
+    # When enabled, clients can use HTTPS URLs as client identifiers (e.g.,
+    # https://myapp.example.com/.well-known/oauth-client). The authorization server
+    # fetches client metadata from that URL, enabling decentralized client registration.
+    #
+    # Security: CIMD requires the server to make outbound HTTPS requests. The mcp-oauth
+    # library implements comprehensive SSRF protection (blocks private IPs, DNS rebinding).
+    #
+    # Network Policy: When OAuth is enabled, egress to "world" is already allowed in
+    # the CiliumNetworkPolicy, which permits CIMD metadata fetching.
+    #
+    # Default: true (enabled per MCP 2025-11-25 specification)
+    enableCIMD: true
+
   # OpenTelemetry Instrumentation configuration
   instrumentation:
     # Enable OpenTelemetry instrumentation (default: true)

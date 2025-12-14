@@ -109,6 +109,10 @@ spec:
             {{- if .Values.mcpKubernetes.oauth.disableStrictSchemeMatching }}
             - --disable-strict-scheme-matching=true
             {{- end }}
+            {{- /* CIMD (Client ID Metadata Documents) per MCP 2025-11-25 */ -}}
+            {{- if hasKey .Values.mcpKubernetes.oauth "enableCIMD" }}
+            - --enable-cimd={{ .Values.mcpKubernetes.oauth.enableCIMD }}
+            {{- end }}
             {{- end }}
             {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
             - --metrics-enabled=true

@@ -29,6 +29,11 @@
 // OAuth Authentication Metrics:
 //   - oauth_downstream_auth_total: Counter of OAuth authentication events by result
 //
+// OAuth CIMD (Client ID Metadata Documents) Metrics:
+// Note: CIMD metrics are provided by the mcp-oauth library when instrumentation is enabled.
+// See the mcp-oauth documentation for available metrics: oauth.cimd.fetch.total,
+// oauth.cimd.fetch.duration, oauth.cimd.cache.total
+//
 // CAPI/Federation Metrics (with cardinality controls):
 //   - mcp_cluster_operations_total: Counter of remote cluster operations (by cluster_type, operation, status)
 //   - mcp_cluster_operation_duration_seconds: Histogram of remote cluster operation durations
