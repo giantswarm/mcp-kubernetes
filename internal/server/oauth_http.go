@@ -135,6 +135,14 @@ type OAuthConfig struct {
 	// Interstitial configures the OAuth success page for custom URL schemes
 	// If nil, uses the default mcp-oauth interstitial page
 	Interstitial *oauthserver.InterstitialConfig
+
+	// TLSCertFile is the path to the TLS certificate file (PEM format)
+	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS
+	TLSCertFile string
+
+	// TLSKeyFile is the path to the TLS private key file (PEM format)
+	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS
+	TLSKeyFile string
 }
 
 // OAuthHTTPServer wraps an MCP server with OAuth 2.1 authentication
@@ -222,6 +230,20 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		MaxClientsPerIP:               maxClientsPerIP,
 	}
 
+	// Debug logging for registration token configuration
+	if config.DebugMode {
+		if config.RegistrationAccessToken != "" {
+			tokenPrefix := config.RegistrationAccessToken
+			if len(tokenPrefix) > 8 {
+				tokenPrefix = tokenPrefix[:8] + "..."
+			}
+			logger.Info("Registration access token configured", "token_length", len(config.RegistrationAccessToken), "token_prefix", tokenPrefix)
+		} else {
+			logger.Warn("Registration access token is empty - public registration must be enabled")
+		}
+		logger.Info("Client registration configuration", "allow_public", config.AllowPublicClientRegistration, "has_token", config.RegistrationAccessToken != "")
+	}
+
 	// Configure interstitial page branding if provided
 	if config.Interstitial != nil {
 		serverConfig.Interstitial = config.Interstitial
@@ -238,6 +260,19 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
+	}
+
+	// Verify registration token was set correctly (debug only)
+	if config.DebugMode {
+		if server.Config.RegistrationAccessToken != "" {
+			tokenPrefix := server.Config.RegistrationAccessToken
+			if len(tokenPrefix) > 8 {
+				tokenPrefix = tokenPrefix[:8] + "..."
+			}
+			logger.Info("OAuth server created with registration token", "token_length", len(server.Config.RegistrationAccessToken), "token_prefix", tokenPrefix, "allow_public", server.Config.AllowPublicClientRegistration)
+		} else {
+			logger.Warn("OAuth server created WITHOUT registration token - public registration must be enabled", "allow_public", server.Config.AllowPublicClientRegistration)
+		}
 	}
 
 	// Set up encryption if key provided
@@ -417,7 +452,12 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		IdleTimeout:       DefaultIdleTimeout,
 	}
 
-	// Start server
+	// Start server with TLS if certificates are provided
+	if config.TLSCertFile != "" && config.TLSKeyFile != "" {
+		return s.httpServer.ListenAndServeTLS(config.TLSCertFile, config.TLSKeyFile)
+	}
+
+	// Start server without TLS
 	return s.httpServer.ListenAndServe()
 }
 

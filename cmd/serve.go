@@ -56,6 +56,8 @@ func newServeCmd() *cobra.Command {
 		maxClientsPerIP               int
 		oauthEncryptionKey            string
 		downstreamOAuth               bool
+		tlsCertFile                   string
+		tlsKeyFile                    string
 	)
 
 	cmd := &cobra.Command{
@@ -80,6 +82,10 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load TLS paths from environment if not provided via flags
+			loadEnvIfEmpty(&tlsCertFile, "TLS_CERT_FILE")
+			loadEnvIfEmpty(&tlsKeyFile, "TLS_KEY_FILE")
+
 			config := ServeConfig{
 				Transport:          transport,
 				HTTPAddr:           httpAddr,
@@ -108,6 +114,8 @@ Downstream OAuth (--downstream-oauth):
 					AllowInsecureAuthWithoutState: allowInsecureAuthWithoutState,
 					MaxClientsPerIP:               maxClientsPerIP,
 					EncryptionKey:                 oauthEncryptionKey,
+					TLSCertFile:                   tlsCertFile,
+					TLSKeyFile:                    tlsKeyFile,
 				},
 				DownstreamOAuth: downstreamOAuth,
 			}
@@ -147,6 +155,10 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
+
+	// TLS flags for HTTPS support
+	cmd.Flags().StringVar(&tlsCertFile, "tls-cert-file", "", "Path to TLS certificate file (PEM format). If provided with --tls-key-file, enables HTTPS")
+	cmd.Flags().StringVar(&tlsKeyFile, "tls-key-file", "", "Path to TLS private key file (PEM format). If provided with --tls-cert-file, enables HTTPS")
 
 	return cmd
 }
@@ -293,8 +305,8 @@ func runServe(config ServeConfig) error {
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
-			// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
-			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL"); err != nil {
+			// Validate OAuth base URL - allow localhost for development
+			if err := validateOAuthBaseURL(config.OAuth.BaseURL); err != nil {
 				return err
 			}
 
@@ -381,6 +393,8 @@ func runServe(config ServeConfig) error {
 				EncryptionKey:                 encryptionKey,
 				EnableHSTS:                    os.Getenv("ENABLE_HSTS") == "true",
 				AllowedOrigins:                os.Getenv("ALLOWED_ORIGINS"),
+				TLSCertFile:                   config.OAuth.TLSCertFile,
+				TLSKeyFile:                    config.OAuth.TLSKeyFile,
 			})
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode)

@@ -75,6 +75,8 @@ type OAuthServeConfig struct {
 	AllowInsecureAuthWithoutState bool
 	MaxClientsPerIP               int
 	EncryptionKey                 string
+	TLSCertFile                   string
+	TLSKeyFile                    string
 }
 
 // loadEnvIfEmpty loads an environment variable into a string pointer if it's empty.
@@ -173,4 +175,35 @@ func isPrivateOrLoopbackIP(ip net.IP) bool {
 	}
 
 	return false
+}
+
+// validateOAuthBaseURL validates the OAuth base URL, allowing localhost for development
+// This is less strict than validateSecureURL because OAuth base URL can be localhost
+// for local development, but Dex issuer URL cannot (SSRF protection)
+func validateOAuthBaseURL(baseURL string) error {
+	if baseURL == "" {
+		return fmt.Errorf("OAuth base URL cannot be empty")
+	}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("OAuth base URL must be a valid URL: %w", err)
+	}
+
+	// Require HTTPS for non-localhost addresses
+	if parsedURL.Scheme != "https" {
+		host := parsedURL.Hostname()
+		// Allow HTTP only for loopback addresses (localhost, 127.0.0.1, ::1)
+		if parsedURL.Scheme == "http" {
+			if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+				// HTTP localhost is allowed for development
+				return nil
+			}
+			return fmt.Errorf("OAuth base URL must use HTTPS for non-localhost addresses (got: %s). Use HTTPS or localhost for development", baseURL)
+		}
+		return fmt.Errorf("OAuth base URL must use http or https scheme (got: %s)", parsedURL.Scheme)
+	}
+
+	// HTTPS is always allowed (including localhost with HTTPS)
+	return nil
 }
