@@ -5,7 +5,7 @@ type: application
 version: 0.0.33
 appVersion: "0.0.33"
 home: https://github.com/giantswarm/mcp-kubernetes
-icon: https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png
+icon: https://s.giantswarm.io/app-icons/giantswarm/1/dark.svg
 sources:
   - https://github.com/giantswarm/mcp-kubernetes
 keywords:
@@ -16,4 +16,9 @@ maintainers:
   - name: Giant Swarm
     email: team-planeteers@giantswarm.io
 annotations:
-  application.giantswarm.io/team: team-planeteers
+  # Team ownership (OCI-compliant format)
+  io.giantswarm.application.team: team-planeteers
+  # Target audience: customers (default catalog)
+  io.giantswarm.application.audience: customers
+  # App is managed/supported by Giant Swarm
+  io.giantswarm.application.managed: "true"
