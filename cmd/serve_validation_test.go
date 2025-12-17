@@ -327,9 +327,15 @@ func validateOAuthConfig(config OAuthServeConfig) error {
 	if config.BaseURL == "" {
 		return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 	}
-	// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
-	if err := validateSecureURL(config.BaseURL, "OAuth base URL", config.AllowPrivateURLs); err != nil {
+	// Validate OAuth base URL (allows localhost for development, but requires HTTPS for production)
+	if err := validateOAuthBaseURL(config.BaseURL); err != nil {
 		return err
+	}
+
+	// Validate TLS configuration - both cert and key must be provided together
+	if (config.TLSCertFile != "" && config.TLSKeyFile == "") ||
+		(config.TLSCertFile == "" && config.TLSKeyFile != "") {
+		return fmt.Errorf("both --tls-cert-file and --tls-key-file must be provided together for HTTPS")
 	}
 
 	// Provider-specific validation
@@ -572,6 +578,72 @@ func TestTrustedSchemesAllowsRegistrationWithoutToken(t *testing.T) {
 				// Some tests may fail URL validation if DNS doesn't resolve
 				if err != nil && !assert.Contains(t, err.Error(), "Could not resolve") {
 					assert.NoError(t, err)
+				}
+			}
+		})
+	}
+}
+
+// TestTLSConfigValidation tests that TLS cert and key must be provided together
+func TestTLSConfigValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		tlsCertFile string
+		tlsKeyFile  string
+		wantErr     bool
+		errMsg      string
+	}{
+		{
+			name:        "no TLS (valid)",
+			tlsCertFile: "",
+			tlsKeyFile:  "",
+			wantErr:     false,
+		},
+		{
+			name:        "both TLS cert and key provided (valid)",
+			tlsCertFile: "/path/to/cert.pem",
+			tlsKeyFile:  "/path/to/key.pem",
+			wantErr:     false,
+		},
+		{
+			name:        "only TLS cert provided (invalid)",
+			tlsCertFile: "/path/to/cert.pem",
+			tlsKeyFile:  "",
+			wantErr:     true,
+			errMsg:      "both --tls-cert-file and --tls-key-file must be provided together",
+		},
+		{
+			name:        "only TLS key provided (invalid)",
+			tlsCertFile: "",
+			tlsKeyFile:  "/path/to/key.pem",
+			wantErr:     true,
+			errMsg:      "both --tls-cert-file and --tls-key-file must be provided together",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := OAuthServeConfig{
+				Enabled:           true,
+				BaseURL:           "https://mcp.example.com",
+				Provider:          OAuthProviderDex,
+				DexIssuerURL:      "https://dex.example.com",
+				DexClientID:       "test-client-id",
+				DexClientSecret:   "test-client-secret",
+				RegistrationToken: "test-token",
+				TLSCertFile:       tt.tlsCertFile,
+				TLSKeyFile:        tt.tlsKeyFile,
+			}
+			err := validateOAuthConfig(config)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				// DNS resolution might fail, which is expected in test environment
+				if err != nil {
+					assert.NotContains(t, err.Error(), "tls")
 				}
 			}
 		})

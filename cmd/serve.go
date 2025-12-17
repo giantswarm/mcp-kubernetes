@@ -671,9 +671,15 @@ func runServe(config ServeConfig) error {
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
-			// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
-			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL", config.OAuth.AllowPrivateURLs); err != nil {
+			// Validate OAuth base URL (allows localhost for development, but requires HTTPS for production)
+			if err := validateOAuthBaseURL(config.OAuth.BaseURL); err != nil {
 				return err
+			}
+
+			// Validate TLS configuration - both cert and key must be provided together
+			if (config.OAuth.TLSCertFile != "" && config.OAuth.TLSKeyFile == "") ||
+				(config.OAuth.TLSCertFile == "" && config.OAuth.TLSKeyFile != "") {
+				return fmt.Errorf("both --tls-cert-file and --tls-key-file must be provided together for HTTPS")
 			}
 
 			// Provider-specific validation
