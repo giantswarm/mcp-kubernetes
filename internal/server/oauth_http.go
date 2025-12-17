@@ -480,7 +480,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			ServiceVersion:  config.ServiceVersion,
 			MetricsExporter: "prometheus",
 		},
-
 		MachineIdentity: oauthserver.MachineIdentityConfig{
 			Enabled:      true,
 			EmailDomain:  "serviceaccount.local", // optional
