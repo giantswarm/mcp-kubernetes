@@ -5,6 +5,7 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
 ## Features
 
 - **OAuth 2.1 Compliance**: Implements the latest OAuth 2.1 specification with PKCE enforcement
+- **Client ID Metadata Documents (CIMD)**: Supports HTTPS URLs as client identifiers per MCP 2025-11-25 specification. Clients can use their metadata document URL for dynamic registration. Configurable via `--enable-cimd` flag or `ENABLE_CIMD` environment variable (default: enabled).
 - **Multiple OAuth Providers**:
   - **Dex OIDC Provider** (default): Full OIDC support with connector selection, groups claim, and custom connector ID
   - **Google OAuth Provider**: Supports Google OAuth for authentication with GCP/GKE integration
@@ -270,9 +271,44 @@ mcp-kubernetes serve \
   --registration-token=YOUR_SECURE_TOKEN
 ```
 
-### Fallback Behavior
+### Security Model (Fail-Closed)
 
-If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kubernetes` falls back to using its service account token. This ensures the server remains functional while logging warnings about the fallback.
+When downstream OAuth is enabled, the server operates in **strict mode** - this is mandatory and cannot be disabled. This design follows the security principle of "fail closed" to protect users from misconfigurations.
+
+#### How Fail-Closed Works
+
+With downstream OAuth enabled:
+- Requests **must** have a valid OAuth token to access Kubernetes resources
+- If no OAuth token is present, the request fails with an authentication error
+- If the OAuth token is invalid or expired, the request fails with an authentication error
+- **No fallback to service account occurs** - this prevents privilege escalation
+
+#### Security Benefits
+
+This fail-closed approach ensures:
+1. **Audit trail integrity**: All operations are always logged under the actual user identity
+2. **RBAC enforcement**: Users can only perform actions their own RBAC permissions allow
+3. **Misconfiguration detection**: OIDC misconfigurations fail visibly (immediately) rather than silently granting service account permissions
+4. **No privilege escalation**: Users cannot accidentally get elevated permissions through service account fallback
+
+#### Error Messages
+
+When authentication fails, users receive clear error messages:
+- "authentication required: please log in to access this resource" - when no OAuth token is present
+- "authentication failed: your session may have expired, please log in again" - when the OAuth token is invalid
+
+### Migration Notes
+
+**If upgrading from versions before fail-closed was enforced:**
+
+Previous versions allowed falling back to service account when OAuth tokens were missing. This behavior was a security risk and has been removed. After upgrading:
+
+1. **Ensure OIDC is properly configured** on your Kubernetes cluster before deploying
+2. **Test authentication flow** in a non-production environment first
+3. **Users must authenticate** - anonymous access via service account fallback is no longer possible
+4. **Check monitoring** for authentication failures after deployment (see Monitoring section below)
+
+If your deployment previously relied on service account fallback (not recommended), you will need to ensure all users authenticate properly via OAuth.
 
 ## Configuration Options
 
@@ -292,7 +328,7 @@ If a user's OAuth token is unavailable (e.g., expired or not present), `mcp-kube
 | `--registration-token` | OAuth client registration access token | - | Yes (unless public registration enabled) |
 | `--allow-public-registration` | Allow unauthenticated OAuth client registration | `false` | No |
 | `--disable-streaming` | Disable streaming for streamable-http transport | `false` | No |
-| `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth | `false` | No |
+| `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth (fail-closed: no service account fallback) | `false` | No |
 
 ### Secret Management (CRITICAL for Production)
 
@@ -343,6 +379,62 @@ The server exposes the following OAuth 2.1 endpoints:
 | `/oauth/callback` | OAuth Callback (from Google) | RFC 6749 |
 | `/oauth/revoke` | Token Revocation | RFC 7009 |
 | `/oauth/introspect` | Token Introspection | RFC 7662 |
+
+## Client ID Metadata Documents (CIMD)
+
+The server supports Client ID Metadata Documents per the MCP 2025-11-25 specification. This feature allows OAuth clients to use HTTPS URLs as client identifiers instead of opaque strings.
+
+### How CIMD Works
+
+1. **Client Registration**: A client registers using an HTTPS URL as its `client_id` (e.g., `https://myapp.example.com/.well-known/oauth-client`)
+2. **Metadata Fetching**: The authorization server fetches client metadata from that URL
+3. **Validation**: The server validates that the metadata matches the registration request
+
+### Benefits
+
+- **Self-describing clients**: Client metadata is hosted by the client itself
+- **Decentralized trust**: No need to pre-register clients with the authorization server
+- **Automatic updates**: Client metadata can be updated without re-registration
+
+### Example Client Metadata Document
+
+A client would host a JSON document at their client ID URL:
+
+```json
+{
+  "client_id": "https://myapp.example.com/.well-known/oauth-client",
+  "client_name": "My MCP Application",
+  "redirect_uris": ["https://myapp.example.com/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+### Requirements
+
+- The client ID must be a valid HTTPS URL
+- The metadata document must be served over HTTPS
+- The `client_id` in the metadata must match the URL where it's hosted
+
+### Configuration
+
+CIMD can be controlled via:
+
+- **CLI Flag**: `--enable-cimd=true|false` (default: `true`)
+- **Environment Variable**: `ENABLE_CIMD=true|false`
+
+### Observability
+
+CIMD operations are instrumented by the mcp-oauth library with the following metrics:
+
+| Metric (OpenTelemetry) | Metric (Prometheus) | Type | Description |
+|------------------------|---------------------|------|-------------|
+| `oauth.cimd.fetch.total` | `oauth_cimd_fetch_total` | Counter | Total CIMD metadata fetch attempts (by result: success, error, blocked) |
+| `oauth.cimd.fetch.duration` | `oauth_cimd_fetch_duration` | Histogram | CIMD metadata fetch duration in milliseconds |
+| `oauth.cimd.cache.total` | `oauth_cimd_cache_total` | Counter | CIMD cache operations (by operation: hit, miss, negative_hit) |
+
+These metrics are automatically exposed via the `/metrics` endpoint when OAuth is enabled. The Prometheus exporter automatically converts OpenTelemetry metric names (dots) to Prometheus-compatible names (underscores).
 
 ## Security Considerations
 
@@ -536,21 +628,83 @@ Review logs regularly for:
 
 The server tracks metrics for downstream OAuth operations:
 
-```go
-// Available metrics (accessible via sc.Metrics())
-metrics := sc.Metrics()
-success, fallback, failures := metrics.GetMetrics()
+```bash
+# OAuth authentication metrics are available via OpenTelemetry instrumentation
+# Enable instrumentation to track OAuth downstream authentication:
+# - oauth_downstream_auth_total{result="success"}: Successful per-user K8s authentications
+# - oauth_downstream_auth_total{result="denied"}: Requests blocked due to missing/invalid OAuth tokens
+# - oauth_downstream_auth_total{result="failure"}: Failed bearer token client creations
 
-// Track:
-// - PerUserAuthSuccess: Successful per-user K8s authentications
-// - PerUserAuthFallback: Fallbacks to service account
-// - BearerClientFailures: Failed bearer token client creations
+# Configure instrumentation via environment variables:
+# INSTRUMENTATION_ENABLED=true
+# METRICS_EXPORTER=prometheus
 ```
 
-**Recommended alerts**:
-- High fallback rate (>10% of requests)
-- Increasing bearer client failures
-- Unusual authentication patterns
+**Recommended Prometheus alerts**:
+
+```yaml
+groups:
+- name: mcp_kubernetes_oauth
+  rules:
+  # Alert when authentication denial rate is high
+  # This could indicate OIDC misconfiguration or users not logged in
+  - alert: HighOAuthDenialRate
+    expr: |
+      rate(oauth_downstream_auth_total{result="denied"}[5m]) 
+      / rate(oauth_downstream_auth_total[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High OAuth denial rate detected"
+      description: "More than 10% of requests are being denied due to missing/invalid OAuth tokens. Check OIDC configuration and user sessions."
+
+  # Alert when there are any bearer token client creation failures
+  # This indicates issues with token format or Kubernetes API connectivity
+  - alert: OAuthClientCreationFailures
+    expr: rate(oauth_downstream_auth_total{result="failure"}[5m]) > 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OAuth client creation failures"
+      description: "Bearer token clients are failing to be created. Check Kubernetes API server OIDC configuration."
+
+  # Alert when no successful authentications in 5 minutes
+  # Could indicate complete authentication failure
+  - alert: NoSuccessfulOAuthAuth
+    expr: |
+      absent(rate(oauth_downstream_auth_total{result="success"}[5m]) > 0)
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "No successful OAuth authentications"
+      description: "No users have successfully authenticated in the last 5 minutes. Check OAuth provider and OIDC configuration."
+```
+
+**Post-deployment monitoring checklist**:
+
+After enabling downstream OAuth, monitor the following for at least 24 hours:
+
+1. **Authentication success rate**: Should be >95% for active users
+2. **Denial rate**: High denial rates indicate OIDC misconfiguration or session issues
+3. **Error logs**: Check for "authentication required" or "authentication failed" messages
+4. **User feedback**: Ensure users are being prompted to log in and can complete authentication
+
+**Grafana dashboard queries**:
+
+```promql
+# Success rate over time
+sum(rate(oauth_downstream_auth_total{result="success"}[5m])) 
+/ sum(rate(oauth_downstream_auth_total[5m])) * 100
+
+# Denials by reason
+sum by (result) (rate(oauth_downstream_auth_total{result=~"denied|failure"}[5m]))
+
+# Total authentication attempts
+sum(increase(oauth_downstream_auth_total[1h]))
+```
 
 ### Dependency Security
 
@@ -1291,16 +1445,128 @@ curl -X POST http://localhost:8080/oauth/register \
   }'
 ```
 
+## Valkey Token Storage (Production)
+
+By default, mcp-kubernetes uses in-memory token storage which is **NOT recommended for production** because:
+- Tokens are lost on pod restart
+- Multiple replicas cannot share session state
+- Rolling updates cause user session loss
+
+For production deployments, use Valkey (Redis-compatible) storage.
+
+### Benefits of Valkey Storage
+
+1. **High Availability** - Multiple replicas can serve users with shared session state
+2. **Rolling Updates** - Deployments do not disrupt user sessions
+3. **Scalability** - Can scale mcp-kubernetes instances independently
+4. **Session Persistence** - Tokens survive pod restarts
+
+### Valkey Configuration
+
+#### Command-Line Flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--oauth-storage-type` | Storage backend: `memory` or `valkey` | `memory` |
+| `--valkey-url` | Valkey server address (e.g., `valkey.namespace.svc:6379`) | - |
+| `--valkey-password` | Valkey authentication password | - |
+| `--valkey-tls` | Enable TLS for Valkey connections | `false` |
+| `--valkey-key-prefix` | Prefix for all Valkey keys | `mcp:` |
+| `--valkey-db` | Valkey database number (0-15) | `0` |
+
+#### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `OAUTH_STORAGE_TYPE` | Storage backend: `memory` or `valkey` |
+| `VALKEY_URL` | Valkey server address |
+| `VALKEY_PASSWORD` | Valkey authentication password |
+| `VALKEY_TLS_ENABLED` | Enable TLS (`true`/`false`) |
+| `VALKEY_KEY_PREFIX` | Prefix for all Valkey keys |
+| `VALKEY_DB` | Valkey database number |
+
+### Example: Production Deployment with Valkey
+
+```bash
+# Deploy Valkey (example using Bitnami Helm chart)
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install valkey bitnami/valkey \
+  --set auth.enabled=true \
+  --set auth.password=your-secure-password \
+  --set tls.enabled=true
+
+# Start mcp-kubernetes with Valkey storage
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --enable-oauth \
+  --oauth-base-url=https://mcp.example.com \
+  --oauth-provider=dex \
+  --dex-issuer-url=https://dex.example.com \
+  --dex-client-id=mcp-kubernetes \
+  --dex-client-secret=$DEX_CLIENT_SECRET \
+  --registration-token=$REGISTRATION_TOKEN \
+  --oauth-encryption-key=$ENCRYPTION_KEY \
+  --oauth-storage-type=valkey \
+  --valkey-url=valkey.default.svc:6379 \
+  --valkey-password=$VALKEY_PASSWORD \
+  --valkey-tls
+```
+
+### Helm Chart Configuration
+
+```yaml
+mcpKubernetes:
+  oauth:
+    enabled: true
+    baseURL: "https://mcp.example.com"
+    provider: "dex"
+    dex:
+      issuerURL: "https://dex.example.com"
+      clientID: "mcp-kubernetes"
+    encryptionKey: true
+    existingSecret: "mcp-kubernetes-oauth"
+    
+    storage:
+      type: "valkey"
+      valkey:
+        url: "valkey.default.svc:6379"
+        tls:
+          enabled: true
+        keyPrefix: "mcp:"
+        # Password loaded from existingSecret
+```
+
+See `helm/mcp-kubernetes/values-oauth-valkey-example.yaml` for a complete production example.
+
+### Security Considerations for Valkey
+
+1. **Enable TLS** - Always use TLS in production to encrypt traffic between mcp-kubernetes and Valkey
+2. **Use Authentication** - Configure Valkey password and store it in a Kubernetes Secret
+3. **Enable Token Encryption** - Use `--oauth-encryption-key` to encrypt tokens at rest in Valkey
+4. **Network Policies** - Restrict access to Valkey to only mcp-kubernetes pods
+5. **Key Prefix** - Use unique key prefixes in multi-tenant environments
+6. **Avoid CLI Password Flags** - Use environment variables (`VALKEY_PASSWORD`) instead of `--valkey-password` flag, as command-line arguments may be visible in process listings (`ps aux`)
+
+### Valkey vs Redis
+
+Valkey is a community-driven fork of Redis that maintains full compatibility while being fully open source. It provides:
+- Redis protocol compatibility
+- Active community development
+- No licensing concerns
+- Kubernetes-native deployment via Helm charts
+
 ## Architecture
 
-The OAuth implementation is based on the [mcp-oauth](https://github.com/giantswarm/mcp-oauth) library (v0.2.7), which provides:
+The OAuth implementation is based on the [mcp-oauth](https://github.com/giantswarm/mcp-oauth) library (v0.2.14), which provides:
 
 - OAuth 2.1 server implementation
 - Multiple provider support:
   - Dex OIDC provider (with connector selection and groups claim)
   - Google OAuth provider
-- In-memory token storage
-- Security features (rate limiting, audit logging, encryption)
+- Token storage backends:
+  - In-memory storage (development)
+  - Valkey storage (production, Redis-compatible)
+- Security features (rate limiting, audit logging, encryption at rest)
 - RFC-compliant endpoints
 
 The integration is organized as follows:

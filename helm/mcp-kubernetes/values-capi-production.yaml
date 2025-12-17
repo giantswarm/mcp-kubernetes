@@ -1,0 +1,175 @@
+# Example values for deploying mcp-kubernetes in CAPI Mode (Production)
+# This configuration enables multi-cluster federation via Cluster API.
+#
+# Security Model:
+# - Downstream OAuth enabled: User tokens authenticate to Kubernetes API
+# - RBAC profile "minimal": ServiceAccount has no K8s API permissions
+# - Per-user RBAC applies: Each user needs their own RBAC bindings
+#
+# Prerequisites:
+# 1. Deploy on a CAPI Management Cluster
+# 2. Configure Dex OIDC for authentication
+# 3. Create organization namespaces (org-*) with kubeconfig secrets
+# 4. Set up proper TLS certificates for the ingress
+# 5. Grant users RBAC for CAPI cluster discovery and secret access
+
+# Ingress configuration for external access
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: mcp.g8s.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mcp-kubernetes-tls
+      hosts:
+        - mcp.g8s.example.com
+
+# MCP Kubernetes specific configuration
+mcpKubernetes:
+  kubernetes:
+    # Use in-cluster configuration on the Management Cluster
+    inCluster: true
+
+  # OAuth 2.1 configuration with Dex
+  oauth:
+    enabled: true
+    provider: "dex"
+    baseURL: "https://mcp.g8s.example.com"
+    
+    dex:
+      # Dex issuer URL - the OIDC discovery endpoint
+      issuerURL: "https://dex.g8s.example.com"
+      # Dex OAuth Client ID
+      clientID: "mcp-kubernetes"
+      # Optional: bypass connector selection for better UX
+      # connectorID: "github"
+
+    # Use existing secret for OAuth credentials
+    # Create with:
+    # kubectl create secret generic mcp-kubernetes-oauth \
+    #   --from-literal=dex-client-secret=YOUR_SECRET \
+    #   --from-literal=registration-token=$(openssl rand -hex 32) \
+    #   --from-literal=oauth-encryption-key=$(openssl rand -base64 32)
+    existingSecret: "mcp-kubernetes-oauth"
+
+    # Security settings
+    allowPublicRegistration: false
+    encryptionKey: true
+    
+    # Enable downstream OAuth for Kubernetes API authentication
+    # User tokens are used for all Kubernetes API calls
+    enableDownstreamOAuth: true
+
+  # OpenTelemetry Instrumentation
+  instrumentation:
+    enabled: true
+    metricsExporter: "prometheus"
+    tracingExporter: "otlp"
+    otlpEndpoint: "tempo.monitoring.svc.cluster.local:4317"
+    otlpInsecure: true
+    traceSamplingRate: 0.1
+    detailedLabels: true
+    serviceMonitor:
+      enabled: true
+      labels:
+        release: prometheus
+
+  # Additional environment variables (if needed)
+  env: []
+
+# CAPI Mode Configuration
+capiMode:
+  enabled: true
+
+  # Client cache settings - tuned for production
+  cache:
+    # Match this to your OAuth token lifetime
+    ttl: "15m"
+    # Support many concurrent users across many clusters
+    maxEntries: 2000
+    cleanupInterval: "1m"
+
+  # Connectivity settings for workload clusters
+  connectivity:
+    timeout: "5s"
+    retryAttempts: 3
+    retryBackoff: "1s"
+    requestTimeout: "30s"
+    qps: 50
+    burst: 100
+
+  # Output processing limits
+  output:
+    maxItems: 100
+    maxClusters: 20
+    maxResponseBytes: 524288  # 512KB
+    slimOutput: true
+    maskSecrets: true
+
+  # RBAC for CAPI mode - namespace-scoped (recommended)
+  rbac:
+    create: true
+    # Grant access to organization namespaces
+    # Add all organization namespaces that contain workload clusters
+    allowedNamespaces:
+      - org-acme
+      - org-beta
+      - org-gamma
+    # Do NOT enable cluster-wide secret access in production
+    clusterWideSecrets: false
+
+# Resources for production workloads
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Enable horizontal pod autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Pod security settings
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  fsGroup: 1000
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+    - ALL
+
+# RBAC Configuration - Minimal profile for downstream OAuth
+# Since user OAuth tokens are used for K8s API, ServiceAccount RBAC is not needed
+rbac:
+  create: true
+  # Minimal profile: ServiceAccount has no K8s API permissions
+  # This follows least-privilege principles for production
+  profile: "minimal"
+
+# Network policy for security
+ciliumNetworkPolicy:
+  enabled: true
+

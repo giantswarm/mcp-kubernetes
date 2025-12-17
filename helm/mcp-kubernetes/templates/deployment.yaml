@@ -13,10 +13,15 @@ spec:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
+        {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.mcpKubernetes.metrics.port }}"
+        prometheus.io/path: "/metrics"
+        {{- end }}
       labels:
         {{- include "mcp-kubernetes.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
@@ -28,6 +33,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "mcp-kubernetes.serviceAccountName" . }}
+      automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -62,6 +68,9 @@ spec:
             {{- else }}
             - --allow-insecure-auth-without-state=false
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.allowPrivateURLs }}
+            - --allow-private-oauth-urls=true
+            {{- end }}
             - --max-clients-per-ip={{ .Values.mcpKubernetes.oauth.maxClientsPerIP }}
             {{- if .Values.mcpKubernetes.oauth.disableStreaming }}
             - --disable-streaming=true
@@ -69,11 +78,73 @@ spec:
             {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
             - --downstream-oauth
             {{- end }}
+            {{- /* Redirect URI Security Configuration */ -}}
+            {{- with .Values.mcpKubernetes.oauth.redirectURISecurity }}
+            {{- if .disableProductionMode }}
+            - --disable-production-mode=true
+            {{- end }}
+            {{- if .allowLocalhostRedirectURIs }}
+            - --allow-localhost-redirect-uris=true
+            {{- end }}
+            {{- if .allowPrivateIPRedirectURIs }}
+            - --allow-private-ip-redirect-uris=true
+            {{- end }}
+            {{- if .allowLinkLocalRedirectURIs }}
+            - --allow-link-local-redirect-uris=true
+            {{- end }}
+            {{- if .disableDNSValidation }}
+            - --disable-dns-validation=true
+            {{- end }}
+            {{- if .disableDNSValidationStrict }}
+            - --disable-dns-validation-strict=true
+            {{- end }}
+            {{- if .disableAuthorizationTimeValidation }}
+            - --disable-authorization-time-validation=true
+            {{- end }}
+            {{- end }}
+            {{- /* Trusted Scheme Registration for Cursor/VSCode */ -}}
+            {{- if .Values.mcpKubernetes.oauth.trustedPublicRegistrationSchemes }}
+            - --trusted-public-registration-schemes={{ .Values.mcpKubernetes.oauth.trustedPublicRegistrationSchemes | join "," }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.disableStrictSchemeMatching }}
+            - --disable-strict-scheme-matching=true
+            {{- end }}
+            {{- /* CIMD (Client ID Metadata Documents) per MCP 2025-11-25 */ -}}
+            {{- if hasKey .Values.mcpKubernetes.oauth "enableCIMD" }}
+            - --enable-cimd={{ .Values.mcpKubernetes.oauth.enableCIMD }}
+            {{- end }}
+            {{- end }}
+            {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+            - --metrics-enabled=true
+            - --metrics-addr=:{{ .Values.mcpKubernetes.metrics.port }}
+            {{- else }}
+            - --metrics-enabled=false
             {{- end }}
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.mcpKubernetes.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           env:
             {{- if .Values.mcpKubernetes.kubernetes.inCluster }}
             - name: KUBERNETES_IN_CLUSTER
@@ -108,8 +179,25 @@ spec:
             - name: DEX_CONNECTOR_ID
               value: {{ .Values.mcpKubernetes.oauth.dex.connectorID | quote }}
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.dex.kubernetesAuthenticatorClientID }}
+            - name: DEX_K8S_AUTHENTICATOR_CLIENT_ID
+              value: {{ .Values.mcpKubernetes.oauth.dex.kubernetesAuthenticatorClientID | quote }}
             {{- end }}
-            {{- if not .Values.mcpKubernetes.oauth.allowPublicRegistration }}
+            {{- if .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            - name: DEX_CA_FILE
+              value: "/etc/ssl/certs/dex-ca/{{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}"
+            {{- end }}
+            {{- end }}
+            {{- /* Only mount REGISTRATION_TOKEN if registrationAccessToken is explicitly configured.
+                   DCR behavior matrix:
+                   - No token + no schemes: fully open (not recommended)
+                   - No token + schemes: only trusted schemes work
+                   - Token + no schemes: only registration token works
+                   - Token + schemes: token OR trusted scheme
+                   Note: existingSecret may be used for other credentials (dex-client-secret,
+                   oauth-encryption-key) without requiring a registration-token key.
+                   CIMD is the preferred client authentication method over DCR. */}}
+            {{- if .Values.mcpKubernetes.oauth.registrationAccessToken }}
             - name: REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -123,7 +211,104 @@ spec:
                   name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
                   key: oauth-encryption-key
             {{- end }}
+            # Valkey storage configuration
+            {{- if eq .Values.mcpKubernetes.oauth.storage.type "valkey" }}
+            - name: OAUTH_STORAGE_TYPE
+              value: "valkey"
+            - name: VALKEY_URL
+              value: {{ required "mcpKubernetes.oauth.storage.valkey.url is required when using Valkey storage" .Values.mcpKubernetes.oauth.storage.valkey.url | quote }}
+            {{- if .Values.mcpKubernetes.oauth.storage.valkey.tls.enabled }}
+            - name: VALKEY_TLS_ENABLED
+              value: "true"
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.storage.valkey.keyPrefix }}
+            - name: VALKEY_KEY_PREFIX
+              value: {{ .Values.mcpKubernetes.oauth.storage.valkey.keyPrefix | quote }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.storage.valkey.db }}
+            - name: VALKEY_DB
+              value: {{ .Values.mcpKubernetes.oauth.storage.valkey.db | quote }}
+            {{- end }}
+            {{- if or .Values.mcpKubernetes.oauth.storage.valkey.existingSecret .Values.mcpKubernetes.oauth.existingSecret }}
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcpKubernetes.oauth.storage.valkey.existingSecret | default .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  key: {{ .Values.mcpKubernetes.oauth.storage.valkey.secretKeyPassword | default "valkey-password" }}
+                  optional: true
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            # OpenTelemetry Instrumentation environment variables
+            {{- if .Values.mcpKubernetes.instrumentation }}
+            - name: INSTRUMENTATION_ENABLED
+              value: {{ .Values.mcpKubernetes.instrumentation.enabled | default true | quote }}
+            - name: METRICS_EXPORTER
+              value: {{ .Values.mcpKubernetes.instrumentation.metricsExporter | default "prometheus" | quote }}
+            - name: TRACING_EXPORTER
+              value: {{ .Values.mcpKubernetes.instrumentation.tracingExporter | default "none" | quote }}
+            {{- if .Values.mcpKubernetes.instrumentation.otlpEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.mcpKubernetes.instrumentation.otlpEndpoint | quote }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.instrumentation.otlpInsecure }}
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              value: "true"
+            {{- end }}
+            {{- if .Values.mcpKubernetes.instrumentation.traceSamplingRate }}
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.mcpKubernetes.instrumentation.traceSamplingRate | quote }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.instrumentation.detailedLabels }}
+            - name: METRICS_DETAILED_LABELS
+              value: "true"
+            {{- end }}
+            {{- end }}
+            # CAPI Mode Configuration
+            {{- if .Values.capiMode.enabled }}
+            - name: CAPI_MODE_ENABLED
+              value: "true"
+            # Cache Configuration
+            - name: CLIENT_CACHE_TTL
+              value: {{ .Values.capiMode.cache.ttl | quote }}
+            - name: CLIENT_CACHE_MAX_ENTRIES
+              value: {{ .Values.capiMode.cache.maxEntries | quote }}
+            - name: CLIENT_CACHE_CLEANUP_INTERVAL
+              value: {{ .Values.capiMode.cache.cleanupInterval | quote }}
+            # Connectivity Configuration
+            - name: CONNECTIVITY_TIMEOUT
+              value: {{ .Values.capiMode.connectivity.timeout | quote }}
+            - name: CONNECTIVITY_RETRY_ATTEMPTS
+              value: {{ .Values.capiMode.connectivity.retryAttempts | quote }}
+            - name: CONNECTIVITY_RETRY_BACKOFF
+              value: {{ .Values.capiMode.connectivity.retryBackoff | quote }}
+            - name: CONNECTIVITY_REQUEST_TIMEOUT
+              value: {{ .Values.capiMode.connectivity.requestTimeout | quote }}
+            - name: CONNECTIVITY_QPS
+              value: {{ .Values.capiMode.connectivity.qps | quote }}
+            - name: CONNECTIVITY_BURST
+              value: {{ .Values.capiMode.connectivity.burst | quote }}
+            # Output Processing Configuration
+            - name: OUTPUT_MAX_ITEMS
+              value: {{ .Values.capiMode.output.maxItems | quote }}
+            - name: OUTPUT_MAX_CLUSTERS
+              value: {{ .Values.capiMode.output.maxClusters | quote }}
+            - name: OUTPUT_MAX_RESPONSE_BYTES
+              value: {{ .Values.capiMode.output.maxResponseBytes | quote }}
+            - name: OUTPUT_SLIM_MODE
+              value: {{ .Values.capiMode.output.slimOutput | quote }}
+            - name: OUTPUT_MASK_SECRETS
+              value: {{ .Values.capiMode.output.maskSecrets | quote }}
+            {{- end }}
+            # Kubernetes metadata for OpenTelemetry resource attributes
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             {{- with .Values.mcpKubernetes.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -132,12 +317,44 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: sa-token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            {{- if and .Values.mcpKubernetes.oauth.enabled .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            - name: dex-ca
+              mountPath: /etc/ssl/certs/dex-ca
+              readOnly: true
+            {{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: sa-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  expirationSeconds: 3600
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        {{- if and .Values.mcpKubernetes.oauth.enabled .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+        - name: dex-ca
+          secret:
+            secretName: {{ .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            items:
+              - key: {{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}
+                path: {{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}
+        {{- end }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}

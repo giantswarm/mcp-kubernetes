@@ -14,4 +14,7 @@ const (
 
 	// Discovery timeout
 	DiscoveryTimeoutSeconds = 30
+
+	// In-cluster context name
+	InClusterContext = "in-cluster"
 )

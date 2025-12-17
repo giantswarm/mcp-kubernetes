@@ -10,10 +10,20 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
+
+// checkMutatingOperation is a convenience wrapper around tools.CheckMutatingOperation.
+// It verifies if a mutating operation is allowed given the current server configuration.
+func checkMutatingOperation(sc *server.ServerContext, operation string) *mcp.CallToolResult {
+	return tools.CheckMutatingOperation(sc, operation)
+}
+
+// Resource type constant for default resource type in port-forward operations.
+const defaultResourceTypePod = "pod"
 
 // PortForwardResponse represents the structured response for port forwarding operations
 type PortForwardResponse struct {
@@ -33,9 +43,30 @@ type PortMapping struct {
 	RemotePort int `json:"remotePort"`
 }
 
+// recordPodOperation records metrics for a pod operation.
+// Delegates to ServerContext which handles nil checks internally.
+func recordPodOperation(ctx context.Context, sc *server.ServerContext, operation, namespace, status string, duration time.Duration) {
+	sc.RecordPodOperation(ctx, operation, namespace, status, duration)
+}
+
+// incrementActiveSessions increments the active port-forward sessions counter.
+// Delegates to ServerContext which handles nil checks internally.
+func incrementActiveSessions(ctx context.Context, sc *server.ServerContext) {
+	sc.IncrementActiveSessions(ctx)
+}
+
+// decrementActiveSessions decrements the active port-forward sessions counter.
+// Delegates to ServerContext which handles nil checks internally.
+func decrementActiveSessions(ctx context.Context, sc *server.ServerContext) {
+	sc.DecrementActiveSessions(ctx)
+}
+
 // handleGetLogs handles kubectl logs operations
 func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
+
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
 
 	kubeContext, _ := args["kubeContext"].(string)
 
@@ -86,13 +117,24 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 		MaxLines:   maxLines,
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
+
+	start := time.Now()
 	logs, err := k8sClient.GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: %v", err)), nil
 	}
-	defer logs.Close()
+	defer func() { _ = logs.Close() }()
+
+	recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusSuccess, duration)
 
 	// Read logs and apply pagination if needed
 	logData, err := io.ReadAll(logs)
@@ -134,9 +176,19 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	return mcp.NewToolResultText(logText), nil
 }
 
-// handleExec handles kubectl exec operations
+// handleExec handles kubectl exec operations.
+// This is a potentially dangerous operation that allows arbitrary command execution
+// inside pods, so it is blocked in non-destructive mode unless explicitly allowed.
 func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+	// Check if exec operations are allowed in non-destructive mode
+	if result := checkMutatingOperation(sc, "exec"); result != nil {
+		return result, nil
+	}
+
 	args := request.GetArguments()
+
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
 
 	kubeContext, _ := args["kubeContext"].(string)
 
@@ -179,12 +231,23 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 		TTY: tty,
 	}
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
+
+	start := time.Now()
 	result, err := k8sClient.Exec(ctx, kubeContext, namespace, podName, containerName, command, opts)
+	duration := time.Since(start)
+
 	if err != nil {
+		recordPodOperation(ctx, sc, instrumentation.OperationExec, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to execute command: %v", err)), nil
 	}
+
+	recordPodOperation(ctx, sc, instrumentation.OperationExec, namespace, instrumentation.StatusSuccess, duration)
 
 	// Format the result
 	var output strings.Builder
@@ -199,9 +262,20 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 	return mcp.NewToolResultText(output.String()), nil
 }
 
-// handlePortForward handles kubectl port-forward operations
+// handlePortForward handles kubectl port-forward operations.
+// This operation establishes network tunnels to cluster resources, which could be
+// used to access internal services. It is blocked in non-destructive mode unless
+// explicitly allowed.
 func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+	// Check if port-forward operations are allowed in non-destructive mode
+	if result := checkMutatingOperation(sc, "port-forward"); result != nil {
+		return result, nil
+	}
+
 	args := request.GetArguments()
+
+	// Extract cluster parameter for multi-cluster support
+	clusterName := tools.ExtractClusterParam(args)
 
 	kubeContext, _ := args["kubeContext"].(string)
 
@@ -213,7 +287,7 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	// Get resource type (default to "pod" for backward compatibility)
 	resourceType, _ := args["resourceType"].(string)
 	if resourceType == "" {
-		resourceType = "pod"
+		resourceType = defaultResourceTypePod
 	}
 
 	// Get resource name (support both old "podName" and new "resourceName" for backward compatibility)
@@ -222,7 +296,7 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 		// Fall back to "podName" for backward compatibility
 		if podName, exists := args["podName"].(string); exists && podName != "" {
 			resourceName = podName
-			resourceType = "pod" // Ensure it's treated as a pod
+			resourceType = defaultResourceTypePod // Ensure it's treated as a pod
 		} else {
 			return mcp.NewToolResultError("resourceName is required"), nil
 		}
@@ -259,12 +333,16 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	setupCtx, setupCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer setupCancel()
 
-	// Use appropriate k8s client (per-user if OAuth downstream enabled)
-	k8sClient := tools.GetK8sClient(ctx, sc)
+	// Get the appropriate k8s client (local or federated)
+	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
+	if errMsg != "" {
+		return mcp.NewToolResultError(errMsg), nil
+	}
+	k8sClient := client.K8s()
 
 	// Handle port forwarding based on resource type
 	switch resourceType {
-	case "pod":
+	case defaultResourceTypePod:
 		session, err = k8sClient.PortForward(setupCtx, kubeContext, namespace, resourceName, ports, opts)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to setup port forwarding to pod: %v", err)), nil
@@ -284,6 +362,9 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 
 	// Register the session for cleanup during shutdown
 	sc.RegisterPortForwardSession(sessionID, session)
+
+	// Increment active sessions metric
+	incrementActiveSessions(ctx, sc)
 
 	// Create port mappings
 	var portMappings []PortMapping
@@ -356,6 +437,9 @@ func handleStopPortForwardSession(ctx context.Context, request mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to stop session: %v", err)), nil
 	}
 
+	// Decrement active sessions metric
+	decrementActiveSessions(ctx, sc)
+
 	return mcp.NewToolResultText(fmt.Sprintf("Port forwarding session %s stopped successfully.", sessionID)), nil
 }
 
@@ -365,6 +449,11 @@ func handleStopAllPortForwardSessions(ctx context.Context, request mcp.CallToolR
 
 	if count == 0 {
 		return mcp.NewToolResultText("No active port forwarding sessions to stop."), nil
+	}
+
+	// Decrement active sessions metric for all stopped sessions
+	for i := 0; i < count; i++ {
+		decrementActiveSessions(ctx, sc)
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Stopped %d port forwarding session(s) successfully.", count)), nil

@@ -12,12 +12,15 @@ import (
 
 // RegisterPodTools registers all pod management tools with the MCP server
 func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
+	// Get cluster/context parameters based on server mode
+	clusterContextParams := tools.AddClusterContextParams(sc)
+
 	// kubernetes_logs tool
-	logsTool := mcp.NewTool("kubernetes_logs",
+	logsOpts := []mcp.ToolOption{
 		mcp.WithDescription("Get logs from a pod container"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	logsOpts = append(logsOpts, clusterContextParams...)
+	logsOpts = append(logsOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the pod is located"),
@@ -48,17 +51,18 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.Description("Maximum number of lines to return (useful for pagination, optional)"),
 		),
 	)
+	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)
 
 	s.AddTool(logsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleGetLogs(ctx, request, sc)
 	})
 
 	// kubernetes_exec tool
-	execTool := mcp.NewTool("kubernetes_exec",
+	execOpts := []mcp.ToolOption{
 		mcp.WithDescription("Execute a command inside a pod container"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	execOpts = append(execOpts, clusterContextParams...)
+	execOpts = append(execOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the pod is located"),
@@ -79,17 +83,18 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.Description("Allocate a TTY for the exec session (default: false)"),
 		),
 	)
+	execTool := mcp.NewTool("kubernetes_exec", execOpts...)
 
 	s.AddTool(execTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handleExec(ctx, request, sc)
 	})
 
 	// port_forward tool
-	portForwardTool := mcp.NewTool("port_forward",
+	portForwardOpts := []mcp.ToolOption{
 		mcp.WithDescription("Port-forward to a pod or service"),
-		mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
-		),
+	}
+	portForwardOpts = append(portForwardOpts, clusterContextParams...)
+	portForwardOpts = append(portForwardOpts,
 		mcp.WithString("namespace",
 			mcp.Required(),
 			mcp.Description("Namespace where the resource is located"),
@@ -108,6 +113,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithStringItems(),
 		),
 	)
+	portForwardTool := mcp.NewTool("port_forward", portForwardOpts...)
 
 	s.AddTool(portForwardTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return handlePortForward(ctx, request, sc)

@@ -355,50 +355,6 @@ func (c *kubernetesClient) PortForwardToService(ctx context.Context, kubeContext
 	return c.PortForward(ctx, kubeContext, namespace, targetPod, ports, opts)
 }
 
-// validatePodExists checks if a pod exists in the specified namespace.
-func (c *kubernetesClient) validatePodExists(ctx context.Context, kubeContext, namespace, podName string) error {
-	clientset, err := c.getClientset(kubeContext)
-	if err != nil {
-		return err
-	}
-
-	_, err = clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("pod %s/%s not found: %w", namespace, podName, err)
-	}
-
-	return nil
-}
-
-// validateContainerExists checks if a container exists in the specified pod.
-func (c *kubernetesClient) validateContainerExists(ctx context.Context, kubeContext, namespace, podName, containerName string) error {
-	clientset, err := c.getClientset(kubeContext)
-	if err != nil {
-		return err
-	}
-
-	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("pod %s/%s not found: %w", namespace, podName, err)
-	}
-
-	// Check if container exists
-	for _, container := range pod.Spec.Containers {
-		if container.Name == containerName {
-			return nil
-		}
-	}
-
-	// Check init containers as well
-	for _, container := range pod.Spec.InitContainers {
-		if container.Name == containerName {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("container %q not found in pod %s/%s", containerName, namespace, podName)
-}
-
 // validatePodRunning checks if a pod is running in the specified namespace.
 func (c *kubernetesClient) validatePodRunning(ctx context.Context, kubeContext, namespace, podName string) error {
 	clientset, err := c.getClientset(kubeContext)

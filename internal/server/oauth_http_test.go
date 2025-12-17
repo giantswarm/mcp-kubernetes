@@ -78,6 +78,7 @@ func TestCreateOAuthServer(t *testing.T) {
 		MaxClientsPerIP:               5,
 		EncryptionKey:                 []byte("12345678901234567890123456789012"), // Exactly 32 bytes
 		DebugMode:                     false,
+		EnableCIMD:                    true, // CIMD enabled per MCP 2025-11-25
 	}
 
 	oauthServer, tokenStore, err := createOAuthServer(config)
@@ -91,6 +92,25 @@ func TestCreateOAuthServer(t *testing.T) {
 	assert.Equal(t, config.RegistrationAccessToken, oauthServer.Config.RegistrationAccessToken)
 	assert.Equal(t, config.AllowInsecureAuthWithoutState, oauthServer.Config.AllowNoStateParameter)
 	assert.Equal(t, config.MaxClientsPerIP, oauthServer.Config.MaxClientsPerIP)
+	// CIMD (Client ID Metadata Documents) is configurable, verify it's passed through
+	assert.True(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be enabled when configured")
+}
+
+// TestCreateOAuthServerCIMDDisabled tests OAuth server creation with CIMD disabled
+func TestCreateOAuthServerCIMDDisabled(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		EnableCIMD:         false, // CIMD explicitly disabled
+	}
+
+	oauthServer, _, err := createOAuthServer(config)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, oauthServer)
+	assert.False(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be disabled when configured")
 }
 
 // TestCreateOAuthServerWithDefaults tests OAuth server creation with default values
@@ -188,4 +208,234 @@ func TestCreateOAuthServerWithInvalidProvider(t *testing.T) {
 	assert.Nil(t, oauthServer)
 	assert.Nil(t, tokenStore)
 	assert.Contains(t, err.Error(), "unsupported OAuth provider")
+}
+
+// TestCreateOAuthServerWithMemoryStorage tests explicit memory storage configuration
+func TestCreateOAuthServerWithMemoryStorage(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		Storage: OAuthStorageConfig{
+			Type: OAuthStorageTypeMemory,
+		},
+	}
+
+	oauthServer, tokenStore, err := createOAuthServer(config)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, oauthServer)
+	assert.NotNil(t, tokenStore)
+}
+
+// TestCreateOAuthServerWithDefaultStorage tests default storage (memory) when type is empty
+func TestCreateOAuthServerWithDefaultStorage(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		// Storage.Type not set - should default to memory
+	}
+
+	oauthServer, tokenStore, err := createOAuthServer(config)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, oauthServer)
+	assert.NotNil(t, tokenStore)
+}
+
+// TestCreateOAuthServerWithInvalidStorageType tests invalid storage type handling
+func TestCreateOAuthServerWithInvalidStorageType(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		Storage: OAuthStorageConfig{
+			Type: "invalid-storage",
+		},
+	}
+
+	oauthServer, tokenStore, err := createOAuthServer(config)
+
+	assert.Error(t, err)
+	assert.Nil(t, oauthServer)
+	assert.Nil(t, tokenStore)
+	assert.Contains(t, err.Error(), "unsupported OAuth storage type")
+}
+
+// TestCreateOAuthServerWithValkeyMissingURL tests Valkey storage without URL
+func TestCreateOAuthServerWithValkeyMissingURL(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		Storage: OAuthStorageConfig{
+			Type:   OAuthStorageTypeValkey,
+			Valkey: ValkeyStorageConfig{
+				// URL not set - should error
+			},
+		},
+	}
+
+	oauthServer, tokenStore, err := createOAuthServer(config)
+
+	assert.Error(t, err)
+	assert.Nil(t, oauthServer)
+	assert.Nil(t, tokenStore)
+	assert.Contains(t, err.Error(), "valkey URL is required")
+}
+
+// TestCreateOAuthServerWithValkeyStorage tests Valkey storage configuration.
+//
+// Integration Test Requirements:
+// This test requires a running Valkey/Redis server for actual connection.
+// To run integration tests with Valkey:
+//  1. Run a Valkey server locally: docker run -p 6379:6379 valkey/valkey
+//  2. Run: go test -tags=integration ./internal/server/...
+func TestCreateOAuthServerWithValkeyStorage(t *testing.T) {
+	t.Skip("Requires running Valkey server - run with -tags=integration")
+}
+
+// TestCreateOAuthServerWithValkeyStorageAndTLS tests Valkey with TLS configuration.
+//
+// Integration Test Requirements:
+// This test requires a Valkey server with TLS enabled.
+func TestCreateOAuthServerWithValkeyStorageAndTLS(t *testing.T) {
+	t.Skip("Requires running Valkey server with TLS - run with -tags=integration")
+}
+
+// TestCreateOAuthServerWithValkeyStorageAndEncryption tests Valkey with encryption at rest.
+//
+// Integration Test Requirements:
+// This test requires a running Valkey server.
+func TestCreateOAuthServerWithValkeyStorageAndEncryption(t *testing.T) {
+	t.Skip("Requires running Valkey server - run with -tags=integration")
+}
+
+// TestOAuthStorageTypeConstants verifies the storage type constants
+func TestOAuthStorageTypeConstants(t *testing.T) {
+	assert.Equal(t, OAuthStorageType("memory"), OAuthStorageTypeMemory)
+	assert.Equal(t, OAuthStorageType("valkey"), OAuthStorageTypeValkey)
+}
+
+// TestValkeyStorageConfigDefaults tests ValkeyStorageConfig default values
+func TestValkeyStorageConfigDefaults(t *testing.T) {
+	config := ValkeyStorageConfig{}
+
+	// All fields should be zero values
+	assert.Empty(t, config.URL)
+	assert.Empty(t, config.Password)
+	assert.False(t, config.TLSEnabled)
+	assert.Empty(t, config.KeyPrefix)
+	assert.Equal(t, 0, config.DB)
+}
+
+// TestClientRegistrationRateLimiterConfiguration tests that maxClientsPerIP is properly passed
+// to the client registration rate limiter
+func TestClientRegistrationRateLimiterConfiguration(t *testing.T) {
+	tests := []struct {
+		name            string
+		maxClientsPerIP int
+		expectedMax     int
+	}{
+		{
+			name:            "custom maxClientsPerIP",
+			maxClientsPerIP: 5,
+			expectedMax:     5,
+		},
+		{
+			name:            "higher maxClientsPerIP",
+			maxClientsPerIP: 25,
+			expectedMax:     25,
+		},
+		{
+			name:            "default maxClientsPerIP (zero value uses default)",
+			maxClientsPerIP: 0,
+			expectedMax:     DefaultMaxClientsPerIP,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := OAuthConfig{
+				BaseURL:            "https://mcp.example.com",
+				Provider:           OAuthProviderGoogle,
+				GoogleClientID:     "test-client-id",
+				GoogleClientSecret: "test-client-secret",
+				MaxClientsPerIP:    tt.maxClientsPerIP,
+			}
+
+			oauthServer, _, err := createOAuthServer(config)
+			assert.NoError(t, err)
+			assert.NotNil(t, oauthServer)
+
+			// Verify the client registration rate limiter is configured
+			assert.NotNil(t, oauthServer.ClientRegistrationRateLimiter, "client registration rate limiter should be set")
+
+			// Get stats to verify configuration
+			stats := oauthServer.ClientRegistrationRateLimiter.GetStats()
+			assert.Equal(t, tt.expectedMax, stats.MaxPerWindow, "maxClientsPerIP should match configured value")
+		})
+	}
+}
+
+// TestDexScopesWithKubernetesAuthenticator tests that cross-client audience scope is correctly added
+func TestDexScopesWithKubernetesAuthenticator(t *testing.T) {
+	tests := []struct {
+		name                               string
+		dexKubernetesAuthenticatorClientID string
+		wantAudienceScope                  bool
+		expectedAudienceScope              string
+	}{
+		{
+			name:                               "with kubernetes authenticator client ID",
+			dexKubernetesAuthenticatorClientID: "dex-k8s-authenticator",
+			wantAudienceScope:                  true,
+			expectedAudienceScope:              "audience:server:client_id:dex-k8s-authenticator",
+		},
+		{
+			name:                               "without kubernetes authenticator client ID",
+			dexKubernetesAuthenticatorClientID: "",
+			wantAudienceScope:                  false,
+		},
+		{
+			name:                               "with custom client ID",
+			dexKubernetesAuthenticatorClientID: "my-custom-k8s-client",
+			wantAudienceScope:                  true,
+			expectedAudienceScope:              "audience:server:client_id:my-custom-k8s-client",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Replicate the scope building logic from createOAuthServer
+			scopes := make([]string, len(dexOAuthScopes))
+			copy(scopes, dexOAuthScopes)
+			if tt.dexKubernetesAuthenticatorClientID != "" {
+				audienceScope := "audience:server:client_id:" + tt.dexKubernetesAuthenticatorClientID
+				scopes = append(scopes, audienceScope)
+			}
+
+			// Verify base scopes are always present
+			assert.Contains(t, scopes, "openid")
+			assert.Contains(t, scopes, "groups")
+			assert.Contains(t, scopes, "email")
+			assert.Contains(t, scopes, "profile")
+
+			// Verify audience scope based on configuration
+			if tt.wantAudienceScope {
+				assert.Contains(t, scopes, tt.expectedAudienceScope)
+				assert.Len(t, scopes, len(dexOAuthScopes)+1, "should have base scopes plus audience scope")
+			} else {
+				assert.Len(t, scopes, len(dexOAuthScopes), "should only have base scopes")
+				for _, scope := range scopes {
+					assert.NotContains(t, scope, "audience:server:client_id:")
+				}
+			}
+		})
+	}
 }

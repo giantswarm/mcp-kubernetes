@@ -1,8 +1,12 @@
 ##@ Release
 
 .PHONY: release-dry-run
-release-dry-run: ## Test the release process without publishing
+release-dry-run: ## Test the release process without publishing (all platforms)
 	goreleaser release --snapshot --clean --skip=announce,publish,validate
+
+.PHONY: release-dry-run-fast
+release-dry-run-fast: ## Fast release dry-run for CI (linux/amd64 only, ~6min faster)
+	goreleaser release --config .goreleaser.ci.yaml --snapshot --clean --skip=announce,publish,validate
 
 .PHONY: release-local
 release-local: ## Create a release locally
@@ -14,12 +18,22 @@ release-local: ## Create a release locally
 lint-yaml: ## Run YAML linter
 	@echo "Running YAML linter..."
 	@# Exclude zz_generated files
-	@yamllint .github/workflows/auto-release.yaml .github/workflows/ci.yaml .goreleaser.yaml
+	@yamllint .github/workflows/auto-release.yaml .github/workflows/ci.yaml .goreleaser.yaml .goreleaser.ci.yaml
 
 .PHONY: check
 check: lint-yaml ## Run YAML linter
 
 ##@ Testing
+
+.PHONY: helm-lint
+helm-lint: ## Lint Helm chart
+	@echo "Linting Helm chart..."
+	@helm lint ./helm/mcp-kubernetes
+
+.PHONY: helm-test
+helm-test: ## Run Helm chart unit tests (requires helm-unittest plugin)
+	@echo "Running Helm unit tests..."
+	@helm unittest ./helm/mcp-kubernetes
 
 .PHONY: test-vet
 test-vet: ## Run go test and go vet

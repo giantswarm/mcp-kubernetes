@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,8 +19,11 @@ import (
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
 	"github.com/giantswarm/mcp-oauth/storage/memory"
+	"github.com/giantswarm/mcp-oauth/storage/valkey"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	mcpoauth "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
@@ -57,9 +62,6 @@ const (
 
 	// DefaultIdleTimeout is the default idle timeout for keepalive connections
 	DefaultIdleTimeout = 120 * time.Second
-
-	// DefaultShutdownTimeout is the default timeout for graceful server shutdown
-	DefaultShutdownTimeout = 30 * time.Second
 )
 
 var (
@@ -74,9 +76,85 @@ var (
 	}
 )
 
+// createHTTPClientWithCA creates an HTTP client that trusts certificates signed by
+// the CA in the specified file. The CA file should contain PEM-encoded certificate(s).
+// This is used for Dex deployments with private/internal CAs.
+func createHTTPClientWithCA(caFile string) (*http.Client, error) {
+	// #nosec G304 -- caFile is a configuration value from operator, not user input
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA file %s: %w", caFile, err)
+	}
+
+	// Create a certificate pool with system CAs and add the custom CA
+	caCertPool, err := x509.SystemCertPool()
+	if err != nil {
+		// If we can't load system certs, start with an empty pool
+		caCertPool = x509.NewCertPool()
+	}
+
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to parse CA certificate from %s", caFile)
+	}
+
+	tlsConfig := &tls.Config{
+		RootCAs:    caCertPool,
+		MinVersion: tls.VersionTLS12,
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+	}, nil
+}
+
+// OAuthStorageType represents the type of token storage backend.
+type OAuthStorageType string
+
+const (
+	// OAuthStorageTypeMemory uses in-memory storage (default, not recommended for production)
+	OAuthStorageTypeMemory OAuthStorageType = "memory"
+	// OAuthStorageTypeValkey uses Valkey (Redis-compatible) for persistent storage
+	OAuthStorageTypeValkey OAuthStorageType = "valkey"
+)
+
+// OAuthStorageConfig holds configuration for OAuth token storage backend.
+type OAuthStorageConfig struct {
+	// Type is the storage backend type: "memory" or "valkey" (default: "memory")
+	Type OAuthStorageType
+
+	// Valkey configuration (used when Type is "valkey")
+	Valkey ValkeyStorageConfig
+}
+
+// ValkeyStorageConfig holds configuration for Valkey storage backend.
+type ValkeyStorageConfig struct {
+	// URL is the Valkey server address (e.g., "valkey.namespace.svc:6379")
+	URL string
+
+	// Password is the optional password for Valkey authentication
+	Password string
+
+	// TLSEnabled enables TLS for Valkey connections
+	TLSEnabled bool
+
+	// KeyPrefix is the prefix for all Valkey keys (default: "mcp:")
+	KeyPrefix string
+
+	// DB is the Valkey database number (default: 0)
+	DB int
+}
+
 // OAuthConfig holds MCP-specific OAuth configuration
 // Uses the mcp-oauth library's types directly to avoid duplication
 type OAuthConfig struct {
+	// ServiceVersion is the version of mcp-kubernetes for instrumentation
+	ServiceVersion string
+
 	// BaseURL is the MCP server base URL (e.g., https://mcp.example.com)
 	BaseURL string
 
@@ -100,6 +178,16 @@ type OAuthConfig struct {
 
 	// DexConnectorID is the optional Dex connector ID to bypass connector selection
 	DexConnectorID string
+
+	// DexCAFile is the path to a CA certificate file for Dex TLS verification
+	// Use this when Dex uses a private/internal CA
+	DexCAFile string
+
+	// DexKubernetesAuthenticatorClientID is the client ID of the Kubernetes authenticator
+	// in Dex (typically "dex-k8s-authenticator"). When set, requests tokens with this
+	// audience via Dex cross-client authentication, enabling the ID token to be used
+	// for Kubernetes API authentication.
+	DexKubernetesAuthenticatorClientID string
 
 	// DisableStreaming disables streaming for streamable-http transport
 	DisableStreaming bool
@@ -143,17 +231,69 @@ type OAuthConfig struct {
 	// TLSKeyFile is the path to the TLS private key file (PEM format)
 	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS
 	TLSKeyFile string
+
+	// InstrumentationProvider is the OpenTelemetry instrumentation provider for metrics/tracing
+	InstrumentationProvider *instrumentation.Provider
+
+	// Storage configures the token storage backend
+	// Defaults to in-memory storage if not specified
+	Storage OAuthStorageConfig
+
+	// RedirectURISecurity configures security validation for redirect URIs
+	// All options default to secure values in mcp-oauth
+	RedirectURISecurity RedirectURISecurityConfig
+
+	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
+	// client registration. Enables Cursor/VSCode without registration tokens.
+	// Best suited for internal/development deployments due to platform-specific
+	// limitations in custom URI scheme security. Schemes must conform to RFC 3986.
+	TrustedPublicRegistrationSchemes []string
+
+	// DisableStrictSchemeMatching allows mixed scheme clients to register without token
+	DisableStrictSchemeMatching bool
+
+	// EnableCIMD enables Client ID Metadata Documents per MCP 2025-11-25.
+	// When enabled, clients can use HTTPS URLs as client identifiers.
+	// Default: true (enabled for MCP 2025-11-25 compliance)
+	EnableCIMD bool
+}
+
+// RedirectURISecurityConfig holds configuration for redirect URI security validation.
+// All options default to secure values in mcp-oauth. Use Disable* flags to opt-out.
+type RedirectURISecurityConfig struct {
+	// DisableProductionMode disables strict HTTPS/private IP enforcement
+	DisableProductionMode bool
+
+	// AllowLocalhostRedirectURIs allows http://localhost for native apps (RFC 8252)
+	AllowLocalhostRedirectURIs bool
+
+	// AllowPrivateIPRedirectURIs allows private IP addresses in redirect URIs
+	AllowPrivateIPRedirectURIs bool
+
+	// AllowLinkLocalRedirectURIs allows link-local addresses (169.254.x.x)
+	AllowLinkLocalRedirectURIs bool
+
+	// DisableDNSValidation disables hostname resolution checks
+	DisableDNSValidation bool
+
+	// DisableDNSValidationStrict disables fail-closed DNS validation
+	DisableDNSValidationStrict bool
+
+	// DisableAuthorizationTimeValidation disables redirect URI checks at auth time
+	DisableAuthorizationTimeValidation bool
 }
 
 // OAuthHTTPServer wraps an MCP server with OAuth 2.1 authentication
 type OAuthHTTPServer struct {
-	mcpServer        *mcpserver.MCPServer
-	oauthServer      *oauth.Server
-	oauthHandler     *oauth.Handler
-	tokenStore       storage.TokenStore
-	httpServer       *http.Server
-	serverType       string // "streamable-http"
-	disableStreaming bool
+	mcpServer               *mcpserver.MCPServer
+	oauthServer             *oauth.Server
+	oauthHandler            *oauth.Handler
+	tokenStore              storage.TokenStore
+	httpServer              *http.Server
+	serverType              string // "streamable-http"
+	disableStreaming        bool
+	instrumentationProvider *instrumentation.Provider
+	healthChecker           *HealthChecker
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -175,16 +315,37 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 	switch config.Provider {
 	case OAuthProviderDex:
+		// Build scopes list, adding cross-client audience if configured
+		scopes := make([]string, len(dexOAuthScopes))
+		copy(scopes, dexOAuthScopes)
+		if config.DexKubernetesAuthenticatorClientID != "" {
+			// Request cross-client audience for Kubernetes API authentication
+			// See: https://dexidp.io/docs/custom-scopes-claims-clients/#cross-client-trust-and-authorized-party
+			audienceScope := "audience:server:client_id:" + config.DexKubernetesAuthenticatorClientID
+			scopes = append(scopes, audienceScope)
+			logger.Info("Requesting cross-client audience for Kubernetes API authentication",
+				"kubernetesAuthenticatorClientID", config.DexKubernetesAuthenticatorClientID)
+		}
+
 		dexConfig := &dex.Config{
 			IssuerURL:    config.DexIssuerURL,
 			ClientID:     config.DexClientID,
 			ClientSecret: config.DexClientSecret,
 			RedirectURL:  redirectURL,
-			Scopes:       dexOAuthScopes,
+			Scopes:       scopes,
 		}
 		// Add optional connector ID if provided (bypasses connector selection)
 		if config.DexConnectorID != "" {
 			dexConfig.ConnectorID = config.DexConnectorID
+		}
+		// Configure custom HTTP client with CA if provided
+		if config.DexCAFile != "" {
+			httpClient, err := createHTTPClientWithCA(config.DexCAFile)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create HTTP client with CA: %w", err)
+			}
+			dexConfig.HTTPClient = httpClient
+			logger.Info("Using custom CA for Dex TLS verification", "caFile", config.DexCAFile)
 		}
 		provider, err = dex.NewProvider(dexConfig)
 		if err != nil {
@@ -208,8 +369,77 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
-	// Create memory storage
-	store := memory.New()
+	// Create storage backend based on configuration
+	// Both memory.Store and valkey.Store implement TokenStore, ClientStore, and FlowStore
+	var tokenStore storage.TokenStore
+	var clientStore storage.ClientStore
+	var flowStore storage.FlowStore
+
+	switch config.Storage.Type {
+	case OAuthStorageTypeValkey:
+		if config.Storage.Valkey.URL == "" {
+			return nil, nil, fmt.Errorf("valkey URL is required when using valkey storage (--valkey-url or VALKEY_URL)")
+		}
+
+		// Configure Valkey storage
+		valkeyConfig := valkey.Config{
+			Address:   config.Storage.Valkey.URL,
+			Password:  config.Storage.Valkey.Password,
+			DB:        config.Storage.Valkey.DB,
+			KeyPrefix: config.Storage.Valkey.KeyPrefix,
+			Logger:    logger,
+		}
+
+		// Configure TLS if enabled
+		if config.Storage.Valkey.TLSEnabled {
+			valkeyConfig.TLS = &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			}
+		}
+
+		// Set default key prefix if not specified
+		if valkeyConfig.KeyPrefix == "" {
+			valkeyConfig.KeyPrefix = valkey.DefaultKeyPrefix
+		}
+
+		valkeyStore, err := valkey.New(valkeyConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
+		}
+
+		// Set up encryption for Valkey store if key is provided
+		if len(config.EncryptionKey) > 0 {
+			encryptor, err := security.NewEncryptor(config.EncryptionKey)
+			if err != nil {
+				// Close the Valkey store on error to release resources
+				valkeyStore.Close()
+				return nil, nil, fmt.Errorf("failed to create encryptor for Valkey storage: %w", err)
+			}
+			valkeyStore.SetEncryptor(encryptor)
+			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
+		}
+
+		// Valkey store implements all required interfaces
+		tokenStore = valkeyStore
+		clientStore = valkeyStore
+		flowStore = valkeyStore
+		logger.Info("Using Valkey storage backend", "address", config.Storage.Valkey.URL, "tls", config.Storage.Valkey.TLSEnabled)
+
+	case OAuthStorageTypeMemory, "":
+		// Use memory storage (default)
+		memStore := memory.New()
+		tokenStore = memStore
+		clientStore = memStore
+		flowStore = memStore
+		if config.Storage.Type == "" {
+			logger.Info("Using in-memory storage backend (default)")
+		} else {
+			logger.Info("Using in-memory storage backend")
+		}
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: memory, valkey)", config.Storage.Type)
+	}
 
 	// Set defaults
 	maxClientsPerIP := config.MaxClientsPerIP
@@ -228,6 +458,36 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		RegistrationAccessToken:       config.RegistrationAccessToken,
 		AllowNoStateParameter:         config.AllowInsecureAuthWithoutState,
 		MaxClientsPerIP:               maxClientsPerIP,
+
+		// Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25
+		// Allows clients to use HTTPS URLs as client identifiers
+		// The authorization server fetches client metadata from that URL
+		// Configurable via config.EnableCIMD (defaults to true for MCP compliance)
+		EnableClientIDMetadataDocuments: config.EnableCIMD,
+
+		// Trusted scheme registration for Cursor/VSCode compatibility
+		// Allows unauthenticated registration for clients using these schemes only
+		TrustedPublicRegistrationSchemes: config.TrustedPublicRegistrationSchemes,
+		DisableStrictSchemeMatching:      config.DisableStrictSchemeMatching,
+
+		// Redirect URI Security Configuration
+		// mcp-oauth defaults to secure values; we pass explicit disable flags
+		DisableProductionMode:              config.RedirectURISecurity.DisableProductionMode,
+		AllowLocalhostRedirectURIs:         config.RedirectURISecurity.AllowLocalhostRedirectURIs,
+		AllowPrivateIPRedirectURIs:         config.RedirectURISecurity.AllowPrivateIPRedirectURIs,
+		AllowLinkLocalRedirectURIs:         config.RedirectURISecurity.AllowLinkLocalRedirectURIs,
+		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
+		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
+		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
+
+		// Instrumentation for mcp-oauth internal metrics (CIMD, rate limiting, etc.)
+		// Uses Prometheus exporter to expose metrics alongside mcp-kubernetes metrics
+		Instrumentation: oauthserver.InstrumentationConfig{
+			Enabled:         true,
+			ServiceName:     "mcp-kubernetes",
+			ServiceVersion:  config.ServiceVersion,
+			MetricsExporter: "prometheus",
+		},
 	}
 
 	// Debug logging for registration token configuration
@@ -252,9 +512,9 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	// Create OAuth server
 	server, err := oauth.NewServer(
 		provider,
-		store, // TokenStore
-		store, // ClientStore
-		store, // FlowStore
+		tokenStore,  // TokenStore
+		clientStore, // ClientStore
+		flowStore,   // FlowStore
 		serverConfig,
 		logger,
 	)
@@ -262,21 +522,8 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Verify registration token was set correctly (debug only)
-	if config.DebugMode {
-		if server.Config.RegistrationAccessToken != "" {
-			tokenPrefix := server.Config.RegistrationAccessToken
-			if len(tokenPrefix) > 8 {
-				tokenPrefix = tokenPrefix[:8] + "..."
-			}
-			logger.Info("OAuth server created with registration token", "token_length", len(server.Config.RegistrationAccessToken), "token_prefix", tokenPrefix, "allow_public", server.Config.AllowPublicClientRegistration)
-		} else {
-			logger.Warn("OAuth server created WITHOUT registration token - public registration must be enabled", "allow_public", server.Config.AllowPublicClientRegistration)
-		}
-	}
-
-	// Set up encryption if key provided
-	if len(config.EncryptionKey) > 0 {
+	// Set up encryption if key provided (only for memory storage; Valkey encryption is set above)
+	if len(config.EncryptionKey) > 0 && config.Storage.Type != OAuthStorageTypeValkey {
 		encryptor, err := security.NewEncryptor(config.EncryptionKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
@@ -300,11 +547,20 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	server.SetUserRateLimiter(userRateLimiter)
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
 
-	// Set up client registration rate limiting
-	clientRegRL := security.NewClientRegistrationRateLimiter(logger)
+	// Set up client registration rate limiting with configured maxClientsPerIP
+	// This aligns the rate limiter with the server's MaxClientsPerIP configuration
+	clientRegRL := security.NewClientRegistrationRateLimiterWithConfig(
+		maxClientsPerIP,
+		security.DefaultRegistrationWindow,
+		security.DefaultMaxRegistrationEntries,
+		logger,
+	)
 	server.SetClientRegistrationRateLimiter(clientRegRL)
+	logger.Info("Client registration rate limiting enabled",
+		"maxClientsPerIP", maxClientsPerIP,
+		"window", security.DefaultRegistrationWindow)
 
-	return server, store, nil
+	return server, tokenStore, nil
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server
@@ -318,12 +574,13 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
 
 	return &OAuthHTTPServer{
-		mcpServer:        mcpServer,
-		oauthServer:      oauthServer,
-		oauthHandler:     oauthHandler,
-		tokenStore:       tokenStore,
-		serverType:       serverType,
-		disableStreaming: config.DisableStreaming,
+		mcpServer:               mcpServer,
+		oauthServer:             oauthServer,
+		oauthHandler:            oauthHandler,
+		tokenStore:              tokenStore,
+		serverType:              serverType,
+		disableStreaming:        config.DisableStreaming,
+		instrumentationProvider: config.InstrumentationProvider,
 	}, nil
 }
 
@@ -441,6 +698,16 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		return err
 	}
 
+	// Note: Prometheus metrics are now served on a separate metrics server
+	// for security. The /metrics endpoint should NOT be exposed on the main
+	// HTTP server to prevent unauthorized access to operational information.
+	// See MetricsServer for the dedicated metrics endpoint.
+
+	// Setup health check endpoints
+	if s.healthChecker != nil {
+		s.healthChecker.RegisterHealthEndpoints(mux)
+	}
+
 	// Create HTTP server with security and CORS middleware
 	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
 
@@ -492,30 +759,70 @@ func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
 	return s.tokenStore
 }
 
+// SetHealthChecker sets the health checker for health check endpoints.
+func (s *OAuthHTTPServer) SetHealthChecker(hc *HealthChecker) {
+	s.healthChecker = hc
+}
+
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's
 // Google OAuth access token into the request context. This token can then be used
 // for downstream Kubernetes API authentication.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Log entry to confirm middleware is being called
+		slog.Debug("AccessTokenInjector: middleware entry",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.String("content_type", r.Header.Get("Content-Type")))
+
 		ctx := r.Context()
 
 		// Get user info from context (set by ValidateToken middleware)
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
-		if ok && userInfo != nil && userInfo.Email != "" {
-			// Retrieve the user's stored Google OAuth token
-			token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
-			if err == nil && token != nil {
-				// Extract the ID token for Kubernetes OIDC authentication
-				// Kubernetes OIDC validates the ID token, not the access token
-				idToken := mcpoauth.GetIDToken(token)
-				if idToken != "" {
-					ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
-					r = r.WithContext(ctx)
-				}
-			}
+		if !ok || userInfo == nil {
+			slog.Debug("AccessTokenInjector: no user info in context")
+			next.ServeHTTP(w, r)
+			return
+		}
+		if userInfo.Email == "" {
+			slog.Debug("AccessTokenInjector: user info has no email", "user_id", userInfo.ID)
+			next.ServeHTTP(w, r)
+			return
 		}
 
+		slog.Debug("AccessTokenInjector: looking up token for user", logging.UserHash(userInfo.Email))
+
+		// Retrieve the user's stored OAuth token
+		token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
+		if err != nil {
+			slog.Debug("AccessTokenInjector: failed to get token from store", logging.UserHash(userInfo.Email), logging.Err(err))
+			next.ServeHTTP(w, r)
+			return
+		}
+		if token == nil {
+			slog.Debug("AccessTokenInjector: token is nil for user", logging.UserHash(userInfo.Email))
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Extract the ID token for Kubernetes OIDC authentication
+		// Kubernetes OIDC validates the ID token, not the access token
+		idToken := mcpoauth.GetIDToken(token)
+		if idToken == "" {
+			slog.Debug("AccessTokenInjector: no ID token in stored token", logging.UserHash(userInfo.Email), slog.Bool("has_access_token", token.AccessToken != ""), slog.Bool("has_refresh_token", token.RefreshToken != ""))
+			slog.Debug("AccessTokenInjector: calling next handler without ID token")
+			next.ServeHTTP(w, r)
+			slog.Debug("AccessTokenInjector: next handler returned (no ID token path)")
+			return
+		}
+
+		slog.Debug("AccessTokenInjector: successfully injected ID token", logging.UserHash(userInfo.Email))
+		ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
+		r = r.WithContext(ctx)
+
+		slog.Debug("AccessTokenInjector: calling next handler (mcp-go)")
 		next.ServeHTTP(w, r)
+		slog.Debug("AccessTokenInjector: next handler returned")
 	})
 }
 

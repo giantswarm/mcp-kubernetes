@@ -9,9 +9,10 @@ A Model Context Protocol (MCP) server that provides tools for interacting with K
 - **Context Management**: List, get, and switch between Kubernetes contexts
 - **Cluster Information**: Get API resources and cluster health status
 - **Multiple Authentication Modes**: Support for kubeconfig, in-cluster, and OAuth 2.1 authentication
-- **Multiple Transport Types**: Support for stdio, SSE, and streamable HTTP
+- **Multiple Transport Types**: Support for stdio and streamable HTTP
 - **Safety Features**: Non-destructive mode, dry-run capability, and operation restrictions
 - **OAuth 2.1 Support**: Secure token-based authentication with Dex OIDC (default) and Google OAuth providers
+- **Production-Grade Observability**: OpenTelemetry instrumentation with Prometheus metrics and distributed tracing
 
 ## Installation
 
@@ -91,19 +92,50 @@ mcp-kubernetes serve \
 
 **See [docs/oauth.md](docs/oauth.md) for detailed OAuth setup and configuration.**
 
+### Observability
+
+The server includes comprehensive OpenTelemetry instrumentation for production monitoring:
+
+- **Metrics**: Prometheus-compatible metrics for HTTP requests, Kubernetes operations, and sessions
+- **Distributed Tracing**: OpenTelemetry traces for request flows and K8s API calls
+- **Metrics Endpoint**: `/metrics` endpoint for Prometheus scraping
+
+```bash
+# Enable instrumentation (enabled by default)
+INSTRUMENTATION_ENABLED=true
+
+# Configure metrics exporter (prometheus, otlp, stdout)
+METRICS_EXPORTER=prometheus
+
+# Configure tracing exporter (otlp, stdout, none)
+TRACING_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Set trace sampling rate (0.0 to 1.0)
+OTEL_TRACES_SAMPLER_ARG=0.1
+```
+
+**Available Metrics:**
+- `http_requests_total` - HTTP request counter
+- `http_request_duration_seconds` - HTTP request duration histogram
+- `kubernetes_operations_total` - Kubernetes operation counter
+- `kubernetes_operation_duration_seconds` - K8s operation duration histogram
+- `kubernetes_pod_operations_total` - Pod operation counter
+- `oauth_downstream_auth_total` - OAuth authentication counter
+- `active_port_forward_sessions` - Active port-forward sessions gauge
+
+**See [docs/observability.md](docs/observability.md) for detailed metrics documentation, Prometheus queries, and alerting examples.**
+
 ### Transport Types
 
 #### Standard I/O (Default)
+For local development and direct integration with MCP clients:
 ```bash
 mcp-kubernetes serve --transport stdio
 ```
 
-#### Server-Sent Events (SSE)
-```bash
-mcp-kubernetes serve --transport sse --http-addr :8080
-```
-
-#### Streamable HTTP
+#### Streamable HTTP (Recommended for Production)
+For network-accessible deployments with OAuth support:
 ```bash
 mcp-kubernetes serve --transport streamable-http --http-addr :8080
 ```
@@ -132,95 +164,64 @@ mcp-kubernetes serve --transport streamable-http --http-addr :8080
 --debug              # Enable debug logging
 
 # Transport-specific options
---transport string            # Transport type: stdio, sse, or streamable-http
---http-addr :8080            # HTTP server address (for sse and streamable-http)
---sse-endpoint /sse          # SSE endpoint path
---message-endpoint /message  # Message endpoint path
---http-endpoint /mcp         # HTTP endpoint path
+--transport string            # Transport type: stdio or streamable-http
+--http-addr :8080            # HTTP server address (for streamable-http)
+--http-endpoint /mcp         # HTTP endpoint path (default: /mcp)
 --disable-streaming          # Disable streaming for streamable-http transport
 ```
 
 ## Running in Kubernetes
 
-To run mcp-kubernetes as a pod in your Kubernetes cluster:
+The recommended way to deploy mcp-kubernetes in a Kubernetes cluster is using the Helm chart, which handles RBAC, Ingress, TLS, and OAuth configuration.
 
-### 1. Create RBAC Resources
+### Using Helm (Recommended)
 
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mcp-kubernetes
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: mcp-kubernetes
-rules:
-- apiGroups: [""]
-  resources: ["*"]
-  verbs: ["get", "list", "create", "update", "patch", "delete"]
-- apiGroups: ["apps"]
-  resources: ["*"]
-  verbs: ["get", "list", "create", "update", "patch", "delete"]
-- apiGroups: ["batch"]
-  resources: ["*"]
-  verbs: ["get", "list", "create", "update", "patch", "delete"]
-# Add more API groups as needed
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: mcp-kubernetes
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mcp-kubernetes
-subjects:
-- kind: ServiceAccount
-  name: mcp-kubernetes
-  namespace: default
+```bash
+# Add the Giant Swarm app catalog
+helm repo add giantswarm https://giantswarm.github.io/giantswarm-catalog/
+
+# Install with default configuration
+helm install mcp-kubernetes giantswarm/mcp-kubernetes
+
+# Install with Ingress and TLS enabled
+helm install mcp-kubernetes giantswarm/mcp-kubernetes \
+  --set ingress.enabled=true \
+  --set ingress.hosts[0].host=mcp.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix \
+  --set ingress.tls[0].secretName=mcp-kubernetes-tls \
+  --set ingress.tls[0].hosts[0]=mcp.example.com
+
+# Install with OAuth enabled
+helm install mcp-kubernetes giantswarm/mcp-kubernetes \
+  --set mcpKubernetes.oauth.enabled=true \
+  --set mcpKubernetes.oauth.baseURL=https://mcp.example.com \
+  --set mcpKubernetes.oauth.dex.issuerURL=https://dex.example.com \
+  --set mcpKubernetes.oauth.dex.clientID=mcp-kubernetes \
+  --set mcpKubernetes.oauth.existingSecret=mcp-kubernetes-oauth
 ```
 
-### 2. Create Deployment
+See [helm/mcp-kubernetes/values.yaml](helm/mcp-kubernetes/values.yaml) for all configuration options, including:
+- **Ingress**: TLS termination, custom annotations, multiple hosts
+- **OAuth 2.1**: Dex or Google providers, client registration, downstream OAuth
+- **CAPI Mode**: Multi-cluster federation via Cluster API
+- **Observability**: Prometheus ServiceMonitor, OpenTelemetry tracing
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mcp-kubernetes
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mcp-kubernetes
-  template:
-    metadata:
-      labels:
-        app: mcp-kubernetes
-    spec:
-      serviceAccountName: mcp-kubernetes
-      containers:
-      - name: mcp-kubernetes
-        image: ghcr.io/giantswarm/mcp-kubernetes:latest
-        args:
-        - "serve"
-        - "--in-cluster"
-        - "--transport=sse"
-        - "--http-addr=:8080"
-        ports:
-        - containerPort: 8080
-          name: http
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
+### Connecting to the MCP Server
+
+Once deployed with Ingress enabled, MCP clients connect to the `/mcp` endpoint:
+
+```json
+{
+  "mcpServers": {
+    "kubernetes": {
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
 ```
+
+The endpoint path is configurable via `mcpKubernetes.httpEndpoint` in the Helm values (default: `/mcp`).
 
 ## Available Tools
 

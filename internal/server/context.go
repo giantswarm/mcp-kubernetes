@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/federation"
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 )
@@ -20,11 +23,21 @@ type ServerContext struct {
 	// OAuth downstream authentication support
 	// When clientFactory is set and downstreamOAuth is true, the server will
 	// create per-user Kubernetes clients using the user's OAuth token.
-	clientFactory   k8s.ClientFactory
-	downstreamOAuth bool
+	clientFactory         k8s.ClientFactory
+	downstreamOAuth       bool
+	downstreamOAuthStrict bool
 
-	// Metrics tracking
-	metrics *Metrics
+	// inCluster indicates whether the server is running inside a Kubernetes cluster
+	// using in-cluster authentication (service account token).
+	// When true, kubeconfig-based context switching is not available.
+	inCluster bool
+
+	// Federation manager for multi-cluster support
+	// When set, enables operations across multiple Kubernetes clusters via CAPI.
+	federationManager federation.ClusterClientManager
+
+	// OpenTelemetry instrumentation provider
+	instrumentationProvider *instrumentation.Provider
 
 	// Context management
 	ctx    context.Context
@@ -37,49 +50,6 @@ type ServerContext struct {
 	// Active session tracking for cleanup during shutdown
 	activeSessions map[string]*k8s.PortForwardSession
 	sessionsMu     sync.RWMutex
-}
-
-// Metrics tracks operational metrics for monitoring
-type Metrics struct {
-	// OAuth downstream authentication metrics
-	PerUserAuthSuccess   int64 // Successful per-user authentications
-	PerUserAuthFallback  int64 // Fallbacks to service account
-	BearerClientFailures int64 // Failed bearer client creations
-
-	mu sync.RWMutex
-}
-
-// NewMetrics creates a new Metrics instance
-func NewMetrics() *Metrics {
-	return &Metrics{}
-}
-
-// IncrementPerUserAuthSuccess increments the per-user auth success counter
-func (m *Metrics) IncrementPerUserAuthSuccess() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.PerUserAuthSuccess++
-}
-
-// IncrementPerUserAuthFallback increments the fallback counter
-func (m *Metrics) IncrementPerUserAuthFallback() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.PerUserAuthFallback++
-}
-
-// IncrementBearerClientFailures increments the bearer client failure counter
-func (m *Metrics) IncrementBearerClientFailures() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.BearerClientFailures++
-}
-
-// GetMetrics returns a snapshot of current metrics
-func (m *Metrics) GetMetrics() (success, fallback, failures int64) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.PerUserAuthSuccess, m.PerUserAuthFallback, m.BearerClientFailures
 }
 
 // NewServerContext creates a new ServerContext with default values.
@@ -95,7 +65,6 @@ func NewServerContext(ctx context.Context, opts ...Option) (*ServerContext, erro
 		config:         NewDefaultConfig(),
 		logger:         NewDefaultLogger(),
 		activeSessions: make(map[string]*k8s.PortForwardSession),
-		metrics:        NewMetrics(),
 	}
 
 	// Apply functional options
@@ -132,38 +101,69 @@ func (sc *ServerContext) K8sClient() k8s.Client {
 
 // K8sClientForContext returns a Kubernetes client appropriate for the request context.
 // If downstream OAuth is enabled and an access token is present in the context,
-// it returns a per-user client using the bearer token. Otherwise, it returns the
-// shared service account client.
-func (sc *ServerContext) K8sClientForContext(ctx context.Context) k8s.Client {
+// it returns a per-user client using the bearer token.
+//
+// When downstream OAuth strict mode is enabled (the default via CLI):
+//   - If no access token is available, returns ErrOAuthTokenMissing
+//   - If the bearer token client cannot be created, returns ErrOAuthClientFailed
+//
+// When strict mode is disabled (NOT recommended for production):
+//   - Falls back to the shared service account client if authentication fails
+//
+// Returns (client, nil) on success, or (nil, error) when strict mode denies access.
+func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, error) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 
 	// If downstream OAuth is not enabled, use the shared client
 	if !sc.downstreamOAuth || sc.clientFactory == nil {
-		return sc.k8sClient
+		return sc.k8sClient, nil
 	}
 
 	// Try to get the access token from context
 	accessToken, ok := oauth.GetAccessTokenFromContext(ctx)
 	if !ok || accessToken == "" {
-		// No access token in context, fall back to shared client
+		// No access token in context
+		if sc.downstreamOAuthStrict {
+			// Strict mode: fail closed - do not fall back to service account
+			sc.logger.Warn("No access token in context, denying access (strict mode enabled)")
+			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
+			}
+			return nil, ErrOAuthTokenMissing
+		}
+		// Non-strict mode: fall back to shared client (legacy behavior)
 		sc.logger.Debug("No access token in context, using shared client")
-		sc.metrics.IncrementPerUserAuthFallback()
-		return sc.k8sClient
+		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFallback)
+		}
+		return sc.k8sClient, nil
 	}
 
 	// Create a per-user client with the bearer token
 	client, err := sc.clientFactory.CreateBearerTokenClient(accessToken)
 	if err != nil {
+		if sc.downstreamOAuthStrict {
+			// Strict mode: fail closed - do not fall back to service account
+			sc.logger.Warn("Failed to create bearer token client, denying access (strict mode enabled)", "error", err)
+			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
+			}
+			return nil, fmt.Errorf("%w: %v", ErrOAuthClientFailed, err)
+		}
+		// Non-strict mode: fall back to shared client (legacy behavior)
 		sc.logger.Warn("Failed to create bearer token client, using shared client", "error", err)
-		sc.metrics.IncrementBearerClientFailures()
-		sc.metrics.IncrementPerUserAuthFallback()
-		return sc.k8sClient
+		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFailure)
+		}
+		return sc.k8sClient, nil
 	}
 
 	sc.logger.Debug("Created bearer token client for user request")
-	sc.metrics.IncrementPerUserAuthSuccess()
-	return client
+	if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+		sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)
+	}
+	return client, nil
 }
 
 // DownstreamOAuthEnabled returns true if downstream OAuth authentication is enabled.
@@ -173,6 +173,23 @@ func (sc *ServerContext) DownstreamOAuthEnabled() bool {
 	return sc.downstreamOAuth
 }
 
+// DownstreamOAuthStrictEnabled returns true if downstream OAuth strict mode is enabled.
+// When strict mode is enabled, requests without valid OAuth tokens will fail with an
+// authentication error instead of falling back to the service account.
+func (sc *ServerContext) DownstreamOAuthStrictEnabled() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.downstreamOAuthStrict
+}
+
+// InClusterMode returns true if the server is running inside a Kubernetes cluster.
+// When true, kubeconfig-based context switching is not available.
+func (sc *ServerContext) InClusterMode() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.inCluster
+}
+
 // ClientFactory returns the client factory for creating per-user clients.
 func (sc *ServerContext) ClientFactory() k8s.ClientFactory {
 	sc.mu.RLock()
@@ -180,11 +197,98 @@ func (sc *ServerContext) ClientFactory() k8s.ClientFactory {
 	return sc.clientFactory
 }
 
-// Metrics returns the metrics tracker.
-func (sc *ServerContext) Metrics() *Metrics {
+// InstrumentationProvider returns the OpenTelemetry instrumentation provider.
+func (sc *ServerContext) InstrumentationProvider() *instrumentation.Provider {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
-	return sc.metrics
+	return sc.instrumentationProvider
+}
+
+// FederationManager returns the multi-cluster federation manager.
+// Returns nil if federation is not enabled.
+func (sc *ServerContext) FederationManager() federation.ClusterClientManager {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.federationManager
+}
+
+// FederationEnabled returns true if multi-cluster federation is enabled.
+func (sc *ServerContext) FederationEnabled() bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.federationManager != nil
+}
+
+// FederationStats returns statistics about the federation manager.
+// Returns nil if federation is not enabled.
+func (sc *ServerContext) FederationStats() *federation.ManagerStats {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+
+	if sc.federationManager == nil {
+		return nil
+	}
+
+	stats := sc.federationManager.Stats()
+	return &stats
+}
+
+// OutputConfig returns the output processing configuration.
+// Returns default config if not explicitly set.
+func (sc *ServerContext) OutputConfig() *OutputConfig {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+
+	if sc.config != nil && sc.config.Output != nil {
+		return sc.config.Output
+	}
+	return NewDefaultOutputConfig()
+}
+
+// RecordK8sOperation records a Kubernetes operation metric if instrumentation is enabled.
+// This is a convenience method that handles nil checks internally.
+func (sc *ServerContext) RecordK8sOperation(ctx context.Context, operation, resourceType, namespace, status string, duration time.Duration) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
+	}
+}
+
+// RecordPodOperation records a pod operation metric if instrumentation is enabled.
+// This is a convenience method that handles nil checks internally.
+func (sc *ServerContext) RecordPodOperation(ctx context.Context, operation, namespace, status string, duration time.Duration) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().RecordPodOperation(ctx, operation, namespace, status, duration)
+	}
+}
+
+// IncrementActiveSessions increments the active port-forward sessions metric.
+func (sc *ServerContext) IncrementActiveSessions(ctx context.Context) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().IncrementActiveSessions(ctx)
+	}
+}
+
+// DecrementActiveSessions decrements the active port-forward sessions metric.
+func (sc *ServerContext) DecrementActiveSessions(ctx context.Context) {
+	sc.mu.RLock()
+	provider := sc.instrumentationProvider
+	sc.mu.RUnlock()
+
+	if provider != nil && provider.Enabled() {
+		provider.Metrics().DecrementActiveSessions(ctx)
+	}
 }
 
 // Logger returns the logger interface.
@@ -314,6 +418,21 @@ func (sc *ServerContext) Shutdown() error {
 	// Clean up active port forwarding sessions
 	sc.cleanupPortForwardSessions()
 
+	// Shutdown federation manager
+	if sc.federationManager != nil {
+		if err := sc.federationManager.Close(); err != nil {
+			sc.logger.Error("Failed to close federation manager", "error", err)
+		}
+	}
+
+	// Shutdown instrumentation provider
+	if sc.instrumentationProvider != nil {
+		shutdownCtx := context.Background()
+		if err := sc.instrumentationProvider.Shutdown(shutdownCtx); err != nil {
+			sc.logger.Error("Failed to shutdown instrumentation provider", "error", err)
+		}
+	}
+
 	// Cancel the context
 	if sc.cancel != nil {
 		sc.cancel()
@@ -415,6 +534,37 @@ type Config struct {
 	EnableAuth           bool     `json:"enableAuth"`
 	AllowedOperations    []string `json:"allowedOperations"`
 	RestrictedNamespaces []string `json:"restrictedNamespaces"`
+
+	// Output processing settings for fleet-scale operations
+	Output *OutputConfig `json:"output,omitempty"`
+}
+
+// OutputConfig holds configuration for output processing.
+// This controls how large responses are handled to prevent context overflow.
+type OutputConfig struct {
+	// MaxItems limits the number of resources returned per query.
+	// Default: 100, Absolute max: 1000
+	MaxItems int `json:"maxItems" yaml:"maxItems"`
+
+	// MaxClusters limits clusters in fleet-wide queries.
+	// Default: 20, Absolute max: 100
+	MaxClusters int `json:"maxClusters" yaml:"maxClusters"`
+
+	// MaxResponseBytes is a hard limit on response size in bytes.
+	// Default: 512KB, Absolute max: 2MB
+	MaxResponseBytes int `json:"maxResponseBytes" yaml:"maxResponseBytes"`
+
+	// SlimOutput enables removal of verbose fields that rarely help AI agents.
+	// Default: true
+	SlimOutput bool `json:"slimOutput" yaml:"slimOutput"`
+
+	// MaskSecrets replaces secret data with "***REDACTED***".
+	// Default: true (security critical - should rarely be disabled)
+	MaskSecrets bool `json:"maskSecrets" yaml:"maskSecrets"`
+
+	// SummaryThreshold is the item count above which summary mode is suggested.
+	// Default: 500
+	SummaryThreshold int `json:"summaryThreshold" yaml:"summaryThreshold"`
 }
 
 // NewDefaultConfig creates a configuration with sensible defaults.
@@ -430,6 +580,19 @@ func NewDefaultConfig() *Config {
 		EnableAuth:           false,
 		AllowedOperations:    []string{"get", "list", "describe"},
 		RestrictedNamespaces: []string{"kube-system", "kube-public"},
+		Output:               NewDefaultOutputConfig(),
+	}
+}
+
+// NewDefaultOutputConfig creates default output processing configuration.
+func NewDefaultOutputConfig() *OutputConfig {
+	return &OutputConfig{
+		MaxItems:         100,
+		MaxClusters:      20,
+		MaxResponseBytes: 512 * 1024, // 512KB
+		SlimOutput:       true,
+		MaskSecrets:      true,
+		SummaryThreshold: 500,
 	}
 }
 
@@ -450,6 +613,12 @@ func (c *Config) Clone() *Config {
 	if c.RestrictedNamespaces != nil {
 		clone.RestrictedNamespaces = make([]string, len(c.RestrictedNamespaces))
 		copy(clone.RestrictedNamespaces, c.RestrictedNamespaces)
+	}
+
+	// Deep copy output config
+	if c.Output != nil {
+		outputCopy := *c.Output
+		clone.Output = &outputCopy
 	}
 
 	return &clone

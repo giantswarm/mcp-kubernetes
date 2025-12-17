@@ -26,6 +26,59 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# RBAC Configuration
+# Controls the ClusterRole permissions granted to the ServiceAccount
+#
+# IMPORTANT: When enableDownstreamOAuth is true, this RBAC is NOT used for
+# Kubernetes API operations. Users authenticate with their own OAuth tokens.
+# In that case, use the "minimal" profile to follow least-privilege principles.
+rbac:
+  # Create RBAC resources (ClusterRole and ClusterRoleBinding)
+  create: true
+
+  # RBAC profile controls the permission level
+  # Options:
+  #   - "minimal":  Only pod lifecycle permissions (for downstream OAuth mode)
+  #   - "readonly": Read-only access to common resources (no secrets)
+  #   - "standard": Read + limited write (includes CLUSTER-WIDE SECRET ACCESS)
+  #   - "admin":    Full access (requires explicit confirmation)
+  #
+  # Security recommendations:
+  #   - Use "minimal" when enableDownstreamOAuth: true
+  #   - Use "readonly" for monitoring/audit scenarios
+  #   - Use "standard" only when you need write operations
+  #
+  # WARNING: "standard" profile grants CLUSTER-WIDE SECRET ACCESS.
+  # Consider using "readonly" if you don't need write operations.
+  profile: "standard"
+
+  # REQUIRED when using profile: "admin"
+  # The admin profile grants dangerous permissions:
+  #   - RBAC management (privilege escalation risk)
+  #   - Pod exec/logs/portforward (container escape risk)
+  #   - Webhook configurations (API interception risk)
+  # You must set this to true to acknowledge these risks.
+  adminConfirmation: false
+
+  # Custom RBAC rules (overrides profile when enabled)
+  #
+  # WARNING: Custom rules BYPASS ALL PROFILE SAFETY CONTROLS!
+  # - No validation is performed on custom rules
+  # - You can accidentally grant excessive permissions
+  # - Review carefully before enabling
+  #
+  # Use this only when the predefined profiles don't meet your needs.
+  custom:
+    enabled: false
+    # Custom rules to apply (REPLACES profile rules entirely when enabled)
+    # The profile setting is IGNORED when custom.enabled is true
+    # Example:
+    # rules:
+    #   - apiGroups: [""]
+    #     resources: ["pods"]
+    #     verbs: ["get", "list"]
+    rules: []
+
 podAnnotations: {}
 podLabels: {}
 
@@ -139,6 +192,20 @@ mcpKubernetes:
       # Dex connector ID (optional)
       # When set, bypasses the connector selection screen for better UX
       connectorID: ""
+      # Kubernetes authenticator client ID (optional)
+      # When set, requests cross-client audience tokens from Dex to enable
+      # Kubernetes API authentication with the ID token. This is required when
+      # enableDownstreamOAuth is true and the K8s API server is configured with
+      # OIDC authentication using a different client ID (e.g., "dex-k8s-authenticator").
+      kubernetesAuthenticatorClientID: ""
+      # CA certificate for Dex TLS verification (optional)
+      # Use this when Dex uses a private/internal CA
+      # Can reference a secret containing the CA certificate
+      caSecret:
+        # Name of the secret containing the CA certificate
+        name: ""
+        # Key in the secret containing the CA certificate (default: ca.crt)
+        key: "ca.crt"
     # OAuth client registration access token
     # Required if allowPublicRegistration is false
     # Should be set via existingSecret for security
@@ -161,15 +228,300 @@ mcpKubernetes:
     # Enable downstream OAuth token passthrough to Kubernetes API
     # When enabled, user OAuth tokens are used for Kubernetes authentication
     # Requires inCluster mode and Kubernetes cluster configured with OIDC
+    #
+    # CRITICAL: This setting fundamentally changes the security model:
+    #   - When FALSE: ServiceAccount RBAC (from this chart) is used for all K8s API calls
+    #   - When TRUE:  User's OAuth token is used; ServiceAccount RBAC is NOT used
+    #
+    # In CAPI Mode with enableDownstreamOAuth: true:
+    #   - Management Cluster: User's OAuth token authenticates directly
+    #   - Workload Clusters: User identity is propagated via impersonation headers
+    #   - Users must have their own RBAC permissions (not the ServiceAccount's)
     enableDownstreamOAuth: false
     # Use an existing secret for OAuth credentials
     # The secret should contain keys: google-client-id, google-client-secret, dex-client-secret, registration-token, oauth-encryption-key (optional)
     existingSecret: ""
 
+    # Token storage configuration
+    # In-memory storage is default but NOT recommended for production
+    # Use Valkey for production deployments to enable:
+    #   - Session persistence across pod restarts
+    #   - Horizontal scaling with shared session state
+    #   - Rolling updates without user session loss
+    storage:
+      # Storage backend type: "memory" or "valkey"
+      # Default: "memory" (NOT recommended for production)
+      type: "memory"
+
+      # Valkey (Redis-compatible) storage configuration
+      # Required when storage.type is "valkey"
+      valkey:
+        # Valkey server URL (e.g., "valkey.namespace.svc:6379")
+        # Required when using Valkey storage
+        url: ""
+
+        # Valkey password for authentication (optional)
+        # Should be set via existingSecret for production security
+        password: ""
+
+        # Enable TLS for Valkey connections
+        # Recommended for production
+        tls:
+          enabled: false
+
+        # Key prefix for all Valkey keys
+        # Useful for multi-tenant deployments sharing a Valkey instance
+        keyPrefix: "mcp:"
+
+        # Valkey database number (0-15)
+        db: 0
+
+        # Use an existing secret for Valkey password
+        # The secret should contain key: valkey-password
+        existingSecret: ""
+
+        # Key in the secret containing the Valkey password
+        secretKeyPassword: "valkey-password"
+
+    # Redirect URI Security Configuration
+    # All settings default to secure values. Operators must explicitly opt-out.
+    # These settings control security validation of redirect URIs during client
+    # registration and authorization flows (SSRF and open redirect protection).
+    redirectURISecurity:
+      # Disable production mode security validation
+      # Production mode enforces: HTTPS required, private IPs blocked, dangerous schemes blocked
+      # WARNING: Significantly weakens redirect URI security. Only disable for development.
+      # Default: false (production mode is enabled)
+      disableProductionMode: false
+
+      # Allow http://localhost and http://127.0.0.1 redirect URIs
+      # Required for native apps per RFC 8252 Section 7.3
+      # Default: false (operators must explicitly enable for native app support)
+      allowLocalhostRedirectURIs: false
+
+      # Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs
+      # WARNING: Enables SSRF attacks to internal networks if not properly secured.
+      # Only enable for internal/VPN deployments where clients use private IPs.
+      # Default: false (blocked for security)
+      allowPrivateIPRedirectURIs: false
+
+      # Allow link-local addresses (169.254.x.x, fe80::/10) in redirect URIs
+      # WARNING: Could enable access to cloud metadata services (169.254.169.254).
+      # This is a significant security risk in AWS, GCP, Azure environments.
+      # Default: false (blocked for security)
+      allowLinkLocalRedirectURIs: false
+
+      # Disable DNS validation of redirect URI hostnames
+      # DNS validation checks if hostnames resolve to private/internal IPs.
+      # WARNING: Disabling allows potential DNS rebinding attacks.
+      # Default: false (DNS validation is enabled)
+      disableDNSValidation: false
+
+      # Disable fail-closed DNS validation
+      # When strict mode is enabled, DNS resolution failures block client registration.
+      # When disabled, DNS failures are logged but registration proceeds (fail-open).
+      # WARNING: Disabling allows potential DNS validation bypass via intentional failures.
+      # Default: false (strict mode is enabled)
+      disableDNSValidationStrict: false
+
+      # Disable redirect URI validation at authorization time
+      # By default, redirect URIs are re-validated during authorization requests,
+      # not just at registration time. This protects against TOCTOU attacks.
+      # WARNING: Disabling allows DNS rebinding attacks between registration and use.
+      # Default: false (authorization-time validation is enabled)
+      disableAuthorizationTimeValidation: false
+
+    # Trusted Scheme Registration for Cursor/VSCode Compatibility
+    # This feature allows unauthenticated client registration for clients using
+    # specific custom URI schemes (e.g., cursor://, vscode://), while requiring
+    # registration tokens for all other clients.
+    #
+    # Security Model:
+    # Custom URI schemes can only be intercepted by the application that registered
+    # the scheme with the OS. An attacker cannot register a malicious OAuth client
+    # with cursor:// because they cannot receive the authorization callback.
+    #
+    # IMPORTANT: This security model has platform-specific limitations:
+    # - On macOS, multiple apps can register for the same scheme (OS prompts user)
+    # - On some platforms, scheme registration is first-come-first-served
+    # - Malware with elevated privileges could potentially hijack scheme handlers
+    #
+    # Recommendation: This feature is most appropriate for:
+    # - Internal/corporate deployments where client machines are managed
+    # - Development environments
+    # - Scenarios where the convenience outweighs the platform-specific risks
+    #
+    # For high-security production deployments exposed to the internet, consider
+    # using registration tokens instead (--registration-token).
+    #
+    # Schemes must conform to RFC 3986: start with a letter, followed by letters,
+    # digits, plus (+), hyphen (-), or period (.). Dangerous schemes (javascript,
+    # data, file, ftp) are blocked.
+    #
+    # Example: ["cursor", "vscode", "vscode-insiders", "windsurf"]
+    # Default: [] (all registrations require a token)
+    trustedPublicRegistrationSchemes: []
+
+    # Disable strict scheme matching for trusted scheme registration
+    # When strict matching is enabled (default), ALL redirect URIs in a registration
+    # request must use schemes from trustedPublicRegistrationSchemes.
+    # When disabled, if ANY redirect URI uses a trusted scheme, registration is allowed.
+    # WARNING: Reduces security by allowing untrusted redirect URIs alongside trusted ones.
+    # Default: false (strict matching is enabled)
+    disableStrictSchemeMatching: false
+
+    # Client ID Metadata Documents (CIMD) - MCP 2025-11-25
+    # When enabled, clients can use HTTPS URLs as client identifiers (e.g.,
+    # https://myapp.example.com/.well-known/oauth-client). The authorization server
+    # fetches client metadata from that URL, enabling decentralized client registration.
+    #
+    # Security: CIMD requires the server to make outbound HTTPS requests. The mcp-oauth
+    # library implements comprehensive SSRF protection (blocks private IPs, DNS rebinding).
+    #
+    # Network Policy: When OAuth is enabled, egress to "world" is already allowed in
+    # the CiliumNetworkPolicy, which permits CIMD metadata fetching.
+    #
+    # Default: true (enabled per MCP 2025-11-25 specification)
+    enableCIMD: true
+
+  # OpenTelemetry Instrumentation configuration
+  instrumentation:
+    # Enable OpenTelemetry instrumentation (default: true)
+    enabled: true
+    # Metrics exporter type: prometheus, otlp, stdout (default: prometheus)
+    metricsExporter: "prometheus"
+    # Tracing exporter type: otlp, stdout, none (default: none)
+    tracingExporter: "none"
+    # OTLP endpoint for traces/metrics (required for otlp exporters)
+    # Format: hostname:port (without protocol prefix)
+    otlpEndpoint: ""
+    # Use insecure (HTTP) transport for OTLP (default: false, uses HTTPS)
+    # WARNING: Only enable for local development/testing
+    otlpInsecure: false
+    # Trace sampling rate (0.0 to 1.0, default: 0.1)
+    traceSamplingRate: 0.1
+    # Enable detailed labels (namespace, resource_type) in metrics
+    # WARNING: Can cause high cardinality in large clusters (>1000 namespaces)
+    # When disabled, only operation and status labels are recorded
+    detailedLabels: false
+    # ServiceMonitor for Prometheus Operator
+    serviceMonitor:
+      # Enable ServiceMonitor creation (requires Prometheus Operator CRDs)
+      enabled: false
+      # Additional labels for the ServiceMonitor (e.g., for Prometheus selection)
+      labels: {}
+      # Additional annotations for the ServiceMonitor
+      annotations: {}
+      # Scrape interval (default: Prometheus default)
+      interval: ""
+      # Scrape timeout (default: Prometheus default)
+      scrapeTimeout: ""
+      # Relabelings for the ServiceMonitor
+      relabelings: []
+      # Metric relabelings for the ServiceMonitor
+      metricRelabelings: []
+
+  # Metrics server configuration
+  # The metrics server runs on a separate port from the main application for security.
+  # This prevents unauthorized access to operational metrics via the public API endpoint.
+  #
+  # SECURITY NOTES:
+  # - Metrics are NOT exposed via Ingress (only the main application port 8080 is)
+  # - The /metrics endpoint reveals operational information (Go version, memory stats, etc.)
+  # - In multi-tenant clusters, consider adding a NetworkPolicy to restrict metrics access
+  #   to only Prometheus pods (see README.md for an example)
+  # - For high-security environments, set enabled: false to completely disable metrics
+  metrics:
+    # Enable the dedicated metrics server (default: true)
+    # Set to false in high-security environments where metrics exposure is not acceptable
+    enabled: true
+    # Port for the metrics server (default: 9090)
+    # This port is exposed in the Service but NOT via Ingress
+    # Only cluster-internal workloads can access this port by default
+    port: 9090
+
+  # Service configuration
+  service:
+    port: 8080
+
   # Additional environment variables
   env: []
   # - name: EXAMPLE_VAR
   #   value: "example-value"
+
+# CAPI Mode Configuration
+# When enabled, the MCP server operates as a multi-cluster federation gateway
+# using Cluster API (CAPI) for cluster discovery and kubeconfig retrieval.
+#
+# IMPORTANT: RBAC Behavior in CAPI Mode
+# --------------------------------------
+# The RBAC resources created by this chart (ClusterRoles, Roles, RoleBindings)
+# are ONLY used when OAuth Downstream is DISABLED (enableDownstreamOAuth: false).
+#
+# When OAuth Downstream is ENABLED (enableDownstreamOAuth: true):
+#   - The ServiceAccount RBAC is NOT used for Kubernetes API operations
+#   - Users must have their own RBAC permissions on the Management Cluster to:
+#     * List CAPI Cluster resources (cluster.x-k8s.io/clusters)
+#     * Read kubeconfig secrets in organization namespaces
+#   - On Workload Clusters, user identity is propagated via impersonation headers
+#   - Users need appropriate RBAC on each Workload Cluster they access
+#
+# See docs/rbac-security.md for detailed RBAC requirements per deployment mode.
+capiMode:
+  # Enable CAPI federation mode
+  enabled: false
+
+  # Client cache settings for workload cluster connections
+  cache:
+    # Time-to-live for cached clients
+    # Security: Set this to be <= your OAuth token lifetime
+    ttl: "10m"
+    # Maximum number of cached (cluster, user) pairs
+    maxEntries: 1000
+    # How often to clean up expired entries
+    cleanupInterval: "1m"
+
+  # Connectivity settings for workload clusters
+  connectivity:
+    # Timeout for initial TCP connection
+    timeout: "5s"
+    # Number of retry attempts for transient failures
+    retryAttempts: 3
+    # Initial backoff between retries (exponential)
+    retryBackoff: "1s"
+    # Request timeout for API operations
+    requestTimeout: "30s"
+    # QPS rate limit for Kubernetes client
+    qps: 50
+    # Burst limit for Kubernetes client
+    burst: 100
+
+  # Output processing limits for fleet-scale operations
+  output:
+    # Maximum items per query (absolute max: 1000)
+    maxItems: 100
+    # Maximum clusters in fleet-wide queries (absolute max: 100)
+    maxClusters: 20
+    # Maximum response size in bytes (absolute max: 2MB)
+    maxResponseBytes: 524288  # 512KB
+    # Enable slim output (removes verbose fields)
+    slimOutput: true
+    # Mask secret data with "***REDACTED***"
+    maskSecrets: true
+
+  # RBAC configuration for CAPI mode
+  # NOTE: This RBAC is for the ServiceAccount and is ONLY used when
+  # enableDownstreamOAuth is FALSE. See the oauth section above.
+  rbac:
+    # Create CAPI-specific RBAC resources (for ServiceAccount mode only)
+    create: true
+    # Namespaces to grant kubeconfig secret access
+    # Use [] for cluster-wide access (not recommended)
+    # Giant Swarm convention: org-* namespaces
+    allowedNamespaces: []
+    # When allowedNamespaces is empty and clusterWideSecrets is true,
+    # grants cluster-wide secret access (use with caution)
+    clusterWideSecrets: false
 
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:

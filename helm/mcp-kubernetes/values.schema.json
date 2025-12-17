@@ -54,6 +54,57 @@
         }
       }
     },
+    "rbac": {
+      "type": "object",
+      "description": "RBAC configuration for the ServiceAccount",
+      "properties": {
+        "create": {
+          "type": "boolean",
+          "description": "Create RBAC resources (ClusterRole and ClusterRoleBinding)"
+        },
+        "profile": {
+          "type": "string",
+          "description": "RBAC profile: minimal (no permissions), readonly (read-only, no secrets), standard (read/write including secrets), admin (requires adminConfirmation)",
+          "enum": ["minimal", "readonly", "standard", "admin"]
+        },
+        "adminConfirmation": {
+          "type": "boolean",
+          "description": "REQUIRED when using admin profile. Must be set to true to acknowledge the dangerous permissions (RBAC management, pod exec, webhook configuration)"
+        },
+        "custom": {
+          "type": "object",
+          "description": "Custom RBAC rules. WARNING: Overrides profile safety controls when enabled - use with caution",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable custom RBAC rules"
+            },
+            "rules": {
+              "type": "array",
+              "description": "Custom RBAC rules to apply",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "apiGroups": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "resources": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "verbs": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  }
+                },
+                "required": ["apiGroups", "resources", "verbs"]
+              }
+            }
+          }
+        }
+      }
+    },
     "podAnnotations": {
       "type": "object"
     },
@@ -258,6 +309,10 @@
             "allowInsecureAuthWithoutState": {
               "type": "boolean"
             },
+            "allowPrivateURLs": {
+              "type": "boolean",
+              "description": "Allow OAuth URLs that resolve to private/internal IP addresses (for internal deployments)"
+            },
             "maxClientsPerIP": {
               "type": "integer"
             },
@@ -272,6 +327,102 @@
             },
             "existingSecret": {
               "type": "string"
+            },
+            "provider": {
+              "type": "string",
+              "enum": ["dex", "google"],
+              "description": "OAuth provider: dex or google"
+            },
+            "dex": {
+              "type": "object",
+              "description": "Dex OIDC provider configuration",
+              "properties": {
+                "issuerURL": {
+                  "type": "string",
+                  "description": "Dex OIDC issuer URL"
+                },
+                "clientID": {
+                  "type": "string",
+                  "description": "Dex OAuth Client ID"
+                },
+                "clientSecret": {
+                  "type": "string",
+                  "description": "Dex OAuth Client Secret"
+                },
+                "connectorID": {
+                  "type": "string",
+                  "description": "Dex connector ID to bypass connector selection screen"
+                },
+                "kubernetesAuthenticatorClientID": {
+                  "type": "string",
+                  "description": "Kubernetes authenticator client ID for cross-client audience tokens"
+                },
+                "caSecret": {
+                  "type": "object",
+                  "description": "CA certificate secret for Dex TLS verification",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "enableDownstreamOAuth": {
+              "type": "boolean",
+              "description": "Enable downstream OAuth token passthrough to Kubernetes API"
+            },
+            "redirectURISecurity": {
+              "type": "object",
+              "description": "Redirect URI security configuration. All settings default to secure values.",
+              "properties": {
+                "disableProductionMode": {
+                  "type": "boolean",
+                  "description": "Disable production mode (allows HTTP, private IPs). WARNING: Significantly weakens security."
+                },
+                "allowLocalhostRedirectURIs": {
+                  "type": "boolean",
+                  "description": "Allow http://localhost redirect URIs for native apps (RFC 8252)"
+                },
+                "allowPrivateIPRedirectURIs": {
+                  "type": "boolean",
+                  "description": "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk."
+                },
+                "allowLinkLocalRedirectURIs": {
+                  "type": "boolean",
+                  "description": "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk."
+                },
+                "disableDNSValidation": {
+                  "type": "boolean",
+                  "description": "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks."
+                },
+                "disableDNSValidationStrict": {
+                  "type": "boolean",
+                  "description": "Disable fail-closed DNS validation. WARNING: Allows validation bypass via DNS failures."
+                },
+                "disableAuthorizationTimeValidation": {
+                  "type": "boolean",
+                  "description": "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks."
+                }
+              }
+            },
+            "trustedPublicRegistrationSchemes": {
+              "type": "array",
+              "description": "URI schemes allowed for unauthenticated client registration (e.g., cursor, vscode). Enables MCP clients that don't support registration tokens.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "disableStrictSchemeMatching": {
+              "type": "boolean",
+              "description": "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security."
+            },
+            "enableCIMD": {
+              "type": "boolean",
+              "description": "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers for decentralized registration. Default: true."
             }
           }
         },
@@ -288,6 +439,146 @@
               }
             },
             "required": ["name"]
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Metrics server configuration. Runs on a separate port for security.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable the dedicated metrics server (default: true)"
+            },
+            "port": {
+              "type": "integer",
+              "description": "Port for the metrics server (default: 9090)",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          }
+        }
+      }
+    },
+    "capiMode": {
+      "type": "object",
+      "description": "CAPI Mode configuration for multi-cluster federation",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable CAPI federation mode"
+        },
+        "cache": {
+          "type": "object",
+          "description": "Client cache settings for workload cluster connections",
+          "properties": {
+            "ttl": {
+              "type": "string",
+              "description": "Time-to-live for cached clients (e.g., '10m')",
+              "pattern": "^[0-9]+(s|m|h)$"
+            },
+            "maxEntries": {
+              "type": "integer",
+              "description": "Maximum number of cached (cluster, user) pairs",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "cleanupInterval": {
+              "type": "string",
+              "description": "How often to clean up expired entries (e.g., '1m')",
+              "pattern": "^[0-9]+(s|m|h)$"
+            }
+          }
+        },
+        "connectivity": {
+          "type": "object",
+          "description": "Connectivity settings for workload clusters",
+          "properties": {
+            "timeout": {
+              "type": "string",
+              "description": "Timeout for initial TCP connection (e.g., '5s')",
+              "pattern": "^[0-9]+(s|m|h)$"
+            },
+            "retryAttempts": {
+              "type": "integer",
+              "description": "Number of retry attempts for transient failures",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "retryBackoff": {
+              "type": "string",
+              "description": "Initial backoff between retries (e.g., '1s')",
+              "pattern": "^[0-9]+(s|m|h)$"
+            },
+            "requestTimeout": {
+              "type": "string",
+              "description": "Request timeout for API operations (e.g., '30s')",
+              "pattern": "^[0-9]+(s|m|h)$"
+            },
+            "qps": {
+              "type": "integer",
+              "description": "QPS rate limit for Kubernetes client",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "burst": {
+              "type": "integer",
+              "description": "Burst limit for Kubernetes client",
+              "minimum": 1,
+              "maximum": 2000
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "description": "Output processing limits for fleet-scale operations",
+          "properties": {
+            "maxItems": {
+              "type": "integer",
+              "description": "Maximum items per query (absolute max: 1000)",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "maxClusters": {
+              "type": "integer",
+              "description": "Maximum clusters in fleet-wide queries (absolute max: 100)",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "maxResponseBytes": {
+              "type": "integer",
+              "description": "Maximum response size in bytes (absolute max: 2MB)",
+              "minimum": 1024,
+              "maximum": 2097152
+            },
+            "slimOutput": {
+              "type": "boolean",
+              "description": "Enable slim output (removes verbose fields)"
+            },
+            "maskSecrets": {
+              "type": "boolean",
+              "description": "Mask secret data with ***REDACTED***"
+            }
+          }
+        },
+        "rbac": {
+          "type": "object",
+          "description": "RBAC configuration for CAPI mode",
+          "properties": {
+            "create": {
+              "type": "boolean",
+              "description": "Create CAPI-specific RBAC resources"
+            },
+            "allowedNamespaces": {
+              "type": "array",
+              "description": "Namespaces to grant kubeconfig secret access",
+              "items": {
+                "type": "string"
+              }
+            },
+            "clusterWideSecrets": {
+              "type": "boolean",
+              "description": "Grant cluster-wide secret access (NOT recommended)"
+            }
           }
         }
       }

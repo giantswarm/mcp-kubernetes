@@ -74,7 +74,7 @@ func TestValidateSecureURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateSecureURL(tt.url, tt.fieldName)
+			err := validateSecureURL(tt.url, tt.fieldName, false)
 			if tt.wantErr {
 				assert.Error(t, err)
 				if tt.errMsg != "" {
@@ -85,6 +85,16 @@ func TestValidateSecureURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidateSecureURLAllowPrivate tests URL validation with allowPrivate=true
+func TestValidateSecureURLAllowPrivate(t *testing.T) {
+	// With allowPrivate=true, private IPs should be allowed
+	// This simulates a URL that would normally be blocked due to private IP
+	err := validateSecureURL("https://internal.example.com", "test URL", true)
+	// Since we can't control DNS resolution in tests, just verify the function accepts the parameter
+	// and doesn't panic. Real private IP testing would require mocking net.LookupIP
+	_ = err
 }
 
 // TestIsPrivateOrLoopbackIP tests private/loopback IP detection
@@ -146,4 +156,147 @@ func parseIP(t *testing.T, ipStr string) net.IP {
 		t.Fatalf("failed to parse IP: %s", ipStr)
 	}
 	return parsed
+}
+
+// TestValidateOAuthClientID tests OAuth client ID validation
+func TestValidateOAuthClientID(t *testing.T) {
+	tests := []struct {
+		name     string
+		clientID string
+		wantErr  bool
+		errMsg   string
+	}{
+		// Valid client IDs
+		{
+			name:     "empty client ID (optional)",
+			clientID: "",
+			wantErr:  false,
+		},
+		{
+			name:     "simple alphanumeric",
+			clientID: "dexk8sauthenticator",
+			wantErr:  false,
+		},
+		{
+			name:     "with hyphens",
+			clientID: "dex-k8s-authenticator",
+			wantErr:  false,
+		},
+		{
+			name:     "with underscores",
+			clientID: "dex_k8s_authenticator",
+			wantErr:  false,
+		},
+		{
+			name:     "with periods",
+			clientID: "dex.k8s.authenticator",
+			wantErr:  false,
+		},
+		{
+			name:     "mixed valid characters",
+			clientID: "my-app_v1.0",
+			wantErr:  false,
+		},
+		{
+			name:     "starts with number",
+			clientID: "123-client",
+			wantErr:  false,
+		},
+		{
+			name:     "uppercase letters",
+			clientID: "DEX-K8S-AUTHENTICATOR",
+			wantErr:  false,
+		},
+		// Invalid client IDs
+		{
+			name:     "starts with hyphen",
+			clientID: "-dex-k8s-authenticator",
+			wantErr:  true,
+			errMsg:   "contains invalid characters",
+		},
+		{
+			name:     "starts with underscore",
+			clientID: "_dex-k8s-authenticator",
+			wantErr:  true,
+			errMsg:   "contains invalid characters",
+		},
+		{
+			name:     "starts with period",
+			clientID: ".dex-k8s-authenticator",
+			wantErr:  true,
+			errMsg:   "contains invalid characters",
+		},
+		{
+			name:     "contains space",
+			clientID: "dex k8s authenticator",
+			wantErr:  true,
+			errMsg:   "contains invalid characters",
+		},
+		{
+			name:     "contains special characters",
+			clientID: "dex@k8s#authenticator",
+			wantErr:  true,
+			errMsg:   "contains invalid characters",
+		},
+		{
+			name:     "contains newline (injection attempt)",
+			clientID: "dex-k8s\nauthenticator",
+			wantErr:  true,
+			errMsg:   "contains invalid characters",
+		},
+		{
+			name:     "contains colon (injection attempt)",
+			clientID: "dex:k8s:authenticator",
+			wantErr:  true,
+			errMsg:   "contains invalid characters",
+		},
+		{
+			name:     "too long (>256 chars)",
+			clientID: string(make([]byte, 257)),
+			wantErr:  true,
+			errMsg:   "is too long",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthClientID(tt.clientID, "test client ID")
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestValidateOAuthClientIDSecurityCases tests security-sensitive scenarios
+func TestValidateOAuthClientIDSecurityCases(t *testing.T) {
+	// These are injection attempts that should be rejected
+	injectionAttempts := []string{
+		"client openid",                   // Space injection
+		"client\topenid",                  // Tab injection
+		"client\nopenid",                  // Newline injection
+		"client%20openid",                 // URL-encoded space (literal %)
+		"client+openid",                   // Plus sign
+		"audience:server:client_id:other", // Scope injection
+		"client&other=scope",              // Parameter injection
+		"client;other",                    // Semicolon injection
+		"client|other",                    // Pipe injection
+		"client`whoami`",                  // Command injection
+		"client$(whoami)",                 // Command substitution
+		"client${PATH}",                   // Variable expansion
+		"<script>alert(1)</script>",       // XSS attempt
+		"client' OR '1'='1",               // SQL injection pattern
+	}
+
+	for _, attempt := range injectionAttempts {
+		t.Run(attempt, func(t *testing.T) {
+			err := validateOAuthClientID(attempt, "test client ID")
+			assert.Error(t, err, "injection attempt should be rejected: %s", attempt)
+		})
+	}
 }

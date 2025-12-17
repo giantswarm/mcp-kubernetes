@@ -132,6 +132,31 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 
 See the [Production Secret Management](#production-secret-management) section below for detailed examples.
 
+### CAPI Mode Configuration
+
+CAPI Mode enables multi-cluster federation via Cluster API. When enabled, the MCP server can discover and connect to workload clusters managed by CAPI on the Management Cluster.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `capiMode.enabled` | Enable CAPI federation mode | `false` |
+| `capiMode.cache.ttl` | Time-to-live for cached clients | `"10m"` |
+| `capiMode.cache.maxEntries` | Maximum cached (cluster, user) pairs | `1000` |
+| `capiMode.cache.cleanupInterval` | Cleanup interval for expired entries | `"1m"` |
+| `capiMode.connectivity.timeout` | TCP connection timeout | `"5s"` |
+| `capiMode.connectivity.retryAttempts` | Retry attempts for transient failures | `3` |
+| `capiMode.connectivity.retryBackoff` | Initial backoff between retries | `"1s"` |
+| `capiMode.connectivity.requestTimeout` | API request timeout | `"30s"` |
+| `capiMode.connectivity.qps` | Kubernetes client QPS rate limit | `50` |
+| `capiMode.connectivity.burst` | Kubernetes client burst limit | `100` |
+| `capiMode.output.maxItems` | Max items per query (absolute max: 1000) | `100` |
+| `capiMode.output.maxClusters` | Max clusters in fleet queries (absolute max: 100) | `20` |
+| `capiMode.output.maxResponseBytes` | Max response size in bytes | `524288` |
+| `capiMode.output.slimOutput` | Remove verbose fields from output | `true` |
+| `capiMode.output.maskSecrets` | Mask secret data with REDACTED | `true` |
+| `capiMode.rbac.create` | Create CAPI-specific RBAC resources | `true` |
+| `capiMode.rbac.allowedNamespaces` | Namespaces for kubeconfig secret access | `[]` |
+| `capiMode.rbac.clusterWideSecrets` | Grant cluster-wide secret access (NOT recommended) | `false` |
+
 ### Cilium Network Policy
 
 | Parameter | Description | Default |
@@ -140,9 +165,81 @@ See the [Production Secret Management](#production-secret-management) section be
 | `ciliumNetworkPolicy.labels` | Additional labels for the CiliumNetworkPolicy | `{}` |
 | `ciliumNetworkPolicy.annotations` | Additional annotations for the CiliumNetworkPolicy | `{}` |
 
+## Authentication Modes
+
+`mcp-kubernetes` supports two authentication modes that determine how Kubernetes API permissions are evaluated:
+
+### Service Account Mode (Default)
+
+When OAuth is disabled or `enableDownstreamOAuth` is not set:
+
+- All Kubernetes API calls use the **ServiceAccount's credentials**
+- The RBAC permissions defined in the Helm chart apply to all users
+- All users effectively share the same Kubernetes permissions
+
+**When to use:** Development environments, testing, or scenarios where OAuth/OIDC is not available.
+
+### OAuth Downstream Mode (Recommended for Production)
+
+When `mcpKubernetes.oauth.enableDownstreamOAuth: true` is configured:
+
+- Users authenticate to mcp-kubernetes via OAuth (Dex, Google, etc.)
+- **User's OAuth token is used for ALL Kubernetes API calls**
+- Each user's own RBAC permissions apply
+- The ServiceAccount RBAC defined in this chart is **NOT used** for API operations
+
+**When to use:** Production environments where per-user RBAC isolation is required.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Authentication Mode Comparison                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Service Account Mode              OAuth Downstream Mode            │
+│  ─────────────────────             ────────────────────             │
+│                                                                     │
+│  User → mcp-kubernetes             User → mcp-kubernetes            │
+│           │                                  │                      │
+│           ▼                                  ▼                      │
+│    ServiceAccount Token             User's OAuth Token              │
+│           │                                  │                      │
+│           ▼                                  ▼                      │
+│    K8s API (SA RBAC)                K8s API (User's RBAC)           │
+│                                                                     │
+│  Chart RBAC = permissions          Chart RBAC = NOT USED            │
+│  for all users                     Users need own RBAC              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Required User Permissions (OAuth Downstream Mode)
+
+When OAuth Downstream Mode is enabled, **users** (not the ServiceAccount) need RBAC permissions on the Kubernetes cluster. Grant users access via their OIDC identity or group memberships:
+
+```yaml
+# Example: Grant CAPI cluster discovery to platform-engineers group
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: platform-engineers-capi-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: capi-cluster-viewer  # Create this role with CAPI read permissions
+subjects:
+  - kind: Group
+    name: platform-engineers  # OAuth group from your identity provider
+    apiGroup: rbac.authorization.k8s.io
+```
+
+For detailed information about RBAC configuration in both modes, see [docs/rbac-security.md](../../docs/rbac-security.md).
+
 ## RBAC Permissions
 
-The chart automatically creates a ClusterRole and ClusterRoleBinding that grants the following permissions:
+**Note:** The RBAC resources created by this chart are only used in **Service Account Mode**. When OAuth Downstream Mode is enabled (`enableDownstreamOAuth: true`), users authenticate with their own OAuth tokens and these ServiceAccount permissions are **not used** for API operations.
+
+### Base RBAC (Service Account Mode)
+
+The chart creates a ClusterRole and ClusterRoleBinding that grants the following permissions:
 
 - **Core resources**: pods, services, endpoints, nodes, namespaces, configmaps, secrets, persistentvolumes, persistentvolumeclaims, events
 - **Apps resources**: deployments, replicasets, statefulsets, daemonsets
@@ -155,6 +252,26 @@ The chart automatically creates a ClusterRole and ClusterRoleBinding that grants
 - **Autoscaling resources**: horizontalpodautoscalers
 - **Policy resources**: poddisruptionbudgets
 
+### CAPI Mode Additional Permissions (Service Account Mode)
+
+When CAPI mode is enabled (`capiMode.enabled: true`) **without OAuth downstream**, additional RBAC resources are created:
+
+**ClusterRole: `<release>-mcp-kubernetes-capi`**
+- **CAPI resources** (read-only): clusters, machinepools, machinedeployments, machines
+- **Infrastructure resources** (read-only): all resources in `infrastructure.cluster.x-k8s.io`
+
+**Namespace-Scoped Roles** (per namespace in `capiMode.rbac.allowedNamespaces`):
+- **Secrets** (read-only): Access to kubeconfig secrets in the specified namespace
+
+**Cluster-Wide Secret Access** (only if `capiMode.rbac.clusterWideSecrets: true`):
+- **Secrets** (read-only): Access to ALL secrets cluster-wide - **NOT RECOMMENDED**
+
+### CAPI Mode with OAuth Downstream
+
+When CAPI mode is used with OAuth Downstream Mode (`enableDownstreamOAuth: true`), users need their own RBAC permissions on the Management Cluster to:
+- Discover CAPI clusters (`cluster.x-k8s.io` resources)
+- Read kubeconfig secrets in their organization namespaces
+
 ## Network Security
 
 The chart creates a CliumNetworkPolicy to control network traffic for the mcp-kubernetes pods. The policy provides:
@@ -165,6 +282,85 @@ The chart creates a CliumNetworkPolicy to control network traffic for the mcp-ku
 The policy uses the standard chart selector labels (`app.kubernetes.io/name` and `app.kubernetes.io/instance`) to identify the target pods.
 
 **Note**: CiliumNetworkPolicy requires Cilium CNI to be installed in your cluster.
+
+## Metrics Security
+
+Prometheus metrics are served on a **dedicated port** (default: 9090) that is separate from the main application port (8080). This follows security best practices by isolating operational metrics from public-facing traffic.
+
+### Why Separate Metrics Port?
+
+The `/metrics` endpoint exposes operational information that could be useful to attackers:
+- Go runtime version (helps identify known vulnerabilities)
+- Memory allocation patterns and heap statistics
+- Garbage collection behavior
+- Goroutine count (indicates server load patterns)
+- Custom application metrics
+
+By serving metrics on a separate port, you can:
+- Avoid exposing metrics via public Ingress
+- Apply different NetworkPolicies to metrics vs. application traffic
+- Restrict metrics access to only Prometheus/monitoring infrastructure
+
+### Configuration
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `mcpKubernetes.metrics.enabled` | Enable the dedicated metrics server | `true` |
+| `mcpKubernetes.metrics.port` | Port for the metrics server | `9090` |
+
+### Multi-Tenant Cluster Security
+
+In multi-tenant Kubernetes clusters, you may want to restrict which workloads can access the metrics endpoint. The default CiliumNetworkPolicy allows ingress from all cluster entities, which may be too permissive.
+
+**Recommended:** Create a more restrictive NetworkPolicy that only allows Prometheus to access the metrics port:
+
+```yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-kubernetes-metrics-restricted
+  namespace: <your-namespace>
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-kubernetes
+  ingress:
+  # Allow Prometheus to scrape metrics
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: "9090"
+        protocol: TCP
+  # Allow application traffic from anywhere in cluster
+  - fromEntities:
+    - cluster
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+```
+
+### High-Security Environments
+
+For environments with strict security requirements where metrics exposure is not acceptable, you can completely disable the metrics server:
+
+```yaml
+mcpKubernetes:
+  metrics:
+    enabled: false
+  instrumentation:
+    enabled: false
+```
+
+When metrics are disabled:
+- No `/metrics` endpoint is exposed on any port
+- The ServiceMonitor is not created
+- Prometheus annotations are not added to pods
+- You lose observability but gain security isolation
+
+**Alternative:** Use a pull-based metrics collection that runs inside the pod (e.g., OpenTelemetry Collector sidecar pushing to a secure backend).
 
 ## Usage Examples
 
@@ -262,6 +458,59 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
 ```
 
 **Important**: OAuth requires HTTPS in production. Make sure to configure TLS for your ingress.
+
+### Installation with CAPI Mode (Multi-Cluster Federation)
+
+CAPI Mode enables the MCP server to act as a multi-cluster federation gateway. It discovers workload clusters via Cluster API and retrieves their kubeconfig secrets to establish connections.
+
+**Prerequisites:**
+1. Deploy on a CAPI Management Cluster
+2. Configure OAuth authentication (recommended: Dex)
+3. Create organization namespaces with kubeconfig secrets
+
+**Step 1: Prepare RBAC**
+
+The chart creates namespace-scoped Roles for accessing kubeconfig secrets. List all organization namespaces that contain workload clusters:
+
+```yaml
+# values-capi.yaml
+capiMode:
+  enabled: true
+  rbac:
+    create: true
+    allowedNamespaces:
+      - org-acme
+      - org-beta
+      - org-gamma
+```
+
+**Step 2: Install with CAPI Mode**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-capi-production.yaml \
+  --set capiMode.rbac.allowedNamespaces[0]=org-acme \
+  --set capiMode.rbac.allowedNamespaces[1]=org-beta \
+  --set mcpKubernetes.oauth.dex.issuerURL=https://dex.g8s.example.com \
+  --set mcpKubernetes.oauth.baseURL=https://mcp.g8s.example.com
+```
+
+Or use the example production values file:
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-capi-production.yaml
+```
+
+**Security Considerations:**
+
+1. **Namespace-Scoped RBAC** (Recommended): Use `capiMode.rbac.allowedNamespaces` to limit secret access to specific namespaces. This follows the principle of least privilege.
+
+2. **Cluster-Wide Secret Access** (Not Recommended): Only enable `capiMode.rbac.clusterWideSecrets: true` if namespace-scoped access is impractical. This grants read access to ALL secrets in the cluster.
+
+3. **Cache TTL**: Set `capiMode.cache.ttl` to be less than or equal to your OAuth token lifetime to ensure cached clients don't outlive user authorization.
+
+4. **Output Masking**: Keep `capiMode.output.maskSecrets: true` to prevent accidental exposure of sensitive data in tool responses.
 
 ## Production Secret Management
 

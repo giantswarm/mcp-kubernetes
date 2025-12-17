@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/federation"
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 )
 
@@ -151,12 +153,91 @@ func WithDownstreamOAuth(enabled bool) Option {
 	}
 }
 
+// WithDownstreamOAuthStrict enables strict mode for downstream OAuth authentication.
+// When strict mode is enabled (the default via CLI), requests without valid OAuth
+// tokens will fail with an authentication error instead of falling back to the
+// service account.
+//
+// Security implications of strict mode (enabled by default):
+//   - Prevents privilege escalation through service account fallback
+//   - Ensures audit logs always reflect the actual user identity
+//   - Detects OIDC misconfiguration early (fails visibly instead of silently)
+//   - Complies with the security principle of "fail closed"
+//
+// When strict mode is disabled (NOT recommended for production):
+//   - Falls back to service account if OAuth token is missing or invalid
+//   - May cause unexpected permission changes if OIDC is misconfigured
+//   - Audit logs may show service account instead of user
+func WithDownstreamOAuthStrict(enabled bool) Option {
+	return func(sc *ServerContext) error {
+		sc.downstreamOAuthStrict = enabled
+		return nil
+	}
+}
+
+// WithInCluster enables in-cluster mode.
+// When enabled, the server uses service account token authentication instead of kubeconfig.
+// This disables kubeContext-related functionality as it's not applicable in-cluster.
+func WithInCluster(enabled bool) Option {
+	return func(sc *ServerContext) error {
+		sc.inCluster = enabled
+		return nil
+	}
+}
+
+// WithInstrumentationProvider sets the OpenTelemetry instrumentation provider.
+// This enables production-grade observability including metrics and tracing.
+func WithInstrumentationProvider(provider *instrumentation.Provider) Option {
+	return func(sc *ServerContext) error {
+		sc.instrumentationProvider = provider
+		return nil
+	}
+}
+
+// WithFederationManager sets the multi-cluster federation manager.
+// This enables operations across multiple Kubernetes clusters via CAPI.
+// When set, the server can perform operations on both the Management Cluster
+// and Workload Clusters discovered through Cluster API resources.
+func WithFederationManager(manager federation.ClusterClientManager) Option {
+	return func(sc *ServerContext) error {
+		sc.federationManager = manager
+		return nil
+	}
+}
+
+// WithOutputConfig sets the output processing configuration.
+// This controls how large responses are handled to prevent context overflow.
+func WithOutputConfig(output *OutputConfig) Option {
+	return func(sc *ServerContext) error {
+		if sc.config == nil {
+			sc.config = NewDefaultConfig()
+		}
+		if output != nil {
+			outputCopy := *output
+			sc.config.Output = &outputCopy
+		}
+		return nil
+	}
+}
+
 // Error definitions for ServerContext validation and operations.
 var (
 	ErrMissingK8sClient = errors.New("kubernetes client is required")
 	ErrMissingLogger    = errors.New("logger is required")
 	ErrMissingConfig    = errors.New("configuration is required")
 	ErrServerShutdown   = errors.New("server context has been shutdown")
+
+	// OAuth downstream authentication errors (for strict mode)
+	// These errors are returned when downstream OAuth strict mode is enabled
+	// and authentication fails, instead of falling back to service account.
+
+	// ErrOAuthTokenMissing is returned when no OAuth access token is present in the
+	// request context while downstream OAuth strict mode is enabled.
+	ErrOAuthTokenMissing = errors.New("authentication required: no OAuth token present in request")
+
+	// ErrOAuthClientFailed is returned when the bearer token client cannot be created
+	// (e.g., invalid token format, connection issues) while strict mode is enabled.
+	ErrOAuthClientFailed = errors.New("authentication failed: could not create Kubernetes client with OAuth token")
 )
 
 // DefaultLogger is a simple logger implementation that wraps the standard library logger.

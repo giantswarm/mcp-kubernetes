@@ -16,6 +16,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 )
 
 // kubernetesClient implements the Client interface using client-go.
@@ -69,20 +71,21 @@ type ClientConfig struct {
 	BurstLimit int
 	Timeout    time.Duration
 
+	// Cache settings (for bearer token client factory)
+	CacheTTL        time.Duration        // TTL for cached clients. Defaults to 5 minutes.
+	CacheMaxEntries int                  // Max entries before LRU eviction. Defaults to 100.
+	CacheMetrics    CacheMetricsCallback // Optional metrics callback for cache observability.
+
 	// Debug settings
 	DebugMode bool
 
 	// Logging
-	Logger Logger
+	Logger logging.Logger
 }
 
-// Logger interface for client logging (simple version for now).
-type Logger interface {
-	Debug(msg string, args ...interface{})
-	Info(msg string, args ...interface{})
-	Warn(msg string, args ...interface{})
-	Error(msg string, args ...interface{})
-}
+// Logger is an alias for logging.Logger for backward compatibility.
+// New code should use logging.Logger directly.
+type Logger = logging.Logger
 
 // NewClient creates a new Kubernetes client with the given configuration.
 func NewClient(config *ClientConfig) (*kubernetesClient, error) {
@@ -120,7 +123,7 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 	// Handle authentication mode
 	if config.InCluster {
 		// In-cluster mode: use service account authentication
-		client.currentContext = "in-cluster"
+		client.currentContext = InClusterContext
 
 		// Validate in-cluster environment
 		if err := client.validateInClusterEnvironment(); err != nil {
@@ -674,8 +677,8 @@ func (c *kubernetesClient) ListContexts(ctx context.Context) ([]ContextInfo, err
 		// In-cluster mode: return single simulated context
 		return []ContextInfo{
 			{
-				Name:      "in-cluster",
-				Cluster:   "in-cluster",
+				Name:      InClusterContext,
+				Cluster:   InClusterContext,
 				User:      "serviceaccount",
 				Namespace: c.getInClusterNamespace(),
 				Current:   true,
@@ -706,8 +709,8 @@ func (c *kubernetesClient) GetCurrentContext(ctx context.Context) (*ContextInfo,
 	if c.config.InCluster {
 		// In-cluster mode: return simulated context
 		return &ContextInfo{
-			Name:      "in-cluster",
-			Cluster:   "in-cluster",
+			Name:      InClusterContext,
+			Cluster:   InClusterContext,
 			User:      "serviceaccount",
 			Namespace: c.getInClusterNamespace(),
 			Current:   true,
@@ -734,11 +737,11 @@ func (c *kubernetesClient) SwitchContext(ctx context.Context, contextName string
 	c.logOperation("switch-context", contextName, "", "", "")
 
 	if c.config.InCluster {
-		// In-cluster mode: only allow switching to "in-cluster" context
-		if contextName != "in-cluster" {
+		// In-cluster mode: only allow switching to InClusterContext context
+		if contextName != InClusterContext {
 			return fmt.Errorf("cannot switch context in in-cluster mode: only 'in-cluster' context is available")
 		}
-		// Context is already "in-cluster", no change needed
+		// Context is already InClusterContext, no change needed
 		return nil
 	}
 

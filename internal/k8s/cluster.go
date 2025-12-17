@@ -7,7 +7,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/version"
+)
+
+// Health status constants for cluster health reporting.
+const (
+	clusterHealthHealthy   = "Healthy"
+	clusterHealthUnhealthy = "Unhealthy"
+	clusterHealthDegraded  = "Degraded"
+	clusterHealthUnknown   = "Unknown"
 )
 
 // ClusterManager implementation
@@ -162,7 +169,7 @@ func (c *kubernetesClient) GetClusterHealth(ctx context.Context, kubeContext str
 	}
 
 	health := &ClusterHealth{
-		Status:     "Unknown",
+		Status:     clusterHealthUnknown,
 		Components: []ComponentHealth{},
 		Nodes:      []NodeHealth{},
 	}
@@ -170,10 +177,10 @@ func (c *kubernetesClient) GetClusterHealth(ctx context.Context, kubeContext str
 	// Check cluster version/connectivity
 	version, err := clientset.Discovery().ServerVersion()
 	if err != nil {
-		health.Status = "Unhealthy"
+		health.Status = clusterHealthUnhealthy
 		health.Components = append(health.Components, ComponentHealth{
 			Name:    "API Server",
-			Status:  "Unhealthy",
+			Status:  clusterHealthUnhealthy,
 			Message: fmt.Sprintf("Failed to get server version: %v", err),
 		})
 		return health, nil
@@ -182,7 +189,7 @@ func (c *kubernetesClient) GetClusterHealth(ctx context.Context, kubeContext str
 	// API Server is healthy if we can get version
 	health.Components = append(health.Components, ComponentHealth{
 		Name:    "API Server",
-		Status:  "Healthy",
+		Status:  clusterHealthHealthy,
 		Message: fmt.Sprintf("Version: %s", version.String()),
 	})
 
@@ -196,16 +203,16 @@ func (c *kubernetesClient) GetClusterHealth(ctx context.Context, kubeContext str
 		for _, component := range componentStatuses.Items {
 			componentHealth := ComponentHealth{
 				Name:   component.Name,
-				Status: "Unknown",
+				Status: clusterHealthUnknown,
 			}
 
 			// Check if component is healthy
 			for _, condition := range component.Conditions {
 				if condition.Type == corev1.ComponentHealthy {
 					if condition.Status == corev1.ConditionTrue {
-						componentHealth.Status = "Healthy"
+						componentHealth.Status = clusterHealthHealthy
 					} else {
-						componentHealth.Status = "Unhealthy"
+						componentHealth.Status = clusterHealthUnhealthy
 						componentHealth.Message = condition.Message
 					}
 					break
@@ -293,8 +300,8 @@ func (c *kubernetesClient) calculateOverallHealth(components []ComponentHealth, 
 	}
 
 	for _, component := range components {
-		if criticalComponents[component.Name] && component.Status == "Unhealthy" {
-			return "Unhealthy"
+		if criticalComponents[component.Name] && component.Status == clusterHealthUnhealthy {
+			return clusterHealthUnhealthy
 		}
 	}
 
@@ -309,61 +316,16 @@ func (c *kubernetesClient) calculateOverallHealth(components []ComponentHealth, 
 
 		// If less than half the nodes are ready, cluster is degraded
 		if readyNodes < len(nodes)/2 {
-			return "Degraded"
+			return clusterHealthDegraded
 		}
 	}
 
 	// Check if any components are unhealthy
 	for _, component := range components {
-		if component.Status == "Unhealthy" {
-			return "Degraded"
+		if component.Status == clusterHealthUnhealthy {
+			return clusterHealthDegraded
 		}
 	}
 
-	return "Healthy"
-}
-
-// getClusterVersion gets the Kubernetes cluster version.
-func (c *kubernetesClient) getClusterVersion(ctx context.Context, kubeContext string) (*version.Info, error) {
-	clientset, err := c.getClientset(kubeContext)
-	if err != nil {
-		return nil, err
-	}
-
-	version, err := clientset.Discovery().ServerVersion()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster version: %w", err)
-	}
-
-	return version, nil
-}
-
-// checkClusterConnectivity tests basic connectivity to the cluster.
-func (c *kubernetesClient) checkClusterConnectivity(ctx context.Context, kubeContext string) error {
-	_, err := c.getClusterVersion(ctx, kubeContext)
-	if err != nil {
-		return fmt.Errorf("cluster connectivity check failed: %w", err)
-	}
-
-	return nil
-}
-
-// listNamespaces returns all namespaces in the cluster.
-func (c *kubernetesClient) listNamespaces(ctx context.Context, kubeContext string) ([]string, error) {
-	clientset, err := c.getClientset(kubeContext)
-	if err != nil {
-		return nil, err
-	}
-
-	namespaces, err := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list namespaces: %w", err)
-	}
-
-	var namespaceNames []string
-	for _, ns := range namespaces.Items {
-		namespaceNames = append(namespaceNames, ns.Name)
-	}
-
-	return namespaceNames, nil
+	return clusterHealthHealthy
 }

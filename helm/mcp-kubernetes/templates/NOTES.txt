@@ -53,5 +53,140 @@
 
 {{- end }}
 
-5. For more information about using the MCP Kubernetes server, visit:
-   https://github.com/giantswarm/mcp-kubernetes
+{{- if .Values.capiMode.enabled }}
+
+5. CAPI Mode Configuration:
+   - CAPI federation mode is ENABLED
+   - Cluster discovery will use Cluster API resources
+   {{- if and .Values.capiMode.enabled (not .Values.capiMode.rbac.create) }}
+   
+   WARNING: CAPI mode is enabled but capiMode.rbac.create is FALSE.
+   The ServiceAccount will NOT have permissions to:
+   - List CAPI Cluster resources (cluster.x-k8s.io/clusters)
+   - Read infrastructure provider resources
+   - Create TokenReviews/SubjectAccessReviews
+   
+   CAPI operations WILL FAIL unless you manually create equivalent RBAC.
+   To fix: Set capiMode.rbac.create: true or create manual RBAC bindings.
+   {{- end }}
+   {{- if and .Values.capiMode.rbac.create (eq (len .Values.capiMode.rbac.allowedNamespaces) 0) (not .Values.capiMode.rbac.clusterWideSecrets) }}
+   
+   NOTE: No namespaces configured for kubeconfig secret access.
+   Set capiMode.rbac.allowedNamespaces to grant access to specific namespaces.
+   {{- end }}
+   {{- if .Values.capiMode.rbac.clusterWideSecrets }}
+   
+   SECURITY WARNING: Cluster-wide secret access is ENABLED.
+   This grants read access to ALL secrets in the cluster.
+   Consider using namespace-scoped access via capiMode.rbac.allowedNamespaces instead.
+   {{- end }}
+{{- end }}
+
+{{- $profile := .Values.rbac.profile | default "standard" }}
+{{- if eq $profile "admin" }}
+
+6. SECURITY WARNING: Admin RBAC Profile
+   - rbac.profile is set to "admin"
+   - This grants EXTENSIVE permissions including:
+     - RBAC management (create/update/delete roles and bindings)
+     - Pod exec, logs, and port-forward access
+     - Full access to secrets cluster-wide
+     - Webhook configuration management
+   
+   The admin profile should ONLY be used in:
+   - Fully trusted environments
+   - Emergency break-glass scenarios
+   - Administrative tooling with restricted access
+   
+   For production deployments, consider using "readonly" or "standard" profiles.
+{{- end }}
+
+{{- if and .Values.mcpKubernetes.oauth.enabled (eq .Values.mcpKubernetes.oauth.storage.type "valkey") }}
+
+7. Valkey Token Storage Configuration:
+   - Storage Type: Valkey (Redis-compatible)
+   - Valkey URL: {{ .Values.mcpKubernetes.oauth.storage.valkey.url }}
+   {{- if .Values.mcpKubernetes.oauth.storage.valkey.tls.enabled }}
+   - TLS: ENABLED (secure)
+   {{- else }}
+   
+   SECURITY WARNING: Valkey TLS is DISABLED.
+   Traffic between mcp-kubernetes and Valkey is NOT encrypted.
+   This could expose OAuth tokens to network-level attacks.
+   
+   For production deployments, enable TLS:
+     mcpKubernetes.oauth.storage.valkey.tls.enabled: true
+   {{- end }}
+   {{- $hasPassword := or .Values.mcpKubernetes.oauth.storage.valkey.password .Values.mcpKubernetes.oauth.storage.valkey.existingSecret .Values.mcpKubernetes.oauth.existingSecret }}
+   {{- if not $hasPassword }}
+   
+   SECURITY WARNING: Valkey authentication is NOT configured.
+   No password is set for Valkey connection.
+   This could allow unauthorized access to OAuth tokens.
+   
+   For production deployments, configure authentication:
+     Option 1: Use existingSecret with valkey-password key
+     Option 2: Set mcpKubernetes.oauth.storage.valkey.existingSecret
+   {{- end }}
+   {{- if not .Values.mcpKubernetes.oauth.encryptionKey }}
+   
+   SECURITY WARNING: Token encryption at rest is DISABLED.
+   OAuth tokens stored in Valkey are NOT encrypted.
+   If Valkey is compromised, tokens could be stolen.
+   
+   For production deployments, enable encryption:
+     mcpKubernetes.oauth.encryptionKey: true
+     And set oauth-encryption-key in your existingSecret
+   {{- end }}
+{{- end }}
+
+{{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+
+8. Downstream OAuth Configuration:
+   - User OAuth tokens are used for Kubernetes API authentication
+   - ServiceAccount RBAC is NOT used for API operations
+   {{- if ne $profile "minimal" }}
+   
+   SECURITY RECOMMENDATION: You have enableDownstreamOAuth: true but
+   rbac.profile is set to "{{ $profile }}".
+   
+   Since user OAuth tokens are used for all API operations, the ServiceAccount
+   RBAC is not utilized. For least-privilege security, consider setting:
+     rbac.profile: "minimal"
+   
+   This eliminates unused permissions that could be exploited if:
+   - OAuth fallback occurs
+   - The ServiceAccount token is compromised
+   - Configuration errors bypass OAuth
+   {{- end }}
+{{- end }}
+
+{{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+
+9. Metrics Configuration:
+   - Prometheus metrics are served on a DEDICATED port for security
+   - Metrics port: {{ .Values.mcpKubernetes.metrics.port }}
+   - Metrics endpoint: http://{{ include "mcp-kubernetes.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcpKubernetes.metrics.port }}/metrics
+   
+   The metrics endpoint is NOT exposed on the main application port ({{ .Values.service.port }})
+   to prevent unauthorized access to operational information.
+   
+   {{- if .Values.mcpKubernetes.instrumentation.serviceMonitor.enabled }}
+   ServiceMonitor is ENABLED - Prometheus Operator will automatically scrape metrics.
+   {{- else }}
+   To enable Prometheus Operator integration, set:
+     mcpKubernetes.instrumentation.serviceMonitor.enabled: true
+   {{- end }}
+
+   SECURITY NOTE (Multi-Tenant Clusters):
+   The metrics port is accessible to all workloads in the cluster by default.
+   In multi-tenant environments, consider creating a NetworkPolicy to restrict
+   metrics access to only Prometheus pods. See README.md for an example.
+   
+   To completely disable metrics in high-security environments:
+     mcpKubernetes.metrics.enabled: false
+     mcpKubernetes.instrumentation.enabled: false
+{{- end }}
+
+10. For more information about using the MCP Kubernetes server, visit:
+    https://github.com/giantswarm/mcp-kubernetes
