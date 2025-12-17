@@ -480,6 +480,11 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			ServiceVersion:  config.ServiceVersion,
 			MetricsExporter: "prometheus",
 		},
+		MachineIdentity: oauthserver.MachineIdentityConfig{
+			Enabled:      true,
+			EmailDomain:  "serviceaccount.local", // optional
+			DeriveGroups: true,                   // optional, default when Enabled=true
+		},
 	}
 
 	// Configure interstitial page branding if provided
@@ -738,8 +743,14 @@ func (s *OAuthHTTPServer) SetHealthChecker(hc *HealthChecker) {
 }
 
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's
-// Google OAuth access token into the request context. This token can then be used
+// OAuth access token into the request context. This token can then be used
 // for downstream Kubernetes API authentication.
+//
+// For machine identities (Kubernetes service accounts), the bearer token from
+// the Authorization header is used directly since these clients don't go through
+// the OAuth authorization code flow and don't have stored tokens.
+//
+// For regular OAuth users, the stored ID token is retrieved from the token store.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log entry to confirm middleware is being called
@@ -759,6 +770,25 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 		if userInfo.Email == "" {
 			slog.Debug("AccessTokenInjector: user info has no email", "user_id", userInfo.ID)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if this is a machine identity (K8s service account)
+		// Machine identities authenticate via JWT and don't go through OAuth code flow,
+		// so they don't have stored tokens. We use their bearer token directly.
+		if oauthserver.IsKubernetesServiceAccount(userInfo.ID) {
+			bearerToken := extractBearerToken(r)
+			if bearerToken != "" {
+				slog.Debug("AccessTokenInjector: using bearer token for machine identity",
+					logging.UserHash(userInfo.Email))
+				ctx = mcpoauth.ContextWithAccessToken(ctx, bearerToken)
+				r = r.WithContext(ctx)
+				next.ServeHTTP(w, r)
+				return
+			}
+			slog.Debug("AccessTokenInjector: machine identity but no bearer token found",
+				logging.UserHash(userInfo.Email))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -797,6 +827,29 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		next.ServeHTTP(w, r)
 		slog.Debug("AccessTokenInjector: next handler returned")
 	})
+}
+
+// extractBearerToken extracts the bearer token from the Authorization header.
+// Returns empty string if no valid bearer token is found.
+func extractBearerToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+
+	// Parse "Bearer <token>" format
+	const bearerPrefix = "Bearer "
+	if len(authHeader) > len(bearerPrefix) && authHeader[:len(bearerPrefix)] == bearerPrefix {
+		return authHeader[len(bearerPrefix):]
+	}
+
+	// Also handle lowercase "bearer" for robustness
+	const bearerPrefixLower = "bearer "
+	if len(authHeader) > len(bearerPrefixLower) && authHeader[:len(bearerPrefixLower)] == bearerPrefixLower {
+		return authHeader[len(bearerPrefixLower):]
+	}
+
+	return ""
 }
 
 // validateHTTPSRequirement ensures OAuth 2.1 HTTPS compliance
