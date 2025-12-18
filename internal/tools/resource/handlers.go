@@ -124,10 +124,14 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	namespace, _ := args["namespace"].(string)
 	allNamespaces, _ := args["allNamespaces"].(bool)
 
-	// Namespace is not required for:
-	// 1. Cluster-scoped resources (nodes, persistentvolumes, namespaces, etc.)
-	// 2. When allNamespaces is true
-	if !k8s.IsClusterScoped(resourceType) && !allNamespaces && namespace == "" {
+	// Namespace validation:
+	// 1. Known cluster-scoped resources (nodes, pv, namespaces, etc.) -> namespace not required
+	// 2. Known namespaced resources (pods, deployments, etc.) -> namespace required unless allNamespaces
+	// 3. Unknown resources (CRDs, custom resources) -> no early validation, let K8s API handle it
+	//
+	// This hybrid approach provides helpful error messages for common resources while
+	// allowing CRDs (which may be namespaced or cluster-scoped) to work without prior knowledge.
+	if k8s.IsKnownNamespaced(resourceType) && !allNamespaces && namespace == "" {
 		return mcp.NewToolResultError("namespace is required for namespaced resources. Omit namespace for cluster-scoped resources (nodes, persistentvolumes, namespaces, clusterroles, etc.) or use allNamespaces=true"), nil
 	}
 
@@ -176,6 +180,8 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	// Track namespace for metrics (use "all" for cluster-wide operations)
+	// For unknown resources (CRDs), we don't clear namespace here - let the K8s client
+	// determine the scope via API discovery
 	metricsNamespace := namespace
 	if allNamespaces || k8s.IsClusterScoped(resourceType) {
 		namespace = ""

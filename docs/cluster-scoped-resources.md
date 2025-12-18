@@ -6,8 +6,9 @@ This document describes how `mcp-kubernetes` handles cluster-scoped vs namespace
 
 Kubernetes resources are either **namespaced** (exist within a namespace) or **cluster-scoped** (exist at the cluster level). When using the `kubernetes_list` tool, the `namespace` parameter behavior differs based on the resource type:
 
-- **Namespaced resources** (pods, deployments, services, etc.): Require a `namespace` parameter or `allNamespaces=true`
-- **Cluster-scoped resources** (nodes, persistentvolumes, namespaces, etc.): Do not require a `namespace` parameter
+- **Known namespaced resources** (pods, deployments, services, etc.): Require a `namespace` parameter or `allNamespaces=true`
+- **Known cluster-scoped resources** (nodes, persistentvolumes, namespaces, etc.): Do not require a `namespace` parameter
+- **Unknown resources** (CRDs, custom resources): No early validation - the K8s API determines scope via discovery
 
 ## Supported Cluster-Scoped Resources
 
@@ -77,9 +78,38 @@ namespace is required for namespaced resources. Omit namespace for cluster-scope
 
 ## Custom Resources (CRDs)
 
-Custom Resource Definitions (CRDs) themselves are cluster-scoped. However, the **instances** of custom resources may be either namespaced or cluster-scoped depending on how the CRD is defined. The `mcp-kubernetes` server uses API discovery to determine the scope of custom resource instances at runtime.
+Custom Resource Definitions (CRDs) themselves are cluster-scoped. However, the **instances** of custom resources may be either namespaced or cluster-scoped depending on how the CRD is defined.
+
+### Hybrid Validation Approach
+
+The `mcp-kubernetes` server uses a **hybrid approach** for namespace validation:
+
+1. **Known built-in resources**: Early validation provides helpful error messages
+   - Known cluster-scoped (nodes, pv, etc.): Namespace not required
+   - Known namespaced (pods, deployments, etc.): Namespace required (unless `allNamespaces=true`)
+
+2. **Unknown resources (CRDs)**: No early validation
+   - The K8s API discovery determines the actual scope at runtime
+   - This allows CRDs like CAPI `Cluster`, `Machine`, Flux `HelmRelease`, etc. to work correctly
+   - If a namespace is needed but not provided, the K8s API returns an appropriate error
+
+### Examples of CRDs
+
+| CRD | Scope | Example |
+|-----|-------|---------|
+| CAPI `Cluster` | Cluster-scoped | `clusters.cluster.x-k8s.io` |
+| CAPI `Machine` | Namespaced | `machines.cluster.x-k8s.io` |
+| Flux `HelmRelease` | Namespaced | `helmreleases.helm.toolkit.fluxcd.io` |
+| ArgoCD `Application` | Namespaced | `applications.argoproj.io` |
+| Prometheus | Namespaced | `prometheuses.monitoring.coreos.com` |
 
 ## Implementation Details
 
-The cluster-scoped resource detection is implemented in `internal/k8s/constants.go` as a single source of truth. This ensures consistent behavior across all tools that need to distinguish between namespaced and cluster-scoped resources.
+The resource scope detection is implemented in `internal/k8s/constants.go` with three functions:
+
+- `IsClusterScoped(resourceType)`: Returns true for known cluster-scoped resources
+- `IsKnownNamespaced(resourceType)`: Returns true for known namespaced resources  
+- `IsKnownResource(resourceType)`: Returns true if resource is in either known list
+
+For unknown resources, the actual scope is determined via the Kubernetes API discovery mechanism at runtime.
 

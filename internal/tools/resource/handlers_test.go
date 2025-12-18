@@ -647,3 +647,53 @@ func TestListNamespacedResourcesWithAllNamespaces(t *testing.T) {
 			"allNamespaces=true should bypass namespace requirement")
 	}
 }
+
+// TestListUnknownResourcesWithoutNamespace verifies that unknown resources (CRDs)
+// can be listed without providing a namespace. The K8s API will determine
+// whether the resource is namespaced or cluster-scoped via discovery.
+func TestListUnknownResourcesWithoutNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	// These are CRD resource types that are not in our known list.
+	// They should NOT trigger early validation errors about namespace.
+	tests := []struct {
+		resourceType string
+		description  string
+	}{
+		{"clusters", "CAPI Cluster resources (unknown scope)"},
+		{"machines", "CAPI Machine resources (unknown scope)"},
+		{"awsclusters", "CAPA AWSCluster resources (unknown scope)"},
+		{"azureclusters", "CAPZ AzureCluster resources (unknown scope)"},
+		{"helmreleases", "Flux HelmRelease resources (unknown scope)"},
+		{"kustomizations", "Flux Kustomization resources (unknown scope)"},
+		{"applications", "ArgoCD Application resources (unknown scope)"},
+		{"prometheuses", "Prometheus Operator resources (unknown scope)"},
+		{"customthing", "Any unknown custom resource (unknown scope)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			request := mcp.CallToolRequest{}
+			request.Params.Arguments = map[string]interface{}{
+				"resourceType": tt.resourceType,
+				// No namespace provided - should NOT cause early validation error
+			}
+
+			result, err := handleListResources(ctx, request, sc)
+			require.NoError(t, err)
+			// Should NOT get error about namespace being required for unknown resources
+			// The error (if any) should come from the K8s API, not early validation
+			if result.IsError {
+				errorText := getErrorText(t, result)
+				assert.NotContains(t, errorText, "namespace is required for namespaced resources",
+					"unknown resource %q should not trigger early namespace validation", tt.resourceType)
+			}
+		})
+	}
+}
