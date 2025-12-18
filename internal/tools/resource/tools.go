@@ -129,7 +129,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 	listResourceOpts = append(listResourceOpts, clusterContextParams...)
 	listResourceOpts = append(listResourceOpts,
 		mcp.WithString("namespace",
-			mcp.Description("Namespace to list resources from. Required for namespaced resources, omit for cluster-scoped resources (nodes, persistentvolumes, namespaces, clusterroles, etc.)"),
+			mcp.Description("Namespace to list resources from (default: 'default'). For cluster-scoped resources like nodes or namespaces, this is ignored."),
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
@@ -148,7 +148,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Client-side filter for advanced scenarios not supported by fieldSelector (e.g., filtering nodes by taints). Supports dot notation for nested fields and [*] for array matching. Examples: {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"} or {\"metadata.labels.app\": \"nginx\"}. See docs/client-side-filtering.md for full syntax and use cases. Performance note: Prefer labelSelector/fieldSelector when available as they filter server-side."),
 		),
 		mcp.WithBoolean("allNamespaces",
-			mcp.Description("List namespaced resources from all namespaces (default: false). Not needed for cluster-scoped resources."),
+			mcp.Description("List resources from all namespaces instead of just one (default: false)."),
 		),
 		mcp.WithBoolean("fullOutput",
 			mcp.Description("Return full resource manifests instead of summary (default: false, returns compact summary)"),

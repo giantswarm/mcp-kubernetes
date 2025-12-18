@@ -1,115 +1,82 @@
-# Cluster-Scoped Resources
+# Namespace Handling
 
-This document describes how `mcp-kubernetes` handles cluster-scoped vs namespaced resources.
+This document describes how `mcp-kubernetes` handles namespaces, following kubectl conventions.
 
-## Overview
+## kubectl-Compatible Behavior
 
-Kubernetes resources are either **namespaced** (exist within a namespace) or **cluster-scoped** (exist at the cluster level). When using the `kubernetes_list` tool, the `namespace` parameter behavior differs based on the resource type:
+The `mcp-kubernetes` server follows kubectl's namespace behavior:
 
-- **Known namespaced resources** (pods, deployments, services, etc.): Require a `namespace` parameter or `allNamespaces=true`
-- **Known cluster-scoped resources** (nodes, persistentvolumes, namespaces, etc.): Do not require a `namespace` parameter
-- **Unknown resources** (CRDs, custom resources): No early validation - the K8s API determines scope via discovery
+- **No namespace provided**: Uses the `default` namespace
+- **For cluster-scoped resources**: The Kubernetes API ignores the namespace parameter
+- **With `allNamespaces=true`**: Lists resources across all namespaces
 
-## Supported Cluster-Scoped Resources
-
-The following resource types are recognized as cluster-scoped. Both plural and singular forms are supported, along with common short aliases. Resource type matching is case-insensitive.
-
-| Category | Resources | Short Aliases |
-|----------|-----------|---------------|
-| **Core** | nodes, persistentvolumes, namespaces, componentstatuses | pv, ns, cs |
-| **RBAC** | clusterroles, clusterrolebindings | - |
-| **Storage** | storageclasses, volumeattachments, csidrivers, csinodes, csistoragecapacities | sc |
-| **Networking** | ingressclasses | - |
-| **Scheduling** | priorityclasses, runtimeclasses | pc |
-| **Policy** | podsecuritypolicies (deprecated) | psp |
-| **Admission** | mutatingwebhookconfigurations, validatingwebhookconfigurations | - |
-| **API Extensions** | customresourcedefinitions, apiservices | crd, crds |
-| **Certificates** | certificatesigningrequests | csr |
+This approach:
+- Requires no static resource lists that could become outdated
+- Works with any CRD without prior configuration
+- Matches user expectations from kubectl
 
 ## Usage Examples
 
-### Listing Cluster-Scoped Resources
+### Listing Resources Without Namespace
 
 ```json
-// List all nodes (no namespace needed)
-{
-  "resourceType": "nodes"
-}
+// Lists pods in "default" namespace
+{"resourceType": "pods"}
 
-// List all persistent volumes using short alias
-{
-  "resourceType": "pv"
-}
+// Lists nodes (cluster-scoped - namespace is ignored)
+{"resourceType": "nodes"}
 
-// List all namespaces
-{
-  "resourceType": "ns"
-}
-
-// List all CRDs
-{
-  "resourceType": "crd"
-}
+// Lists CAPI Clusters (CRD - K8s API determines scope)
+{"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}
 ```
 
-### Listing Namespaced Resources
+### Listing Resources With Explicit Namespace
 
 ```json
-// List pods in a specific namespace (namespace required)
-{
-  "resourceType": "pods",
-  "namespace": "default"
-}
+// Lists pods in kube-system namespace
+{"resourceType": "pods", "namespace": "kube-system"}
 
-// List pods across all namespaces
-{
-  "resourceType": "pods",
-  "allNamespaces": true
-}
+// Lists deployments in production namespace
+{"resourceType": "deployments", "namespace": "production"}
 ```
 
-## Error Messages
+### Listing Resources Across All Namespaces
 
-If you attempt to list a namespaced resource without providing a namespace:
+```json
+// Lists pods across all namespaces
+{"resourceType": "pods", "allNamespaces": true}
 
+// Lists all deployments in the cluster
+{"resourceType": "deployments", "allNamespaces": true}
 ```
-namespace is required for namespaced resources. Omit namespace for cluster-scoped resources (nodes, persistentvolumes, namespaces, clusterroles, etc.) or use allNamespaces=true
-```
 
-## Custom Resources (CRDs)
+## How It Works
 
-Custom Resource Definitions (CRDs) themselves are cluster-scoped. However, the **instances** of custom resources may be either namespaced or cluster-scoped depending on how the CRD is defined.
+1. **Namespace resolution**: If no namespace is provided and `allNamespaces` is false, the handler uses `default`
+2. **API discovery**: The Kubernetes API discovery determines whether a resource is namespaced or cluster-scoped
+3. **Cluster-scoped handling**: For cluster-scoped resources (nodes, namespaces, PVs, etc.), the K8s API ignores any namespace parameter
 
-### Hybrid Validation Approach
+## CRDs and Custom Resources
 
-The `mcp-kubernetes` server uses a **hybrid approach** for namespace validation:
+Custom Resource Definitions (CRDs) can define either namespaced or cluster-scoped resources. Since `mcp-kubernetes` uses the Kubernetes API discovery, all CRDs work correctly without any static configuration:
 
-1. **Known built-in resources**: Early validation provides helpful error messages
-   - Known cluster-scoped (nodes, pv, etc.): Namespace not required
-   - Known namespaced (pods, deployments, etc.): Namespace required (unless `allNamespaces=true`)
-
-2. **Unknown resources (CRDs)**: No early validation
-   - The K8s API discovery determines the actual scope at runtime
-   - This allows CRDs like CAPI `Cluster`, `Machine`, Flux `HelmRelease`, etc. to work correctly
-   - If a namespace is needed but not provided, the K8s API returns an appropriate error
-
-### Examples of CRDs
-
-| CRD | Scope | Example |
-|-----|-------|---------|
-| CAPI `Cluster` | Cluster-scoped | `clusters.cluster.x-k8s.io` |
-| CAPI `Machine` | Namespaced | `machines.cluster.x-k8s.io` |
-| Flux `HelmRelease` | Namespaced | `helmreleases.helm.toolkit.fluxcd.io` |
-| ArgoCD `Application` | Namespaced | `applications.argoproj.io` |
-| Prometheus | Namespaced | `prometheuses.monitoring.coreos.com` |
+| CRD | Scope | How It Works |
+|-----|-------|--------------|
+| CAPI `Cluster` | Cluster-scoped | API ignores namespace |
+| CAPI `Machine` | Namespaced | Uses provided or default namespace |
+| Flux `HelmRelease` | Namespaced | Uses provided or default namespace |
+| ArgoCD `Application` | Namespaced | Uses provided or default namespace |
 
 ## Implementation Details
 
-The resource scope detection is implemented in `internal/k8s/constants.go` with three functions:
+The namespace handling is implemented simply:
 
-- `IsClusterScoped(resourceType)`: Returns true for known cluster-scoped resources
-- `IsKnownNamespaced(resourceType)`: Returns true for known namespaced resources  
-- `IsKnownResource(resourceType)`: Returns true if resource is in either known list
+```go
+// Follow kubectl behavior: if no namespace specified, use "default".
+// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+if !allNamespaces && namespace == "" {
+    namespace = k8s.DefaultNamespace  // "default"
+}
+```
 
-For unknown resources, the actual scope is determined via the Kubernetes API discovery mechanism at runtime.
-
+This eliminates the need for maintaining static lists of cluster-scoped or namespaced resources, which would be error-prone and require updates as Kubernetes evolves.

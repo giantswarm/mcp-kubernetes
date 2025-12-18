@@ -934,10 +934,21 @@ func resolveResourceTypeShared(resourceType, apiGroup string, builtinResources m
 	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", resourceType)
 }
 
-// isResourceNamespacedShared determines if a resource is namespaced.
-// It uses the centralized IsClusterScoped function from constants.go.
+// builtinClusterScopedResources contains cluster-scoped resources from the builtin resources map.
+// This is a minimal list used only for the fast-path optimization when resolving builtin resources.
+// For non-builtin resources (CRDs), the scope is determined via API discovery.
+var builtinClusterScopedResources = map[string]bool{
+	"nodes":               true,
+	"namespaces":          true,
+	"persistentvolumes":   true,
+	"clusterroles":        true,
+	"clusterrolebindings": true,
+}
+
+// isResourceNamespacedShared determines if a builtin resource is namespaced.
+// Returns true (namespaced) for most resources, false only for known cluster-scoped resources.
 func isResourceNamespacedShared(gvr schema.GroupVersionResource) bool {
-	return !IsClusterScoped(gvr.Resource)
+	return !builtinClusterScopedResources[gvr.Resource]
 }
 
 // resolveGVRFromObjectShared resolves GroupVersionResource from an unstructured object.

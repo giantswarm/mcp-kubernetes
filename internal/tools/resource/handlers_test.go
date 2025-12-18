@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
@@ -459,84 +458,10 @@ func TestErrorMessagesIncludeDryRunHint(t *testing.T) {
 		"error message should include hint about dry-run option")
 }
 
-// TestIsClusterScoped verifies that k8s.IsClusterScoped correctly identifies
-// cluster-scoped resources.
-func TestIsClusterScoped(t *testing.T) {
-	tests := []struct {
-		resourceType string
-		isCluster    bool
-		description  string
-	}{
-		// Cluster-scoped resources
-		{"nodes", true, "nodes is cluster-scoped"},
-		{"node", true, "node (singular) is cluster-scoped"},
-		{"Nodes", true, "Nodes (capitalized) is cluster-scoped"},
-		{"NODE", true, "NODE (uppercase) is cluster-scoped"},
-		{"persistentvolumes", true, "persistentvolumes is cluster-scoped"},
-		{"persistentvolume", true, "persistentvolume (singular) is cluster-scoped"},
-		{"pv", true, "pv (short) is cluster-scoped"},
-		{"namespaces", true, "namespaces is cluster-scoped"},
-		{"namespace", true, "namespace (singular) is cluster-scoped"},
-		{"ns", true, "ns (short) is cluster-scoped"},
-		{"clusterroles", true, "clusterroles is cluster-scoped"},
-		{"clusterrole", true, "clusterrole (singular) is cluster-scoped"},
-		{"clusterrolebindings", true, "clusterrolebindings is cluster-scoped"},
-		{"clusterrolebinding", true, "clusterrolebinding (singular) is cluster-scoped"},
-		{"storageclasses", true, "storageclasses is cluster-scoped"},
-		{"storageclass", true, "storageclass (singular) is cluster-scoped"},
-		{"sc", true, "sc (short) is cluster-scoped"},
-		{"ingressclasses", true, "ingressclasses is cluster-scoped"},
-		{"priorityclasses", true, "priorityclasses is cluster-scoped"},
-		{"pc", true, "pc (short) is cluster-scoped"},
-		{"runtimeclasses", true, "runtimeclasses is cluster-scoped"},
-		{"customresourcedefinitions", true, "customresourcedefinitions is cluster-scoped"},
-		{"crd", true, "crd (short) is cluster-scoped"},
-		{"crds", true, "crds (short plural) is cluster-scoped"},
-		{"apiservices", true, "apiservices is cluster-scoped"},
-		{"certificatesigningrequests", true, "certificatesigningrequests is cluster-scoped"},
-		{"csr", true, "csr (short) is cluster-scoped"},
-		{"mutatingwebhookconfigurations", true, "mutatingwebhookconfigurations is cluster-scoped"},
-		{"validatingwebhookconfigurations", true, "validatingwebhookconfigurations is cluster-scoped"},
-		{"csidrivers", true, "csidrivers is cluster-scoped"},
-		{"csinodes", true, "csinodes is cluster-scoped"},
-		{"volumeattachments", true, "volumeattachments is cluster-scoped"},
-		{"csistoragecapacities", true, "csistoragecapacities is cluster-scoped"},
-
-		// Namespaced resources
-		{"pods", false, "pods is namespaced"},
-		{"pod", false, "pod is namespaced"},
-		{"services", false, "services is namespaced"},
-		{"service", false, "service is namespaced"},
-		{"svc", false, "svc is namespaced"},
-		{"deployments", false, "deployments is namespaced"},
-		{"deployment", false, "deployment is namespaced"},
-		{"configmaps", false, "configmaps is namespaced"},
-		{"configmap", false, "configmap is namespaced"},
-		{"cm", false, "cm is namespaced"},
-		{"secrets", false, "secrets is namespaced"},
-		{"secret", false, "secret is namespaced"},
-		{"roles", false, "roles is namespaced"},
-		{"rolebindings", false, "rolebindings is namespaced"},
-		{"ingresses", false, "ingresses is namespaced"},
-		{"persistentvolumeclaims", false, "persistentvolumeclaims is namespaced"},
-		{"pvc", false, "pvc is namespaced"},
-		{"daemonsets", false, "daemonsets is namespaced"},
-		{"statefulsets", false, "statefulsets is namespaced"},
-		{"jobs", false, "jobs is namespaced"},
-		{"cronjobs", false, "cronjobs is namespaced"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			result := k8s.IsClusterScoped(tt.resourceType)
-			assert.Equal(t, tt.isCluster, result, "k8s.IsClusterScoped(%q) = %v, want %v", tt.resourceType, result, tt.isCluster)
-		})
-	}
-}
-
-// TestListClusterScopedResourcesWithoutNamespace verifies that cluster-scoped resources
-// can be listed without providing a namespace.
-func TestListClusterScopedResourcesWithoutNamespace(t *testing.T) {
+// TestDefaultNamespaceUsedWhenNotProvided verifies that when no namespace is provided,
+// the handler defaults to "default" namespace following kubectl behavior.
+// This works for all resources - the K8s API handles cluster-scoped resources correctly.
+func TestDefaultNamespaceUsedWhenNotProvided(t *testing.T) {
 	ctx := context.Background()
 
 	sc, err := server.NewServerContext(ctx,
@@ -545,19 +470,25 @@ func TestListClusterScopedResourcesWithoutNamespace(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// All these resources should work without explicit namespace
+	// - For cluster-scoped resources, the K8s API ignores the namespace
+	// - For namespaced resources, it uses "default" namespace
 	tests := []struct {
 		resourceType string
 		description  string
 	}{
-		{"nodes", "nodes can be listed without namespace"},
-		{"node", "node (singular) can be listed without namespace"},
-		{"persistentvolumes", "persistentvolumes can be listed without namespace"},
-		{"pv", "pv (short) can be listed without namespace"},
-		{"namespaces", "namespaces can be listed without namespace"},
-		{"ns", "ns (short) can be listed without namespace"},
-		{"clusterroles", "clusterroles can be listed without namespace"},
-		{"storageclasses", "storageclasses can be listed without namespace"},
-		{"sc", "sc (short for storageclass) can be listed without namespace"},
+		// Cluster-scoped resources
+		{"nodes", "nodes works without namespace"},
+		{"namespaces", "namespaces works without namespace"},
+		{"persistentvolumes", "persistentvolumes works without namespace"},
+		{"clusterroles", "clusterroles works without namespace"},
+		// Namespaced resources (will use "default" namespace)
+		{"pods", "pods uses default namespace"},
+		{"deployments", "deployments uses default namespace"},
+		{"services", "services uses default namespace"},
+		// CRDs/unknown resources
+		{"clusters", "CRDs work without namespace"},
+		{"helmreleases", "CRDs work without namespace"},
 	}
 
 	for _, tt := range tests {
@@ -565,64 +496,25 @@ func TestListClusterScopedResourcesWithoutNamespace(t *testing.T) {
 			request := mcp.CallToolRequest{}
 			request.Params.Arguments = map[string]interface{}{
 				"resourceType": tt.resourceType,
-				// No namespace provided
+				// No namespace provided - should default to "default"
 			}
 
 			result, err := handleListResources(ctx, request, sc)
 			require.NoError(t, err)
 			// Should NOT get error about namespace being required
+			// Any errors should be from K8s API (resource not found, etc.), not validation
 			if result.IsError {
 				errorText := getErrorText(t, result)
 				assert.NotContains(t, errorText, "namespace is required",
-					"cluster-scoped resource %q should not require namespace", tt.resourceType)
+					"resource %q should not require explicit namespace", tt.resourceType)
 			}
 		})
 	}
 }
 
-// TestListNamespacedResourcesRequireNamespace verifies that namespaced resources
-// require a namespace or allNamespaces=true.
-func TestListNamespacedResourcesRequireNamespace(t *testing.T) {
-	ctx := context.Background()
-
-	sc, err := server.NewServerContext(ctx,
-		server.WithK8sClient(&testdata.MockK8sClient{}),
-		server.WithLogger(&testdata.MockLogger{}),
-	)
-	require.NoError(t, err)
-
-	tests := []struct {
-		resourceType string
-		description  string
-	}{
-		{"pods", "pods require namespace"},
-		{"services", "services require namespace"},
-		{"deployments", "deployments require namespace"},
-		{"configmaps", "configmaps require namespace"},
-		{"secrets", "secrets require namespace"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			request := mcp.CallToolRequest{}
-			request.Params.Arguments = map[string]interface{}{
-				"resourceType": tt.resourceType,
-				// No namespace provided
-			}
-
-			result, err := handleListResources(ctx, request, sc)
-			require.NoError(t, err)
-			assert.True(t, result.IsError, "namespaced resource %q should require namespace", tt.resourceType)
-			errorText := getErrorText(t, result)
-			assert.Contains(t, errorText, "namespace is required for namespaced resources",
-				"error message should indicate namespace is required for namespaced resources")
-		})
-	}
-}
-
-// TestListNamespacedResourcesWithAllNamespaces verifies that namespaced resources
-// can be listed with allNamespaces=true without providing a specific namespace.
-func TestListNamespacedResourcesWithAllNamespaces(t *testing.T) {
+// TestAllNamespacesOverridesDefault verifies that allNamespaces=true
+// works correctly and doesn't use the default namespace.
+func TestAllNamespacesOverridesDefault(t *testing.T) {
 	ctx := context.Background()
 
 	sc, err := server.NewServerContext(ctx,
@@ -644,14 +536,13 @@ func TestListNamespacedResourcesWithAllNamespaces(t *testing.T) {
 	if result.IsError {
 		errorText := getErrorText(t, result)
 		assert.NotContains(t, errorText, "namespace is required",
-			"allNamespaces=true should bypass namespace requirement")
+			"allNamespaces=true should work without explicit namespace")
 	}
 }
 
-// TestListUnknownResourcesWithoutNamespace verifies that unknown resources (CRDs)
-// can be listed without providing a namespace. The K8s API will determine
-// whether the resource is namespaced or cluster-scoped via discovery.
-func TestListUnknownResourcesWithoutNamespace(t *testing.T) {
+// TestExplicitNamespaceUsed verifies that when a namespace is explicitly provided,
+// it is used instead of the default.
+func TestExplicitNamespaceUsed(t *testing.T) {
 	ctx := context.Background()
 
 	sc, err := server.NewServerContext(ctx,
@@ -660,40 +551,18 @@ func TestListUnknownResourcesWithoutNamespace(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// These are CRD resource types that are not in our known list.
-	// They should NOT trigger early validation errors about namespace.
-	tests := []struct {
-		resourceType string
-		description  string
-	}{
-		{"clusters", "CAPI Cluster resources (unknown scope)"},
-		{"machines", "CAPI Machine resources (unknown scope)"},
-		{"awsclusters", "CAPA AWSCluster resources (unknown scope)"},
-		{"azureclusters", "CAPZ AzureCluster resources (unknown scope)"},
-		{"helmreleases", "Flux HelmRelease resources (unknown scope)"},
-		{"kustomizations", "Flux Kustomization resources (unknown scope)"},
-		{"applications", "ArgoCD Application resources (unknown scope)"},
-		{"prometheuses", "Prometheus Operator resources (unknown scope)"},
-		{"customthing", "Any unknown custom resource (unknown scope)"},
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"namespace":    "kube-system",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			request := mcp.CallToolRequest{}
-			request.Params.Arguments = map[string]interface{}{
-				"resourceType": tt.resourceType,
-				// No namespace provided - should NOT cause early validation error
-			}
-
-			result, err := handleListResources(ctx, request, sc)
-			require.NoError(t, err)
-			// Should NOT get error about namespace being required for unknown resources
-			// The error (if any) should come from the K8s API, not early validation
-			if result.IsError {
-				errorText := getErrorText(t, result)
-				assert.NotContains(t, errorText, "namespace is required for namespaced resources",
-					"unknown resource %q should not trigger early namespace validation", tt.resourceType)
-			}
-		})
+	result, err := handleListResources(ctx, request, sc)
+	require.NoError(t, err)
+	// The mock client will return results - we're just verifying no validation error
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"explicit namespace should be accepted")
 	}
 }
