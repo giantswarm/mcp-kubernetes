@@ -457,3 +457,191 @@ func TestErrorMessagesIncludeDryRunHint(t *testing.T) {
 	assert.Contains(t, errorText, "--dry-run",
 		"error message should include hint about dry-run option")
 }
+
+// TestIsClusterScopedResource verifies that isClusterScopedResource correctly identifies
+// cluster-scoped resources.
+func TestIsClusterScopedResource(t *testing.T) {
+	tests := []struct {
+		resourceType string
+		isCluster    bool
+		description  string
+	}{
+		// Cluster-scoped resources
+		{"nodes", true, "nodes is cluster-scoped"},
+		{"node", true, "node (singular) is cluster-scoped"},
+		{"Nodes", true, "Nodes (capitalized) is cluster-scoped"},
+		{"NODE", true, "NODE (uppercase) is cluster-scoped"},
+		{"persistentvolumes", true, "persistentvolumes is cluster-scoped"},
+		{"persistentvolume", true, "persistentvolume (singular) is cluster-scoped"},
+		{"pv", true, "pv (short) is cluster-scoped"},
+		{"namespaces", true, "namespaces is cluster-scoped"},
+		{"namespace", true, "namespace (singular) is cluster-scoped"},
+		{"ns", true, "ns (short) is cluster-scoped"},
+		{"clusterroles", true, "clusterroles is cluster-scoped"},
+		{"clusterrole", true, "clusterrole (singular) is cluster-scoped"},
+		{"clusterrolebindings", true, "clusterrolebindings is cluster-scoped"},
+		{"clusterrolebinding", true, "clusterrolebinding (singular) is cluster-scoped"},
+		{"storageclasses", true, "storageclasses is cluster-scoped"},
+		{"storageclass", true, "storageclass (singular) is cluster-scoped"},
+		{"sc", true, "sc (short) is cluster-scoped"},
+		{"ingressclasses", true, "ingressclasses is cluster-scoped"},
+		{"priorityclasses", true, "priorityclasses is cluster-scoped"},
+		{"pc", true, "pc (short) is cluster-scoped"},
+		{"runtimeclasses", true, "runtimeclasses is cluster-scoped"},
+		{"customresourcedefinitions", true, "customresourcedefinitions is cluster-scoped"},
+		{"crd", true, "crd (short) is cluster-scoped"},
+		{"crds", true, "crds (short plural) is cluster-scoped"},
+		{"apiservices", true, "apiservices is cluster-scoped"},
+		{"certificatesigningrequests", true, "certificatesigningrequests is cluster-scoped"},
+		{"csr", true, "csr (short) is cluster-scoped"},
+		{"mutatingwebhookconfigurations", true, "mutatingwebhookconfigurations is cluster-scoped"},
+		{"validatingwebhookconfigurations", true, "validatingwebhookconfigurations is cluster-scoped"},
+		{"csidrivers", true, "csidrivers is cluster-scoped"},
+		{"csinodes", true, "csinodes is cluster-scoped"},
+		{"volumeattachments", true, "volumeattachments is cluster-scoped"},
+
+		// Namespaced resources
+		{"pods", false, "pods is namespaced"},
+		{"pod", false, "pod is namespaced"},
+		{"services", false, "services is namespaced"},
+		{"service", false, "service is namespaced"},
+		{"svc", false, "svc is namespaced"},
+		{"deployments", false, "deployments is namespaced"},
+		{"deployment", false, "deployment is namespaced"},
+		{"configmaps", false, "configmaps is namespaced"},
+		{"configmap", false, "configmap is namespaced"},
+		{"cm", false, "cm is namespaced"},
+		{"secrets", false, "secrets is namespaced"},
+		{"secret", false, "secret is namespaced"},
+		{"roles", false, "roles is namespaced"},
+		{"rolebindings", false, "rolebindings is namespaced"},
+		{"ingresses", false, "ingresses is namespaced"},
+		{"persistentvolumeclaims", false, "persistentvolumeclaims is namespaced"},
+		{"pvc", false, "pvc is namespaced"},
+		{"daemonsets", false, "daemonsets is namespaced"},
+		{"statefulsets", false, "statefulsets is namespaced"},
+		{"jobs", false, "jobs is namespaced"},
+		{"cronjobs", false, "cronjobs is namespaced"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			result := isClusterScopedResource(tt.resourceType)
+			assert.Equal(t, tt.isCluster, result, "isClusterScopedResource(%q) = %v, want %v", tt.resourceType, result, tt.isCluster)
+		})
+	}
+}
+
+// TestListClusterScopedResourcesWithoutNamespace verifies that cluster-scoped resources
+// can be listed without providing a namespace.
+func TestListClusterScopedResourcesWithoutNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		resourceType string
+		description  string
+	}{
+		{"nodes", "nodes can be listed without namespace"},
+		{"node", "node (singular) can be listed without namespace"},
+		{"persistentvolumes", "persistentvolumes can be listed without namespace"},
+		{"pv", "pv (short) can be listed without namespace"},
+		{"namespaces", "namespaces can be listed without namespace"},
+		{"ns", "ns (short) can be listed without namespace"},
+		{"clusterroles", "clusterroles can be listed without namespace"},
+		{"storageclasses", "storageclasses can be listed without namespace"},
+		{"sc", "sc (short for storageclass) can be listed without namespace"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			request := mcp.CallToolRequest{}
+			request.Params.Arguments = map[string]interface{}{
+				"resourceType": tt.resourceType,
+				// No namespace provided
+			}
+
+			result, err := handleListResources(ctx, request, sc)
+			require.NoError(t, err)
+			// Should NOT get error about namespace being required
+			if result.IsError {
+				errorText := getErrorText(t, result)
+				assert.NotContains(t, errorText, "namespace is required",
+					"cluster-scoped resource %q should not require namespace", tt.resourceType)
+			}
+		})
+	}
+}
+
+// TestListNamespacedResourcesRequireNamespace verifies that namespaced resources
+// require a namespace or allNamespaces=true.
+func TestListNamespacedResourcesRequireNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		resourceType string
+		description  string
+	}{
+		{"pods", "pods require namespace"},
+		{"services", "services require namespace"},
+		{"deployments", "deployments require namespace"},
+		{"configmaps", "configmaps require namespace"},
+		{"secrets", "secrets require namespace"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			request := mcp.CallToolRequest{}
+			request.Params.Arguments = map[string]interface{}{
+				"resourceType": tt.resourceType,
+				// No namespace provided
+			}
+
+			result, err := handleListResources(ctx, request, sc)
+			require.NoError(t, err)
+			assert.True(t, result.IsError, "namespaced resource %q should require namespace", tt.resourceType)
+			errorText := getErrorText(t, result)
+			assert.Contains(t, errorText, "namespace is required for namespaced resources",
+				"error message should indicate namespace is required for namespaced resources")
+		})
+	}
+}
+
+// TestListNamespacedResourcesWithAllNamespaces verifies that namespaced resources
+// can be listed with allNamespaces=true without providing a specific namespace.
+func TestListNamespacedResourcesWithAllNamespaces(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType":  "pods",
+		"allNamespaces": true,
+		// No namespace provided
+	}
+
+	result, err := handleListResources(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"allNamespaces=true should bypass namespace requirement")
+	}
+}

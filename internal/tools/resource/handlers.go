@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,6 +19,74 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 )
+
+// clusterScopedResources contains resource types that are cluster-scoped (not namespaced).
+// This map is used to determine if namespace validation should be skipped.
+var clusterScopedResources = map[string]bool{
+	// Core resources
+	"nodes":             true,
+	"node":              true,
+	"persistentvolumes": true,
+	"persistentvolume":  true,
+	"pv":                true,
+	"namespaces":        true,
+	"namespace":         true,
+	"ns":                true,
+	"componentstatuses": true,
+	"componentstatus":   true,
+	"cs":                true,
+	// RBAC resources
+	"clusterroles":        true,
+	"clusterrole":         true,
+	"clusterrolebindings": true,
+	"clusterrolebinding":  true,
+	// Storage resources
+	"storageclasses": true,
+	"storageclass":   true,
+	"sc":             true,
+	// Networking resources
+	"ingressclasses": true,
+	"ingressclass":   true,
+	// Scheduling resources
+	"priorityclasses": true,
+	"priorityclass":   true,
+	"pc":              true,
+	// Node resources
+	"runtimeclasses": true,
+	"runtimeclass":   true,
+	// Policy resources (deprecated but still valid)
+	"podsecuritypolicies": true,
+	"podsecuritypolicy":   true,
+	"psp":                 true,
+	// Storage resources
+	"volumeattachments": true,
+	"volumeattachment":  true,
+	"csidrivers":        true,
+	"csidriver":         true,
+	"csinodes":          true,
+	"csinode":           true,
+	// Admission resources
+	"mutatingwebhookconfigurations":   true,
+	"mutatingwebhookconfiguration":    true,
+	"validatingwebhookconfigurations": true,
+	"validatingwebhookconfiguration":  true,
+	// API extension resources
+	"customresourcedefinitions": true,
+	"customresourcedefinition":  true,
+	"crd":                       true,
+	"crds":                      true,
+	"apiservices":               true,
+	"apiservice":                true,
+	// Certificate resources
+	"certificatesigningrequests": true,
+	"certificatesigningrequest":  true,
+	"csr":                        true,
+}
+
+// isClusterScopedResource checks if the given resource type is cluster-scoped.
+func isClusterScopedResource(resourceType string) bool {
+	return clusterScopedResources[strings.ToLower(resourceType)]
+}
 
 // recordK8sOperation records metrics for a Kubernetes operation.
 // Delegates to ServerContext which handles nil checks internally.
@@ -124,9 +193,11 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	namespace, _ := args["namespace"].(string)
 	allNamespaces, _ := args["allNamespaces"].(bool)
 
-	// Namespace is not required when listing namespaces or all resources across namespaces
-	if resourceType != "namespace" && !allNamespaces && namespace == "" {
-		return mcp.NewToolResultError("namespace is required unless listing namespaces or using --all-namespaces"), nil
+	// Namespace is not required for:
+	// 1. Cluster-scoped resources (nodes, persistentvolumes, namespaces, etc.)
+	// 2. When allNamespaces is true
+	if !isClusterScopedResource(resourceType) && !allNamespaces && namespace == "" {
+		return mcp.NewToolResultError("namespace is required for namespaced resources. Omit namespace for cluster-scoped resources (nodes, persistentvolumes, namespaces, clusterroles, etc.) or use allNamespaces=true"), nil
 	}
 
 	labelSelector, _ := args["labelSelector"].(string)
@@ -175,7 +246,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	// Track namespace for metrics (use "all" for cluster-wide operations)
 	metricsNamespace := namespace
-	if allNamespaces || resourceType == "namespace" {
+	if allNamespaces || isClusterScopedResource(resourceType) {
 		namespace = ""
 		metricsNamespace = "all"
 	}
