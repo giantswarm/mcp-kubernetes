@@ -747,6 +747,10 @@ func runServe(config ServeConfig) error {
 				fmt.Println("WARNING: Debug logging is enabled - this may log sensitive information")
 				fmt.Println("         Recommended: Disable debug mode in production")
 			}
+			if config.OAuth.AllowPrivateURLs {
+				fmt.Println("WARNING: Private URL validation disabled - OAuth URLs may resolve to internal IP addresses")
+				fmt.Println("         This reduces SSRF protection. Only use for internal/air-gapped deployments.")
+			}
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
 				ServiceVersion:                     rootCmd.Version,
