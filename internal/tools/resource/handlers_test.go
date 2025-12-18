@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
@@ -458,9 +459,9 @@ func TestErrorMessagesIncludeDryRunHint(t *testing.T) {
 		"error message should include hint about dry-run option")
 }
 
-// TestIsClusterScopedResource verifies that isClusterScopedResource correctly identifies
+// TestIsClusterScoped verifies that k8s.IsClusterScoped correctly identifies
 // cluster-scoped resources.
-func TestIsClusterScopedResource(t *testing.T) {
+func TestIsClusterScoped(t *testing.T) {
 	tests := []struct {
 		resourceType string
 		isCluster    bool
@@ -499,6 +500,7 @@ func TestIsClusterScopedResource(t *testing.T) {
 		{"csidrivers", true, "csidrivers is cluster-scoped"},
 		{"csinodes", true, "csinodes is cluster-scoped"},
 		{"volumeattachments", true, "volumeattachments is cluster-scoped"},
+		{"csistoragecapacities", true, "csistoragecapacities is cluster-scoped"},
 
 		// Namespaced resources
 		{"pods", false, "pods is namespaced"},
@@ -526,8 +528,8 @@ func TestIsClusterScopedResource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			result := isClusterScopedResource(tt.resourceType)
-			assert.Equal(t, tt.isCluster, result, "isClusterScopedResource(%q) = %v, want %v", tt.resourceType, result, tt.isCluster)
+			result := k8s.IsClusterScoped(tt.resourceType)
+			assert.Equal(t, tt.isCluster, result, "k8s.IsClusterScoped(%q) = %v, want %v", tt.resourceType, result, tt.isCluster)
 		})
 	}
 }

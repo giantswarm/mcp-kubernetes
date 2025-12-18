@@ -935,29 +935,9 @@ func resolveResourceTypeShared(resourceType, apiGroup string, builtinResources m
 }
 
 // isResourceNamespacedShared determines if a resource is namespaced.
+// It uses the centralized IsClusterScoped function from constants.go.
 func isResourceNamespacedShared(gvr schema.GroupVersionResource) bool {
-	clusterScopedResources := map[string]bool{
-		"nodes":                           true,
-		"persistentvolumes":               true,
-		"clusterroles":                    true,
-		"clusterrolebindings":             true,
-		"namespaces":                      true,
-		"storageclasses":                  true,
-		"ingressclasses":                  true,
-		"priorityclasses":                 true,
-		"runtimeclasses":                  true,
-		"podsecuritypolicies":             true,
-		"volumeattachments":               true,
-		"csidrivers":                      true,
-		"csinodes":                        true,
-		"csistoragecapacities":            true,
-		"mutatingwebhookconfigurations":   true,
-		"validatingwebhookconfigurations": true,
-		"customresourcedefinitions":       true,
-		"apiservices":                     true,
-	}
-
-	return !clusterScopedResources[gvr.Resource]
+	return !IsClusterScoped(gvr.Resource)
 }
 
 // resolveGVRFromObjectShared resolves GroupVersionResource from an unstructured object.
