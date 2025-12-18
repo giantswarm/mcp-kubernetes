@@ -222,7 +222,6 @@ mcpKubernetes:
     # where the MCP server is only accessible from an internal network or VPN.
     # WARNING: Reduces SSRF protection - only enable for internal deployments
     # not exposed to the public internet.
-    # Default: false (blocked for security)
     allowPrivateURLs: false
     # Maximum number of OAuth clients that can be registered per IP address
     # Prevents DoS attacks via mass client registration
