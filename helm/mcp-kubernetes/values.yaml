@@ -217,6 +217,13 @@ mcpKubernetes:
     # Allow authorization requests without state parameter
     # WARNING: Weakens CSRF protection, only enable for compatibility with older clients
     allowInsecureAuthWithoutState: false
+    # Allow OAuth base URL and Dex issuer URL to resolve to private/internal IP addresses
+    # Enable this for home lab, air-gapped, or internal enterprise deployments
+    # where the MCP server is only accessible from an internal network or VPN.
+    # WARNING: Reduces SSRF protection - only enable for internal deployments
+    # not exposed to the public internet.
+    # Default: false (blocked for security)
+    allowPrivateURLs: false
     # Maximum number of OAuth clients that can be registered per IP address
     # Prevents DoS attacks via mass client registration
     maxClientsPerIP: 10
