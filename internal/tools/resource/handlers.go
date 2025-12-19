@@ -41,9 +41,11 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
-	namespace, ok := args["namespace"].(string)
-	if !ok || namespace == "" {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace, _ := args["namespace"].(string)
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, ok := args["resourceType"].(string)
@@ -124,9 +126,11 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	namespace, _ := args["namespace"].(string)
 	allNamespaces, _ := args["allNamespaces"].(bool)
 
-	// Namespace is not required when listing namespaces or all resources across namespaces
-	if resourceType != "namespace" && !allNamespaces && namespace == "" {
-		return mcp.NewToolResultError("namespace is required unless listing namespaces or using --all-namespaces"), nil
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API simply ignores the namespace.
+	// This approach requires no static resource lists and works with any CRD.
+	if !allNamespaces && namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	labelSelector, _ := args["labelSelector"].(string)
@@ -175,7 +179,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	// Track namespace for metrics (use "all" for cluster-wide operations)
 	metricsNamespace := namespace
-	if allNamespaces || resourceType == "namespace" {
+	if allNamespaces {
 		namespace = ""
 		metricsNamespace = "all"
 	}
@@ -291,9 +295,11 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
-	namespace, ok := args["namespace"].(string)
-	if !ok || namespace == "" {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace, _ := args["namespace"].(string)
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, ok := args["resourceType"].(string)
@@ -476,9 +482,11 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
-	namespace, err := request.RequireString("namespace")
-	if err != nil {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace := request.GetString("namespace", "")
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, err := request.RequireString("resourceType")
@@ -523,9 +531,11 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
-	namespace, err := request.RequireString("namespace")
-	if err != nil {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace := request.GetString("namespace", "")
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, err := request.RequireString("resourceType")

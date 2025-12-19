@@ -8,7 +8,6 @@ import (
 	"log/slog"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -47,9 +46,6 @@ type FederatedClient struct {
 
 	// discoveryClient is derived from clientset for resource type resolution
 	discoveryClient discovery.DiscoveryInterface
-
-	// builtinResources is a cache of well-known resource GVRs for fast lookup
-	builtinResources map[string]schema.GroupVersionResource
 }
 
 // FederatedClientConfig holds the configuration for creating a FederatedClient.
@@ -84,12 +80,11 @@ func NewFederatedClient(config *FederatedClientConfig) (*FederatedClient, error)
 	}
 
 	return &FederatedClient{
-		clusterName:      config.ClusterName,
-		clientset:        config.Clientset,
-		dynamicClient:    config.DynamicClient,
-		restConfig:       config.RestConfig,
-		discoveryClient:  config.Clientset.Discovery(),
-		builtinResources: initBuiltinResources(),
+		clusterName:     config.ClusterName,
+		clientset:       config.Clientset,
+		dynamicClient:   config.DynamicClient,
+		restConfig:      config.RestConfig,
+		discoveryClient: config.Clientset.Discovery(),
 	}, nil
 }
 
@@ -134,21 +129,21 @@ func (c *FederatedClient) SwitchContext(_ context.Context, _ string) error {
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
 func (c *FederatedClient) Get(ctx context.Context, _, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
 	c.logOperation("get", namespace, resourceType, name)
-	return getResource(ctx, c.dynamicClient, c.discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name)
+	return getResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name)
 }
 
 // List retrieves resources with pagination support.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
 func (c *FederatedClient) List(ctx context.Context, _, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
 	c.logOperation("list", namespace, resourceType, "")
-	return listResources(ctx, c.dynamicClient, c.discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
+	return listResources(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, opts)
 }
 
 // Describe provides detailed information about a resource.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
 func (c *FederatedClient) Describe(ctx context.Context, _, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error) {
 	c.logOperation("describe", namespace, resourceType, name)
-	return describeResource(ctx, c.dynamicClient, c.discoveryClient, c.clientset, c.builtinResources, namespace, resourceType, apiGroup, name)
+	return describeResource(ctx, c.dynamicClient, c.discoveryClient, c.clientset, namespace, resourceType, apiGroup, name)
 }
 
 // Create creates a new resource from the provided object.
@@ -169,21 +164,21 @@ func (c *FederatedClient) Apply(ctx context.Context, _, namespace string, obj ru
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
 func (c *FederatedClient) Delete(ctx context.Context, _, namespace, resourceType, apiGroup, name string) error {
 	c.logOperation("delete", namespace, resourceType, name)
-	return deleteResource(ctx, c.dynamicClient, c.discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, false)
+	return deleteResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name, false)
 }
 
 // Patch updates specific fields of a resource.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
 func (c *FederatedClient) Patch(ctx context.Context, _, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
 	c.logOperation("patch", namespace, resourceType, name)
-	return patchResource(ctx, c.dynamicClient, c.discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, patchType, data, false)
+	return patchResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name, patchType, data, false)
 }
 
 // Scale changes the number of replicas for scalable resources.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
 func (c *FederatedClient) Scale(ctx context.Context, _, namespace, resourceType, apiGroup, name string, replicas int32) error {
 	c.logOperation("scale", namespace, resourceType, name)
-	return scaleResource(ctx, c.dynamicClient, c.discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, replicas, false)
+	return scaleResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name, replicas, false)
 }
 
 // PodManager implementation

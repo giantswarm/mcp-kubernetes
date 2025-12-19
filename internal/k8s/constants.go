@@ -17,4 +17,8 @@ const (
 
 	// In-cluster context name
 	InClusterContext = "in-cluster"
+
+	// DefaultNamespace is used when no namespace is specified, following kubectl behavior.
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	DefaultNamespace = "default"
 )

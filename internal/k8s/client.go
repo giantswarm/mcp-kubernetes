@@ -128,6 +128,39 @@ type PaginatedListResponse struct {
 	RemainingItems  *int64           `json:"remainingItems,omitempty"`  // Estimated remaining items (if available)
 	ResourceVersion string           `json:"resourceVersion,omitempty"` // Resource version for consistency
 	TotalItems      int              `json:"totalItems"`                // Number of items in this response
+
+	// Metadata about the request and resource resolution
+	Meta *ListResponseMeta `json:"_meta,omitempty"` // Optional metadata for transparency
+}
+
+// ListResponseMeta provides metadata about the list operation for transparency.
+// This helps agents understand how parameters were interpreted.
+type ListResponseMeta struct {
+	ResourceScope      string `json:"resourceScope"`                // "cluster" or "namespaced"
+	RequestedNamespace string `json:"requestedNamespace,omitempty"` // Namespace provided in request
+	EffectiveNamespace string `json:"effectiveNamespace,omitempty"` // Namespace actually used (empty for cluster-scoped)
+	Hint               string `json:"hint,omitempty"`               // Helpful message for agents
+}
+
+// BuildListResponseMeta creates metadata for list operations to provide transparency
+// about how the request was handled.
+func BuildListResponseMeta(namespaced bool, requestedNS, effectiveNS, resourceType string, allNamespaces bool) *ListResponseMeta {
+	meta := &ListResponseMeta{
+		RequestedNamespace: requestedNS,
+		EffectiveNamespace: effectiveNS,
+	}
+	if namespaced {
+		meta.ResourceScope = "namespaced"
+		if allNamespaces {
+			meta.Hint = "Listing across all namespaces"
+		}
+	} else {
+		meta.ResourceScope = "cluster"
+		if requestedNS != "" {
+			meta.Hint = resourceType + " is cluster-scoped; namespace parameter was ignored"
+		}
+	}
+	return meta
 }
 
 // ResourceDescription contains detailed information about a resource.

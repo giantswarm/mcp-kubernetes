@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -36,8 +35,9 @@ type kubernetesClient struct {
 	kubeconfigData *clientcmdapi.Config
 	currentContext string
 
-	// Resource type mappings
-	builtinResources map[string]schema.GroupVersionResource
+	// Resource scope cache - caches whether resources are namespaced or cluster-scoped
+	// Key format: "context:group/resource" or "context:resource" for core resources
+	resourceScopeCache map[string]bool // true = namespaced, false = cluster-scoped
 
 	// Safety and performance settings
 	nonDestructiveMode   bool
@@ -110,6 +110,7 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 		dynamicClients:       make(map[string]dynamic.Interface),
 		discoveryClients:     make(map[string]discovery.DiscoveryInterface),
 		restConfigs:          make(map[string]*rest.Config),
+		resourceScopeCache:   make(map[string]bool),
 		nonDestructiveMode:   config.NonDestructiveMode,
 		dryRun:               config.DryRun,
 		allowedOperations:    config.AllowedOperations,
@@ -117,7 +118,6 @@ func NewClient(config *ClientConfig) (*kubernetesClient, error) {
 		qpsLimit:             config.QPSLimit,
 		burstLimit:           config.BurstLimit,
 		timeout:              config.Timeout,
-		builtinResources:     initBuiltinResources(),
 	}
 
 	// Handle authentication mode

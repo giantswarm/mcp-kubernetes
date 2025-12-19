@@ -33,9 +33,9 @@ import (
 
 // getResource retrieves a specific resource by name and namespace.
 func getResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
+	namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
@@ -65,11 +65,11 @@ func getResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gv
 
 // listResources retrieves resources with pagination support.
 func listResources(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
+	namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error) {
 
 	listStart := time.Now()
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		slog.Debug("resource type resolution failed",
 			slog.String("resourceType", resourceType),
@@ -83,15 +83,18 @@ func listResources(ctx context.Context, dynamicClient dynamic.Interface, discove
 		slog.Bool("namespaced", namespaced),
 		slog.Duration("elapsed", time.Since(listStart)))
 
-	return listResourcesWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, opts)
+	return listResourcesWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, opts)
 }
 
 // listResourcesWithGVR retrieves resources using a pre-resolved GVR.
 // This is an optimization path that avoids the discovery client when the GVR is already known.
 func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
-	namespaced bool, namespace string, opts ListOptions) (*PaginatedListResponse, error) {
+	namespaced bool, namespace, resourceType string, opts ListOptions) (*PaginatedListResponse, error) {
 
 	listStart := time.Now()
+
+	// Store requested namespace for metadata before any modifications
+	requestedNamespace := namespace
 
 	listOpts := metav1.ListOptions{
 		LabelSelector: opts.LabelSelector,
@@ -105,8 +108,11 @@ func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 		listOpts.Continue = opts.Continue
 	}
 
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
 	var resourceInterface dynamic.ResourceInterface
 	if namespaced && !opts.AllNamespaces && namespace != "" {
+		effectiveNamespace = namespace
 		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
 	} else {
 		resourceInterface = dynamicClient.Resource(gvr)
@@ -130,11 +136,15 @@ func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 		objects = append(objects, &list.Items[i])
 	}
 
+	// Build response metadata for transparency
+	meta := BuildListResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, opts.AllNamespaces)
+
 	response := &PaginatedListResponse{
 		Items:           objects,
 		Continue:        list.GetContinue(),
 		ResourceVersion: list.GetResourceVersion(),
 		TotalItems:      len(objects),
+		Meta:            meta,
 	}
 
 	if list.GetContinue() != "" {
@@ -147,9 +157,9 @@ func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 
 // describeResource provides detailed information about a resource.
 func describeResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	clientset kubernetes.Interface, builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error) {
+	clientset kubernetes.Interface, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error) {
 
-	resource, err := getResource(ctx, dynamicClient, discoveryClient, builtinResources, namespace, resourceType, apiGroup, name)
+	resource, err := getResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return nil, err
 	}
@@ -267,9 +277,9 @@ func applyResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 
 // deleteResource removes a resource by name and namespace.
 func deleteResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string, dryRun bool) error {
+	namespace, resourceType, apiGroup, name string, dryRun bool) error {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		return err
 	}
@@ -304,10 +314,10 @@ func deleteResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface,
 
 // patchResource updates specific fields of a resource.
 func patchResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string,
+	namespace, resourceType, apiGroup, name string,
 	patchType types.PatchType, data []byte, dryRun bool) (runtime.Object, error) {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
@@ -342,10 +352,10 @@ func patchResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 
 // scaleResource changes the number of replicas for scalable resources.
 func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	builtinResources map[string]schema.GroupVersionResource, namespace, resourceType, apiGroup, name string,
+	namespace, resourceType, apiGroup, name string,
 	replicas int32, dryRun bool) error {
 
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		return err
 	}
@@ -778,25 +788,6 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 
 // Shared helper functions
 
-// tryResolveBuiltinResource attempts to resolve a resource type using only the builtin resources map.
-// Returns the GVR and namespaced flag if found, otherwise returns false for the found flag.
-// This is an optimization to avoid discovery API calls for common resources.
-func tryResolveBuiltinResource(resourceType, apiGroup string, builtinResources map[string]schema.GroupVersionResource) (schema.GroupVersionResource, bool, bool) {
-	resourceType = strings.ToLower(resourceType)
-	requestedGroup, _ := parseAPIGroup(apiGroup)
-
-	if builtinResources != nil {
-		if gvr, exists := builtinResources[resourceType]; exists {
-			if requestedGroup == "" || groupsMatch(requestedGroup, gvr.Group) {
-				namespaced := isResourceNamespacedShared(gvr)
-				return gvr, namespaced, true
-			}
-		}
-	}
-
-	return schema.GroupVersionResource{}, false, false
-}
-
 // groupsMatch determines if a requested API group matches an actual group value.
 // It treats "core" and "" (empty string) as equivalent for core resources.
 func groupsMatch(requested, actual string) bool {
@@ -829,23 +820,16 @@ func parseAPIGroup(apiGroup string) (group, preferredVersion string) {
 }
 
 // resolveResourceTypeShared determines the GroupVersionResource for a given resource type.
-// It supports optional apiGroup hints in the form "group" or "group/version", similar to resolveResourceType.
-func resolveResourceTypeShared(resourceType, apiGroup string, builtinResources map[string]schema.GroupVersionResource,
+// It uses the Kubernetes API discovery to resolve resources and determine their scope.
+// Discovery results are cached by the discovery client.
+func resolveResourceTypeShared(resourceType, apiGroup string,
 	discoveryClient discovery.DiscoveryInterface) (schema.GroupVersionResource, bool, error) {
 
 	resourceType = strings.ToLower(resourceType)
 	requestedGroup, preferredVersion := parseAPIGroup(apiGroup)
 
-	// Check built-in resources first
-	if builtinResources != nil {
-		if gvr, exists := builtinResources[resourceType]; exists {
-			if requestedGroup == "" || groupsMatch(requestedGroup, gvr.Group) {
-				namespaced := isResourceNamespacedShared(gvr)
-				return gvr, namespaced, nil
-			}
-		}
-	}
-
+	// Always use discovery for resource resolution and scope determination.
+	// The discovery client caches results, so this is efficient.
 	// Set up timeout for discovery API call
 	ctx, cancel := context.WithTimeout(context.Background(), DiscoveryTimeoutSeconds*time.Second)
 	defer cancel()
@@ -934,32 +918,6 @@ func resolveResourceTypeShared(resourceType, apiGroup string, builtinResources m
 	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", resourceType)
 }
 
-// isResourceNamespacedShared determines if a resource is namespaced.
-func isResourceNamespacedShared(gvr schema.GroupVersionResource) bool {
-	clusterScopedResources := map[string]bool{
-		"nodes":                           true,
-		"persistentvolumes":               true,
-		"clusterroles":                    true,
-		"clusterrolebindings":             true,
-		"namespaces":                      true,
-		"storageclasses":                  true,
-		"ingressclasses":                  true,
-		"priorityclasses":                 true,
-		"runtimeclasses":                  true,
-		"podsecuritypolicies":             true,
-		"volumeattachments":               true,
-		"csidrivers":                      true,
-		"csinodes":                        true,
-		"csistoragecapacities":            true,
-		"mutatingwebhookconfigurations":   true,
-		"validatingwebhookconfigurations": true,
-		"customresourcedefinitions":       true,
-		"apiservices":                     true,
-	}
-
-	return !clusterScopedResources[gvr.Resource]
-}
-
 // resolveGVRFromObjectShared resolves GroupVersionResource from an unstructured object.
 func resolveGVRFromObjectShared(obj *unstructured.Unstructured, discoveryClient discovery.DiscoveryInterface) (schema.GroupVersionResource, bool, error) {
 	_, err := schema.ParseGroupVersion(obj.GetAPIVersion())
@@ -967,7 +925,7 @@ func resolveGVRFromObjectShared(obj *unstructured.Unstructured, discoveryClient 
 		return schema.GroupVersionResource{}, false, fmt.Errorf("failed to parse API version: %w", err)
 	}
 
-	return resolveResourceTypeShared(obj.GetKind(), "", nil, discoveryClient)
+	return resolveResourceTypeShared(obj.GetKind(), "", discoveryClient)
 }
 
 // getResourceEventsShared retrieves events related to a specific resource.
