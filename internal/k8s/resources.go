@@ -68,6 +68,9 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 		return nil, err
 	}
 
+	// Store requested namespace for metadata before any modifications
+	requestedNamespace := namespace
+
 	// Validate namespace access
 	if !opts.AllNamespaces && namespace != "" {
 		if err := c.isNamespaceRestricted(namespace); err != nil {
@@ -103,9 +106,11 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 		listOpts.Continue = opts.Continue
 	}
 
-	// Prepare resource interface
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
 	var resourceInterface dynamic.ResourceInterface
 	if namespaced && !opts.AllNamespaces && namespace != "" {
+		effectiveNamespace = namespace
 		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
 	} else {
 		resourceInterface = dynamicClient.Resource(gvr)
@@ -123,12 +128,16 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 		objects = append(objects, &item)
 	}
 
+	// Build response metadata for transparency
+	meta := BuildListResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, opts.AllNamespaces)
+
 	// Build paginated response
 	response := &PaginatedListResponse{
 		Items:           objects,
 		Continue:        list.GetContinue(),
 		ResourceVersion: list.GetResourceVersion(),
 		TotalItems:      len(objects),
+		Meta:            meta,
 	}
 
 	// Calculate remaining items if continue token is present
@@ -145,7 +154,8 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 			"namespace", namespace,
 			"count", len(objects),
 			"continue", list.GetContinue(),
-			"limit", opts.Limit)
+			"limit", opts.Limit,
+			"resourceScope", meta.ResourceScope)
 	}
 
 	return response, nil
@@ -518,8 +528,17 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 
 // Helper methods
 
+// buildScopeCacheKey creates a cache key for resource scope lookups.
+func buildScopeCacheKey(contextName, resourceType, apiGroup string) string {
+	resourceType = strings.ToLower(resourceType)
+	if apiGroup != "" {
+		return fmt.Sprintf("%s:%s/%s", contextName, apiGroup, resourceType)
+	}
+	return fmt.Sprintf("%s:%s", contextName, resourceType)
+}
+
 // resolveResourceType determines the GroupVersionResource for a given resource type.
-// This method wraps resolveResourceTypeShared with debug logging support.
+// This method wraps resolveResourceTypeShared with debug logging support and scope caching.
 func (c *kubernetesClient) resolveResourceType(resourceType, apiGroup, contextName string) (schema.GroupVersionResource, bool, error) {
 	if c.config.DebugMode && c.config.Logger != nil {
 		c.config.Logger.Debug("resolveResourceType: starting", "resourceType", resourceType, "apiGroup", apiGroup, "contextName", contextName)
@@ -535,7 +554,7 @@ func (c *kubernetesClient) resolveResourceType(resourceType, apiGroup, contextNa
 	}
 
 	// Use the shared implementation
-	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, c.builtinResources, discoveryClient)
+	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		if c.config.DebugMode && c.config.Logger != nil {
 			c.config.Logger.Error("resolveResourceType: resolution failed", "resourceType", resourceType, "error", err)
@@ -543,13 +562,20 @@ func (c *kubernetesClient) resolveResourceType(resourceType, apiGroup, contextNa
 		return gvr, namespaced, err
 	}
 
+	// Cache the resource scope for future lookups
+	cacheKey := buildScopeCacheKey(contextName, gvr.Resource, gvr.Group)
+	c.mu.Lock()
+	c.resourceScopeCache[cacheKey] = namespaced
+	c.mu.Unlock()
+
 	if c.config.DebugMode && c.config.Logger != nil {
 		c.config.Logger.Debug("resolveResourceType: resolved successfully",
 			"resourceType", resourceType,
 			"group", gvr.Group,
 			"version", gvr.Version,
 			"resource", gvr.Resource,
-			"namespaced", namespaced)
+			"namespaced", namespaced,
+			"cached", true)
 	}
 
 	return gvr, namespaced, nil

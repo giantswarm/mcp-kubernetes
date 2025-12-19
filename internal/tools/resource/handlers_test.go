@@ -566,3 +566,121 @@ func TestExplicitNamespaceUsed(t *testing.T) {
 			"explicit namespace should be accepted")
 	}
 }
+
+// TestGetResourceDefaultNamespace verifies that kubernetes_get uses default namespace
+// when no namespace is provided.
+func TestGetResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handleGetResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_get should not require explicit namespace")
+	}
+}
+
+// TestDescribeResourceDefaultNamespace verifies that kubernetes_describe uses default namespace
+// when no namespace is provided.
+func TestDescribeResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handleDescribeResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_describe should not require explicit namespace")
+	}
+}
+
+// TestDeleteResourceDefaultNamespace verifies that kubernetes_delete uses default namespace
+// when no namespace is provided.
+func TestDeleteResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	// Enable dry-run to allow delete operation
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithDryRun(true),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handleDeleteResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_delete should not require explicit namespace")
+	}
+}
+
+// TestPatchResourceDefaultNamespace verifies that kubernetes_patch uses default namespace
+// when no namespace is provided.
+func TestPatchResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	// Enable dry-run to allow patch operation
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithDryRun(true),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		"patchType":    "merge",
+		"patch":        map[string]interface{}{"metadata": map[string]interface{}{"labels": map[string]interface{}{"test": "value"}}},
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handlePatchResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_patch should not require explicit namespace")
+	}
+}

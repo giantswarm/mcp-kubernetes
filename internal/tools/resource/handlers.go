@@ -41,9 +41,11 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
-	namespace, ok := args["namespace"].(string)
-	if !ok || namespace == "" {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace, _ := args["namespace"].(string)
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, ok := args["resourceType"].(string)
@@ -293,9 +295,11 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
-	namespace, ok := args["namespace"].(string)
-	if !ok || namespace == "" {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace, _ := args["namespace"].(string)
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, ok := args["resourceType"].(string)
@@ -478,9 +482,11 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
-	namespace, err := request.RequireString("namespace")
-	if err != nil {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace := request.GetString("namespace", "")
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, err := request.RequireString("resourceType")
@@ -525,9 +531,11 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
-	namespace, err := request.RequireString("namespace")
-	if err != nil {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace := request.GetString("namespace", "")
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, err := request.RequireString("resourceType")

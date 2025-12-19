@@ -96,13 +96,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// kubernetes_get tool
 	getResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("Get a specific Kubernetes resource by name and namespace"),
+		mcp.WithDescription(`Get a specific Kubernetes resource by name.
+
+Namespace Handling:
+- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
+- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
+- The tool automatically determines resource scope via Kubernetes API discovery`),
 	}
 	getResourceOpts = append(getResourceOpts, clusterContextParams...)
 	getResourceOpts = append(getResourceOpts,
 		mcp.WithString("namespace",
-			mcp.Required(),
-			mcp.Description("Namespace where the resource is located"),
+			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
+For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
@@ -124,12 +129,30 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// kubernetes_list tool
 	listResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("List Kubernetes resources with optional filtering. Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios like filtering nodes by taints, which native Kubernetes selectors don't support."),
+		mcp.WithDescription(`List Kubernetes resources with optional filtering.
+
+Namespace Handling:
+- Namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
+- Cluster-scoped resources (nodes, namespaces, persistentvolumes, clusterroles): Namespace is automatically ignored
+- Use 'allNamespaces=true' to list namespaced resources across all namespaces
+- The tool automatically determines whether a resource is namespaced or cluster-scoped via Kubernetes API discovery
+
+Examples:
+- List nodes: {"resourceType": "nodes"}
+- List pods in default namespace: {"resourceType": "pods"}
+- List pods in kube-system: {"resourceType": "pods", "namespace": "kube-system"}
+- List all pods: {"resourceType": "pods", "allNamespaces": true}
+- List CAPI clusters: {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}
+
+Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios.`),
 	}
 	listResourceOpts = append(listResourceOpts, clusterContextParams...)
 	listResourceOpts = append(listResourceOpts,
 		mcp.WithString("namespace",
-			mcp.Description("Namespace to list resources from (default: 'default'). For cluster-scoped resources like nodes or namespaces, this is ignored."),
+			mcp.Description(`Namespace for namespaced resources (pods, services, deployments, etc.).
+- For namespaced resources: Uses 'default' if not specified.
+- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): This parameter is ignored.
+- The tool automatically determines resource scope via Kubernetes API discovery.`),
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
@@ -148,7 +171,10 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Client-side filter for advanced scenarios not supported by fieldSelector (e.g., filtering nodes by taints). Supports dot notation for nested fields and [*] for array matching. Examples: {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"} or {\"metadata.labels.app\": \"nginx\"}. See docs/client-side-filtering.md for full syntax and use cases. Performance note: Prefer labelSelector/fieldSelector when available as they filter server-side."),
 		),
 		mcp.WithBoolean("allNamespaces",
-			mcp.Description("List resources from all namespaces instead of just one (default: false)."),
+			mcp.Description(`List namespaced resources across ALL namespaces.
+- Applies only to namespaced resources (pods, services, etc.)
+- Ignored for cluster-scoped resources (nodes, PVs, etc.)
+- When true, overrides the 'namespace' parameter.`),
 		),
 		mcp.WithBoolean("fullOutput",
 			mcp.Description("Return full resource manifests instead of summary (default: false, returns compact summary)"),
@@ -182,13 +208,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// kubernetes_describe tool
 	describeResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("Get detailed information about a Kubernetes resource including events"),
+		mcp.WithDescription(`Get detailed information about a Kubernetes resource including events.
+
+Namespace Handling:
+- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
+- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
+- The tool automatically determines resource scope via Kubernetes API discovery`),
 	}
 	describeResourceOpts = append(describeResourceOpts, clusterContextParams...)
 	describeResourceOpts = append(describeResourceOpts,
 		mcp.WithString("namespace",
-			mcp.Required(),
-			mcp.Description("Namespace where the resource is located"),
+			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
+For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
@@ -252,13 +283,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// kubernetes_delete tool
 	deleteResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("Delete a Kubernetes resource"),
+		mcp.WithDescription(`Delete a Kubernetes resource.
+
+Namespace Handling:
+- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
+- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
+- The tool automatically determines resource scope via Kubernetes API discovery`),
 	}
 	deleteResourceOpts = append(deleteResourceOpts, clusterContextParams...)
 	deleteResourceOpts = append(deleteResourceOpts,
 		mcp.WithString("namespace",
-			mcp.Required(),
-			mcp.Description("Namespace where the resource is located"),
+			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
+For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
@@ -280,13 +316,18 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// kubernetes_patch tool
 	patchResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("Patch a Kubernetes resource with specific changes"),
+		mcp.WithDescription(`Patch a Kubernetes resource with specific changes.
+
+Namespace Handling:
+- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
+- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
+- The tool automatically determines resource scope via Kubernetes API discovery`),
 	}
 	patchResourceOpts = append(patchResourceOpts, clusterContextParams...)
 	patchResourceOpts = append(patchResourceOpts,
 		mcp.WithString("namespace",
-			mcp.Required(),
-			mcp.Description("Namespace where the resource is located"),
+			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
+For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
