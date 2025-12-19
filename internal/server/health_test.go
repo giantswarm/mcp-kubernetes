@@ -86,7 +86,7 @@ func TestHealthChecker_SetReady(t *testing.T) {
 
 func TestLivenessHandler(t *testing.T) {
 	sc := &ServerContext{
-		config: &Config{Version: "1.0.0"},
+		config: NewDefaultConfig(),
 	}
 	h := NewHealthChecker(sc)
 
@@ -103,7 +103,6 @@ func TestLivenessHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "ok", response.Status)
-	assert.Equal(t, "1.0.0", response.Version)
 }
 
 func TestReadinessHandler_Ready(t *testing.T) {
@@ -174,7 +173,7 @@ func TestReadinessHandler_ShuttingDown(t *testing.T) {
 
 func TestDetailedHealthHandler_LocalMode(t *testing.T) {
 	sc := &ServerContext{
-		config:    &Config{Version: "1.0.0"},
+		config:    NewDefaultConfig(),
 		inCluster: false,
 	}
 	h := NewHealthChecker(sc)
@@ -193,14 +192,13 @@ func TestDetailedHealthHandler_LocalMode(t *testing.T) {
 
 	assert.Equal(t, "ok", response.Status)
 	assert.Equal(t, "local", response.Mode)
-	assert.Equal(t, "1.0.0", response.Version)
 	assert.NotEmpty(t, response.Uptime)
 	assert.Nil(t, response.ManagementCluster, "ManagementCluster should be nil in local mode")
 }
 
 func TestDetailedHealthHandler_InClusterMode(t *testing.T) {
 	sc := &ServerContext{
-		config:    &Config{Version: "1.0.0"},
+		config:    NewDefaultConfig(),
 		inCluster: true,
 	}
 	h := NewHealthChecker(sc)
@@ -231,7 +229,7 @@ func TestDetailedHealthHandler_CAPIMode(t *testing.T) {
 	}
 
 	sc := &ServerContext{
-		config:            &Config{Version: "1.0.0"},
+		config:            NewDefaultConfig(),
 		federationManager: mockManager,
 	}
 	h := NewHealthChecker(sc)
@@ -317,7 +315,6 @@ func TestDetailedHealthHandler_NilServerContext(t *testing.T) {
 
 	assert.Equal(t, "ok", response.Status)
 	assert.Equal(t, "unknown", response.Mode)
-	assert.Empty(t, response.Version)
 }
 
 func TestDetermineMode(t *testing.T) {

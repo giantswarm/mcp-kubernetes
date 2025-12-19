@@ -47,16 +47,14 @@ func (h *HealthChecker) IsReady() bool {
 
 // HealthResponse represents the JSON response for health endpoints.
 type HealthResponse struct {
-	Status  string            `json:"status"`
-	Checks  map[string]string `json:"checks,omitempty"`
-	Version string            `json:"version,omitempty"`
+	Status string            `json:"status"`
+	Checks map[string]string `json:"checks,omitempty"`
 }
 
 // DetailedHealthResponse provides comprehensive health information including federation status.
 type DetailedHealthResponse struct {
 	Status            string                      `json:"status"`
 	Mode              string                      `json:"mode"`
-	Version           string                      `json:"version,omitempty"`
 	Uptime            string                      `json:"uptime"`
 	ManagementCluster *ManagementClusterStatus    `json:"management_cluster,omitempty"`
 	Federation        *FederationHealthStatus     `json:"federation,omitempty"`
@@ -87,17 +85,11 @@ type InstrumentationHealthCheck struct {
 // This should be a simple check that the server process is running.
 func (h *HealthChecker) LivenessHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simple liveness check - if we can respond, we're alive
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 
 		response := HealthResponse{
 			Status: healthStatusOK,
-		}
-
-		// Add version if available from server context
-		if h.serverContext != nil && h.serverContext.Config() != nil {
-			response.Version = h.serverContext.Config().Version
 		}
 
 		_ = json.NewEncoder(w).Encode(response)
@@ -174,11 +166,6 @@ func (h *HealthChecker) DetailedHealthHandler() http.Handler {
 			Status: healthStatusOK,
 			Mode:   h.determineMode(),
 			Uptime: time.Since(h.startTime).Truncate(time.Second).String(),
-		}
-
-		// Add version if available
-		if h.serverContext != nil && h.serverContext.Config() != nil {
-			response.Version = h.serverContext.Config().Version
 		}
 
 		// Check federation status

@@ -461,6 +461,26 @@ For development only, you can use:
 
 **Note**: Production deployments attempting to use HTTP or private IPs will fail validation with a clear error message.
 
+**Internal/Air-Gapped Deployments:**
+For home lab, air-gapped, or internal enterprise deployments where the OAuth server (Dex) runs on a private network, you can disable private IP validation:
+
+```bash
+# Allow OAuth URLs that resolve to private IP addresses
+--allow-private-oauth-urls=true
+```
+
+Or in Helm values:
+```yaml
+mcpKubernetes:
+  oauth:
+    allowPrivateURLs: true
+```
+
+**Warning**: This reduces SSRF protection. Only enable for deployments that are:
+- Not exposed to the public internet
+- Running on internal networks, VPNs, or air-gapped environments
+- Where the OAuth provider (e.g., Dex) is hosted on private infrastructure
+
 ### OAuth Provider Security Considerations
 
 #### Dex OIDC Provider
@@ -506,13 +526,14 @@ When using the Google provider, the server requests:
 
 #### Production Configuration Checklist
 
-**CRITICAL - Never deploy to production with these settings:**
+**CRITICAL - Never deploy to public-facing production with these settings:**
 
 ```bash
-# ❌ INSECURE - Do not use in production
+# ❌ INSECURE - Do not use in internet-facing production
 --allow-public-registration=true          # Allows unlimited client registration (DoS risk)
 --allow-insecure-auth-without-state=true  # Weakens CSRF protection
 --debug=true                              # May log sensitive information
+--allow-private-oauth-urls=true           # Reduces SSRF protection (OK for internal deployments only)
 ```
 
 **✅ RECOMMENDED - Production configuration:**
