@@ -224,6 +224,14 @@ type OAuthConfig struct {
 	// If nil, uses the default mcp-oauth interstitial page
 	Interstitial *oauthserver.InterstitialConfig
 
+	// TLSCertFile is the path to the TLS certificate file (PEM format)
+	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS
+	TLSCertFile string
+
+	// TLSKeyFile is the path to the TLS private key file (PEM format)
+	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS
+	TLSKeyFile string
+
 	// InstrumentationProvider is the OpenTelemetry instrumentation provider for metrics/tracing
 	InstrumentationProvider *instrumentation.Provider
 
@@ -482,6 +490,20 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		},
 	}
 
+	// Debug logging for registration token configuration
+	if config.DebugMode {
+		if config.RegistrationAccessToken != "" {
+			tokenPrefix := config.RegistrationAccessToken
+			if len(tokenPrefix) > 8 {
+				tokenPrefix = tokenPrefix[:8] + "..."
+			}
+			logger.Info("Registration access token configured", "token_length", len(config.RegistrationAccessToken), "token_prefix", tokenPrefix)
+		} else {
+			logger.Warn("Registration access token is empty - public registration must be enabled")
+		}
+		logger.Info("Client registration configuration", "allow_public", config.AllowPublicClientRegistration, "has_token", config.RegistrationAccessToken != "")
+	}
+
 	// Configure interstitial page branding if provided
 	if config.Interstitial != nil {
 		serverConfig.Interstitial = config.Interstitial
@@ -697,7 +719,12 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		IdleTimeout:       DefaultIdleTimeout,
 	}
 
-	// Start server
+	// Start server with TLS if certificates are provided
+	if config.TLSCertFile != "" && config.TLSKeyFile != "" {
+		return s.httpServer.ListenAndServeTLS(config.TLSCertFile, config.TLSKeyFile)
+	}
+
+	// Start server without TLS
 	return s.httpServer.ListenAndServe()
 }
 

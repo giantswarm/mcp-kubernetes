@@ -138,6 +138,8 @@ func newServeCmd() *cobra.Command {
 		maxClientsPerIP                    int
 		oauthEncryptionKey                 string
 		downstreamOAuth                    bool
+		tlsCertFile                        string
+		tlsKeyFile                         string
 
 		// OAuth storage options
 		oauthStorageType string
@@ -186,6 +188,10 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load TLS paths from environment if not provided via flags
+			loadEnvIfEmpty(&tlsCertFile, "TLS_CERT_FILE")
+			loadEnvIfEmpty(&tlsKeyFile, "TLS_KEY_FILE")
+
 			// Build OAuth storage config from flags
 			storageConfig := server.OAuthStorageConfig{
 				Type: server.OAuthStorageType(oauthStorageType),
@@ -252,6 +258,8 @@ Downstream OAuth (--downstream-oauth):
 					AllowPrivateURLs:                   allowPrivateOAuthURLs,
 					MaxClientsPerIP:                    maxClientsPerIP,
 					EncryptionKey:                      oauthEncryptionKey,
+					TLSCertFile:                        tlsCertFile,
+					TLSKeyFile:                         tlsKeyFile,
 					Storage:                            storageConfig,
 					RedirectURISecurity: RedirectURISecurityConfig{
 						DisableProductionMode:              disableProductionMode,
@@ -315,6 +323,10 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
+
+	// TLS flags for HTTPS support
+	cmd.Flags().StringVar(&tlsCertFile, "tls-cert-file", "", "Path to TLS certificate file (PEM format). If provided with --tls-key-file, enables HTTPS")
+	cmd.Flags().StringVar(&tlsKeyFile, "tls-key-file", "", "Path to TLS private key file (PEM format). If provided with --tls-cert-file, enables HTTPS")
 
 	// OAuth storage flags
 	cmd.Flags().StringVar(&oauthStorageType, "oauth-storage-type", "memory", "OAuth token storage type: memory or valkey (can also be set via OAUTH_STORAGE_TYPE env var)")
@@ -659,9 +671,15 @@ func runServe(config ServeConfig) error {
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
-			// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
-			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL", config.OAuth.AllowPrivateURLs); err != nil {
+			// Validate OAuth base URL (allows localhost for development, but requires HTTPS for production)
+			if err := validateOAuthBaseURL(config.OAuth.BaseURL); err != nil {
 				return err
+			}
+
+			// Validate TLS configuration - both cert and key must be provided together
+			if (config.OAuth.TLSCertFile != "" && config.OAuth.TLSKeyFile == "") ||
+				(config.OAuth.TLSCertFile == "" && config.OAuth.TLSKeyFile != "") {
+				return fmt.Errorf("both --tls-cert-file and --tls-key-file must be provided together for HTTPS")
 			}
 
 			// Provider-specific validation
@@ -773,6 +791,8 @@ func runServe(config ServeConfig) error {
 				EncryptionKey:                      encryptionKey,
 				EnableHSTS:                         os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
+				TLSCertFile:                        config.OAuth.TLSCertFile,
+				TLSKeyFile:                         config.OAuth.TLSKeyFile,
 				InstrumentationProvider:            instrumentationProvider,
 				Storage:                            config.OAuth.Storage,
 				RedirectURISecurity:                config.OAuth.RedirectURISecurity,

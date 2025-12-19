@@ -18,6 +18,12 @@ const (
 	OAuthProviderGoogle = server.OAuthProviderGoogle
 )
 
+// URI scheme constants for URL validation
+const (
+	schemeHTTPS = "https"
+	schemeHTTP  = "http"
+)
+
 // ServeConfig holds all configuration for the serve command.
 type ServeConfig struct {
 	// Transport settings
@@ -102,6 +108,8 @@ type OAuthServeConfig struct {
 	AllowPrivateURLs                   bool // skip private IP validation for internal deployments
 	MaxClientsPerIP                    int
 	EncryptionKey                      string
+	TLSCertFile                        string
+	TLSKeyFile                         string
 
 	// Redirect URI Security Configuration
 	// These settings control security validation of redirect URIs during client registration.
@@ -186,7 +194,7 @@ func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error
 	}
 
 	// Require HTTPS
-	if parsedURL.Scheme != "https" {
+	if parsedURL.Scheme != schemeHTTPS {
 		if parsedURL.Scheme == "" {
 			return fmt.Errorf("%s must be a valid URL with HTTPS scheme", fieldName)
 		}
@@ -290,7 +298,7 @@ func validateTrustedSchemes(schemes []string) error {
 		// Warn about potentially dangerous schemes (but still allow them - operator's choice)
 		lowerScheme := strings.ToLower(scheme)
 		switch lowerScheme {
-		case "http", "https":
+		case schemeHTTP, schemeHTTPS:
 			slog.Warn("trustedPublicRegistrationSchemes includes a web scheme - this allows unauthenticated registration for web clients which may be a security risk",
 				"scheme", scheme,
 				"recommendation", "Consider using a registration token for web clients instead")
@@ -336,4 +344,35 @@ func isPrivateOrLoopbackIP(ip net.IP) bool {
 	}
 
 	return false
+}
+
+// validateOAuthBaseURL validates the OAuth base URL, allowing localhost for development
+// This is less strict than validateSecureURL because OAuth base URL can be localhost
+// for local development, but Dex issuer URL cannot (SSRF protection)
+func validateOAuthBaseURL(baseURL string) error {
+	if baseURL == "" {
+		return fmt.Errorf("OAuth base URL cannot be empty")
+	}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("OAuth base URL must be a valid URL: %w", err)
+	}
+
+	// Require HTTPS for non-localhost addresses
+	if parsedURL.Scheme != schemeHTTPS {
+		host := parsedURL.Hostname()
+		// Allow HTTP only for loopback addresses (localhost, 127.0.0.1, ::1)
+		if parsedURL.Scheme == schemeHTTP {
+			if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+				// HTTP localhost is allowed for development
+				return nil
+			}
+			return fmt.Errorf("OAuth base URL must use HTTPS for non-localhost addresses (got: %s). Use HTTPS or localhost for development", baseURL)
+		}
+		return fmt.Errorf("OAuth base URL must use http or https scheme (got: %s)", parsedURL.Scheme)
+	}
+
+	// HTTPS is always allowed (including localhost with HTTPS)
+	return nil
 }

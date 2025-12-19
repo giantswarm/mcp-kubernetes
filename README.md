@@ -289,7 +289,7 @@ make lint
 
 **Recommended Solutions:**
 - HashiCorp Vault
-- AWS Secrets Manager  
+- AWS Secrets Manager
 - Google Cloud Secret Manager
 - Azure Key Vault
 - Kubernetes External Secrets Operator
