@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestListResponseMetaFields verifies that ListResponseMeta struct has the correct JSON tags.
-func TestListResponseMetaFields(t *testing.T) {
-	meta := &ListResponseMeta{
+// TestResponseMetaFields verifies that ResponseMeta struct has the correct JSON tags.
+func TestResponseMetaFields(t *testing.T) {
+	meta := &ResponseMeta{
 		ResourceScope:      "cluster",
 		RequestedNamespace: "kube-system",
 		EffectiveNamespace: "",
@@ -22,9 +22,9 @@ func TestListResponseMetaFields(t *testing.T) {
 	assert.Contains(t, meta.Hint, "cluster-scoped")
 }
 
-// TestListResponseMetaClusterScoped verifies metadata for cluster-scoped resources.
-func TestListResponseMetaClusterScoped(t *testing.T) {
-	meta := &ListResponseMeta{
+// TestResponseMetaClusterScoped verifies metadata for cluster-scoped resources.
+func TestResponseMetaClusterScoped(t *testing.T) {
+	meta := &ResponseMeta{
 		ResourceScope:      "cluster",
 		RequestedNamespace: "some-namespace",
 		EffectiveNamespace: "",
@@ -36,9 +36,9 @@ func TestListResponseMetaClusterScoped(t *testing.T) {
 	assert.NotEmpty(t, meta.Hint, "should have hint about ignored namespace")
 }
 
-// TestListResponseMetaNamespaced verifies metadata for namespaced resources.
-func TestListResponseMetaNamespaced(t *testing.T) {
-	meta := &ListResponseMeta{
+// TestResponseMetaNamespaced verifies metadata for namespaced resources.
+func TestResponseMetaNamespaced(t *testing.T) {
+	meta := &ResponseMeta{
 		ResourceScope:      "namespaced",
 		RequestedNamespace: "production",
 		EffectiveNamespace: "production",
@@ -50,9 +50,9 @@ func TestListResponseMetaNamespaced(t *testing.T) {
 	assert.Empty(t, meta.Hint, "namespaced resource with matching namespace should have no hint")
 }
 
-// TestListResponseMetaAllNamespaces verifies metadata for all-namespaces query.
-func TestListResponseMetaAllNamespaces(t *testing.T) {
-	meta := &ListResponseMeta{
+// TestResponseMetaAllNamespaces verifies metadata for all-namespaces query.
+func TestResponseMetaAllNamespaces(t *testing.T) {
+	meta := &ResponseMeta{
 		ResourceScope:      "namespaced",
 		RequestedNamespace: "",
 		EffectiveNamespace: "",
@@ -69,7 +69,7 @@ func TestPaginatedListResponseWithMeta(t *testing.T) {
 	response := &PaginatedListResponse{
 		Items:      nil,
 		TotalItems: 0,
-		Meta: &ListResponseMeta{
+		Meta: &ResponseMeta{
 			ResourceScope:      "cluster",
 			RequestedNamespace: "default",
 			EffectiveNamespace: "",
@@ -81,8 +81,8 @@ func TestPaginatedListResponseWithMeta(t *testing.T) {
 	assert.Equal(t, "cluster", response.Meta.ResourceScope)
 }
 
-// TestBuildListResponseMeta verifies the BuildListResponseMeta helper function.
-func TestBuildListResponseMeta(t *testing.T) {
+// TestBuildResponseMeta verifies the BuildResponseMeta helper function.
+func TestBuildResponseMeta(t *testing.T) {
 	tests := []struct {
 		name           string
 		namespaced     bool
@@ -142,7 +142,7 @@ func TestBuildListResponseMeta(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta := BuildListResponseMeta(tt.namespaced, tt.requestedNS, tt.effectiveNS, tt.resourceType, tt.allNamespaces)
+			meta := BuildResponseMeta(tt.namespaced, tt.requestedNS, tt.effectiveNS, tt.resourceType, tt.allNamespaces)
 
 			assert.Equal(t, tt.expectScope, meta.ResourceScope)
 			assert.Equal(t, tt.requestedNS, meta.RequestedNamespace)

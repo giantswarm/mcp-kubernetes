@@ -33,14 +33,34 @@ import (
 
 // getResource retrieves a specific resource by name and namespace.
 func getResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
+	namespace, resourceType, apiGroup, name string) (*GetResponse, error) {
+
+	// Store requested namespace for metadata
+	requestedNamespace := namespace
 
 	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
 
-	return getResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name)
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
+	if namespaced && namespace != "" {
+		effectiveNamespace = namespace
+	}
+
+	obj, err := getResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build response with metadata
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, false)
+
+	return &GetResponse{
+		Resource: obj,
+		Meta:     meta,
+	}, nil
 }
 
 // getResourceWithGVR retrieves a specific resource using a pre-resolved GVR.
@@ -137,7 +157,7 @@ func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 	}
 
 	// Build response metadata for transparency
-	meta := BuildListResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, opts.AllNamespaces)
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, opts.AllNamespaces)
 
 	response := &PaginatedListResponse{
 		Items:           objects,
@@ -159,7 +179,8 @@ func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 func describeResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
 	clientset kubernetes.Interface, namespace, resourceType, apiGroup, name string) (*ResourceDescription, error) {
 
-	resource, err := getResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name)
+	// getResource now returns *GetResponse with metadata
+	getResponse, err := getResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return nil, err
 	}
@@ -167,12 +188,13 @@ func describeResource(ctx context.Context, dynamicClient dynamic.Interface, disc
 	events, _ := getResourceEventsShared(ctx, clientset, namespace, name)
 
 	description := &ResourceDescription{
-		Resource: resource,
+		Resource: getResponse.Resource,
 		Events:   events,
 		Metadata: make(map[string]interface{}),
+		Meta:     getResponse.Meta, // Include the same metadata from Get
 	}
 
-	if unstructuredObj, ok := resource.(*unstructured.Unstructured); ok {
+	if unstructuredObj, ok := getResponse.Resource.(*unstructured.Unstructured); ok {
 		description.Metadata["kind"] = unstructuredObj.GetKind()
 		description.Metadata["apiVersion"] = unstructuredObj.GetAPIVersion()
 		description.Metadata["resourceVersion"] = unstructuredObj.GetResourceVersion()
@@ -277,14 +299,34 @@ func applyResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 
 // deleteResource removes a resource by name and namespace.
 func deleteResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
-	namespace, resourceType, apiGroup, name string, dryRun bool) error {
+	namespace, resourceType, apiGroup, name string, dryRun bool) (*DeleteResponse, error) {
+
+	// Store requested namespace for metadata
+	requestedNamespace := namespace
 
 	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return deleteResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, dryRun)
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
+	if namespaced && namespace != "" {
+		effectiveNamespace = namespace
+	}
+
+	err = deleteResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, dryRun)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build response with metadata
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, false)
+
+	return &DeleteResponse{
+		Message: fmt.Sprintf("Resource %s/%s deleted successfully", resourceType, name),
+		Meta:    meta,
+	}, nil
 }
 
 // deleteResourceWithGVR removes a resource using a pre-resolved GVR.
@@ -315,14 +357,34 @@ func deleteResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface,
 // patchResource updates specific fields of a resource.
 func patchResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
 	namespace, resourceType, apiGroup, name string,
-	patchType types.PatchType, data []byte, dryRun bool) (runtime.Object, error) {
+	patchType types.PatchType, data []byte, dryRun bool) (*PatchResponse, error) {
+
+	// Store requested namespace for metadata
+	requestedNamespace := namespace
 
 	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
 		return nil, err
 	}
 
-	return patchResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, patchType, data, dryRun)
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
+	if namespaced && namespace != "" {
+		effectiveNamespace = namespace
+	}
+
+	obj, err := patchResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, patchType, data, dryRun)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build response with metadata
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, false)
+
+	return &PatchResponse{
+		Resource: obj,
+		Meta:     meta,
+	}, nil
 }
 
 // patchResourceWithGVR updates specific fields of a resource using a pre-resolved GVR.
@@ -353,14 +415,30 @@ func patchResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 // scaleResource changes the number of replicas for scalable resources.
 func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface,
 	namespace, resourceType, apiGroup, name string,
-	replicas int32, dryRun bool) error {
+	replicas int32, dryRun bool) (*ScaleResponse, error) {
+
+	// Store requested namespace for metadata (scalable resources are always namespaced)
+	requestedNamespace := namespace
 
 	gvr, namespaced, err := resolveResourceTypeShared(resourceType, apiGroup, discoveryClient)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return scaleResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, replicas, dryRun)
+	err = scaleResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, replicas, dryRun)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build response with metadata
+	// Note: all scalable resources (deployments, replicasets, statefulsets) are namespaced
+	meta := BuildResponseMeta(true, requestedNamespace, namespace, resourceType, false)
+
+	return &ScaleResponse{
+		Message:  fmt.Sprintf("Resource %s/%s scaled to %d replicas successfully", resourceType, name, replicas),
+		Replicas: replicas,
+		Meta:     meta,
+	}, nil
 }
 
 // scaleResourceWithGVR changes the number of replicas using a pre-resolved GVR.

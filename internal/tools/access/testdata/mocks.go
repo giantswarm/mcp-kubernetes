@@ -81,8 +81,11 @@ func (m *MockK8sClient) SwitchContext(_ context.Context, _ string) error {
 }
 
 // Get implements k8s.ResourceManager.
-func (m *MockK8sClient) Get(_ context.Context, _, _, _, _, _ string) (runtime.Object, error) {
-	return nil, nil
+func (m *MockK8sClient) Get(_ context.Context, _, _, _, _, _ string) (*k8s.GetResponse, error) {
+	return &k8s.GetResponse{
+		Resource: nil,
+		Meta:     nil,
+	}, nil
 }
 
 // List implements k8s.ResourceManager.
@@ -106,18 +109,28 @@ func (m *MockK8sClient) Apply(_ context.Context, _, _ string, _ runtime.Object) 
 }
 
 // Delete implements k8s.ResourceManager.
-func (m *MockK8sClient) Delete(_ context.Context, _, _, _, _, _ string) error {
-	return nil
+func (m *MockK8sClient) Delete(_ context.Context, _, _, _, _, _ string) (*k8s.DeleteResponse, error) {
+	return &k8s.DeleteResponse{
+		Message: "deleted",
+		Meta:    nil,
+	}, nil
 }
 
 // Patch implements k8s.ResourceManager.
-func (m *MockK8sClient) Patch(_ context.Context, _, _, _, _, _ string, _ types.PatchType, _ []byte) (runtime.Object, error) {
-	return nil, nil
+func (m *MockK8sClient) Patch(_ context.Context, _, _, _, _, _ string, _ types.PatchType, _ []byte) (*k8s.PatchResponse, error) {
+	return &k8s.PatchResponse{
+		Resource: nil,
+		Meta:     nil,
+	}, nil
 }
 
 // Scale implements k8s.ResourceManager.
-func (m *MockK8sClient) Scale(_ context.Context, _, _, _, _, _ string, _ int32) error {
-	return nil
+func (m *MockK8sClient) Scale(_ context.Context, _, _, _, _, _ string, _ int32) (*k8s.ScaleResponse, error) {
+	return &k8s.ScaleResponse{
+		Message:  "scaled",
+		Replicas: 0,
+		Meta:     nil,
+	}, nil
 }
 
 // GetLogs implements k8s.PodManager.
