@@ -127,7 +127,7 @@ func (c *FederatedClient) SwitchContext(_ context.Context, _ string) error {
 
 // Get retrieves a specific resource by name and namespace.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
-func (c *FederatedClient) Get(ctx context.Context, _, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
+func (c *FederatedClient) Get(ctx context.Context, _, namespace, resourceType, apiGroup, name string) (*GetResponse, error) {
 	c.logOperation("get", namespace, resourceType, name)
 	return getResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name)
 }
@@ -162,21 +162,21 @@ func (c *FederatedClient) Apply(ctx context.Context, _, namespace string, obj ru
 
 // Delete removes a resource by name and namespace.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
-func (c *FederatedClient) Delete(ctx context.Context, _, namespace, resourceType, apiGroup, name string) error {
+func (c *FederatedClient) Delete(ctx context.Context, _, namespace, resourceType, apiGroup, name string) (*DeleteResponse, error) {
 	c.logOperation("delete", namespace, resourceType, name)
 	return deleteResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name, false)
 }
 
 // Patch updates specific fields of a resource.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
-func (c *FederatedClient) Patch(ctx context.Context, _, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
+func (c *FederatedClient) Patch(ctx context.Context, _, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (*PatchResponse, error) {
 	c.logOperation("patch", namespace, resourceType, name)
 	return patchResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name, patchType, data, false)
 }
 
 // Scale changes the number of replicas for scalable resources.
 // The kubeContext parameter is ignored (federated clients operate on a single cluster).
-func (c *FederatedClient) Scale(ctx context.Context, _, namespace, resourceType, apiGroup, name string, replicas int32) error {
+func (c *FederatedClient) Scale(ctx context.Context, _, namespace, resourceType, apiGroup, name string, replicas int32) (*ScaleResponse, error) {
 	c.logOperation("scale", namespace, resourceType, name)
 	return scaleResource(ctx, c.dynamicClient, c.discoveryClient, namespace, resourceType, apiGroup, name, replicas, false)
 }
