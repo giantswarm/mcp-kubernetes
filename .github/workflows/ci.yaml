@@ -35,10 +35,10 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: 'v3.17.4'
+          version: 'v3.19.4'
 
       - name: Install helm-unittest plugin
-        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v0.8.2
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git
 
       - name: Run Checks (Lint & Test)
         run: make check
