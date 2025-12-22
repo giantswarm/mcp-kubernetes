@@ -336,8 +336,27 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 
 	recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
-	// Convert the description to JSON for output
-	jsonData, err := json.MarshalIndent(description, "", "  ")
+	// Apply output processing (slim output, secret masking)
+	processor := getOutputProcessor(sc)
+	processedResource, err := output.ProcessSingleRuntimeObject(processor, description.Resource)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
+	}
+
+	// Build response with processed resource
+	response := map[string]interface{}{
+		"resource": processedResource,
+		"metadata": description.Metadata,
+		"_meta":    description.Meta,
+	}
+
+	// Include events if present
+	if len(description.Events) > 0 {
+		response["events"] = description.Events
+	}
+
+	// Convert the response to JSON for output
+	jsonData, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal description: %v", err)), nil
 	}
@@ -607,8 +626,21 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
-	// Convert the patched resource response to JSON for output (includes _meta)
-	jsonData, err := json.MarshalIndent(patchResponse, "", "  ")
+	// Apply output processing (slim output, secret masking)
+	processor := getOutputProcessor(sc)
+	processedObj, err := output.ProcessSingleRuntimeObject(processor, patchResponse.Resource)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
+	}
+
+	// Build response with metadata
+	response := map[string]interface{}{
+		"resource": processedObj,
+		"_meta":    patchResponse.Meta,
+	}
+
+	// Convert the response to JSON for output
+	jsonData, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal patched resource: %v", err)), nil
 	}
