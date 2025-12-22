@@ -58,7 +58,11 @@ func (m *MockK8sClient) List(_ context.Context, _, _, _, _ string, _ k8s.ListOpt
 
 // Describe implements k8s.ResourceManager.
 func (m *MockK8sClient) Describe(_ context.Context, _, _, _, _, _ string) (*k8s.ResourceDescription, error) {
-	return nil, nil
+	return &k8s.ResourceDescription{
+		Resource: nil,
+		Metadata: make(map[string]interface{}),
+		Meta:     nil,
+	}, nil
 }
 
 // Create implements k8s.ResourceManager.
