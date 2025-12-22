@@ -17,11 +17,14 @@ import (
 // ResourceManager implementation
 
 // Get retrieves a specific resource by name and namespace.
-func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
+func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*GetResponse, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("get"); err != nil {
 		return nil, err
 	}
+
+	// Store requested namespace for metadata before any modifications
+	requestedNamespace := namespace
 
 	// Validate namespace access
 	if namespace != "" {
@@ -44,9 +47,11 @@ func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, reso
 		return nil, err
 	}
 
-	// Prepare resource interface
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
 	var resourceInterface dynamic.ResourceInterface
 	if namespaced && namespace != "" {
+		effectiveNamespace = namespace
 		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
 	} else {
 		resourceInterface = dynamicClient.Resource(gvr)
@@ -58,7 +63,13 @@ func (c *kubernetesClient) Get(ctx context.Context, kubeContext, namespace, reso
 		return nil, fmt.Errorf("failed to get %s %q: %w", resourceType, name, err)
 	}
 
-	return obj, nil
+	// Build response with metadata
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, false)
+
+	return &GetResponse{
+		Resource: obj,
+		Meta:     meta,
+	}, nil
 }
 
 // List retrieves resources with pagination support.
@@ -129,7 +140,7 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 	}
 
 	// Build response metadata for transparency
-	meta := BuildListResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, opts.AllNamespaces)
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, opts.AllNamespaces)
 
 	// Build paginated response
 	response := &PaginatedListResponse{
@@ -177,8 +188,8 @@ func (c *kubernetesClient) Describe(ctx context.Context, kubeContext, namespace,
 
 	c.logOperation("describe", kubeContext, namespace, resourceType, name)
 
-	// Get the resource first
-	resource, err := c.Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
+	// Get the resource first (includes metadata about resource scope)
+	getResponse, err := c.Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
 	if err != nil {
 		return nil, err
 	}
@@ -192,15 +203,16 @@ func (c *kubernetesClient) Describe(ctx context.Context, kubeContext, namespace,
 		// Don't fail the operation if events can't be retrieved
 	}
 
-	// Create resource description
+	// Create resource description with the same metadata from Get
 	description := &ResourceDescription{
-		Resource: resource,
+		Resource: getResponse.Resource,
 		Events:   events,
 		Metadata: make(map[string]interface{}),
+		Meta:     getResponse.Meta,
 	}
 
 	// Add additional metadata if available
-	if unstructuredObj, ok := resource.(*unstructured.Unstructured); ok {
+	if unstructuredObj, ok := getResponse.Resource.(*unstructured.Unstructured); ok {
 		description.Metadata["kind"] = unstructuredObj.GetKind()
 		description.Metadata["apiVersion"] = unstructuredObj.GetAPIVersion()
 		description.Metadata["resourceVersion"] = unstructuredObj.GetResourceVersion()
@@ -302,14 +314,14 @@ func (c *kubernetesClient) Apply(ctx context.Context, kubeContext, namespace str
 	c.logOperation("apply", kubeContext, namespace, unstruct.GetKind(), unstruct.GetName())
 
 	// Try to get existing resource first
-	existingObj, err := c.Get(ctx, kubeContext, namespace, unstruct.GetKind(), unstruct.GetAPIVersion(), unstruct.GetName())
+	existingResponse, err := c.Get(ctx, kubeContext, namespace, unstruct.GetKind(), unstruct.GetAPIVersion(), unstruct.GetName())
 	if err != nil {
 		// Resource doesn't exist, create it
 		return c.Create(ctx, kubeContext, namespace, obj)
 	}
 
 	// Resource exists, update it
-	if existingUnstruct, ok := existingObj.(*unstructured.Unstructured); ok {
+	if existingUnstruct, ok := existingResponse.Resource.(*unstructured.Unstructured); ok {
 		// Preserve resource version for update
 		unstruct.SetResourceVersion(existingUnstruct.GetResourceVersion())
 	}
@@ -355,16 +367,19 @@ func (c *kubernetesClient) Apply(ctx context.Context, kubeContext, namespace str
 }
 
 // Delete removes a resource by name and namespace.
-func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) error {
+func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*DeleteResponse, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("delete"); err != nil {
-		return err
+		return nil, err
 	}
+
+	// Store requested namespace for metadata before any modifications
+	requestedNamespace := namespace
 
 	// Validate namespace access
 	if namespace != "" {
 		if err := c.isNamespaceRestricted(namespace); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -373,13 +388,13 @@ func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, r
 	// Get dynamic client
 	dynamicClient, err := c.getDynamicClient(kubeContext)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Resolve resource type to GVR
 	gvr, namespaced, err := c.resolveResourceType(resourceType, apiGroup, kubeContext)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Prepare delete options
@@ -388,9 +403,11 @@ func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, r
 		deleteOpts.DryRun = []string{metav1.DryRunAll}
 	}
 
-	// Prepare resource interface
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
 	var resourceInterface dynamic.ResourceInterface
 	if namespaced && namespace != "" {
+		effectiveNamespace = namespace
 		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
 	} else {
 		resourceInterface = dynamicClient.Resource(gvr)
@@ -399,18 +416,27 @@ func (c *kubernetesClient) Delete(ctx context.Context, kubeContext, namespace, r
 	// Delete the resource
 	err = resourceInterface.Delete(ctx, name, deleteOpts)
 	if err != nil {
-		return fmt.Errorf("failed to delete %s %q: %w", resourceType, name, err)
+		return nil, fmt.Errorf("failed to delete %s %q: %w", resourceType, name, err)
 	}
 
-	return nil
+	// Build response with metadata
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, false)
+
+	return &DeleteResponse{
+		Message: fmt.Sprintf("Resource %s/%s deleted successfully", resourceType, name),
+		Meta:    meta,
+	}, nil
 }
 
 // Patch updates specific fields of a resource.
-func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
+func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (*PatchResponse, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("patch"); err != nil {
 		return nil, err
 	}
+
+	// Store requested namespace for metadata before any modifications
+	requestedNamespace := namespace
 
 	// Validate namespace access
 	if namespace != "" {
@@ -439,9 +465,11 @@ func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, re
 		patchOpts.DryRun = []string{metav1.DryRunAll}
 	}
 
-	// Prepare resource interface
+	// Determine effective namespace based on resource scope
+	effectiveNamespace := ""
 	var resourceInterface dynamic.ResourceInterface
 	if namespaced && namespace != "" {
+		effectiveNamespace = namespace
 		resourceInterface = dynamicClient.Resource(gvr).Namespace(namespace)
 	} else {
 		resourceInterface = dynamicClient.Resource(gvr)
@@ -453,20 +481,29 @@ func (c *kubernetesClient) Patch(ctx context.Context, kubeContext, namespace, re
 		return nil, fmt.Errorf("failed to patch %s %q: %w", resourceType, name, err)
 	}
 
-	return result, nil
+	// Build response with metadata
+	meta := BuildResponseMeta(namespaced, requestedNamespace, effectiveNamespace, resourceType, false)
+
+	return &PatchResponse{
+		Resource: result,
+		Meta:     meta,
+	}, nil
 }
 
 // Scale changes the number of replicas for scalable resources.
-func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) error {
+func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) (*ScaleResponse, error) {
 	// Validate operation
 	if err := c.isOperationAllowed("scale"); err != nil {
-		return err
+		return nil, err
 	}
+
+	// Store requested namespace for metadata (scalable resources are always namespaced)
+	requestedNamespace := namespace
 
 	// Validate namespace access
 	if namespace != "" {
 		if err := c.isNamespaceRestricted(namespace); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -475,7 +512,7 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 	// Get clientset for scaling operations
 	clientset, err := c.getClientset(kubeContext)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Prepare scale options
@@ -489,41 +526,49 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 	case "deployment", "deployments":
 		scale, err := clientset.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to get deployment scale: %w", err)
+			return nil, fmt.Errorf("failed to get deployment scale: %w", err)
 		}
 		scale.Spec.Replicas = replicas
 		_, err = clientset.AppsV1().Deployments(namespace).UpdateScale(ctx, name, scale, scaleOpts)
 		if err != nil {
-			return fmt.Errorf("failed to scale deployment: %w", err)
+			return nil, fmt.Errorf("failed to scale deployment: %w", err)
 		}
 
 	case "replicaset", "replicasets":
 		scale, err := clientset.AppsV1().ReplicaSets(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to get replicaset scale: %w", err)
+			return nil, fmt.Errorf("failed to get replicaset scale: %w", err)
 		}
 		scale.Spec.Replicas = replicas
 		_, err = clientset.AppsV1().ReplicaSets(namespace).UpdateScale(ctx, name, scale, scaleOpts)
 		if err != nil {
-			return fmt.Errorf("failed to scale replicaset: %w", err)
+			return nil, fmt.Errorf("failed to scale replicaset: %w", err)
 		}
 
 	case "statefulset", "statefulsets":
 		scale, err := clientset.AppsV1().StatefulSets(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to get statefulset scale: %w", err)
+			return nil, fmt.Errorf("failed to get statefulset scale: %w", err)
 		}
 		scale.Spec.Replicas = replicas
 		_, err = clientset.AppsV1().StatefulSets(namespace).UpdateScale(ctx, name, scale, scaleOpts)
 		if err != nil {
-			return fmt.Errorf("failed to scale statefulset: %w", err)
+			return nil, fmt.Errorf("failed to scale statefulset: %w", err)
 		}
 
 	default:
-		return fmt.Errorf("resource type %q is not scalable", resourceType)
+		return nil, fmt.Errorf("resource type %q is not scalable", resourceType)
 	}
 
-	return nil
+	// Build response with metadata
+	// Note: all scalable resources (deployments, replicasets, statefulsets) are namespaced
+	meta := BuildResponseMeta(true, requestedNamespace, namespace, resourceType, false)
+
+	return &ScaleResponse{
+		Message:  fmt.Sprintf("Resource %s/%s scaled to %d replicas successfully", resourceType, name, replicas),
+		Replicas: replicas,
+		Meta:     meta,
+	}, nil
 }
 
 // Helper methods

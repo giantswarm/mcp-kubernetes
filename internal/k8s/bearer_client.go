@@ -351,7 +351,7 @@ func (c *bearerTokenClient) SwitchContext(ctx context.Context, contextName strin
 // by using the internal clients created with bearer token authentication.
 
 // Get retrieves a specific resource by name and namespace.
-func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
+func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*GetResponse, error) {
 	c.logOperation("get", kubeContext, namespace, resourceType, name)
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
@@ -484,34 +484,34 @@ func (c *bearerTokenClient) Apply(ctx context.Context, kubeContext, namespace st
 }
 
 // Delete removes a resource.
-func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) error {
+func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*DeleteResponse, error) {
 	c.logOperation("delete", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("delete"); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
-		return err
+		return nil, err
 	}
 
 	dynamicClient, err := c.getDynamicClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Use discovery for resource resolution and scope determination.
 	// The discovery client caches results for performance.
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return deleteResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name, c.dryRun)
 }
 
 // Patch updates specific fields of a resource.
-func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
+func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (*PatchResponse, error) {
 	c.logOperation("patch", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("patch"); err != nil {
@@ -538,27 +538,27 @@ func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, r
 }
 
 // Scale changes the number of replicas.
-func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) error {
+func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) (*ScaleResponse, error) {
 	c.logOperation("scale", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("scale"); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
-		return err
+		return nil, err
 	}
 
 	dynamicClient, err := c.getDynamicClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Use discovery for resource resolution and scope determination.
 	// The discovery client caches results for performance.
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return scaleResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name, replicas, c.dryRun)

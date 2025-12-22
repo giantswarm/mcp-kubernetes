@@ -86,11 +86,11 @@ The `mcp-kubernetes` server follows kubectl's namespace behavior:
 
 ## Response Metadata
 
-For list operations, responses include a `_meta` field that provides transparency:
+All resource operations include a `_meta` field that provides transparency about how the request was interpreted:
 
 ```json
 {
-  "items": [...],
+  "resource": {...},
   "_meta": {
     "resourceScope": "cluster",
     "requestedNamespace": "kube-system",
@@ -100,10 +100,25 @@ For list operations, responses include a `_meta` field that provides transparenc
 }
 ```
 
+This metadata is included in responses from:
+- `kubernetes_get` - wrapped response with resource and `_meta`
+- `kubernetes_list` - paginated response includes `_meta`
+- `kubernetes_describe` - description includes `_meta`
+- `kubernetes_delete` - response with message and `_meta`
+- `kubernetes_patch` - response with patched resource and `_meta`
+- `kubernetes_scale` - response with message, replicas count, and `_meta`
+
 This helps agents understand:
 - Whether the resource is namespaced or cluster-scoped
 - What namespace was requested vs. what was actually used
 - Explanatory hints when behavior might be unexpected
+
+### Benefits
+
+1. **Transparency for agents**: Agents learn when parameters are being interpreted differently than expected
+2. **Reduced debugging roundtrips**: Hints explain unexpected behavior upfront
+3. **Consistent interface**: Same metadata structure across all resource tools
+4. **Self-correcting agents**: Agents can adjust future calls based on feedback
 
 ## How Discovery Works
 
