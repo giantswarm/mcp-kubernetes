@@ -637,20 +637,26 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 
 	switch s.serverType {
 	case "streamable-http":
-		// Create Streamable HTTP server
+		// Create Streamable HTTP server with HTTPContextFunc to propagate access token
+		// to mcp-go's tool execution context. The token is set in r.Context() by our
+		// middleware chain, and we copy it to mcp-go's internal context here.
+		httpContextFunc := s.createHTTPContextFunc()
+
 		var httpServer http.Handler
 		if s.disableStreaming {
 			httpServer = mcpserver.NewStreamableHTTPServer(s.mcpServer,
 				mcpserver.WithEndpointPath("/mcp"),
 				mcpserver.WithDisableStreaming(true),
+				mcpserver.WithHTTPContextFunc(httpContextFunc),
 			)
 		} else {
 			httpServer = mcpserver.NewStreamableHTTPServer(s.mcpServer,
 				mcpserver.WithEndpointPath("/mcp"),
+				mcpserver.WithHTTPContextFunc(httpContextFunc),
 			)
 		}
 
-		// Create middleware to inject access token into context for downstream K8s auth
+		// Create middleware to inject access token into request context for downstream K8s auth
 		accessTokenInjector := s.createAccessTokenInjectorMiddleware(httpServer)
 
 		// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
@@ -824,6 +830,24 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		next.ServeHTTP(w, r)
 		slog.Debug("AccessTokenInjector: next handler returned")
 	})
+}
+
+// createHTTPContextFunc creates an HTTPContextFunc that copies the access token
+// from the HTTP request context (set by our middleware) to mcp-go's internal context.
+// This is necessary because mcp-go creates its own context for tool execution and
+// doesn't automatically inherit values from the HTTP request context.
+func (s *OAuthHTTPServer) createHTTPContextFunc() mcpserver.HTTPContextFunc {
+	return func(ctx context.Context, r *http.Request) context.Context {
+		// The access token was set in r.Context() by createAccessTokenInjectorMiddleware
+		// We need to copy it to mcp-go's context for tool handlers to access it
+		accessToken, ok := mcpoauth.GetAccessTokenFromContext(r.Context())
+		if ok && accessToken != "" {
+			slog.Debug("HTTPContextFunc: propagating access token to mcp-go context")
+			return mcpoauth.ContextWithAccessToken(ctx, accessToken)
+		}
+		slog.Debug("HTTPContextFunc: no access token in request context to propagate")
+		return ctx
+	}
 }
 
 // validateHTTPSRequirement ensures OAuth 2.1 HTTPS compliance
