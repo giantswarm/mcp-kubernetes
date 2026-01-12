@@ -176,21 +176,6 @@ func TestFederatedClient_ContextParameterIgnored(t *testing.T) {
 	assert.NotNil(t, health)
 }
 
-func TestFederatedClient_BuiltinResourcesInitialized(t *testing.T) {
-	client := createTestFederatedClient(t, "test-cluster")
-
-	// Verify that builtin resources map is populated
-	assert.NotNil(t, client.builtinResources)
-	assert.NotEmpty(t, client.builtinResources)
-
-	// Check for some expected resources
-	_, hasPods := client.builtinResources["pods"]
-	assert.True(t, hasPods, "builtin resources should include 'pods'")
-
-	_, hasDeployments := client.builtinResources["deployments"]
-	assert.True(t, hasDeployments, "builtin resources should include 'deployments'")
-}
-
 func TestFederatedClient_DiscoveryClientDerived(t *testing.T) {
 	client := createTestFederatedClient(t, "test-cluster")
 

@@ -78,6 +78,7 @@ func TestCreateOAuthServer(t *testing.T) {
 		MaxClientsPerIP:               5,
 		EncryptionKey:                 []byte("12345678901234567890123456789012"), // Exactly 32 bytes
 		DebugMode:                     false,
+		EnableCIMD:                    true, // CIMD enabled per MCP 2025-11-25
 	}
 
 	oauthServer, tokenStore, err := createOAuthServer(config)
@@ -91,6 +92,25 @@ func TestCreateOAuthServer(t *testing.T) {
 	assert.Equal(t, config.RegistrationAccessToken, oauthServer.Config.RegistrationAccessToken)
 	assert.Equal(t, config.AllowInsecureAuthWithoutState, oauthServer.Config.AllowNoStateParameter)
 	assert.Equal(t, config.MaxClientsPerIP, oauthServer.Config.MaxClientsPerIP)
+	// CIMD (Client ID Metadata Documents) is configurable, verify it's passed through
+	assert.True(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be enabled when configured")
+}
+
+// TestCreateOAuthServerCIMDDisabled tests OAuth server creation with CIMD disabled
+func TestCreateOAuthServerCIMDDisabled(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		EnableCIMD:         false, // CIMD explicitly disabled
+	}
+
+	oauthServer, _, err := createOAuthServer(config)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, oauthServer)
+	assert.False(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be disabled when configured")
 }
 
 // TestCreateOAuthServerWithDefaults tests OAuth server creation with default values
@@ -312,6 +332,55 @@ func TestValkeyStorageConfigDefaults(t *testing.T) {
 	assert.False(t, config.TLSEnabled)
 	assert.Empty(t, config.KeyPrefix)
 	assert.Equal(t, 0, config.DB)
+}
+
+// TestClientRegistrationRateLimiterConfiguration tests that maxClientsPerIP is properly passed
+// to the client registration rate limiter
+func TestClientRegistrationRateLimiterConfiguration(t *testing.T) {
+	tests := []struct {
+		name            string
+		maxClientsPerIP int
+		expectedMax     int
+	}{
+		{
+			name:            "custom maxClientsPerIP",
+			maxClientsPerIP: 5,
+			expectedMax:     5,
+		},
+		{
+			name:            "higher maxClientsPerIP",
+			maxClientsPerIP: 25,
+			expectedMax:     25,
+		},
+		{
+			name:            "default maxClientsPerIP (zero value uses default)",
+			maxClientsPerIP: 0,
+			expectedMax:     DefaultMaxClientsPerIP,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := OAuthConfig{
+				BaseURL:            "https://mcp.example.com",
+				Provider:           OAuthProviderGoogle,
+				GoogleClientID:     "test-client-id",
+				GoogleClientSecret: "test-client-secret",
+				MaxClientsPerIP:    tt.maxClientsPerIP,
+			}
+
+			oauthServer, _, err := createOAuthServer(config)
+			assert.NoError(t, err)
+			assert.NotNil(t, oauthServer)
+
+			// Verify the client registration rate limiter is configured
+			assert.NotNil(t, oauthServer.ClientRegistrationRateLimiter, "client registration rate limiter should be set")
+
+			// Get stats to verify configuration
+			stats := oauthServer.ClientRegistrationRateLimiter.GetStats()
+			assert.Equal(t, tt.expectedMax, stats.MaxPerWindow, "maxClientsPerIP should match configured value")
+		})
+	}
 }
 
 // TestDexScopesWithKubernetesAuthenticator tests that cross-client audience scope is correctly added

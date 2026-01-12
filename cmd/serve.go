@@ -114,6 +114,10 @@ func newServeCmd() *cobra.Command {
 		messageEndpoint string
 		httpEndpoint    string
 
+		// Metrics server options
+		metricsEnabled bool
+		metricsAddr    string
+
 		// OAuth options
 		enableOAuth                        bool
 		oauthBaseURL                       string
@@ -134,6 +138,8 @@ func newServeCmd() *cobra.Command {
 		maxClientsPerIP                    int
 		oauthEncryptionKey                 string
 		downstreamOAuth                    bool
+		tlsCertFile                        string
+		tlsKeyFile                         string
 
 		// OAuth storage options
 		oauthStorageType string
@@ -142,6 +148,22 @@ func newServeCmd() *cobra.Command {
 		valkeyTLS        bool
 		valkeyKeyPrefix  string
 		valkeyDB         int
+
+		// Redirect URI security options (all default to secure values)
+		disableProductionMode              bool
+		allowLocalhostRedirectURIs         bool
+		allowPrivateIPRedirectURIs         bool
+		allowLinkLocalRedirectURIs         bool
+		disableDNSValidation               bool
+		disableDNSValidationStrict         bool
+		disableAuthorizationTimeValidation bool
+
+		// Trusted scheme registration for Cursor/VSCode
+		trustedPublicRegistrationSchemes []string
+		disableStrictSchemeMatching      bool
+
+		// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
+		enableCIMD bool
 	)
 
 	cmd := &cobra.Command{
@@ -166,6 +188,10 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load TLS paths from environment if not provided via flags
+			loadEnvIfEmpty(&tlsCertFile, "TLS_CERT_FILE")
+			loadEnvIfEmpty(&tlsKeyFile, "TLS_KEY_FILE")
+
 			// Build OAuth storage config from flags
 			storageConfig := server.OAuthStorageConfig{
 				Type: server.OAuthStorageType(oauthStorageType),
@@ -179,6 +205,20 @@ Downstream OAuth (--downstream-oauth):
 			}
 			// Load env vars only for flags not explicitly set by user
 			loadOAuthStorageEnvVars(cmd, &storageConfig)
+
+			// CIMD env var - only apply if flag was not explicitly set
+			if !cmd.Flags().Changed("enable-cimd") {
+				if envVal := os.Getenv("ENABLE_CIMD"); envVal != "" {
+					if parsed, err := strconv.ParseBool(envVal); err == nil {
+						enableCIMD = parsed
+					} else {
+						slog.Warn("invalid ENABLE_CIMD value, using default",
+							"value", envVal,
+							"default", enableCIMD,
+							"error", err)
+					}
+				}
+			}
 
 			// Security warning: CLI password flags may be visible in process listings
 			if cmd.Flags().Changed("valkey-password") {
@@ -218,9 +258,27 @@ Downstream OAuth (--downstream-oauth):
 					AllowPrivateURLs:                   allowPrivateOAuthURLs,
 					MaxClientsPerIP:                    maxClientsPerIP,
 					EncryptionKey:                      oauthEncryptionKey,
+					TLSCertFile:                        tlsCertFile,
+					TLSKeyFile:                         tlsKeyFile,
 					Storage:                            storageConfig,
+					RedirectURISecurity: RedirectURISecurityConfig{
+						DisableProductionMode:              disableProductionMode,
+						AllowLocalhostRedirectURIs:         allowLocalhostRedirectURIs,
+						AllowPrivateIPRedirectURIs:         allowPrivateIPRedirectURIs,
+						AllowLinkLocalRedirectURIs:         allowLinkLocalRedirectURIs,
+						DisableDNSValidation:               disableDNSValidation,
+						DisableDNSValidationStrict:         disableDNSValidationStrict,
+						DisableAuthorizationTimeValidation: disableAuthorizationTimeValidation,
+					},
+					TrustedPublicRegistrationSchemes: trustedPublicRegistrationSchemes,
+					DisableStrictSchemeMatching:      disableStrictSchemeMatching,
+					EnableCIMD:                       enableCIMD,
 				},
 				DownstreamOAuth: downstreamOAuth,
+				Metrics: MetricsServeConfig{
+					Enabled: metricsEnabled,
+					Addr:    metricsAddr,
+				},
 			}
 			return runServe(config)
 		},
@@ -240,6 +298,10 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&sseEndpoint, "sse-endpoint", "/sse", "SSE endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&messageEndpoint, "message-endpoint", "/message", "Message endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&httpEndpoint, "http-endpoint", "/mcp", "HTTP endpoint path (for streamable-http transport)")
+
+	// Metrics server flags
+	cmd.Flags().BoolVar(&metricsEnabled, "metrics-enabled", true, "Enable dedicated metrics server (default: true)")
+	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", ":9090", "Metrics server address (default: :9090)")
 
 	// OAuth flags
 	cmd.Flags().BoolVar(&enableOAuth, "enable-oauth", false, "Enable OAuth 2.1 authentication (for HTTP transports)")
@@ -262,6 +324,10 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
 
+	// TLS flags for HTTPS support
+	cmd.Flags().StringVar(&tlsCertFile, "tls-cert-file", "", "Path to TLS certificate file (PEM format). If provided with --tls-key-file, enables HTTPS")
+	cmd.Flags().StringVar(&tlsKeyFile, "tls-key-file", "", "Path to TLS private key file (PEM format). If provided with --tls-cert-file, enables HTTPS")
+
 	// OAuth storage flags
 	cmd.Flags().StringVar(&oauthStorageType, "oauth-storage-type", "memory", "OAuth token storage type: memory or valkey (can also be set via OAUTH_STORAGE_TYPE env var)")
 	cmd.Flags().StringVar(&valkeyURL, "valkey-url", "", "Valkey server address (e.g., valkey.namespace.svc:6379, can also be set via VALKEY_URL env var)")
@@ -269,6 +335,23 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&valkeyTLS, "valkey-tls", false, "Enable TLS for Valkey connections (can also be set via VALKEY_TLS_ENABLED env var)")
 	cmd.Flags().StringVar(&valkeyKeyPrefix, "valkey-key-prefix", "mcp:", "Prefix for all Valkey keys (can also be set via VALKEY_KEY_PREFIX env var)")
 	cmd.Flags().IntVar(&valkeyDB, "valkey-db", 0, "Valkey database number (can also be set via VALKEY_DB env var)")
+
+	// Redirect URI security flags (all default to secure values)
+	// Use --disable-* flags to explicitly opt-out of security features
+	cmd.Flags().BoolVar(&disableProductionMode, "disable-production-mode", false, "Disable production mode security (allows HTTP, private IPs in redirect URIs). WARNING: Significantly weakens security")
+	cmd.Flags().BoolVar(&allowLocalhostRedirectURIs, "allow-localhost-redirect-uris", false, "Allow http://localhost redirect URIs for native apps (RFC 8252)")
+	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk")
+	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk")
+	cmd.Flags().BoolVar(&disableDNSValidation, "disable-dns-validation", false, "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks")
+	cmd.Flags().BoolVar(&disableDNSValidationStrict, "disable-dns-validation-strict", false, "Disable fail-closed DNS validation (allow registration on DNS failures). WARNING: Validation bypass risk")
+	cmd.Flags().BoolVar(&disableAuthorizationTimeValidation, "disable-authorization-time-validation", false, "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks")
+
+	// Trusted scheme registration for Cursor/VSCode compatibility
+	cmd.Flags().StringSliceVar(&trustedPublicRegistrationSchemes, "trusted-public-registration-schemes", nil, "URI schemes allowed for unauthenticated client registration (e.g., cursor,vscode). Best for internal/dev deployments. Must conform to RFC 3986 scheme syntax")
+	cmd.Flags().BoolVar(&disableStrictSchemeMatching, "disable-strict-scheme-matching", false, "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security")
+
+	// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
+	cmd.Flags().BoolVar(&enableCIMD, "enable-cimd", true, "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers (can also be set via ENABLE_CIMD env var)")
 
 	return cmd
 }
@@ -568,7 +651,7 @@ func runServe(config ServeConfig) error {
 		return runStdioServer(mcpSrv)
 	case transportSSE:
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
-		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider)
+		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, config.Metrics)
 	case transportStreamableHTTP:
 		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
 		if config.OAuth.Enabled {
@@ -582,15 +665,21 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.DexCAFile, "DEX_CA_FILE")
 			loadEnvIfEmpty(&config.OAuth.DexKubernetesAuthenticatorClientID, "DEX_K8S_AUTHENTICATOR_CLIENT_ID")
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
-			// Note: Valkey storage env vars are loaded in RunE closure where cmd is available
+			// Note: Valkey storage and CIMD env vars are loaded in RunE closure where cmd is available
 
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
 			}
-			// Validate OAuth base URL is HTTPS and not vulnerable to SSRF
-			if err := validateSecureURL(config.OAuth.BaseURL, "OAuth base URL", config.OAuth.AllowPrivateURLs); err != nil {
+			// Validate OAuth base URL (allows localhost for development, but requires HTTPS for production)
+			if err := validateOAuthBaseURL(config.OAuth.BaseURL); err != nil {
 				return err
+			}
+
+			// Validate TLS configuration - both cert and key must be provided together
+			if (config.OAuth.TLSCertFile != "" && config.OAuth.TLSKeyFile == "") ||
+				(config.OAuth.TLSCertFile == "" && config.OAuth.TLSKeyFile != "") {
+				return fmt.Errorf("both --tls-cert-file and --tls-key-file must be provided together for HTTPS")
 			}
 
 			// Provider-specific validation
@@ -629,8 +718,18 @@ func runServe(config ServeConfig) error {
 				return fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", config.OAuth.Provider, OAuthProviderDex, OAuthProviderGoogle)
 			}
 
-			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" {
-				return fmt.Errorf("--registration-token is required when public registration is disabled")
+			// Validate trusted schemes if configured (RFC 3986 compliance)
+			if err := validateTrustedSchemes(config.OAuth.TrustedPublicRegistrationSchemes); err != nil {
+				return fmt.Errorf("invalid trusted public registration scheme: %w", err)
+			}
+
+			// Registration token is required unless:
+			// 1. Public registration is enabled (anyone can register), OR
+			// 2. Trusted schemes are configured (Cursor/VSCode can register without token)
+			hasTrustedSchemes := len(config.OAuth.TrustedPublicRegistrationSchemes) > 0
+			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" && !hasTrustedSchemes {
+				return fmt.Errorf("--registration-token is required when public registration is disabled and no trusted schemes are configured. " +
+					"Either set --registration-token, enable --allow-public-registration, or configure --trusted-public-registration-schemes for Cursor/VSCode")
 			}
 
 			// Prepare encryption key if provided (must be base64 encoded)
@@ -666,8 +765,13 @@ func runServe(config ServeConfig) error {
 				fmt.Println("WARNING: Debug logging is enabled - this may log sensitive information")
 				fmt.Println("         Recommended: Disable debug mode in production")
 			}
+			if config.OAuth.AllowPrivateURLs {
+				fmt.Println("WARNING: Private URL validation disabled - OAuth URLs may resolve to internal IP addresses")
+				fmt.Println("         This reduces SSRF protection. Only use for internal/air-gapped deployments.")
+			}
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
+				ServiceVersion:                     rootCmd.Version,
 				BaseURL:                            config.OAuth.BaseURL,
 				Provider:                           config.OAuth.Provider,
 				GoogleClientID:                     config.OAuth.GoogleClientID,
@@ -687,11 +791,19 @@ func runServe(config ServeConfig) error {
 				EncryptionKey:                      encryptionKey,
 				EnableHSTS:                         os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
+				TLSCertFile:                        config.OAuth.TLSCertFile,
+				TLSKeyFile:                         config.OAuth.TLSKeyFile,
 				InstrumentationProvider:            instrumentationProvider,
-				Storage:                            config.OAuth.Storage, // Same type, no conversion needed
-			}, serverContext)
+				Storage:                            config.OAuth.Storage,
+				RedirectURISecurity:                config.OAuth.RedirectURISecurity,
+				// Trusted scheme registration for Cursor/VSCode compatibility
+				TrustedPublicRegistrationSchemes: config.OAuth.TrustedPublicRegistrationSchemes,
+				DisableStrictSchemeMatching:      config.OAuth.DisableStrictSchemeMatching,
+				// CIMD (Client ID Metadata Documents) per MCP 2025-11-25
+				EnableCIMD: config.OAuth.EnableCIMD,
+			}, serverContext, config.Metrics)
 		}
-		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}

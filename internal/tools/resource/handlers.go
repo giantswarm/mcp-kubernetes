@@ -41,9 +41,11 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
-	namespace, ok := args["namespace"].(string)
-	if !ok || namespace == "" {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace, _ := args["namespace"].(string)
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, ok := args["resourceType"].(string)
@@ -64,7 +66,7 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	k8sClient := client.K8s()
 
 	start := time.Now()
-	obj, err := k8sClient.Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
+	getResponse, err := k8sClient.Get(ctx, kubeContext, namespace, resourceType, apiGroup, name)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -76,13 +78,19 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 
 	// Apply output processing (slim output, secret masking)
 	processor := getOutputProcessor(sc)
-	processedObj, err := output.ProcessSingleRuntimeObject(processor, obj)
+	processedObj, err := output.ProcessSingleRuntimeObject(processor, getResponse.Resource)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
 	}
 
-	// Convert the resource to JSON for output
-	jsonData, err := json.MarshalIndent(processedObj, "", "  ")
+	// Build response with metadata
+	response := map[string]interface{}{
+		"resource": processedObj,
+		"_meta":    getResponse.Meta,
+	}
+
+	// Convert the response to JSON for output
+	jsonData, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal resource: %v", err)), nil
 	}
@@ -124,9 +132,11 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	namespace, _ := args["namespace"].(string)
 	allNamespaces, _ := args["allNamespaces"].(bool)
 
-	// Namespace is not required when listing namespaces or all resources across namespaces
-	if resourceType != "namespace" && !allNamespaces && namespace == "" {
-		return mcp.NewToolResultError("namespace is required unless listing namespaces or using --all-namespaces"), nil
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API simply ignores the namespace.
+	// This approach requires no static resource lists and works with any CRD.
+	if !allNamespaces && namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	labelSelector, _ := args["labelSelector"].(string)
@@ -175,7 +185,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	// Track namespace for metrics (use "all" for cluster-wide operations)
 	metricsNamespace := namespace
-	if allNamespaces || resourceType == "namespace" {
+	if allNamespaces {
 		namespace = ""
 		metricsNamespace = "all"
 	}
@@ -291,9 +301,11 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	kubeContext, _ := args["kubeContext"].(string)
 	apiGroup, _ := args["apiGroup"].(string)
 
-	namespace, ok := args["namespace"].(string)
-	if !ok || namespace == "" {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace, _ := args["namespace"].(string)
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, ok := args["resourceType"].(string)
@@ -324,8 +336,27 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 
 	recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
-	// Convert the description to JSON for output
-	jsonData, err := json.MarshalIndent(description, "", "  ")
+	// Apply output processing (slim output, secret masking)
+	processor := getOutputProcessor(sc)
+	processedResource, err := output.ProcessSingleRuntimeObject(processor, description.Resource)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
+	}
+
+	// Build response with processed resource
+	response := map[string]interface{}{
+		"resource": processedResource,
+		"metadata": description.Metadata,
+		"_meta":    description.Meta,
+	}
+
+	// Include events if present
+	if len(description.Events) > 0 {
+		response["events"] = description.Events
+	}
+
+	// Convert the response to JSON for output
+	jsonData, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal description: %v", err)), nil
 	}
@@ -476,9 +507,11 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
-	namespace, err := request.RequireString("namespace")
-	if err != nil {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace := request.GetString("namespace", "")
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, err := request.RequireString("resourceType")
@@ -499,7 +532,7 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 	k8sClient := client.K8s()
 
 	start := time.Now()
-	err = k8sClient.Delete(ctx, kubeContext, namespace, resourceType, apiGroup, name)
+	deleteResponse, err := k8sClient.Delete(ctx, kubeContext, namespace, resourceType, apiGroup, name)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -509,7 +542,13 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	recordK8sOperation(ctx, sc, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
-	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s deleted successfully", resourceType, name)), nil
+	// Convert the response to JSON for output (includes _meta)
+	jsonData, err := json.MarshalIndent(deleteResponse, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
 // handlePatchResource handles kubectl patch operations
@@ -523,9 +562,11 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	kubeContext := request.GetString("kubeContext", "")
 	apiGroup := request.GetString("apiGroup", "")
-	namespace, err := request.RequireString("namespace")
-	if err != nil {
-		return mcp.NewToolResultError("namespace is required"), nil
+	namespace := request.GetString("namespace", "")
+	// Follow kubectl behavior: if no namespace specified, use "default".
+	// For cluster-scoped resources, the Kubernetes API ignores the namespace.
+	if namespace == "" {
+		namespace = k8s.DefaultNamespace
 	}
 
 	resourceType, err := request.RequireString("resourceType")
@@ -575,7 +616,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	k8sClient := client.K8s()
 
 	start := time.Now()
-	patchedObj, err := k8sClient.Patch(ctx, kubeContext, namespace, resourceType, apiGroup, name, patchType, patchBytes)
+	patchResponse, err := k8sClient.Patch(ctx, kubeContext, namespace, resourceType, apiGroup, name, patchType, patchBytes)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -585,8 +626,21 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
-	// Convert the patched resource to JSON for output
-	jsonData, err := json.MarshalIndent(patchedObj, "", "  ")
+	// Apply output processing (slim output, secret masking)
+	processor := getOutputProcessor(sc)
+	processedObj, err := output.ProcessSingleRuntimeObject(processor, patchResponse.Resource)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
+	}
+
+	// Build response with metadata
+	response := map[string]interface{}{
+		"resource": processedObj,
+		"_meta":    patchResponse.Meta,
+	}
+
+	// Convert the response to JSON for output
+	jsonData, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal patched resource: %v", err)), nil
 	}
@@ -633,7 +687,7 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	k8sClient := client.K8s()
 
 	start := time.Now()
-	err = k8sClient.Scale(ctx, kubeContext, namespace, resourceType, apiGroup, name, int32(replicas))
+	scaleResponse, err := k8sClient.Scale(ctx, kubeContext, namespace, resourceType, apiGroup, name, int32(replicas))
 	duration := time.Since(start)
 
 	if err != nil {
@@ -643,7 +697,13 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	recordK8sOperation(ctx, sc, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
-	return mcp.NewToolResultText(fmt.Sprintf("Resource %s/%s scaled to %d replicas successfully", resourceType, name, int32(replicas))), nil
+	// Convert the scale response to JSON for output (includes _meta)
+	jsonData, err := json.MarshalIndent(scaleResponse, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
 // handleSummaryResponse generates a summary response for large result sets.

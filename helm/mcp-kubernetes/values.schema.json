@@ -374,6 +374,55 @@
             "enableDownstreamOAuth": {
               "type": "boolean",
               "description": "Enable downstream OAuth token passthrough to Kubernetes API"
+            },
+            "redirectURISecurity": {
+              "type": "object",
+              "description": "Redirect URI security configuration. All settings default to secure values.",
+              "properties": {
+                "disableProductionMode": {
+                  "type": "boolean",
+                  "description": "Disable production mode (allows HTTP, private IPs). WARNING: Significantly weakens security."
+                },
+                "allowLocalhostRedirectURIs": {
+                  "type": "boolean",
+                  "description": "Allow http://localhost redirect URIs for native apps (RFC 8252)"
+                },
+                "allowPrivateIPRedirectURIs": {
+                  "type": "boolean",
+                  "description": "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk."
+                },
+                "allowLinkLocalRedirectURIs": {
+                  "type": "boolean",
+                  "description": "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk."
+                },
+                "disableDNSValidation": {
+                  "type": "boolean",
+                  "description": "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks."
+                },
+                "disableDNSValidationStrict": {
+                  "type": "boolean",
+                  "description": "Disable fail-closed DNS validation. WARNING: Allows validation bypass via DNS failures."
+                },
+                "disableAuthorizationTimeValidation": {
+                  "type": "boolean",
+                  "description": "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks."
+                }
+              }
+            },
+            "trustedPublicRegistrationSchemes": {
+              "type": "array",
+              "description": "URI schemes allowed for unauthenticated client registration (e.g., cursor, vscode). Enables MCP clients that don't support registration tokens.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "disableStrictSchemeMatching": {
+              "type": "boolean",
+              "description": "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security."
+            },
+            "enableCIMD": {
+              "type": "boolean",
+              "description": "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers for decentralized registration. Default: true."
             }
           }
         },
@@ -390,6 +439,22 @@
               }
             },
             "required": ["name"]
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Metrics server configuration. Runs on a separate port for security.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable the dedicated metrics server (default: true)"
+            },
+            "port": {
+              "type": "integer",
+              "description": "Port for the metrics server (default: 9090)",
+              "minimum": 1,
+              "maximum": 65535
+            }
           }
         }
       }

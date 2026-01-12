@@ -283,6 +283,85 @@ The policy uses the standard chart selector labels (`app.kubernetes.io/name` and
 
 **Note**: CiliumNetworkPolicy requires Cilium CNI to be installed in your cluster.
 
+## Metrics Security
+
+Prometheus metrics are served on a **dedicated port** (default: 9090) that is separate from the main application port (8080). This follows security best practices by isolating operational metrics from public-facing traffic.
+
+### Why Separate Metrics Port?
+
+The `/metrics` endpoint exposes operational information that could be useful to attackers:
+- Go runtime version (helps identify known vulnerabilities)
+- Memory allocation patterns and heap statistics
+- Garbage collection behavior
+- Goroutine count (indicates server load patterns)
+- Custom application metrics
+
+By serving metrics on a separate port, you can:
+- Avoid exposing metrics via public Ingress
+- Apply different NetworkPolicies to metrics vs. application traffic
+- Restrict metrics access to only Prometheus/monitoring infrastructure
+
+### Configuration
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `mcpKubernetes.metrics.enabled` | Enable the dedicated metrics server | `true` |
+| `mcpKubernetes.metrics.port` | Port for the metrics server | `9090` |
+
+### Multi-Tenant Cluster Security
+
+In multi-tenant Kubernetes clusters, you may want to restrict which workloads can access the metrics endpoint. The default CiliumNetworkPolicy allows ingress from all cluster entities, which may be too permissive.
+
+**Recommended:** Create a more restrictive NetworkPolicy that only allows Prometheus to access the metrics port:
+
+```yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-kubernetes-metrics-restricted
+  namespace: <your-namespace>
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-kubernetes
+  ingress:
+  # Allow Prometheus to scrape metrics
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: "9090"
+        protocol: TCP
+  # Allow application traffic from anywhere in cluster
+  - fromEntities:
+    - cluster
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+```
+
+### High-Security Environments
+
+For environments with strict security requirements where metrics exposure is not acceptable, you can completely disable the metrics server:
+
+```yaml
+mcpKubernetes:
+  metrics:
+    enabled: false
+  instrumentation:
+    enabled: false
+```
+
+When metrics are disabled:
+- No `/metrics` endpoint is exposed on any port
+- The ServiceMonitor is not created
+- Prometheus annotations are not added to pods
+- You lose observability but gain security isolation
+
+**Alternative:** Use a pull-based metrics collection that runs inside the pod (e.g., OpenTelemetry Collector sidecar pushing to a secure backend).
+
 ## Usage Examples
 
 ### Basic Installation

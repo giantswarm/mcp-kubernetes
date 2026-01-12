@@ -21,7 +21,6 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 	mcpserver "github.com/mark3labs/mcp-go/server"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/logging"
@@ -63,9 +62,6 @@ const (
 
 	// DefaultIdleTimeout is the default idle timeout for keepalive connections
 	DefaultIdleTimeout = 120 * time.Second
-
-	// DefaultShutdownTimeout is the default timeout for graceful server shutdown
-	DefaultShutdownTimeout = 30 * time.Second
 )
 
 var (
@@ -156,6 +152,9 @@ type ValkeyStorageConfig struct {
 // OAuthConfig holds MCP-specific OAuth configuration
 // Uses the mcp-oauth library's types directly to avoid duplication
 type OAuthConfig struct {
+	// ServiceVersion is the version of mcp-kubernetes for instrumentation
+	ServiceVersion string
+
 	// BaseURL is the MCP server base URL (e.g., https://mcp.example.com)
 	BaseURL string
 
@@ -225,12 +224,63 @@ type OAuthConfig struct {
 	// If nil, uses the default mcp-oauth interstitial page
 	Interstitial *oauthserver.InterstitialConfig
 
+	// TLSCertFile is the path to the TLS certificate file (PEM format)
+	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS
+	TLSCertFile string
+
+	// TLSKeyFile is the path to the TLS private key file (PEM format)
+	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS
+	TLSKeyFile string
+
 	// InstrumentationProvider is the OpenTelemetry instrumentation provider for metrics/tracing
 	InstrumentationProvider *instrumentation.Provider
 
 	// Storage configures the token storage backend
 	// Defaults to in-memory storage if not specified
 	Storage OAuthStorageConfig
+
+	// RedirectURISecurity configures security validation for redirect URIs
+	// All options default to secure values in mcp-oauth
+	RedirectURISecurity RedirectURISecurityConfig
+
+	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
+	// client registration. Enables Cursor/VSCode without registration tokens.
+	// Best suited for internal/development deployments due to platform-specific
+	// limitations in custom URI scheme security. Schemes must conform to RFC 3986.
+	TrustedPublicRegistrationSchemes []string
+
+	// DisableStrictSchemeMatching allows mixed scheme clients to register without token
+	DisableStrictSchemeMatching bool
+
+	// EnableCIMD enables Client ID Metadata Documents per MCP 2025-11-25.
+	// When enabled, clients can use HTTPS URLs as client identifiers.
+	// Default: true (enabled for MCP 2025-11-25 compliance)
+	EnableCIMD bool
+}
+
+// RedirectURISecurityConfig holds configuration for redirect URI security validation.
+// All options default to secure values in mcp-oauth. Use Disable* flags to opt-out.
+type RedirectURISecurityConfig struct {
+	// DisableProductionMode disables strict HTTPS/private IP enforcement
+	DisableProductionMode bool
+
+	// AllowLocalhostRedirectURIs allows http://localhost for native apps (RFC 8252)
+	AllowLocalhostRedirectURIs bool
+
+	// AllowPrivateIPRedirectURIs allows private IP addresses in redirect URIs
+	AllowPrivateIPRedirectURIs bool
+
+	// AllowLinkLocalRedirectURIs allows link-local addresses (169.254.x.x)
+	AllowLinkLocalRedirectURIs bool
+
+	// DisableDNSValidation disables hostname resolution checks
+	DisableDNSValidation bool
+
+	// DisableDNSValidationStrict disables fail-closed DNS validation
+	DisableDNSValidationStrict bool
+
+	// DisableAuthorizationTimeValidation disables redirect URI checks at auth time
+	DisableAuthorizationTimeValidation bool
 }
 
 // OAuthHTTPServer wraps an MCP server with OAuth 2.1 authentication
@@ -408,6 +458,50 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		RegistrationAccessToken:       config.RegistrationAccessToken,
 		AllowNoStateParameter:         config.AllowInsecureAuthWithoutState,
 		MaxClientsPerIP:               maxClientsPerIP,
+
+		// Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25
+		// Allows clients to use HTTPS URLs as client identifiers
+		// The authorization server fetches client metadata from that URL
+		// Configurable via config.EnableCIMD (defaults to true for MCP compliance)
+		EnableClientIDMetadataDocuments: config.EnableCIMD,
+
+		// Trusted scheme registration for Cursor/VSCode compatibility
+		// Allows unauthenticated registration for clients using these schemes only
+		TrustedPublicRegistrationSchemes: config.TrustedPublicRegistrationSchemes,
+		DisableStrictSchemeMatching:      config.DisableStrictSchemeMatching,
+
+		// Redirect URI Security Configuration
+		// mcp-oauth defaults to secure values; we pass explicit disable flags
+		DisableProductionMode:              config.RedirectURISecurity.DisableProductionMode,
+		AllowLocalhostRedirectURIs:         config.RedirectURISecurity.AllowLocalhostRedirectURIs,
+		AllowPrivateIPRedirectURIs:         config.RedirectURISecurity.AllowPrivateIPRedirectURIs,
+		AllowLinkLocalRedirectURIs:         config.RedirectURISecurity.AllowLinkLocalRedirectURIs,
+		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
+		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
+		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
+
+		// Instrumentation for mcp-oauth internal metrics (CIMD, rate limiting, etc.)
+		// Uses Prometheus exporter to expose metrics alongside mcp-kubernetes metrics
+		Instrumentation: oauthserver.InstrumentationConfig{
+			Enabled:         true,
+			ServiceName:     "mcp-kubernetes",
+			ServiceVersion:  config.ServiceVersion,
+			MetricsExporter: "prometheus",
+		},
+	}
+
+	// Debug logging for registration token configuration
+	if config.DebugMode {
+		if config.RegistrationAccessToken != "" {
+			tokenPrefix := config.RegistrationAccessToken
+			if len(tokenPrefix) > 8 {
+				tokenPrefix = tokenPrefix[:8] + "..."
+			}
+			logger.Info("Registration access token configured", "token_length", len(config.RegistrationAccessToken), "token_prefix", tokenPrefix)
+		} else {
+			logger.Warn("Registration access token is empty - public registration must be enabled")
+		}
+		logger.Info("Client registration configuration", "allow_public", config.AllowPublicClientRegistration, "has_token", config.RegistrationAccessToken != "")
 	}
 
 	// Configure interstitial page branding if provided
@@ -453,9 +547,18 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	server.SetUserRateLimiter(userRateLimiter)
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
 
-	// Set up client registration rate limiting
-	clientRegRL := security.NewClientRegistrationRateLimiter(logger)
+	// Set up client registration rate limiting with configured maxClientsPerIP
+	// This aligns the rate limiter with the server's MaxClientsPerIP configuration
+	clientRegRL := security.NewClientRegistrationRateLimiterWithConfig(
+		maxClientsPerIP,
+		security.DefaultRegistrationWindow,
+		security.DefaultMaxRegistrationEntries,
+		logger,
+	)
 	server.SetClientRegistrationRateLimiter(clientRegRL)
+	logger.Info("Client registration rate limiting enabled",
+		"maxClientsPerIP", maxClientsPerIP,
+		"window", security.DefaultRegistrationWindow)
 
 	return server, tokenStore, nil
 }
@@ -534,20 +637,26 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 
 	switch s.serverType {
 	case "streamable-http":
-		// Create Streamable HTTP server
+		// Create Streamable HTTP server with HTTPContextFunc to propagate access token
+		// to mcp-go's tool execution context. The token is set in r.Context() by our
+		// middleware chain, and we copy it to mcp-go's internal context here.
+		httpContextFunc := s.createHTTPContextFunc()
+
 		var httpServer http.Handler
 		if s.disableStreaming {
 			httpServer = mcpserver.NewStreamableHTTPServer(s.mcpServer,
 				mcpserver.WithEndpointPath("/mcp"),
 				mcpserver.WithDisableStreaming(true),
+				mcpserver.WithHTTPContextFunc(httpContextFunc),
 			)
 		} else {
 			httpServer = mcpserver.NewStreamableHTTPServer(s.mcpServer,
 				mcpserver.WithEndpointPath("/mcp"),
+				mcpserver.WithHTTPContextFunc(httpContextFunc),
 			)
 		}
 
-		// Create middleware to inject access token into context for downstream K8s auth
+		// Create middleware to inject access token into request context for downstream K8s auth
 		accessTokenInjector := s.createAccessTokenInjectorMiddleware(httpServer)
 
 		// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
@@ -595,14 +704,10 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		return err
 	}
 
-	// Setup Prometheus metrics endpoint if instrumentation is enabled
-	if s.instrumentationProvider != nil && s.instrumentationProvider.Enabled() {
-		if prometheusHandler := s.instrumentationProvider.PrometheusHandler(); prometheusHandler != nil {
-			// The prometheus exporter is registered with the global prometheus registry
-			// Use promhttp.Handler() to expose metrics
-			mux.Handle("/metrics", promhttp.Handler())
-		}
-	}
+	// Note: Prometheus metrics are now served on a separate metrics server
+	// for security. The /metrics endpoint should NOT be exposed on the main
+	// HTTP server to prevent unauthorized access to operational information.
+	// See MetricsServer for the dedicated metrics endpoint.
 
 	// Setup health check endpoints
 	if s.healthChecker != nil {
@@ -620,7 +725,12 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		IdleTimeout:       DefaultIdleTimeout,
 	}
 
-	// Start server
+	// Start server with TLS if certificates are provided
+	if config.TLSCertFile != "" && config.TLSKeyFile != "" {
+		return s.httpServer.ListenAndServeTLS(config.TLSCertFile, config.TLSKeyFile)
+	}
+
+	// Start server without TLS
 	return s.httpServer.ListenAndServe()
 }
 
@@ -720,6 +830,24 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		next.ServeHTTP(w, r)
 		slog.Debug("AccessTokenInjector: next handler returned")
 	})
+}
+
+// createHTTPContextFunc creates an HTTPContextFunc that copies the access token
+// from the HTTP request context (set by our middleware) to mcp-go's internal context.
+// This is necessary because mcp-go creates its own context for tool execution and
+// doesn't automatically inherit values from the HTTP request context.
+func (s *OAuthHTTPServer) createHTTPContextFunc() mcpserver.HTTPContextFunc {
+	return func(ctx context.Context, r *http.Request) context.Context {
+		// The access token was set in r.Context() by createAccessTokenInjectorMiddleware
+		// We need to copy it to mcp-go's context for tool handlers to access it
+		accessToken, ok := mcpoauth.GetAccessTokenFromContext(r.Context())
+		if ok && accessToken != "" {
+			slog.Debug("HTTPContextFunc: propagating access token to mcp-go context")
+			return mcpoauth.ContextWithAccessToken(ctx, accessToken)
+		}
+		slog.Debug("HTTPContextFunc: no access token in request context to propagate")
+		return ctx
+	}
 }
 
 // validateHTTPSRequirement ensures OAuth 2.1 HTTPS compliance

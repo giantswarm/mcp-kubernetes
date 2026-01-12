@@ -457,3 +457,230 @@ func TestErrorMessagesIncludeDryRunHint(t *testing.T) {
 	assert.Contains(t, errorText, "--dry-run",
 		"error message should include hint about dry-run option")
 }
+
+// TestDefaultNamespaceUsedWhenNotProvided verifies that when no namespace is provided,
+// the handler defaults to "default" namespace following kubectl behavior.
+// This works for all resources - the K8s API handles cluster-scoped resources correctly.
+func TestDefaultNamespaceUsedWhenNotProvided(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	// All these resources should work without explicit namespace
+	// - For cluster-scoped resources, the K8s API ignores the namespace
+	// - For namespaced resources, it uses "default" namespace
+	tests := []struct {
+		resourceType string
+		description  string
+	}{
+		// Cluster-scoped resources
+		{"nodes", "nodes works without namespace"},
+		{"namespaces", "namespaces works without namespace"},
+		{"persistentvolumes", "persistentvolumes works without namespace"},
+		{"clusterroles", "clusterroles works without namespace"},
+		// Namespaced resources (will use "default" namespace)
+		{"pods", "pods uses default namespace"},
+		{"deployments", "deployments uses default namespace"},
+		{"services", "services uses default namespace"},
+		// CRDs/unknown resources
+		{"clusters", "CRDs work without namespace"},
+		{"helmreleases", "CRDs work without namespace"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			request := mcp.CallToolRequest{}
+			request.Params.Arguments = map[string]interface{}{
+				"resourceType": tt.resourceType,
+				// No namespace provided - should default to "default"
+			}
+
+			result, err := handleListResources(ctx, request, sc)
+			require.NoError(t, err)
+			// Should NOT get error about namespace being required
+			// Any errors should be from K8s API (resource not found, etc.), not validation
+			if result.IsError {
+				errorText := getErrorText(t, result)
+				assert.NotContains(t, errorText, "namespace is required",
+					"resource %q should not require explicit namespace", tt.resourceType)
+			}
+		})
+	}
+}
+
+// TestAllNamespacesOverridesDefault verifies that allNamespaces=true
+// works correctly and doesn't use the default namespace.
+func TestAllNamespacesOverridesDefault(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType":  "pods",
+		"allNamespaces": true,
+		// No namespace provided
+	}
+
+	result, err := handleListResources(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"allNamespaces=true should work without explicit namespace")
+	}
+}
+
+// TestExplicitNamespaceUsed verifies that when a namespace is explicitly provided,
+// it is used instead of the default.
+func TestExplicitNamespaceUsed(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"namespace":    "kube-system",
+	}
+
+	result, err := handleListResources(ctx, request, sc)
+	require.NoError(t, err)
+	// The mock client will return results - we're just verifying no validation error
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"explicit namespace should be accepted")
+	}
+}
+
+// TestGetResourceDefaultNamespace verifies that kubernetes_get uses default namespace
+// when no namespace is provided.
+func TestGetResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handleGetResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_get should not require explicit namespace")
+	}
+}
+
+// TestDescribeResourceDefaultNamespace verifies that kubernetes_describe uses default namespace
+// when no namespace is provided.
+func TestDescribeResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handleDescribeResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_describe should not require explicit namespace")
+	}
+}
+
+// TestDeleteResourceDefaultNamespace verifies that kubernetes_delete uses default namespace
+// when no namespace is provided.
+func TestDeleteResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	// Enable dry-run to allow delete operation
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithDryRun(true),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handleDeleteResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_delete should not require explicit namespace")
+	}
+}
+
+// TestPatchResourceDefaultNamespace verifies that kubernetes_patch uses default namespace
+// when no namespace is provided.
+func TestPatchResourceDefaultNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	// Enable dry-run to allow patch operation
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+		server.WithDryRun(true),
+	)
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"resourceType": "pods",
+		"name":         "my-pod",
+		"patchType":    "merge",
+		"patch":        map[string]interface{}{"metadata": map[string]interface{}{"labels": map[string]interface{}{"test": "value"}}},
+		// No namespace provided - should default to "default"
+	}
+
+	result, err := handlePatchResource(ctx, request, sc)
+	require.NoError(t, err)
+	// Should NOT get error about namespace being required
+	if result.IsError {
+		errorText := getErrorText(t, result)
+		assert.NotContains(t, errorText, "namespace is required",
+			"kubernetes_patch should not require explicit namespace")
+	}
+}

@@ -17,9 +17,9 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if .Values.mcpKubernetes.instrumentation.enabled }}
+        {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
         prometheus.io/scrape: "true"
-        prometheus.io/port: "{{ .Values.mcpKubernetes.service.port }}"
+        prometheus.io/port: "{{ .Values.mcpKubernetes.metrics.port }}"
         prometheus.io/path: "/metrics"
         {{- end }}
       labels:
@@ -78,11 +78,57 @@ spec:
             {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
             - --downstream-oauth
             {{- end }}
+            {{- /* Redirect URI Security Configuration */ -}}
+            {{- with .Values.mcpKubernetes.oauth.redirectURISecurity }}
+            {{- if .disableProductionMode }}
+            - --disable-production-mode=true
+            {{- end }}
+            {{- if .allowLocalhostRedirectURIs }}
+            - --allow-localhost-redirect-uris=true
+            {{- end }}
+            {{- if .allowPrivateIPRedirectURIs }}
+            - --allow-private-ip-redirect-uris=true
+            {{- end }}
+            {{- if .allowLinkLocalRedirectURIs }}
+            - --allow-link-local-redirect-uris=true
+            {{- end }}
+            {{- if .disableDNSValidation }}
+            - --disable-dns-validation=true
+            {{- end }}
+            {{- if .disableDNSValidationStrict }}
+            - --disable-dns-validation-strict=true
+            {{- end }}
+            {{- if .disableAuthorizationTimeValidation }}
+            - --disable-authorization-time-validation=true
+            {{- end }}
+            {{- end }}
+            {{- /* Trusted Scheme Registration for Cursor/VSCode */ -}}
+            {{- if .Values.mcpKubernetes.oauth.trustedPublicRegistrationSchemes }}
+            - --trusted-public-registration-schemes={{ .Values.mcpKubernetes.oauth.trustedPublicRegistrationSchemes | join "," }}
+            {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.disableStrictSchemeMatching }}
+            - --disable-strict-scheme-matching=true
+            {{- end }}
+            {{- /* CIMD (Client ID Metadata Documents) per MCP 2025-11-25 */ -}}
+            {{- if hasKey .Values.mcpKubernetes.oauth "enableCIMD" }}
+            - --enable-cimd={{ .Values.mcpKubernetes.oauth.enableCIMD }}
+            {{- end }}
+            {{- end }}
+            {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+            - --metrics-enabled=true
+            - --metrics-addr=:{{ .Values.mcpKubernetes.metrics.port }}
+            {{- else }}
+            - --metrics-enabled=false
             {{- end }}
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.mcpKubernetes.metrics.port }}
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -142,7 +188,16 @@ spec:
               value: "/etc/ssl/certs/dex-ca/{{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}"
             {{- end }}
             {{- end }}
-            {{- if not .Values.mcpKubernetes.oauth.allowPublicRegistration }}
+            {{- /* Only mount REGISTRATION_TOKEN if registrationAccessToken is explicitly configured.
+                   DCR behavior matrix:
+                   - No token + no schemes: fully open (not recommended)
+                   - No token + schemes: only trusted schemes work
+                   - Token + no schemes: only registration token works
+                   - Token + schemes: token OR trusted scheme
+                   Note: existingSecret may be used for other credentials (dex-client-secret,
+                   oauth-encryption-key) without requiring a registration-token key.
+                   CIMD is the preferred client authentication method over DCR. */}}
+            {{- if .Values.mcpKubernetes.oauth.registrationAccessToken }}
             - name: REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:

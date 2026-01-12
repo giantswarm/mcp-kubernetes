@@ -53,7 +53,7 @@ type ContextManager interface {
 // ResourceManager handles Kubernetes resource operations.
 type ResourceManager interface {
 	// Get retrieves a specific resource by name and namespace.
-	Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (runtime.Object, error)
+	Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*GetResponse, error)
 
 	// List retrieves resources with pagination support.
 	List(ctx context.Context, kubeContext, namespace, resourceType, apiGroup string, opts ListOptions) (*PaginatedListResponse, error)
@@ -68,13 +68,13 @@ type ResourceManager interface {
 	Apply(ctx context.Context, kubeContext, namespace string, obj runtime.Object) (runtime.Object, error)
 
 	// Delete removes a resource by name and namespace.
-	Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) error
+	Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*DeleteResponse, error)
 
 	// Patch updates specific fields of a resource.
-	Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error)
+	Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (*PatchResponse, error)
 
 	// Scale changes the number of replicas for scalable resources.
-	Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) error
+	Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) (*ScaleResponse, error)
 }
 
 // PodManager handles pod-specific operations.
@@ -128,6 +128,39 @@ type PaginatedListResponse struct {
 	RemainingItems  *int64           `json:"remainingItems,omitempty"`  // Estimated remaining items (if available)
 	ResourceVersion string           `json:"resourceVersion,omitempty"` // Resource version for consistency
 	TotalItems      int              `json:"totalItems"`                // Number of items in this response
+
+	// Metadata about the request and resource resolution
+	Meta *ResponseMeta `json:"_meta,omitempty"` // Optional metadata for transparency
+}
+
+// ResponseMeta provides metadata about resource operations for transparency.
+// This helps agents understand how parameters were interpreted.
+type ResponseMeta struct {
+	ResourceScope      string `json:"resourceScope"`                // "cluster" or "namespaced"
+	RequestedNamespace string `json:"requestedNamespace,omitempty"` // Namespace provided in request
+	EffectiveNamespace string `json:"effectiveNamespace,omitempty"` // Namespace actually used (empty for cluster-scoped)
+	Hint               string `json:"hint,omitempty"`               // Helpful message for agents
+}
+
+// BuildResponseMeta creates metadata for resource operations to provide transparency
+// about how the request was handled.
+func BuildResponseMeta(namespaced bool, requestedNS, effectiveNS, resourceType string, allNamespaces bool) *ResponseMeta {
+	meta := &ResponseMeta{
+		RequestedNamespace: requestedNS,
+		EffectiveNamespace: effectiveNS,
+	}
+	if namespaced {
+		meta.ResourceScope = "namespaced"
+		if allNamespaces {
+			meta.Hint = "Listing across all namespaces"
+		}
+	} else {
+		meta.ResourceScope = "cluster"
+		if requestedNS != "" {
+			meta.Hint = resourceType + " is cluster-scoped; namespace parameter was ignored"
+		}
+	}
+	return meta
 }
 
 // ResourceDescription contains detailed information about a resource.
@@ -135,6 +168,32 @@ type ResourceDescription struct {
 	Resource runtime.Object         `json:"resource"`
 	Events   []corev1.Event         `json:"events,omitempty"`
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Meta     *ResponseMeta          `json:"_meta,omitempty"` // Operation metadata for transparency
+}
+
+// GetResponse wraps a resource with operation metadata for transparency.
+type GetResponse struct {
+	Resource runtime.Object `json:"resource"`
+	Meta     *ResponseMeta  `json:"_meta,omitempty"`
+}
+
+// DeleteResponse contains the result of a delete operation with metadata.
+type DeleteResponse struct {
+	Message string        `json:"message"`
+	Meta    *ResponseMeta `json:"_meta,omitempty"`
+}
+
+// PatchResponse wraps a patched resource with operation metadata.
+type PatchResponse struct {
+	Resource runtime.Object `json:"resource"`
+	Meta     *ResponseMeta  `json:"_meta,omitempty"`
+}
+
+// ScaleResponse contains the result of a scale operation with metadata.
+type ScaleResponse struct {
+	Message  string        `json:"message"`
+	Replicas int32         `json:"replicas"`
+	Meta     *ResponseMeta `json:"_meta,omitempty"`
 }
 
 // LogOptions configures log retrieval.

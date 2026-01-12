@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -35,9 +34,6 @@ type bearerTokenClient struct {
 	clientsetLazy       lazyValue[kubernetes.Interface]
 	dynamicClientLazy   lazyValue[dynamic.Interface]
 	discoveryClientLazy lazyValue[discovery.DiscoveryInterface]
-
-	// Resource type mappings (shared with base client)
-	builtinResources map[string]schema.GroupVersionResource
 
 	// Safety and performance settings (inherited from factory)
 	nonDestructiveMode   bool
@@ -71,9 +67,6 @@ type BearerTokenClientFactory struct {
 	debugMode            bool
 	logger               Logger
 
-	// Shared builtin resources mapping
-	builtinResources map[string]schema.GroupVersionResource
-
 	// Client cache for reusing clients across requests with the same token
 	cache *clientCache
 }
@@ -105,9 +98,6 @@ func NewBearerTokenClientFactory(config *ClientConfig) (*BearerTokenClientFactor
 		timeout = 30 * time.Second
 	}
 
-	// Initialize builtin resources mapping
-	builtinResources := initBuiltinResources()
-
 	// Configure cache with optional metrics
 	cacheConfig := ClientCacheConfig{
 		TTL:        config.CacheTTL,
@@ -127,7 +117,6 @@ func NewBearerTokenClientFactory(config *ClientConfig) (*BearerTokenClientFactor
 		timeout:              timeout,
 		debugMode:            config.DebugMode,
 		logger:               config.Logger,
-		builtinResources:     builtinResources,
 		cache:                newClientCacheWithConfig(cacheConfig),
 	}, nil
 }
@@ -163,7 +152,6 @@ func (f *BearerTokenClientFactory) CreateBearerTokenClient(bearerToken string) (
 		bearerToken:          bearerToken,
 		clusterHost:          f.clusterHost,
 		caCertFile:           f.caCertFile,
-		builtinResources:     f.builtinResources,
 		nonDestructiveMode:   f.nonDestructiveMode,
 		dryRun:               f.dryRun,
 		allowedOperations:    f.allowedOperations,
@@ -363,7 +351,7 @@ func (c *bearerTokenClient) SwitchContext(ctx context.Context, contextName strin
 // by using the internal clients created with bearer token authentication.
 
 // Get retrieves a specific resource by name and namespace.
-func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (runtime.Object, error) {
+func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*GetResponse, error) {
 	c.logOperation("get", kubeContext, namespace, resourceType, name)
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
@@ -375,20 +363,14 @@ func (c *bearerTokenClient) Get(ctx context.Context, kubeContext, namespace, res
 		return nil, err
 	}
 
-	// Try to resolve using builtin resources first (avoids discovery client creation)
-	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
-		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
-		return getResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name)
-	}
-
-	// Fallback to discovery for non-builtin resources
+	// Use discovery for resource resolution and scope determination.
+	// The discovery client caches results for performance.
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
 	}
 
-	// Use the shared resource operations from resources.go
-	return getResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name)
+	return getResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name)
 }
 
 // List retrieves resources with pagination support.
@@ -408,26 +390,15 @@ func (c *bearerTokenClient) List(ctx context.Context, kubeContext, namespace, re
 	}
 	c.debugLog("acquired dynamic client", "elapsed", time.Since(listStart))
 
-	// Try to resolve using builtin resources first (avoids discovery client creation)
-	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
-		c.debugLog("resolved resource type from builtin cache", "elapsed", time.Since(listStart), "gvr", gvr.String())
-		result, err := listResourcesWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, opts)
-		if err != nil {
-			c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", logging.SanitizeHost(err.Error()))
-			return nil, err
-		}
-		c.debugLog("list operation completed (builtin)", "elapsed", time.Since(listStart), "items", result.TotalItems)
-		return result, nil
-	}
-
-	// Fallback to discovery for non-builtin resources
+	// Use discovery for resource resolution and scope determination.
+	// The discovery client caches results for performance.
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
 	}
-	c.debugLog("acquired discovery client (non-builtin resource)", "elapsed", time.Since(listStart))
+	c.debugLog("acquired discovery client", "elapsed", time.Since(listStart))
 
-	result, err := listResources(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, opts)
+	result, err := listResources(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, opts)
 	if err != nil {
 		c.debugLog("list operation failed", "elapsed", time.Since(listStart), "error", logging.SanitizeHost(err.Error()))
 		return nil, err
@@ -459,7 +430,7 @@ func (c *bearerTokenClient) Describe(ctx context.Context, kubeContext, namespace
 		return nil, err
 	}
 
-	return describeResource(ctx, dynamicClient, discoveryClient, clientset, c.builtinResources, namespace, resourceType, apiGroup, name)
+	return describeResource(ctx, dynamicClient, discoveryClient, clientset, namespace, resourceType, apiGroup, name)
 }
 
 // Create creates a new resource.
@@ -513,39 +484,34 @@ func (c *bearerTokenClient) Apply(ctx context.Context, kubeContext, namespace st
 }
 
 // Delete removes a resource.
-func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) error {
+func (c *bearerTokenClient) Delete(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string) (*DeleteResponse, error) {
 	c.logOperation("delete", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("delete"); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
-		return err
+		return nil, err
 	}
 
 	dynamicClient, err := c.getDynamicClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Try to resolve using builtin resources first (avoids discovery client creation)
-	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
-		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
-		return deleteResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, c.dryRun)
-	}
-
-	// Fallback to discovery for non-builtin resources
+	// Use discovery for resource resolution and scope determination.
+	// The discovery client caches results for performance.
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return deleteResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, c.dryRun)
+	return deleteResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name, c.dryRun)
 }
 
 // Patch updates specific fields of a resource.
-func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (runtime.Object, error) {
+func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, patchType types.PatchType, data []byte) (*PatchResponse, error) {
 	c.logOperation("patch", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("patch"); err != nil {
@@ -561,51 +527,41 @@ func (c *bearerTokenClient) Patch(ctx context.Context, kubeContext, namespace, r
 		return nil, err
 	}
 
-	// Try to resolve using builtin resources first (avoids discovery client creation)
-	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
-		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
-		return patchResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, patchType, data, c.dryRun)
-	}
-
-	// Fallback to discovery for non-builtin resources
+	// Use discovery for resource resolution and scope determination.
+	// The discovery client caches results for performance.
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
 		return nil, err
 	}
 
-	return patchResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, patchType, data, c.dryRun)
+	return patchResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name, patchType, data, c.dryRun)
 }
 
 // Scale changes the number of replicas.
-func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) error {
+func (c *bearerTokenClient) Scale(ctx context.Context, kubeContext, namespace, resourceType, apiGroup, name string, replicas int32) (*ScaleResponse, error) {
 	c.logOperation("scale", kubeContext, namespace, resourceType, name)
 
 	if err := c.isOperationAllowed("scale"); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := c.isNamespaceRestricted(namespace); err != nil {
-		return err
+		return nil, err
 	}
 
 	dynamicClient, err := c.getDynamicClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Try to resolve using builtin resources first (avoids discovery client creation)
-	if gvr, namespaced, found := tryResolveBuiltinResource(resourceType, apiGroup, c.builtinResources); found {
-		c.debugLog("resolved resource type from builtin cache", "gvr", gvr.String())
-		return scaleResourceWithGVR(ctx, dynamicClient, gvr, namespaced, namespace, resourceType, name, replicas, c.dryRun)
-	}
-
-	// Fallback to discovery for non-builtin resources
+	// Use discovery for resource resolution and scope determination.
+	// The discovery client caches results for performance.
 	discoveryClient, err := c.getDiscoveryClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return scaleResource(ctx, dynamicClient, discoveryClient, c.builtinResources, namespace, resourceType, apiGroup, name, replicas, c.dryRun)
+	return scaleResource(ctx, dynamicClient, discoveryClient, namespace, resourceType, apiGroup, name, replicas, c.dryRun)
 }
 
 // ========== PodManager Implementation ==========

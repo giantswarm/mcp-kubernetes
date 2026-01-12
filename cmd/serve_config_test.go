@@ -300,3 +300,84 @@ func TestValidateOAuthClientIDSecurityCases(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateOAuthBaseURL tests OAuth base URL validation with localhost support for development
+func TestValidateOAuthBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+		errMsg  string
+	}{
+		// Valid URLs
+		{
+			name:    "HTTPS production URL",
+			url:     "https://mcp.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "HTTPS production URL with path",
+			url:     "https://mcp.example.com/oauth",
+			wantErr: false,
+		},
+		{
+			name:    "HTTPS localhost (TLS development)",
+			url:     "https://localhost:8080",
+			wantErr: false,
+		},
+		{
+			name:    "HTTP localhost (development)",
+			url:     "http://localhost:8080",
+			wantErr: false,
+		},
+		{
+			name:    "HTTP 127.0.0.1 (development)",
+			url:     "http://127.0.0.1:8080",
+			wantErr: false,
+		},
+		{
+			name:    "HTTP IPv6 loopback (development)",
+			url:     "http://[::1]:8080",
+			wantErr: false,
+		},
+		// Invalid URLs
+		{
+			name:    "HTTP non-localhost (production without HTTPS)",
+			url:     "http://mcp.example.com",
+			wantErr: true,
+			errMsg:  "must use HTTPS for non-localhost",
+		},
+		{
+			name:    "empty URL",
+			url:     "",
+			wantErr: true,
+			errMsg:  "cannot be empty",
+		},
+		{
+			name:    "invalid scheme",
+			url:     "ftp://mcp.example.com",
+			wantErr: true,
+			errMsg:  "must use http or https scheme",
+		},
+		{
+			name:    "no scheme",
+			url:     "mcp.example.com",
+			wantErr: true,
+			errMsg:  "must use http or https scheme",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthBaseURL(tt.url)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

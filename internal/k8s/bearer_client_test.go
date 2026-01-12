@@ -20,12 +20,11 @@ func TestBearerTokenClientFactory_CreateBearerTokenClient(t *testing.T) {
 	t.Run("empty bearer token returns error", func(t *testing.T) {
 		// Create a mock factory with test values
 		factory := &BearerTokenClientFactory{
-			clusterHost:      "https://kubernetes.default.svc",
-			caCertFile:       "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
-			qpsLimit:         20.0,
-			burstLimit:       30,
-			timeout:          30 * time.Second,
-			builtinResources: initBuiltinResources(),
+			clusterHost: "https://kubernetes.default.svc",
+			caCertFile:  "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+			qpsLimit:    20.0,
+			burstLimit:  30,
+			timeout:     30 * time.Second,
 		}
 
 		client, err := factory.CreateBearerTokenClient("")
@@ -36,12 +35,11 @@ func TestBearerTokenClientFactory_CreateBearerTokenClient(t *testing.T) {
 
 	t.Run("valid bearer token creates client", func(t *testing.T) {
 		factory := &BearerTokenClientFactory{
-			clusterHost:      "https://kubernetes.default.svc",
-			caCertFile:       "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
-			qpsLimit:         20.0,
-			burstLimit:       30,
-			timeout:          30 * time.Second,
-			builtinResources: initBuiltinResources(),
+			clusterHost: "https://kubernetes.default.svc",
+			caCertFile:  "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+			qpsLimit:    20.0,
+			burstLimit:  30,
+			timeout:     30 * time.Second,
 		}
 
 		client, err := factory.CreateBearerTokenClient("test-token")
@@ -59,10 +57,9 @@ func TestBearerTokenClientFactory_CreateBearerTokenClient(t *testing.T) {
 // TestBearerTokenClient_ContextMethods tests the context management methods.
 func TestBearerTokenClient_ContextMethods(t *testing.T) {
 	client := &bearerTokenClient{
-		bearerToken:      "test-token",
-		clusterHost:      "https://kubernetes.default.svc",
-		caCertFile:       "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
-		builtinResources: initBuiltinResources(),
+		bearerToken: "test-token",
+		clusterHost: "https://kubernetes.default.svc",
+		caCertFile:  "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
 	}
 
 	t.Run("ListContexts returns in-cluster context", func(t *testing.T) {
@@ -166,38 +163,4 @@ func TestBearerTokenClient_NamespaceRestriction(t *testing.T) {
 		assert.NoError(t, client.isNamespaceRestricted("default"))
 		assert.NoError(t, client.isNamespaceRestricted("my-namespace"))
 	})
-}
-
-// TestInitBuiltinResources verifies the builtin resources mapping is complete.
-func TestInitBuiltinResources(t *testing.T) {
-	resources := initBuiltinResources()
-
-	// Test common resource types
-	expectedResources := []string{
-		"pods", "pod",
-		"services", "service", "svc",
-		"deployments", "deployment", "deploy",
-		"configmaps", "configmap", "cm",
-		"secrets", "secret",
-		"namespaces", "namespace", "ns",
-		"nodes", "node",
-		"ingresses", "ingress", "ing",
-	}
-
-	for _, resourceType := range expectedResources {
-		_, exists := resources[resourceType]
-		assert.True(t, exists, "Resource type %s should exist in builtin resources", resourceType)
-	}
-
-	// Verify pods GVR
-	podGVR := resources["pods"]
-	assert.Equal(t, "", podGVR.Group)
-	assert.Equal(t, "v1", podGVR.Version)
-	assert.Equal(t, "pods", podGVR.Resource)
-
-	// Verify deployments GVR
-	deployGVR := resources["deployments"]
-	assert.Equal(t, "apps", deployGVR.Group)
-	assert.Equal(t, "v1", deployGVR.Version)
-	assert.Equal(t, "deployments", deployGVR.Resource)
 }

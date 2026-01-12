@@ -8,7 +8,8 @@ A Model Context Protocol (MCP) server that provides tools for interacting with K
 - **Pod Operations**: Get logs, execute commands, and set up port forwarding
 - **Context Management**: List, get, and switch between Kubernetes contexts
 - **Cluster Information**: Get API resources and cluster health status
-- **Multiple Authentication Modes**: Support for kubeconfig, in-cluster, and OAuth 2.1 authentication
+- **Multiple Authentication Modes**: Support for kubeconfig, in-cluster, OAuth 2.1, and federated multi-cluster authentication
+- **Multi-Cluster Support**: Federation with Cluster API (CAPI) for managing workload clusters from a management cluster
 - **Multiple Transport Types**: Support for stdio and streamable HTTP
 - **Safety Features**: Non-destructive mode, dry-run capability, and operation restrictions
 - **OAuth 2.1 Support**: Secure token-based authentication with Dex OIDC (default) and Google OAuth providers
@@ -37,7 +38,7 @@ mcp-kubernetes serve --in-cluster
 
 ### Authentication Modes
 
-The server supports two authentication modes:
+The server supports multiple authentication modes:
 
 #### Kubeconfig Authentication (Default)
 Uses standard kubeconfig file authentication. The server will look for kubeconfig in the default locations (`~/.kube/config`) or use the `KUBECONFIG` environment variable.
@@ -91,6 +92,33 @@ mcp-kubernetes serve \
 ```
 
 **See [docs/oauth.md](docs/oauth.md) for detailed OAuth setup and configuration.**
+
+#### Federation (Multi-Cluster with CAPI)
+Enables access to multiple workload clusters through a management cluster using Cluster API (CAPI). The server discovers workload clusters dynamically and uses user impersonation for RBAC enforcement on each cluster.
+
+```bash
+# Enable federation mode with OAuth
+mcp-kubernetes serve \
+  --transport=streamable-http \
+  --in-cluster \
+  --enable-oauth \
+  --downstream-oauth \
+  --enable-capi \
+  --oauth-base-url=https://mcp.example.com \
+  --dex-issuer-url=https://dex.example.com \
+  --dex-client-id=mcp-kubernetes \
+  --dex-client-secret=YOUR_DEX_SECRET
+```
+
+**Security model:**
+- **Management Cluster RBAC**: Users must have permission to list CAPI Cluster resources and read kubeconfig secrets
+- **Workload Cluster RBAC**: Operations use impersonation headers, delegating authorization to each cluster's RBAC policies
+- **User Isolation**: Cached clients are keyed by (cluster, user) pairs to prevent cross-user access
+
+**Impersonation headers added to workload cluster requests:**
+- `Impersonate-User`: User's email from OAuth
+- `Impersonate-Group`: User's groups from OAuth
+- `Impersonate-Extra-agent`: `mcp-kubernetes` (for audit trail)
 
 ### Observability
 
@@ -289,7 +317,7 @@ make lint
 
 **Recommended Solutions:**
 - HashiCorp Vault
-- AWS Secrets Manager  
+- AWS Secrets Manager
 - Google Cloud Secret Manager
 - Azure Key Vault
 - Kubernetes External Secrets Operator

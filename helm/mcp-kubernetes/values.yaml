@@ -217,6 +217,12 @@ mcpKubernetes:
     # Allow authorization requests without state parameter
     # WARNING: Weakens CSRF protection, only enable for compatibility with older clients
     allowInsecureAuthWithoutState: false
+    # Allow OAuth base URL and Dex issuer URL to resolve to private/internal IP addresses
+    # Enable this for home lab, air-gapped, or internal enterprise deployments
+    # where the MCP server is only accessible from an internal network or VPN.
+    # WARNING: Reduces SSRF protection - only enable for internal deployments
+    # not exposed to the public internet.
+    allowPrivateURLs: false
     # Maximum number of OAuth clients that can be registered per IP address
     # Prevents DoS attacks via mass client registration
     maxClientsPerIP: 10
@@ -283,6 +289,107 @@ mcpKubernetes:
         # Key in the secret containing the Valkey password
         secretKeyPassword: "valkey-password"
 
+    # Redirect URI Security Configuration
+    # All settings default to secure values. Operators must explicitly opt-out.
+    # These settings control security validation of redirect URIs during client
+    # registration and authorization flows (SSRF and open redirect protection).
+    redirectURISecurity:
+      # Disable production mode security validation
+      # Production mode enforces: HTTPS required, private IPs blocked, dangerous schemes blocked
+      # WARNING: Significantly weakens redirect URI security. Only disable for development.
+      # Default: false (production mode is enabled)
+      disableProductionMode: false
+
+      # Allow http://localhost and http://127.0.0.1 redirect URIs
+      # Required for native apps per RFC 8252 Section 7.3
+      # Default: false (operators must explicitly enable for native app support)
+      allowLocalhostRedirectURIs: false
+
+      # Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs
+      # WARNING: Enables SSRF attacks to internal networks if not properly secured.
+      # Only enable for internal/VPN deployments where clients use private IPs.
+      # Default: false (blocked for security)
+      allowPrivateIPRedirectURIs: false
+
+      # Allow link-local addresses (169.254.x.x, fe80::/10) in redirect URIs
+      # WARNING: Could enable access to cloud metadata services (169.254.169.254).
+      # This is a significant security risk in AWS, GCP, Azure environments.
+      # Default: false (blocked for security)
+      allowLinkLocalRedirectURIs: false
+
+      # Disable DNS validation of redirect URI hostnames
+      # DNS validation checks if hostnames resolve to private/internal IPs.
+      # WARNING: Disabling allows potential DNS rebinding attacks.
+      # Default: false (DNS validation is enabled)
+      disableDNSValidation: false
+
+      # Disable fail-closed DNS validation
+      # When strict mode is enabled, DNS resolution failures block client registration.
+      # When disabled, DNS failures are logged but registration proceeds (fail-open).
+      # WARNING: Disabling allows potential DNS validation bypass via intentional failures.
+      # Default: false (strict mode is enabled)
+      disableDNSValidationStrict: false
+
+      # Disable redirect URI validation at authorization time
+      # By default, redirect URIs are re-validated during authorization requests,
+      # not just at registration time. This protects against TOCTOU attacks.
+      # WARNING: Disabling allows DNS rebinding attacks between registration and use.
+      # Default: false (authorization-time validation is enabled)
+      disableAuthorizationTimeValidation: false
+
+    # Trusted Scheme Registration for Cursor/VSCode Compatibility
+    # This feature allows unauthenticated client registration for clients using
+    # specific custom URI schemes (e.g., cursor://, vscode://), while requiring
+    # registration tokens for all other clients.
+    #
+    # Security Model:
+    # Custom URI schemes can only be intercepted by the application that registered
+    # the scheme with the OS. An attacker cannot register a malicious OAuth client
+    # with cursor:// because they cannot receive the authorization callback.
+    #
+    # IMPORTANT: This security model has platform-specific limitations:
+    # - On macOS, multiple apps can register for the same scheme (OS prompts user)
+    # - On some platforms, scheme registration is first-come-first-served
+    # - Malware with elevated privileges could potentially hijack scheme handlers
+    #
+    # Recommendation: This feature is most appropriate for:
+    # - Internal/corporate deployments where client machines are managed
+    # - Development environments
+    # - Scenarios where the convenience outweighs the platform-specific risks
+    #
+    # For high-security production deployments exposed to the internet, consider
+    # using registration tokens instead (--registration-token).
+    #
+    # Schemes must conform to RFC 3986: start with a letter, followed by letters,
+    # digits, plus (+), hyphen (-), or period (.). Dangerous schemes (javascript,
+    # data, file, ftp) are blocked.
+    #
+    # Example: ["cursor", "vscode", "vscode-insiders", "windsurf"]
+    # Default: [] (all registrations require a token)
+    trustedPublicRegistrationSchemes: []
+
+    # Disable strict scheme matching for trusted scheme registration
+    # When strict matching is enabled (default), ALL redirect URIs in a registration
+    # request must use schemes from trustedPublicRegistrationSchemes.
+    # When disabled, if ANY redirect URI uses a trusted scheme, registration is allowed.
+    # WARNING: Reduces security by allowing untrusted redirect URIs alongside trusted ones.
+    # Default: false (strict matching is enabled)
+    disableStrictSchemeMatching: false
+
+    # Client ID Metadata Documents (CIMD) - MCP 2025-11-25
+    # When enabled, clients can use HTTPS URLs as client identifiers (e.g.,
+    # https://myapp.example.com/.well-known/oauth-client). The authorization server
+    # fetches client metadata from that URL, enabling decentralized client registration.
+    #
+    # Security: CIMD requires the server to make outbound HTTPS requests. The mcp-oauth
+    # library implements comprehensive SSRF protection (blocks private IPs, DNS rebinding).
+    #
+    # Network Policy: When OAuth is enabled, egress to "world" is already allowed in
+    # the CiliumNetworkPolicy, which permits CIMD metadata fetching.
+    #
+    # Default: true (enabled per MCP 2025-11-25 specification)
+    enableCIMD: true
+
   # OpenTelemetry Instrumentation configuration
   instrumentation:
     # Enable OpenTelemetry instrumentation (default: true)
@@ -319,6 +426,25 @@ mcpKubernetes:
       relabelings: []
       # Metric relabelings for the ServiceMonitor
       metricRelabelings: []
+
+  # Metrics server configuration
+  # The metrics server runs on a separate port from the main application for security.
+  # This prevents unauthorized access to operational metrics via the public API endpoint.
+  #
+  # SECURITY NOTES:
+  # - Metrics are NOT exposed via Ingress (only the main application port 8080 is)
+  # - The /metrics endpoint reveals operational information (Go version, memory stats, etc.)
+  # - In multi-tenant clusters, consider adding a NetworkPolicy to restrict metrics access
+  #   to only Prometheus pods (see README.md for an example)
+  # - For high-security environments, set enabled: false to completely disable metrics
+  metrics:
+    # Enable the dedicated metrics server (default: true)
+    # Set to false in high-security environments where metrics exposure is not acceptable
+    enabled: true
+    # Port for the metrics server (default: 9090)
+    # This port is exposed in the Service but NOT via Ingress
+    # Only cluster-internal workloads can access this port by default
+    port: 9090
 
   # Service configuration
   service:
