@@ -55,7 +55,7 @@ spec:
             - --enable-oauth=true
             - --oauth-base-url={{ required "mcpKubernetes.oauth.baseURL is required when OAuth is enabled" .Values.mcpKubernetes.oauth.baseURL }}
             - --oauth-provider={{ .Values.mcpKubernetes.oauth.provider | default "dex" }}
-            {{- if .Values.mcpKubernetes.oauth.allowPublicClientRegistration }}
+            {{- if .Values.mcpKubernetes.oauth.allowPublicRegistration }}
             - --allow-public-registration=true
             {{- else }}
             - --allow-public-registration=false
