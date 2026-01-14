@@ -205,7 +205,7 @@ func TestOAuthProviderValidation(t *testing.T) {
 			errMsg:  "--oauth-base-url is required",
 		},
 		{
-			name: "missing registration token when public registration disabled",
+			name: "missing registration token when public registration disabled and CIMD disabled",
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
@@ -216,10 +216,28 @@ func TestOAuthProviderValidation(t *testing.T) {
 					DexClientID:             "test-client-id",
 					DexClientSecret:         "test-client-secret",
 					AllowPublicRegistration: false,
+					EnableCIMD:              false,
 				},
 			},
 			wantErr: true,
 			errMsg:  "--registration-token is required",
+		},
+		{
+			name: "CIMD enabled allows registration without token",
+			config: ServeConfig{
+				Transport: "streamable-http",
+				OAuth: OAuthServeConfig{
+					Enabled:                 true,
+					Provider:                OAuthProviderDex,
+					BaseURL:                 "https://mcp.example.com",
+					DexIssuerURL:            "https://dex.example.com",
+					DexClientID:             "test-client-id",
+					DexClientSecret:         "test-client-secret",
+					AllowPublicRegistration: false,
+					EnableCIMD:              true,
+				},
+			},
+			wantErr: false,
 		},
 		{
 			name: "public registration allowed without token",
@@ -376,10 +394,13 @@ func validateOAuthConfig(config OAuthServeConfig) error {
 
 	// Registration token is required unless:
 	// 1. Public registration is enabled (anyone can register), OR
-	// 2. Trusted schemes are configured (Cursor/VSCode can register without token)
+	// 2. Trusted schemes are configured (Cursor/VSCode can register without token), OR
+	// 3. CIMD is enabled (clients use HTTPS URLs as client IDs)
 	hasTrustedSchemes := len(config.TrustedPublicRegistrationSchemes) > 0
-	if !config.AllowPublicRegistration && config.RegistrationToken == "" && !hasTrustedSchemes {
-		return fmt.Errorf("--registration-token is required when public registration is disabled and no trusted schemes are configured")
+	cimdEnabled := config.EnableCIMD
+	if !config.AllowPublicRegistration && config.RegistrationToken == "" && !hasTrustedSchemes && !cimdEnabled {
+		return fmt.Errorf("--registration-token is required when public registration is disabled, " +
+			"no trusted schemes are configured, and CIMD is disabled")
 	}
 
 	return nil
@@ -531,11 +552,12 @@ func TestTrustedSchemesAllowsRegistrationWithoutToken(t *testing.T) {
 				DexClientSecret:                  "test-client-secret",
 				AllowPublicRegistration:          false,
 				TrustedPublicRegistrationSchemes: []string{"cursor", "vscode"},
+				EnableCIMD:                       false, // Explicitly disabled to test trusted schemes alone
 			},
 			wantErr: false,
 		},
 		{
-			name: "no token and no trusted schemes fails",
+			name: "no token, no trusted schemes, and no CIMD fails",
 			config: OAuthServeConfig{
 				Enabled:                          true,
 				Provider:                         OAuthProviderDex,
@@ -545,9 +567,40 @@ func TestTrustedSchemesAllowsRegistrationWithoutToken(t *testing.T) {
 				DexClientSecret:                  "test-client-secret",
 				AllowPublicRegistration:          false,
 				TrustedPublicRegistrationSchemes: nil,
+				EnableCIMD:                       false, // All client registration methods disabled
 			},
 			wantErr: true,
 			errMsg:  "--registration-token is required",
+		},
+		{
+			name: "CIMD alone allows registration without token",
+			config: OAuthServeConfig{
+				Enabled:                          true,
+				Provider:                         OAuthProviderDex,
+				BaseURL:                          "https://mcp.example.com",
+				DexIssuerURL:                     "https://dex.example.com",
+				DexClientID:                      "test-client-id",
+				DexClientSecret:                  "test-client-secret",
+				AllowPublicRegistration:          false,
+				TrustedPublicRegistrationSchemes: nil,
+				EnableCIMD:                       true, // CIMD provides client registration
+			},
+			wantErr: false,
+		},
+		{
+			name: "CIMD and trusted schemes together is valid",
+			config: OAuthServeConfig{
+				Enabled:                          true,
+				Provider:                         OAuthProviderDex,
+				BaseURL:                          "https://mcp.example.com",
+				DexIssuerURL:                     "https://dex.example.com",
+				DexClientID:                      "test-client-id",
+				DexClientSecret:                  "test-client-secret",
+				AllowPublicRegistration:          false,
+				TrustedPublicRegistrationSchemes: []string{"cursor"},
+				EnableCIMD:                       true, // Both methods enabled
+			},
+			wantErr: false,
 		},
 		{
 			name: "invalid trusted scheme fails validation",
@@ -560,6 +613,7 @@ func TestTrustedSchemesAllowsRegistrationWithoutToken(t *testing.T) {
 				DexClientSecret:                  "test-client-secret",
 				AllowPublicRegistration:          false,
 				TrustedPublicRegistrationSchemes: []string{"javascript"},
+				EnableCIMD:                       false,
 			},
 			wantErr: true,
 			errMsg:  "not allowed",

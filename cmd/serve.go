@@ -725,11 +725,15 @@ func runServe(config ServeConfig) error {
 
 			// Registration token is required unless:
 			// 1. Public registration is enabled (anyone can register), OR
-			// 2. Trusted schemes are configured (Cursor/VSCode can register without token)
+			// 2. Trusted schemes are configured (Cursor/VSCode can register without token), OR
+			// 3. CIMD is enabled (clients use HTTPS URLs as client IDs)
 			hasTrustedSchemes := len(config.OAuth.TrustedPublicRegistrationSchemes) > 0
-			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" && !hasTrustedSchemes {
-				return fmt.Errorf("--registration-token is required when public registration is disabled and no trusted schemes are configured. " +
-					"Either set --registration-token, enable --allow-public-registration, or configure --trusted-public-registration-schemes for Cursor/VSCode")
+			cimdEnabled := config.OAuth.EnableCIMD
+			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" && !hasTrustedSchemes && !cimdEnabled {
+				return fmt.Errorf("--registration-token is required when public registration is disabled, " +
+					"no trusted schemes are configured, and CIMD is disabled. " +
+					"Either set --registration-token, enable --allow-public-registration, " +
+					"configure --trusted-public-registration-schemes, or enable --enable-cimd")
 			}
 
 			// Prepare encryption key if provided (must be base64 encoded)
