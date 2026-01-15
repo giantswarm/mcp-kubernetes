@@ -368,7 +368,7 @@ Downstream OAuth (--downstream-oauth):
 
 	// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
 	cmd.Flags().BoolVar(&enableCIMD, "enable-cimd", true, "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers (can also be set via ENABLE_CIMD env var)")
-	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Allow CIMD metadata URLs that resolve to private/internal IP addresses. WARNING: SSRF risk. Only for internal deployments (can also be set via CIMD_ALLOW_PRIVATE_IPS env var)")
+	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Allow CIMD metadata URLs to resolve to private IPs (SSRF risk; internal deployments only)")
 
 	return cmd
 }
