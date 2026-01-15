@@ -113,6 +113,10 @@ spec:
             {{- if hasKey .Values.mcpKubernetes.oauth "enableCIMD" }}
             - --enable-cimd={{ .Values.mcpKubernetes.oauth.enableCIMD }}
             {{- end }}
+            {{- /* CIMD private IP allowlist for internal deployments */ -}}
+            {{- if and .Values.mcpKubernetes.oauth.cimd .Values.mcpKubernetes.oauth.cimd.allowPrivateIPs }}
+            - --cimd-allow-private-ips=true
+            {{- end }}
             {{- end }}
             {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
             - --metrics-enabled=true

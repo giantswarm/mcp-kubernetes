@@ -144,6 +144,21 @@ type OAuthServeConfig struct {
 	// Default: true (enabled per MCP 2025-11-25 specification)
 	EnableCIMD bool
 
+	// CIMDAllowPrivateIPs allows CIMD metadata URLs that resolve to private IP addresses
+	// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 per RFC 1918). This also allows loopback
+	// addresses (127.0.0.0/8, ::1) and link-local addresses.
+	// WARNING: Reduces SSRF protection. Only enable for internal/VPN deployments where
+	// MCP servers legitimately communicate over private networks.
+	//
+	// Use cases:
+	//   - Home lab deployments
+	//   - Air-gapped environments
+	//   - Internal enterprise networks
+	//   - Any deployment where MCP servers communicate over private networks
+	//
+	// Default: false (blocked for security)
+	CIMDAllowPrivateIPs bool
+
 	// Storage configuration
 	Storage server.OAuthStorageConfig
 }

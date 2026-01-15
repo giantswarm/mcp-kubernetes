@@ -163,7 +163,8 @@ func newServeCmd() *cobra.Command {
 		disableStrictSchemeMatching      bool
 
 		// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
-		enableCIMD bool
+		enableCIMD          bool
+		cimdAllowPrivateIPs bool
 	)
 
 	cmd := &cobra.Command{
@@ -215,6 +216,20 @@ Downstream OAuth (--downstream-oauth):
 						slog.Warn("invalid ENABLE_CIMD value, using default",
 							"value", envVal,
 							"default", enableCIMD,
+							"error", err)
+					}
+				}
+			}
+
+			// CIMD allow private IPs env var - only apply if flag was not explicitly set
+			if !cmd.Flags().Changed("cimd-allow-private-ips") {
+				if envVal := os.Getenv("CIMD_ALLOW_PRIVATE_IPS"); envVal != "" {
+					if parsed, err := strconv.ParseBool(envVal); err == nil {
+						cimdAllowPrivateIPs = parsed
+					} else {
+						slog.Warn("invalid CIMD_ALLOW_PRIVATE_IPS value, using default",
+							"value", envVal,
+							"default", cimdAllowPrivateIPs,
 							"error", err)
 					}
 				}
@@ -273,6 +288,7 @@ Downstream OAuth (--downstream-oauth):
 					TrustedPublicRegistrationSchemes: trustedPublicRegistrationSchemes,
 					DisableStrictSchemeMatching:      disableStrictSchemeMatching,
 					EnableCIMD:                       enableCIMD,
+					CIMDAllowPrivateIPs:              cimdAllowPrivateIPs,
 				},
 				DownstreamOAuth: downstreamOAuth,
 				Metrics: MetricsServeConfig{
@@ -352,6 +368,7 @@ Downstream OAuth (--downstream-oauth):
 
 	// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
 	cmd.Flags().BoolVar(&enableCIMD, "enable-cimd", true, "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers (can also be set via ENABLE_CIMD env var)")
+	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Allow CIMD metadata URLs that resolve to private/internal IP addresses. WARNING: SSRF risk. Only for internal deployments (can also be set via CIMD_ALLOW_PRIVATE_IPS env var)")
 
 	return cmd
 }
@@ -773,6 +790,10 @@ func runServe(config ServeConfig) error {
 				fmt.Println("WARNING: Private URL validation disabled - OAuth URLs may resolve to internal IP addresses")
 				fmt.Println("         This reduces SSRF protection. Only use for internal/air-gapped deployments.")
 			}
+			if config.OAuth.CIMDAllowPrivateIPs {
+				fmt.Println("WARNING: CIMD private IP allowlist enabled - CIMD metadata URLs may resolve to internal IP addresses")
+				fmt.Println("         This reduces SSRF protection. Only use for internal/air-gapped deployments.")
+			}
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
 				ServiceVersion:                     rootCmd.Version,
@@ -804,7 +825,8 @@ func runServe(config ServeConfig) error {
 				TrustedPublicRegistrationSchemes: config.OAuth.TrustedPublicRegistrationSchemes,
 				DisableStrictSchemeMatching:      config.OAuth.DisableStrictSchemeMatching,
 				// CIMD (Client ID Metadata Documents) per MCP 2025-11-25
-				EnableCIMD: config.OAuth.EnableCIMD,
+				EnableCIMD:          config.OAuth.EnableCIMD,
+				CIMDAllowPrivateIPs: config.OAuth.CIMDAllowPrivateIPs,
 			}, serverContext, config.Metrics)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)

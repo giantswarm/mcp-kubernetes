@@ -113,6 +113,47 @@ func TestCreateOAuthServerCIMDDisabled(t *testing.T) {
 	assert.False(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be disabled when configured")
 }
 
+// TestCreateOAuthServerCIMDAllowPrivateIPs tests OAuth server creation with CIMD private IP allowlist
+func TestCreateOAuthServerCIMDAllowPrivateIPs(t *testing.T) {
+	tests := []struct {
+		name                string
+		cimdAllowPrivateIPs bool
+		expectPrivateIPs    bool
+	}{
+		{
+			name:                "CIMD private IPs disabled (default)",
+			cimdAllowPrivateIPs: false,
+			expectPrivateIPs:    false,
+		},
+		{
+			name:                "CIMD private IPs enabled for internal deployments",
+			cimdAllowPrivateIPs: true,
+			expectPrivateIPs:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := OAuthConfig{
+				BaseURL:             "https://mcp.example.com",
+				Provider:            OAuthProviderGoogle,
+				GoogleClientID:      "test-client-id",
+				GoogleClientSecret:  "test-client-secret",
+				EnableCIMD:          true,
+				CIMDAllowPrivateIPs: tt.cimdAllowPrivateIPs,
+			}
+
+			oauthServer, _, err := createOAuthServer(config)
+
+			assert.NoError(t, err)
+			assert.NotNil(t, oauthServer)
+			assert.True(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be enabled")
+			assert.Equal(t, tt.expectPrivateIPs, oauthServer.Config.AllowPrivateIPClientMetadata,
+				"AllowPrivateIPClientMetadata should match configuration")
+		})
+	}
+}
+
 // TestCreateOAuthServerWithDefaults tests OAuth server creation with default values
 func TestCreateOAuthServerWithDefaults(t *testing.T) {
 	config := OAuthConfig{

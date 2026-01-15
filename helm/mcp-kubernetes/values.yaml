@@ -390,6 +390,24 @@ mcpKubernetes:
     # Default: true (enabled per MCP 2025-11-25 specification)
     enableCIMD: true
 
+    # CIMD Private IP Configuration
+    cimd:
+      # Allow CIMD metadata URLs that resolve to private/internal IP addresses
+      # (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 per RFC 1918). This also allows
+      # loopback addresses (127.0.0.0/8, ::1) and link-local addresses.
+      #
+      # Use cases:
+      #   - Home lab deployments where MCP servers are on the same internal network
+      #   - Air-gapped environments
+      #   - Internal enterprise networks
+      #   - Any deployment where MCP servers communicate over private networks
+      #
+      # WARNING: Reduces SSRF protection. Only enable for internal deployments
+      # that are not exposed to the public internet.
+      #
+      # Default: false (blocked for security)
+      allowPrivateIPs: false
+
   # OpenTelemetry Instrumentation configuration
   instrumentation:
     # Enable OpenTelemetry instrumentation (default: true)
