@@ -424,6 +424,35 @@ CIMD can be controlled via:
 - **CLI Flag**: `--enable-cimd=true|false` (default: `true`)
 - **Environment Variable**: `ENABLE_CIMD=true|false`
 
+### CIMD Private IP Allowlist
+
+By default, CIMD metadata URLs must resolve to public IP addresses for SSRF protection. For internal deployments where MCP servers communicate over private networks, you can allow CIMD metadata URLs to resolve to private IPs:
+
+**CLI Flag**: `--cimd-allow-private-ips=true|false` (default: `false`)
+**Environment Variable**: `CIMD_ALLOW_PRIVATE_IPS=true|false`
+
+**Helm Values**:
+```yaml
+mcpKubernetes:
+  oauth:
+    enableCIMD: true
+    cimd:
+      allowPrivateIPs: true  # Allow CIMD metadata URLs on private networks
+```
+
+**Use Cases**:
+- Home lab deployments where MCP servers are on the same internal network
+- Air-gapped environments
+- Internal enterprise networks
+- Any deployment where MCP aggregators and servers communicate over private networks
+
+**Warning**: This reduces SSRF protection. Only enable for deployments that are:
+- Not exposed to the public internet
+- Running on internal networks, VPNs, or air-gapped environments
+- Where MCP servers use private infrastructure
+
+**Security Note**: When enabled, the server will fetch client metadata from URLs that resolve to private IPs. PKCE and other OAuth security measures still apply.
+
 ### Observability
 
 CIMD operations are instrumented by the mcp-oauth library with the following metrics:

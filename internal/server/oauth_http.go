@@ -256,6 +256,11 @@ type OAuthConfig struct {
 	// When enabled, clients can use HTTPS URLs as client identifiers.
 	// Default: true (enabled for MCP 2025-11-25 compliance)
 	EnableCIMD bool
+
+	// CIMDAllowPrivateIPs allows CIMD metadata URLs to resolve to private/internal IPs.
+	// See cmd.OAuthServeConfig.CIMDAllowPrivateIPs for detailed documentation.
+	// Default: false (blocked for security)
+	CIMDAllowPrivateIPs bool
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -464,6 +469,10 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// The authorization server fetches client metadata from that URL
 		// Configurable via config.EnableCIMD (defaults to true for MCP compliance)
 		EnableClientIDMetadataDocuments: config.EnableCIMD,
+
+		// Allow CIMD metadata URLs that resolve to private IP addresses
+		// Required for internal deployments where MCP servers communicate over private networks
+		AllowPrivateIPClientMetadata: config.CIMDAllowPrivateIPs,
 
 		// Trusted scheme registration for Cursor/VSCode compatibility
 		// Allows unauthenticated registration for clients using these schemes only

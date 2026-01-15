@@ -214,6 +214,157 @@ func TestRunServeWithInCluster(t *testing.T) {
 	}
 }
 
+// TestCIMDEnvVarParsing tests that CIMD environment variables are correctly parsed
+func TestCIMDEnvVarParsing(t *testing.T) {
+	tests := []struct {
+		name           string
+		envVar         string
+		envValue       string
+		flagName       string
+		expectedValue  bool
+		expectWarning  bool
+		setFlag        bool // if true, set the flag explicitly (should override env)
+		flagValue      bool
+		expectedResult bool // expected final value when flag is set
+	}{
+		// ENABLE_CIMD tests
+		{
+			name:          "ENABLE_CIMD=true enables CIMD",
+			envVar:        "ENABLE_CIMD",
+			envValue:      "true",
+			flagName:      "enable-cimd",
+			expectedValue: true,
+		},
+		{
+			name:          "ENABLE_CIMD=false disables CIMD",
+			envVar:        "ENABLE_CIMD",
+			envValue:      "false",
+			flagName:      "enable-cimd",
+			expectedValue: false,
+		},
+		{
+			name:          "ENABLE_CIMD=1 enables CIMD",
+			envVar:        "ENABLE_CIMD",
+			envValue:      "1",
+			flagName:      "enable-cimd",
+			expectedValue: true,
+		},
+		{
+			name:          "ENABLE_CIMD=0 disables CIMD",
+			envVar:        "ENABLE_CIMD",
+			envValue:      "0",
+			flagName:      "enable-cimd",
+			expectedValue: false,
+		},
+		{
+			name:          "ENABLE_CIMD invalid value uses default",
+			envVar:        "ENABLE_CIMD",
+			envValue:      "invalid",
+			flagName:      "enable-cimd",
+			expectedValue: true, // default is true
+			expectWarning: true,
+		},
+		// CIMD_ALLOW_PRIVATE_IPS tests
+		{
+			name:          "CIMD_ALLOW_PRIVATE_IPS=true enables private IPs",
+			envVar:        "CIMD_ALLOW_PRIVATE_IPS",
+			envValue:      "true",
+			flagName:      "cimd-allow-private-ips",
+			expectedValue: true,
+		},
+		{
+			name:          "CIMD_ALLOW_PRIVATE_IPS=false keeps disabled",
+			envVar:        "CIMD_ALLOW_PRIVATE_IPS",
+			envValue:      "false",
+			flagName:      "cimd-allow-private-ips",
+			expectedValue: false,
+		},
+		{
+			name:          "CIMD_ALLOW_PRIVATE_IPS invalid value uses default",
+			envVar:        "CIMD_ALLOW_PRIVATE_IPS",
+			envValue:      "notabool",
+			flagName:      "cimd-allow-private-ips",
+			expectedValue: false, // default is false
+			expectWarning: true,
+		},
+		// Flag overrides env var
+		{
+			name:           "flag overrides ENABLE_CIMD env var",
+			envVar:         "ENABLE_CIMD",
+			envValue:       "true",
+			flagName:       "enable-cimd",
+			setFlag:        true,
+			flagValue:      false,
+			expectedResult: false, // flag wins
+		},
+		{
+			name:           "flag overrides CIMD_ALLOW_PRIVATE_IPS env var",
+			envVar:         "CIMD_ALLOW_PRIVATE_IPS",
+			envValue:       "true",
+			flagName:       "cimd-allow-private-ips",
+			setFlag:        true,
+			flagValue:      false,
+			expectedResult: false, // flag wins
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			t.Setenv(tt.envVar, tt.envValue)
+
+			// Create a mock command that captures the parsed values
+			var capturedValue bool
+			cmd := newServeCmd()
+
+			// Replace the RunE to capture values without actually running the server
+			originalRunE := cmd.RunE
+			cmd.RunE = func(c *cobra.Command, args []string) error {
+				// Call the original to trigger env var processing, but catch the error
+				// We use a goroutine with recover to handle any panics
+				err := originalRunE(c, args)
+				// Get the value that was set
+				capturedValue, _ = c.Flags().GetBool(tt.flagName)
+				return err
+			}
+
+			// Build args
+			var cmdArgs []string
+			if tt.setFlag {
+				cmdArgs = append(cmdArgs, "--"+tt.flagName+"="+boolToString(tt.flagValue))
+			}
+			// Add minimal required args to avoid other validation errors
+			cmdArgs = append(cmdArgs, "--transport=stdio")
+			cmd.SetArgs(cmdArgs)
+
+			// Suppress output during test
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+
+			// Execute - we expect it to fail (no kubeconfig), but env vars should be parsed
+			_ = cmd.Execute()
+
+			// Check the captured value
+			if tt.setFlag {
+				assert.Equal(t, tt.expectedResult, capturedValue,
+					"expected flag to override env var to %v", tt.expectedResult)
+			} else {
+				assert.Equal(t, tt.expectedValue, capturedValue,
+					"expected env var %s=%s to set %s to %v",
+					tt.envVar, tt.envValue, tt.flagName, tt.expectedValue)
+			}
+		})
+	}
+}
+
+// boolToString converts a bool to "true" or "false" string
+func boolToString(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
 // Helper function to create a test kubeconfig file
 func createTestKubeconfigFile(t *testing.T, dir string) string {
 	kubeconfigContent := `

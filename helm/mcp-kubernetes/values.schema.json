@@ -423,6 +423,16 @@
             "enableCIMD": {
               "type": "boolean",
               "description": "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers for decentralized registration. Default: true."
+            },
+            "cimd": {
+              "type": "object",
+              "description": "CIMD (Client ID Metadata Documents) configuration",
+              "properties": {
+                "allowPrivateIPs": {
+                  "type": "boolean",
+                  "description": "Allow CIMD metadata URLs that resolve to private/internal IP addresses. WARNING: Reduces SSRF protection. Only for internal deployments. Default: false."
+                }
+              }
             }
           }
         },
