@@ -41,7 +41,7 @@ func TestNewFederatedClient(t *testing.T) {
 			name: "nil dynamic client should fail",
 			config: &FederatedClientConfig{
 				ClusterName:   "test-cluster",
-				Clientset:     fake.NewSimpleClientset(),
+				Clientset:     fake.NewClientset(),
 				DynamicClient: nil,
 				RestConfig:    &rest.Config{Host: "https://test:6443"},
 			},
@@ -52,7 +52,7 @@ func TestNewFederatedClient(t *testing.T) {
 			name: "nil rest config should fail",
 			config: &FederatedClientConfig{
 				ClusterName:   "test-cluster",
-				Clientset:     fake.NewSimpleClientset(),
+				Clientset:     fake.NewClientset(),
 				DynamicClient: &fakedynamic.FakeDynamicClient{},
 				RestConfig:    nil,
 			},
@@ -63,7 +63,7 @@ func TestNewFederatedClient(t *testing.T) {
 			name: "valid config should succeed",
 			config: &FederatedClientConfig{
 				ClusterName:   "test-cluster",
-				Clientset:     fake.NewSimpleClientset(),
+				Clientset:     fake.NewClientset(),
 				DynamicClient: &fakedynamic.FakeDynamicClient{},
 				RestConfig:    &rest.Config{Host: "https://test:6443"},
 			},
@@ -73,7 +73,7 @@ func TestNewFederatedClient(t *testing.T) {
 			name: "empty cluster name should succeed",
 			config: &FederatedClientConfig{
 				ClusterName:   "",
-				Clientset:     fake.NewSimpleClientset(),
+				Clientset:     fake.NewClientset(),
 				DynamicClient: &fakedynamic.FakeDynamicClient{},
 				RestConfig:    &rest.Config{Host: "https://test:6443"},
 			},
@@ -185,7 +185,7 @@ func TestFederatedClient_DiscoveryClientDerived(t *testing.T) {
 
 func TestFederatedClientConfig_Fields(t *testing.T) {
 	// Test that config fields are properly assigned
-	clientset := fake.NewSimpleClientset()
+	clientset := fake.NewClientset()
 	dynamicClient := &fakedynamic.FakeDynamicClient{}
 	restConfig := &rest.Config{Host: "https://api.cluster.example.com:6443"}
 
@@ -211,7 +211,7 @@ func createTestFederatedClient(t *testing.T, clusterName string) *FederatedClien
 
 	config := &FederatedClientConfig{
 		ClusterName:   clusterName,
-		Clientset:     fake.NewSimpleClientset(),
+		Clientset:     fake.NewClientset(),
 		DynamicClient: &fakedynamic.FakeDynamicClient{},
 		RestConfig:    &rest.Config{Host: "https://test-api:6443"},
 	}

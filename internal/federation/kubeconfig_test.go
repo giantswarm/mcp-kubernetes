@@ -291,7 +291,7 @@ func TestExtractKubeconfigData(t *testing.T) {
 	logger := newTestLogger()
 
 	// Create minimal manager just for testing extractKubeconfigData
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
 	clientProvider := &StaticClientProvider{
@@ -719,7 +719,7 @@ func TestCAPISecretConstants(t *testing.T) {
 func TestFindClusterInfoWithDynamicClientError(t *testing.T) {
 	logger := newTestLogger()
 
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
@@ -747,7 +747,7 @@ func TestFindClusterInfoWithDynamicClientError(t *testing.T) {
 func TestGetKubeconfigFromSecretWithClientError(t *testing.T) {
 	logger := newTestLogger()
 
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 
 	// Add reactor to simulate API error
 	fakeClient.PrependReactor("get", "secrets", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
@@ -788,7 +788,7 @@ func TestClusterInfoStruct(t *testing.T) {
 func TestValidateClusterConnectionError(t *testing.T) {
 	logger := newTestLogger()
 
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
 
@@ -816,7 +816,7 @@ func TestValidateClusterConnectionError(t *testing.T) {
 func TestConnectionValidationTimeoutConfigurable(t *testing.T) {
 	logger := newTestLogger()
 
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	testScheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(testScheme)
 

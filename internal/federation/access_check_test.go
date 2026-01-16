@@ -287,7 +287,7 @@ func TestManager_CheckAccess(t *testing.T) {
 			scheme := runtime.NewScheme()
 			_ = authorizationv1.AddToScheme(scheme)
 
-			fakeClient := fake.NewSimpleClientset()
+			fakeClient := fake.NewClientset()
 			if tt.setupClient != nil {
 				tt.setupClient(fakeClient)
 			}
@@ -399,7 +399,7 @@ func TestManager_CheckAccessAllowed(t *testing.T) {
 			scheme := runtime.NewScheme()
 			_ = authorizationv1.AddToScheme(scheme)
 
-			fakeClient := fake.NewSimpleClientset()
+			fakeClient := fake.NewClientset()
 			if tt.setupClient != nil {
 				tt.setupClient(fakeClient)
 			}
@@ -460,7 +460,7 @@ func TestAccessCheck_SARRequestVerification(t *testing.T) {
 	_ = authorizationv1.AddToScheme(scheme)
 
 	var capturedAction k8stesting.Action
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	fakeClient.PrependReactor("create", "selfsubjectaccessreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		capturedAction = action
 		return true, &authorizationv1.SelfSubjectAccessReview{

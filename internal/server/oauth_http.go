@@ -779,9 +779,38 @@ func (s *OAuthHTTPServer) SetHealthChecker(hc *HealthChecker) {
 	s.healthChecker = hc
 }
 
+// extractBearerToken extracts the bearer token from the Authorization header.
+// Returns the token string and true if found, or empty string and false if not.
+func extractBearerToken(r *http.Request) (string, bool) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return "", false
+	}
+
+	// Bearer token format: "Bearer <token>"
+	const bearerPrefix = "Bearer "
+	if len(authHeader) <= len(bearerPrefix) {
+		return "", false
+	}
+	if authHeader[:len(bearerPrefix)] != bearerPrefix {
+		return "", false
+	}
+
+	return authHeader[len(bearerPrefix):], true
+}
+
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's
-// Google OAuth access token into the request context. This token can then be used
-// for downstream Kubernetes API authentication.
+// OAuth provider token (specifically the ID token) into the request context.
+// This token can then be used for downstream Kubernetes API authentication.
+//
+// Token Lookup Strategy:
+// The middleware looks up the provider token using the MCP access token as the key.
+// This ensures we get the most up-to-date provider token, including any tokens that
+// have been proactively refreshed by mcp-oauth's token validation.
+//
+// Background: mcp-oauth stores provider tokens keyed by the MCP access token during
+// token exchange and proactive refresh. Looking up by access token (instead of email)
+// ensures we always get the current provider token, even after automatic refreshes.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log entry to confirm middleware is being called
@@ -793,29 +822,48 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		ctx := r.Context()
 
 		// Get user info from context (set by ValidateToken middleware)
+		// This confirms the token has been validated
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil {
 			slog.Debug("AccessTokenInjector: no user info in context")
 			next.ServeHTTP(w, r)
 			return
 		}
-		if userInfo.Email == "" {
-			slog.Debug("AccessTokenInjector: user info has no email", "user_id", userInfo.ID)
+
+		// Extract the MCP access token from the Authorization header
+		// We use this as the key to look up the provider token, which ensures
+		// we get the most up-to-date token (including proactively refreshed tokens)
+		mcpAccessToken, ok := extractBearerToken(r)
+		if !ok || mcpAccessToken == "" {
+			slog.Debug("AccessTokenInjector: no bearer token in Authorization header",
+				"user_id", userInfo.ID)
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		slog.Debug("AccessTokenInjector: looking up token for user", logging.UserHash(userInfo.Email))
+		slog.Debug("AccessTokenInjector: looking up provider token by MCP access token",
+			logging.UserHash(userInfo.Email))
 
-		// Retrieve the user's stored OAuth token
-		token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
+		// Retrieve the provider token using the MCP access token as the key
+		// This is the same key used by mcp-oauth during token exchange and proactive refresh
+		token, err := s.tokenStore.GetToken(ctx, mcpAccessToken)
 		if err != nil {
-			slog.Debug("AccessTokenInjector: failed to get token from store", logging.UserHash(userInfo.Email), logging.Err(err))
-			next.ServeHTTP(w, r)
-			return
+			slog.Debug("AccessTokenInjector: failed to get token from store by access token",
+				logging.UserHash(userInfo.Email), logging.Err(err))
+			// Fallback to email-based lookup for backwards compatibility
+			token, err = s.tokenStore.GetToken(ctx, userInfo.Email)
+			if err != nil {
+				slog.Debug("AccessTokenInjector: fallback email lookup also failed",
+					logging.UserHash(userInfo.Email), logging.Err(err))
+				next.ServeHTTP(w, r)
+				return
+			}
+			slog.Debug("AccessTokenInjector: using fallback email-based token lookup",
+				logging.UserHash(userInfo.Email))
 		}
 		if token == nil {
-			slog.Debug("AccessTokenInjector: token is nil for user", logging.UserHash(userInfo.Email))
+			slog.Debug("AccessTokenInjector: token is nil for user",
+				logging.UserHash(userInfo.Email))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -824,14 +872,18 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// Kubernetes OIDC validates the ID token, not the access token
 		idToken := mcpoauth.GetIDToken(token)
 		if idToken == "" {
-			slog.Debug("AccessTokenInjector: no ID token in stored token", logging.UserHash(userInfo.Email), slog.Bool("has_access_token", token.AccessToken != ""), slog.Bool("has_refresh_token", token.RefreshToken != ""))
+			slog.Debug("AccessTokenInjector: no ID token in stored token",
+				logging.UserHash(userInfo.Email),
+				slog.Bool("has_access_token", token.AccessToken != ""),
+				slog.Bool("has_refresh_token", token.RefreshToken != ""))
 			slog.Debug("AccessTokenInjector: calling next handler without ID token")
 			next.ServeHTTP(w, r)
 			slog.Debug("AccessTokenInjector: next handler returned (no ID token path)")
 			return
 		}
 
-		slog.Debug("AccessTokenInjector: successfully injected ID token", logging.UserHash(userInfo.Email))
+		slog.Debug("AccessTokenInjector: successfully injected ID token",
+			logging.UserHash(userInfo.Email))
 		ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
 		r = r.WithContext(ctx)
 

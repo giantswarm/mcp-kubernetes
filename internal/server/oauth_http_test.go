@@ -3,11 +3,80 @@
 package server
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 )
+
+// TestExtractBearerToken tests bearer token extraction from Authorization header
+func TestExtractBearerToken(t *testing.T) {
+	tests := []struct {
+		name        string
+		authHeader  string
+		wantToken   string
+		wantSuccess bool
+	}{
+		{
+			name:        "valid bearer token",
+			authHeader:  "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+			wantToken:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+			wantSuccess: true,
+		},
+		{
+			name:        "empty header",
+			authHeader:  "",
+			wantToken:   "",
+			wantSuccess: false,
+		},
+		{
+			name:        "only Bearer prefix",
+			authHeader:  "Bearer ",
+			wantToken:   "",
+			wantSuccess: false,
+		},
+		{
+			name:        "just Bearer without space",
+			authHeader:  "Bearer",
+			wantToken:   "",
+			wantSuccess: false,
+		},
+		{
+			name:        "wrong scheme - Basic",
+			authHeader:  "Basic dXNlcjpwYXNz",
+			wantToken:   "",
+			wantSuccess: false,
+		},
+		{
+			name:        "lowercase bearer not supported",
+			authHeader:  "bearer token123",
+			wantToken:   "",
+			wantSuccess: false,
+		},
+		{
+			name:        "token with spaces in value",
+			authHeader:  "Bearer token with spaces",
+			wantToken:   "token with spaces",
+			wantSuccess: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "http://localhost/test", nil)
+			assert.NoError(t, err)
+
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+
+			token, ok := extractBearerToken(req)
+			assert.Equal(t, tt.wantSuccess, ok)
+			assert.Equal(t, tt.wantToken, token)
+		})
+	}
+}
 
 // TestValidateHTTPSRequirement tests HTTPS validation for OAuth 2.1 compliance
 func TestValidateHTTPSRequirement(t *testing.T) {
