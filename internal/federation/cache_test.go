@@ -174,7 +174,7 @@ func TestClientCache_SetAndGet(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -241,7 +241,7 @@ func TestClientCache_TTLExpiration(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -274,7 +274,7 @@ func TestClientCache_Delete(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -304,7 +304,7 @@ func TestClientCache_DeleteByCluster(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -349,7 +349,7 @@ func TestClientCache_LRUEviction(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -391,7 +391,7 @@ func TestClientCache_GetOrCreate(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -429,7 +429,7 @@ func TestClientCache_GetOrCreate_ConcurrentSingleflight(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -469,7 +469,7 @@ func TestClientCache_Close(t *testing.T) {
 	cache := NewClientCache()
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -506,7 +506,7 @@ func TestClientCache_Stats(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -549,7 +549,7 @@ func TestClientCache_Cleanup(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -584,7 +584,7 @@ func TestClientCache_ConcurrentAccess(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -635,7 +635,7 @@ func TestClientCache_RaceCondition(t *testing.T) {
 	t.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -747,7 +747,7 @@ func BenchmarkClientCache_Get(b *testing.B) {
 	b.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -775,7 +775,7 @@ func BenchmarkClientCache_Set(b *testing.B) {
 	b.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 
@@ -790,7 +790,7 @@ func BenchmarkClientCache_GetOrCreate(b *testing.B) {
 	b.Cleanup(func() { _ = cache.Close() })
 
 	ctx := context.Background()
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := dynamicfake.NewSimpleDynamicClient(scheme)
 

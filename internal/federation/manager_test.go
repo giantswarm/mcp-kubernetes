@@ -21,7 +21,7 @@ import (
 
 func TestNewManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -76,7 +76,7 @@ func TestNewManager(t *testing.T) {
 
 func TestManager_GetClient(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -185,7 +185,7 @@ func TestManager_GetClient(t *testing.T) {
 
 func TestManager_GetDynamicClient(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -275,7 +275,7 @@ func TestManager_GetDynamicClient(t *testing.T) {
 
 func TestManager_ListClusters(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -342,7 +342,7 @@ func TestManager_ListClusters(t *testing.T) {
 
 func TestManager_GetClusterSummary(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -425,7 +425,7 @@ func TestManager_GetClusterSummary(t *testing.T) {
 
 func TestManager_Close(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -478,7 +478,7 @@ func TestManager_Close(t *testing.T) {
 
 func TestManager_Concurrency(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -529,7 +529,7 @@ func TestManager_Interface(t *testing.T) {
 
 func TestManager_OptionsComposition(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 	metrics := newMockMetricsRecorder()
@@ -594,7 +594,7 @@ func TestManager_OptionsComposition(t *testing.T) {
 }
 
 func TestStaticClientProvider(t *testing.T) {
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 
@@ -615,7 +615,7 @@ func TestStaticClientProvider(t *testing.T) {
 
 func TestManager_Stats(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	scheme := runtime.NewScheme()
 	fakeDynamic := createTestFakeDynamicClient(scheme)
 

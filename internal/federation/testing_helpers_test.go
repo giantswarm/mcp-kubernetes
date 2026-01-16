@@ -103,7 +103,7 @@ func setupTestManager(t *testing.T, clusters []*unstructured.Unstructured, secre
 	logger := newTestLogger()
 
 	// Create fake Kubernetes client with secrets
-	fakeClient := fake.NewSimpleClientset()
+	fakeClient := fake.NewClientset()
 	for _, secret := range secrets {
 		_, err := fakeClient.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{})
 		require.NoError(t, err)
