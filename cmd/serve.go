@@ -99,7 +99,8 @@ func parseFloat32Env(value, envName string) (float32, bool) {
 }
 
 // splitAndTrimAudiences splits a comma-separated string into a slice of trimmed audiences.
-// Empty entries are filtered out. This is used to parse OAUTH_TRUSTED_AUDIENCES env var.
+// Empty entries are filtered out. Returns nil if the result is empty.
+// This is used to parse OAUTH_TRUSTED_AUDIENCES env var.
 func splitAndTrimAudiences(value string) []string {
 	if value == "" {
 		return nil
@@ -111,6 +112,9 @@ func splitAndTrimAudiences(value string) []string {
 		if trimmed != "" {
 			result = append(result, trimmed)
 		}
+	}
+	if len(result) == 0 {
+		return nil
 	}
 	return result
 }
