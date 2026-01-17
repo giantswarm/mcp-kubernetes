@@ -554,10 +554,25 @@ capiMode:
     maskSecrets: true
 
   # RBAC configuration for CAPI mode
-  # NOTE: This RBAC is for the ServiceAccount and is ONLY used when
-  # enableDownstreamOAuth is FALSE. See the oauth section above.
+  #
+  # SECURITY MODEL:
+  # The ServiceAccount ALWAYS needs secret access in CAPI mode, regardless of
+  # whether OAuth Downstream is enabled. This is a security feature.
+  #
+  # When enableDownstreamOAuth is TRUE (recommended for production):
+  #   - Users authenticate via OAuth (Dex, Google, etc.)
+  #   - Users can discover clusters they have RBAC to list
+  #   - ServiceAccount reads kubeconfig secrets (users cannot access directly)
+  #   - This prevents users from bypassing impersonation via kubectl
+  #   - All workload cluster operations enforce user impersonation
+  #
+  # When enableDownstreamOAuth is FALSE (legacy mode):
+  #   - ServiceAccount is used for all Kubernetes API operations
+  #   - Users share the ServiceAccount's RBAC permissions
+  #
   rbac:
-    # Create CAPI-specific RBAC resources (for ServiceAccount mode only)
+    # Create CAPI-specific RBAC resources
+    # This grants the ServiceAccount permission to read kubeconfig secrets
     create: true
     # Namespaces to grant kubeconfig secret access
     # Use [] for cluster-wide access (not recommended)

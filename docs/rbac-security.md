@@ -4,12 +4,15 @@ This document describes the RBAC (Role-Based Access Control) configuration and s
 
 ## TL;DR - Which RBAC Do I Need?
 
-| Deployment Mode | Who Needs RBAC | Helm Chart RBAC Used? | Recommended Profile |
-|-----------------|----------------|----------------------|---------------------|
+| Deployment Mode | Who Needs RBAC | ServiceAccount RBAC? | Recommended Profile |
+|-----------------|----------------|---------------------|---------------------|
 | **Service Account Mode** (`enableDownstreamOAuth: false`) | ServiceAccount | **Yes** - SA permissions apply to all users | `standard` or `readonly` |
-| **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User | **No** - Users need their own RBAC bindings | `minimal` |
+| **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User + ServiceAccount for secrets | **Yes for secrets only** - SA reads kubeconfigs | `minimal` |
 
-**Key Insight**: The Helm chart creates RBAC for the ServiceAccount. This RBAC is **only used when OAuth Downstream is disabled**. When OAuth Downstream is enabled, users authenticate with their own OAuth tokens and need their own RBAC permissions.
+**Key Insight**: In OAuth Downstream Mode with CAPI, the security model uses split credentials:
+- **Users authenticate via OAuth** and need RBAC for CAPI cluster discovery
+- **ServiceAccount reads kubeconfig secrets** - users do NOT need secret access
+- This prevents users from extracting admin credentials and bypassing impersonation
 
 ### Quick Reference
 
@@ -20,10 +23,11 @@ This document describes the RBAC (Role-Based Access Control) configuration and s
 - Use: `rbac.profile: "standard"` or `rbac.profile: "readonly"`
 
 **OAuth Downstream Mode** (recommended for production):
-- Helm chart RBAC = not used for API operations
+- Helm chart RBAC = **required for kubeconfig secret access only**
 - Each user has individual permissions via their OAuth identity
+- ServiceAccount reads secrets; users cannot extract admin kubeconfigs
 - Good for: production, multi-tenant, compliance requirements
-- Use: `rbac.profile: "minimal"` to follow least-privilege principles
+- Use: `rbac.profile: "minimal"` + `capiMode.rbac.create: true`
 
 ---
 
@@ -244,20 +248,45 @@ In OAuth Downstream Mode, users need these permissions in their own RBAC configu
 
 ## CAPI Federation Mode with OAuth Downstream
 
-When operating in CAPI Mode with OAuth Downstream enabled (`enableDownstreamOAuth: true`), the security model provides true per-user isolation.
+When operating in CAPI Mode with OAuth Downstream enabled (`enableDownstreamOAuth: true`), the security model provides true per-user isolation with enhanced credential protection.
+
+### Security Model: Split Credentials
+
+The architecture uses split credentials to prevent credential leakage:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          mcp-kubernetes (CAPI Mode)                          │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      Split Client Provider                           │   │
+│  │                                                                      │   │
+│  │  ┌─────────────────────────┐   ┌──────────────────────────────────┐ │   │
+│  │  │   User OAuth Client     │   │   ServiceAccount Client          │ │   │
+│  │  │                         │   │                                  │ │   │
+│  │  │  • List CAPI Clusters   │   │  • Read kubeconfig secrets      │ │   │
+│  │  │  • Perform WC operations│   │  • (Only secret access)          │ │   │
+│  │  │    (with impersonation) │   │                                  │ │   │
+│  │  └─────────────────────────┘   └──────────────────────────────────┘ │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### How It Works: Management Cluster vs Workload Clusters
 
-**Management Cluster (MC)**: User's OAuth token authenticates directly
-- The Kubernetes API server validates the OAuth token via OIDC
-- User's RBAC bindings on the MC determine what they can access
-- Users need permission to list CAPI clusters and read kubeconfig secrets
+**Management Cluster (MC)**: Split credential model
+- User's OAuth token is used for CAPI cluster discovery (RBAC enforced)
+- ServiceAccount reads kubeconfig secrets (privileged access)
+- **Users do NOT need secret read permissions** - prevents credential leakage
+- This ensures users cannot extract admin kubeconfigs via kubectl
 
 **Workload Clusters (WC)**: User identity is propagated via impersonation
 - The kubeconfig secret contains admin credentials (created by CAPI)
 - mcp-kubernetes uses these credentials BUT adds impersonation headers
 - The WC API server evaluates RBAC as if the user made the request directly
 - The `Impersonate-Extra-agent: mcp-kubernetes` header provides audit trail
+
+**Security Guarantee**: Users can only access workload clusters where their impersonated identity has RBAC permissions. They cannot bypass impersonation by reading kubeconfig secrets directly.
 
 This means: **Users can only do what their own RBAC allows, on both MC and WCs.**
 
@@ -294,7 +323,9 @@ All Kubernetes API operations use the user's OAuth token:
 
 ### Required User Permissions
 
-When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC permissions to:
+When OAuth Downstream is enabled in CAPI mode, the permission requirements are split:
+
+**Users need RBAC permissions for:**
 
 1. **Discover CAPI clusters** (on Management Cluster):
    ```yaml
@@ -303,7 +334,13 @@ When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC p
    verbs: ["get", "list"]
    ```
 
-2. **Read kubeconfig secrets** (on Management Cluster):
+2. **Perform operations on workload clusters**:
+   - Users need appropriate RBAC on each workload cluster
+   - Impersonation headers carry user identity
+
+**ServiceAccount needs RBAC permissions for:**
+
+1. **Read kubeconfig secrets** (on Management Cluster):
    ```yaml
    apiGroups: [""]
    resources: ["secrets"]
@@ -311,9 +348,9 @@ When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC p
    # In namespaces where their clusters are defined
    ```
 
-3. **Perform operations on workload clusters**:
-   - Users need appropriate RBAC on each workload cluster
-   - Impersonation headers carry user identity
+   This is configured via `capiMode.rbac.allowedNamespaces` in the Helm chart.
+
+**Security Note**: Users do NOT need secret read permissions. This is intentional - it prevents users from extracting admin kubeconfig credentials via kubectl and bypassing impersonation enforcement.
 
 ## Service Account Requirements by Mode
 
@@ -322,7 +359,9 @@ When OAuth Downstream is enabled, **users** (not the ServiceAccount) need RBAC p
 | Single-cluster, no OAuth | Yes | SA RBAC defines all user permissions |
 | Single-cluster, OAuth downstream | No | User's OIDC token used directly |
 | CAPI mode, no OAuth | Yes | SA needs CAPI + secret access |
-| CAPI mode, OAuth downstream | No | User's token for MC, impersonation for WC |
+| CAPI mode, OAuth downstream | **Yes for secrets** | SA reads kubeconfigs; users don't need secret access |
+
+**Key Security Change**: In CAPI mode with OAuth downstream, the ServiceAccount requires secret access even though user tokens are used for other operations. This is a security feature that prevents users from extracting admin kubeconfig credentials directly.
 
 ## Security Best Practices
 
@@ -451,7 +490,8 @@ This provides defense in depth even in OAuth Downstream Mode.
 |---------|----------------|----------|
 | "Unauthorized" on MC operations | User's OAuth token not accepted | Verify OIDC config on MC |
 | "forbidden" on CAPI resources | User lacks RBAC for clusters | Grant user CAPI read permissions |
-| "forbidden" on secrets | User lacks secret read access | Grant user secret read in namespace |
+| "forbidden" on secrets | ServiceAccount lacks secret access | Add namespace to `capiMode.rbac.allowedNamespaces` |
+| Cannot access workload cluster | User lacks RBAC on workload cluster | Grant user RBAC on the specific WC |
 
 ### Service Account Mode Issues
 
@@ -470,6 +510,52 @@ kubectl auth can-i list pods \
 # For OAuth Downstream Mode - test as your user
 kubectl auth can-i list clusters.cluster.x-k8s.io
 ```
+
+## Security: Why ServiceAccount Reads Secrets in OAuth Mode
+
+This section explains the security rationale for the split-credential model.
+
+### The Problem with User-Based Secret Access
+
+If users had RBAC permission to read kubeconfig secrets, they could:
+
+1. Use `kubectl get secret my-cluster-kubeconfig -o yaml` to read the secret directly
+2. Extract the kubeconfig data (containing admin credentials)
+3. Use these admin credentials directly, **bypassing impersonation entirely**
+
+```
+Attack Vector:
+User (via kubectl) → MC API → Secret (admin kubeconfig) → WC API (as admin!)
+                                    ↑
+                         No impersonation here!
+```
+
+### The Solution: ServiceAccount for Secret Access
+
+By having the ServiceAccount read secrets instead of users:
+
+1. Users can discover clusters (RBAC enforced)
+2. Users cannot read kubeconfig secrets via kubectl
+3. mcp-kubernetes reads secrets using ServiceAccount credentials
+4. mcp-kubernetes always applies impersonation when accessing workload clusters
+5. Users can only perform actions allowed by their RBAC on each workload cluster
+
+```
+Secure Flow:
+User → mcp-kubernetes → SA reads secret → WC API (with impersonation!)
+                                               ↑
+                                User's identity enforced
+```
+
+### Security Properties
+
+| Property | Guarantee |
+|----------|-----------|
+| Cluster discovery | User RBAC enforced (can only see clusters they're allowed to list) |
+| Secret access | ServiceAccount only (users cannot extract admin credentials) |
+| Workload cluster access | Impersonation always enforced (user's identity) |
+| Audit trail | Logs show user identity on all operations |
+| Credential leakage | Prevented (users cannot access raw kubeconfigs) |
 
 ## References
 

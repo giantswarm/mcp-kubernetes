@@ -35,17 +35,27 @@ type ClusterInfo struct {
 //
 // # Security Model
 //
-// This method uses the user's credentials for ALL Management Cluster operations:
+// This method implements a split-credential model for enhanced security:
+//
+// When PrivilegedSecretAccessProvider is available:
 //  1. Finds the Cluster resource using user's dynamic client (RBAC enforced)
-//  2. Fetches the kubeconfig secret using user's client (RBAC enforced)
+//  2. Fetches the kubeconfig secret using SERVICEACCOUNT credentials (privileged)
 //  3. Parses the kubeconfig into a rest.Config
 //
-// The user must have RBAC permission to:
-//   - List/Get Cluster resources (cluster.x-k8s.io/v1beta1)
-//   - Get Secrets in the cluster's namespace
+// This prevents users from bypassing impersonation:
+//   - Users can discover clusters they have RBAC to list
+//   - But they cannot extract kubeconfig secrets via kubectl
+//   - mcp-kubernetes reads secrets using ServiceAccount credentials
+//   - All workload cluster operations enforce impersonation
 //
-// This provides defense in depth: users can only access kubeconfig secrets
-// they have permission to read on the Management Cluster.
+// When only basic ClientProvider is available (fallback mode):
+//  1. Finds the Cluster resource using user's dynamic client (RBAC enforced)
+//  2. Fetches the kubeconfig secret using user's client (RBAC enforced)
+//  3. User must have RBAC permission to read secrets
+//
+// # Audit Trail
+//
+// All privileged secret access is logged with the user identity for accountability.
 //
 // Security notes:
 //   - Never logs kubeconfig contents (sensitive credential data)
@@ -68,8 +78,8 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 		}
 	}
 
-	// Get user-scoped clients for MC operations
-	clientset, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	// Get user-scoped clients for MC operations (cluster discovery)
+	_, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
 	if err != nil {
 		m.logger.Debug("Failed to get user clients for kubeconfig retrieval",
 			"cluster", clusterName,
@@ -87,8 +97,64 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 		return nil, err
 	}
 
-	// Retrieve and parse the kubeconfig secret (using user's RBAC)
-	return m.getKubeconfigFromSecret(ctx, clusterInfo, clientset, user)
+	// Determine which client to use for secret retrieval
+	secretClient, err := m.getSecretAccessClient(ctx, clusterName, user)
+	if err != nil {
+		return nil, err
+	}
+
+	// Retrieve and parse the kubeconfig secret
+	return m.getKubeconfigFromSecret(ctx, clusterInfo, secretClient, user)
+}
+
+// getSecretAccessClient returns the appropriate client for kubeconfig secret access.
+//
+// # Security Model
+//
+// If the ClientProvider implements PrivilegedSecretAccessProvider, uses the
+// ServiceAccount client. This prevents users from reading kubeconfig secrets
+// directly via kubectl, enforcing that all workload cluster access goes through
+// mcp-kubernetes with proper impersonation.
+//
+// If only basic ClientProvider is available, falls back to user credentials.
+// This maintains backward compatibility but requires users to have secret access.
+func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
+	// Check if provider supports privileged secret access
+	if privilegedProvider, ok := m.clientProvider.(PrivilegedSecretAccessProvider); ok && privilegedProvider.HasPrivilegedAccess() {
+		m.logger.Debug("Using ServiceAccount for privileged secret access",
+			"cluster", clusterName,
+			UserHashAttr(user.Email))
+
+		client, err := privilegedProvider.GetPrivilegedClientForSecrets(ctx, user)
+		if err != nil {
+			m.logger.Warn("Failed to get privileged client, falling back to user credentials",
+				"cluster", clusterName,
+				UserHashAttr(user.Email),
+				"error", err)
+			// Fall through to user credentials
+		} else {
+			return client, nil
+		}
+	}
+
+	// Fallback: Use user's credentials for secret access
+	m.logger.Debug("Using user credentials for secret access",
+		"cluster", clusterName,
+		UserHashAttr(user.Email))
+
+	clientset, _, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	if err != nil {
+		m.logger.Debug("Failed to get user client for secret access",
+			"cluster", clusterName,
+			UserHashAttr(user.Email),
+			"error", err)
+		return nil, &ClusterNotFoundError{
+			ClusterName: clusterName,
+			Reason:      "failed to create client for user",
+		}
+	}
+
+	return clientset, nil
 }
 
 // GetKubeconfigForClusterValidated retrieves the kubeconfig and validates
