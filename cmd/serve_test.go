@@ -393,3 +393,126 @@ users:
 
 	return kubeconfigPath
 }
+
+// TestSplitAndTrimAudiences tests the splitAndTrimAudiences helper function
+// used to parse the OAUTH_TRUSTED_AUDIENCES environment variable.
+func TestSplitAndTrimAudiences(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "empty string returns nil",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:     "single audience",
+			input:    "muster-client",
+			expected: []string{"muster-client"},
+		},
+		{
+			name:     "multiple audiences",
+			input:    "muster-client,another-aggregator",
+			expected: []string{"muster-client", "another-aggregator"},
+		},
+		{
+			name:     "trims whitespace around entries",
+			input:    " muster-client , another-aggregator ",
+			expected: []string{"muster-client", "another-aggregator"},
+		},
+		{
+			name:     "filters empty entries from trailing comma",
+			input:    "muster-client,another-aggregator,",
+			expected: []string{"muster-client", "another-aggregator"},
+		},
+		{
+			name:     "filters empty entries from consecutive commas",
+			input:    "muster-client,,another-aggregator",
+			expected: []string{"muster-client", "another-aggregator"},
+		},
+		{
+			name:     "filters whitespace-only entries",
+			input:    "muster-client,   ,another-aggregator",
+			expected: []string{"muster-client", "another-aggregator"},
+		},
+		{
+			name:     "handles leading comma",
+			input:    ",muster-client",
+			expected: []string{"muster-client"},
+		},
+		{
+			name:     "whitespace only returns nil",
+			input:    "   ",
+			expected: nil,
+		},
+		{
+			name:     "complex real-world example",
+			input:    "muster-client, my-aggregator-v2, internal.service.client",
+			expected: []string{"muster-client", "my-aggregator-v2", "internal.service.client"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := splitAndTrimAudiences(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestOAuthTrustedAudiencesEnvVar tests that OAUTH_TRUSTED_AUDIENCES is correctly
+// parsed and applied when the --trusted-audiences flag is not set.
+func TestOAuthTrustedAudiencesEnvVar(t *testing.T) {
+	tests := []struct {
+		name          string
+		envValue      string
+		flagValue     []string
+		expectedValue []string
+	}{
+		{
+			name:          "env var sets trusted audiences",
+			envValue:      "muster-client,another-aggregator",
+			flagValue:     nil,
+			expectedValue: []string{"muster-client", "another-aggregator"},
+		},
+		{
+			name:          "env var with whitespace is trimmed",
+			envValue:      " muster-client , another-aggregator ",
+			flagValue:     nil,
+			expectedValue: []string{"muster-client", "another-aggregator"},
+		},
+		{
+			name:          "flag overrides env var",
+			envValue:      "env-client",
+			flagValue:     []string{"flag-client"},
+			expectedValue: []string{"flag-client"},
+		},
+		{
+			name:          "empty env var returns nil",
+			envValue:      "",
+			flagValue:     nil,
+			expectedValue: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			if tt.envValue != "" {
+				t.Setenv("OAUTH_TRUSTED_AUDIENCES", tt.envValue)
+			}
+
+			// Simulate the logic from runServe
+			var result []string
+			if len(tt.flagValue) > 0 {
+				result = tt.flagValue
+			} else if envVal := os.Getenv("OAUTH_TRUSTED_AUDIENCES"); envVal != "" {
+				result = splitAndTrimAudiences(envVal)
+			}
+
+			assert.Equal(t, tt.expectedValue, result)
+		})
+	}
+}

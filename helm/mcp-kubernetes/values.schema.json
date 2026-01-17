@@ -433,6 +433,13 @@
                   "description": "Allow CIMD metadata URLs that resolve to private/internal IP addresses. WARNING: Reduces SSRF protection. Only for internal deployments. Default: false."
                 }
               }
+            },
+            "trustedAudiences": {
+              "type": "array",
+              "description": "Client IDs whose tokens are accepted for SSO. Enables token forwarding from trusted aggregators (e.g., muster). Tokens must still be from the configured issuer.",
+              "items": {
+                "type": "string"
+              }
             }
           }
         },

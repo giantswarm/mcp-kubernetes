@@ -215,6 +215,11 @@ spec:
                   name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
                   key: oauth-encryption-key
             {{- end }}
+            {{- /* Trusted audiences for SSO token forwarding from aggregators */ -}}
+            {{- if .Values.mcpKubernetes.oauth.trustedAudiences }}
+            - name: OAUTH_TRUSTED_AUDIENCES
+              value: {{ .Values.mcpKubernetes.oauth.trustedAudiences | join "," | quote }}
+            {{- end }}
             # Valkey storage configuration
             {{- if eq .Values.mcpKubernetes.oauth.storage.type "valkey" }}
             - name: OAUTH_STORAGE_TYPE
