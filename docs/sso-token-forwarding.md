@@ -32,7 +32,7 @@ mcp-kubernetes serve \
   --dex-issuer-url https://dex.example.com \
   --dex-client-id mcp-kubernetes-client \
   --dex-client-secret <secret> \
-  --trusted-audiences "muster-client,another-aggregator"
+  --oauth-trusted-audiences "muster-client,another-aggregator"
 ```
 
 ### Environment Variables
@@ -131,7 +131,7 @@ If tokens from an aggregator are not being accepted:
 
 ```bash
 mcp-kubernetes serve --debug \
-  --trusted-audiences "muster-client"
+  --oauth-trusted-audiences "muster-client"
 ```
 
 Look for log entries like:
