@@ -776,6 +776,14 @@ func runServe(config ServeConfig) error {
 				return fmt.Errorf("invalid trusted public registration scheme: %w", err)
 			}
 
+			// Log security warning when SSO token forwarding is enabled
+			// This is a security-sensitive configuration that operators should be aware of
+			if len(config.OAuth.TrustedAudiences) > 0 {
+				slog.Warn("SSO token forwarding enabled: tokens from trusted upstream clients will be accepted",
+					"trusted_audiences", config.OAuth.TrustedAudiences,
+					"security_note", "ensure these client IDs are from services you control and trust")
+			}
+
 			// Registration token is required unless:
 			// 1. Public registration is enabled (anyone can register), OR
 			// 2. Trusted schemes are configured (Cursor/VSCode can register without token), OR
