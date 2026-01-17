@@ -582,6 +582,36 @@ capiMode:
     # grants cluster-wide secret access (use with caution)
     clusterWideSecrets: false
 
+  # Privileged secret access configuration (split-credential model)
+  #
+  # SECURITY MODEL:
+  # When OAuth downstream is enabled, the ServiceAccount reads kubeconfig secrets
+  # on behalf of users. This prevents users from bypassing impersonation by
+  # extracting admin credentials directly via kubectl.
+  #
+  # See docs/rbac-security.md for detailed security model explanation.
+  privilegedSecretAccess:
+    # Strict mode: When enabled, fails instead of falling back to user credentials
+    # when ServiceAccount access is unavailable.
+    #
+    # SECURITY RECOMMENDATION:
+    # Enable this in production to enforce the split-credential security model.
+    # When disabled (default), the system falls back to user credentials,
+    # which may require users to have secret read permissions (weaker security).
+    #
+    # Default: false (fallback enabled for backward compatibility)
+    strict: false
+
+    # Rate limiting for privileged secret access
+    # Prevents abuse by limiting requests per user
+    rateLimit:
+      # Rate limit per user (requests per second)
+      # Default: 10.0
+      perSecond: 10.0
+      # Burst size per user
+      # Default: 20
+      burst: 20
+
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:
   # Specifies whether a CiliumNetworkPolicy should be created

@@ -129,6 +129,17 @@ capiMode:
     # Do NOT enable cluster-wide secret access in production
     clusterWideSecrets: false
 
+  # Privileged secret access configuration (split-credential model)
+  # SECURITY: Enforce strict mode in production
+  privilegedSecretAccess:
+    # STRICT MODE ENABLED: Fails instead of falling back to user credentials
+    # This enforces the split-credential security model
+    strict: true
+    # Rate limiting for privileged secret access
+    rateLimit:
+      perSecond: 10.0
+      burst: 20
+
 # Resources for production workloads
 resources:
   limits:

@@ -557,6 +557,70 @@ User → mcp-kubernetes → SA reads secret → WC API (with impersonation!)
 | Audit trail | Logs show user identity on all operations |
 | Credential leakage | Prevented (users cannot access raw kubeconfigs) |
 
+## Advanced Security Configuration
+
+### Strict Mode
+
+When strict mode is enabled, mcp-kubernetes will fail instead of falling back to user credentials when ServiceAccount access is unavailable. This enforces the split-credential security model.
+
+```yaml
+capiMode:
+  privilegedSecretAccess:
+    strict: true  # Fail instead of fallback (recommended for production)
+```
+
+**Benefits of Strict Mode:**
+- Enforces the split-credential security model
+- Prevents accidental exposure if ServiceAccount RBAC is misconfigured
+- Ensures consistent security behavior across all deployments
+
+**When to Enable:**
+- Production environments
+- Environments with strict compliance requirements
+- Any deployment where you want to ensure users cannot access kubeconfig secrets
+
+### Rate Limiting
+
+Privileged secret access is rate-limited per user to prevent abuse:
+
+```yaml
+capiMode:
+  privilegedSecretAccess:
+    rateLimit:
+      perSecond: 10.0  # Requests per second per user
+      burst: 20        # Burst size per user
+```
+
+**Default Values:**
+- Rate: 10 requests/second per user
+- Burst: 20 requests per user
+
+Rate limiting protects against:
+- Denial-of-service attacks via excessive kubeconfig retrieval
+- Automated scripts that might overwhelm the system
+- Unintentional abuse from misconfigured clients
+
+### Metrics
+
+Privileged secret access is instrumented with Prometheus metrics:
+
+```
+# Metric: mcp_privileged_secret_access_total
+# Labels: user_domain, result
+# Result values: success, error, rate_limited, fallback
+
+# Example queries:
+
+# Rate of privileged access attempts
+rate(mcp_privileged_secret_access_total[5m])
+
+# Rate-limited requests (potential abuse)
+rate(mcp_privileged_secret_access_total{result="rate_limited"}[5m])
+
+# Fallback to user credentials (weaker security, should be 0 in strict mode)
+rate(mcp_privileged_secret_access_total{result="fallback"}[5m])
+```
+
 ## References
 
 - [Kubernetes RBAC Documentation](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)

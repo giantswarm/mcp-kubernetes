@@ -107,6 +107,10 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 	return m.getKubeconfigFromSecret(ctx, clusterInfo, secretClient, user)
 }
 
+// ErrStrictPrivilegedAccessRequired is returned when strict mode is enabled and
+// privileged access fails.
+var ErrStrictPrivilegedAccessRequired = fmt.Errorf("privileged secret access required but unavailable (strict mode enabled)")
+
 // getSecretAccessClient returns the appropriate client for kubeconfig secret access.
 //
 // # Security Model
@@ -118,6 +122,12 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 //
 // If only basic ClientProvider is available, falls back to user credentials.
 // This maintains backward compatibility but requires users to have secret access.
+//
+// # Strict Mode
+//
+// When the provider has StrictPrivilegedAccess enabled, this method will return
+// an error instead of falling back to user credentials. This enforces the
+// split-credential security model.
 func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
 	// Check if provider supports privileged secret access
 	if privilegedProvider, ok := m.clientProvider.(PrivilegedSecretAccessProvider); ok && privilegedProvider.HasPrivilegedAccess() {
@@ -127,10 +137,24 @@ func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string,
 
 		client, err := privilegedProvider.GetPrivilegedClientForSecrets(ctx, user)
 		if err != nil {
+			// Check if strict mode is enabled
+			if hybridProvider, isHybrid := privilegedProvider.(*HybridOAuthClientProvider); isHybrid && hybridProvider.IsStrictMode() {
+				m.logger.Error("Privileged secret access failed in strict mode",
+					"cluster", clusterName,
+					UserHashAttr(user.Email),
+					"error", err)
+				return nil, ErrStrictPrivilegedAccessRequired
+			}
+
 			m.logger.Warn("Failed to get privileged client, falling back to user credentials",
 				"cluster", clusterName,
 				UserHashAttr(user.Email),
 				"error", err)
+
+			// Record fallback metric if the provider supports it
+			if hybridProvider, isHybrid := privilegedProvider.(*HybridOAuthClientProvider); isHybrid {
+				hybridProvider.recordMetric(ctx, user.Email, "fallback")
+			}
 			// Fall through to user credentials
 		} else {
 			return client, nil
@@ -138,7 +162,7 @@ func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string,
 	}
 
 	// Fallback: Use user's credentials for secret access
-	m.logger.Debug("Using user credentials for secret access",
+	m.logger.Debug("Using user credentials for secret access (fallback mode)",
 		"cluster", clusterName,
 		UserHashAttr(user.Email))
 
