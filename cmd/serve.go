@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -97,6 +98,23 @@ func parseFloat32Env(value, envName string) (float32, bool) {
 	return float32(f), true
 }
 
+// splitAndTrimAudiences splits a comma-separated string into a slice of trimmed audiences.
+// Empty entries are filtered out. This is used to parse OAUTH_TRUSTED_AUDIENCES env var.
+func splitAndTrimAudiences(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
 // newServeCmd creates the Cobra command for starting the MCP server.
 func newServeCmd() *cobra.Command {
 	var (
@@ -165,6 +183,9 @@ func newServeCmd() *cobra.Command {
 		// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
 		enableCIMD          bool
 		cimdAllowPrivateIPs bool
+
+		// Trusted audiences for SSO token forwarding
+		trustedAudiences []string
 	)
 
 	cmd := &cobra.Command{
@@ -289,6 +310,7 @@ Downstream OAuth (--downstream-oauth):
 					DisableStrictSchemeMatching:      disableStrictSchemeMatching,
 					EnableCIMD:                       enableCIMD,
 					CIMDAllowPrivateIPs:              cimdAllowPrivateIPs,
+					TrustedAudiences:                 trustedAudiences,
 				},
 				DownstreamOAuth: downstreamOAuth,
 				Metrics: MetricsServeConfig{
@@ -369,6 +391,9 @@ Downstream OAuth (--downstream-oauth):
 	// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
 	cmd.Flags().BoolVar(&enableCIMD, "enable-cimd", true, "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers (can also be set via ENABLE_CIMD env var)")
 	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Allow CIMD metadata URLs to resolve to private IPs (SSRF risk; internal deployments only)")
+
+	// Trusted audiences for SSO token forwarding from aggregators
+	cmd.Flags().StringSliceVar(&trustedAudiences, "trusted-audiences", nil, "Client IDs whose tokens are accepted for SSO (e.g., muster-client). Enables token forwarding from trusted aggregators (can also be set via OAUTH_TRUSTED_AUDIENCES env var as comma-separated list)")
 
 	return cmd
 }
@@ -684,6 +709,13 @@ func runServe(config ServeConfig) error {
 			loadEnvIfEmpty(&config.OAuth.EncryptionKey, "OAUTH_ENCRYPTION_KEY")
 			// Note: Valkey storage and CIMD env vars are loaded in RunE closure where cmd is available
 
+			// Load trusted audiences from environment variable if not set via flag
+			if len(config.OAuth.TrustedAudiences) == 0 {
+				if envVal := os.Getenv("OAUTH_TRUSTED_AUDIENCES"); envVal != "" {
+					config.OAuth.TrustedAudiences = splitAndTrimAudiences(envVal)
+				}
+			}
+
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
@@ -827,6 +859,8 @@ func runServe(config ServeConfig) error {
 				// CIMD (Client ID Metadata Documents) per MCP 2025-11-25
 				EnableCIMD:          config.OAuth.EnableCIMD,
 				CIMDAllowPrivateIPs: config.OAuth.CIMDAllowPrivateIPs,
+				// Trusted audiences for SSO token forwarding from upstream aggregators
+				TrustedAudiences: config.OAuth.TrustedAudiences,
 			}, serverContext, config.Metrics)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)

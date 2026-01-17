@@ -117,6 +117,10 @@ spec:
             {{- if and .Values.mcpKubernetes.oauth.cimd .Values.mcpKubernetes.oauth.cimd.allowPrivateIPs }}
             - --cimd-allow-private-ips=true
             {{- end }}
+            {{- /* Trusted audiences for SSO token forwarding from aggregators */ -}}
+            {{- if .Values.mcpKubernetes.oauth.trustedAudiences }}
+            - --trusted-audiences={{ .Values.mcpKubernetes.oauth.trustedAudiences | join "," }}
+            {{- end }}
             {{- end }}
             {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
             - --metrics-enabled=true

@@ -408,6 +408,26 @@ mcpKubernetes:
       # Default: false (blocked for security)
       allowPrivateIPs: false
 
+    # Trusted Audiences for SSO Token Forwarding
+    # When users connect through upstream aggregators (like muster), they may have
+    # already authenticated. This setting allows mcp-kubernetes to accept tokens
+    # issued to those trusted upstream services, enabling Single Sign-On (SSO).
+    #
+    # How it works:
+    # 1. User authenticates with muster (gets token with audience "muster-client")
+    # 2. Muster forwards the user's ID token to mcp-kubernetes
+    # 3. mcp-kubernetes accepts the token because "muster-client" is in trustedAudiences
+    #
+    # Security considerations:
+    # - Only explicitly listed client IDs are trusted (no implicit trust)
+    # - Tokens must still be from the configured issuer (Dex/Google)
+    # - The IdP's cryptographic signature proves token authenticity
+    # - Audit events are logged when accepting cross-client tokens
+    #
+    # Example: ["muster-client", "my-aggregator-client"]
+    # Default: [] (no trusted audiences, SSO disabled)
+    trustedAudiences: []
+
   # OpenTelemetry Instrumentation configuration
   instrumentation:
     # Enable OpenTelemetry instrumentation (default: true)

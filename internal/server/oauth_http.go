@@ -261,6 +261,19 @@ type OAuthConfig struct {
 	// See cmd.OAuthServeConfig.CIMDAllowPrivateIPs for detailed documentation.
 	// Default: false (blocked for security)
 	CIMDAllowPrivateIPs bool
+
+	// TrustedAudiences lists client IDs whose tokens are accepted for SSO.
+	// When upstream aggregators (like muster) forward a user's ID token,
+	// mcp-kubernetes will accept it if the token's audience matches any
+	// entry in this list. This enables Single Sign-On across the MCP ecosystem.
+	//
+	// Security:
+	//   - Only explicitly listed client IDs are trusted
+	//   - Tokens must still be from the configured issuer (Dex/Google)
+	//   - The IdP's cryptographic signature proves token authenticity
+	//
+	// Example: ["muster-client", "another-aggregator"]
+	TrustedAudiences []string
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -497,6 +510,10 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			ServiceVersion:  config.ServiceVersion,
 			MetricsExporter: "prometheus",
 		},
+
+		// TrustedAudiences for SSO token forwarding from upstream aggregators
+		// Allows accepting tokens issued to other clients (e.g., muster)
+		TrustedAudiences: config.TrustedAudiences,
 	}
 
 	// Debug logging for registration token configuration
