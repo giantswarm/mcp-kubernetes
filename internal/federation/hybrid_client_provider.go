@@ -1,4 +1,5 @@
-// Package federation provides hybrid OAuth client provider implementation.
+// hybrid_client_provider.go provides the HybridOAuthClientProvider implementation
+// for split-credential OAuth authentication in CAPI mode.
 package federation
 
 import (
@@ -89,12 +90,6 @@ type HybridOAuthClientProvider struct {
 
 	// saClientset is the ServiceAccount client for privileged secret access
 	saClientset kubernetes.Interface
-
-	// saDynamicClient is the ServiceAccount dynamic client (if needed)
-	saDynamicClient dynamic.Interface
-
-	// saRestConfig is the ServiceAccount rest config
-	saRestConfig *rest.Config
 
 	// logger for audit trail and operational logging
 	logger *slog.Logger
@@ -216,9 +211,7 @@ func (p *HybridOAuthClientProvider) initServiceAccountClient() error {
 			return
 		}
 
-		p.saRestConfig = config
-
-		// Create clientset
+		// Create clientset for secret access
 		clientset, err := kubernetes.NewForConfig(config)
 		if err != nil {
 			p.initErr = fmt.Errorf("failed to create clientset: %w", err)
@@ -227,16 +220,6 @@ func (p *HybridOAuthClientProvider) initServiceAccountClient() error {
 			return
 		}
 		p.saClientset = clientset
-
-		// Create dynamic client
-		dynamicClient, err := dynamic.NewForConfig(config)
-		if err != nil {
-			p.initErr = fmt.Errorf("failed to create dynamic client: %w", err)
-			p.logger.Error("Failed to create ServiceAccount dynamic client",
-				"error", p.initErr)
-			return
-		}
-		p.saDynamicClient = dynamicClient
 
 		p.logger.Info("ServiceAccount client initialized for privileged secret access")
 	})
