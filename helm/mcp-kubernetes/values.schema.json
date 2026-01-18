@@ -224,6 +224,103 @@
         }
       }
     },
+    "gatewayAPI": {
+      "type": "object",
+      "description": "Gateway API configuration for HTTPRoute and BackendTrafficPolicy resources",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Gateway API resources (HTTPRoute)"
+        },
+        "httpRoute": {
+          "type": "object",
+          "description": "HTTPRoute configuration",
+          "properties": {
+            "parentRefs": {
+              "type": "array",
+              "description": "Parent gateway references (required when gatewayAPI.enabled is true)",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Name of the parent Gateway"
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "description": "Namespace of the parent Gateway"
+                  },
+                  "sectionName": {
+                    "type": "string",
+                    "description": "Specific listener on the Gateway (optional)"
+                  }
+                },
+                "required": ["name"]
+              }
+            },
+            "hostnames": {
+              "type": "array",
+              "description": "Hostnames for the route",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rules": {
+              "type": "array",
+              "description": "Custom routing rules (defaults to PathPrefix / if not specified)",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "matches": {
+                    "type": "array",
+                    "description": "Path and header matching rules"
+                  },
+                  "filters": {
+                    "type": "array",
+                    "description": "Request/response filters"
+                  },
+                  "timeouts": {
+                    "type": "object",
+                    "description": "Per-rule timeout configuration"
+                  }
+                }
+              }
+            },
+            "annotations": {
+              "type": "object",
+              "description": "Additional annotations for the HTTPRoute"
+            },
+            "labels": {
+              "type": "object",
+              "description": "Additional labels for the HTTPRoute"
+            }
+          }
+        },
+        "backendTrafficPolicy": {
+          "type": "object",
+          "description": "BackendTrafficPolicy configuration (Envoy Gateway specific)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable BackendTrafficPolicy resource"
+            },
+            "timeout": {
+              "type": "string",
+              "description": "Request timeout for backend connections (e.g., '300s')",
+              "pattern": "^[0-9]+(s|m|h)$"
+            },
+            "annotations": {
+              "type": "object",
+              "description": "Additional annotations for the BackendTrafficPolicy"
+            },
+            "labels": {
+              "type": "object",
+              "description": "Additional labels for the BackendTrafficPolicy"
+            }
+          }
+        }
+      }
+    },
     "resources": {
       "type": "object"
     },

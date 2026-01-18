@@ -1,0 +1,448 @@
+# Gateway API template tests for mcp-kubernetes Helm chart
+#
+# These tests verify the Gateway API resources:
+# - HTTPRoute creation and configuration
+# - BackendTrafficPolicy for Envoy Gateway
+# - Validation of required fields
+#
+# Run with: helm unittest ./helm/mcp-kubernetes
+
+suite: Gateway API template tests
+templates:
+  - templates/httproute.yaml
+  - templates/backendtrafficpolicy.yaml
+tests:
+  # ==========================================
+  # HTTPRoute Basic Tests
+  # ==========================================
+
+  - it: should not create HTTPRoute when gatewayAPI is disabled
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should fail when gatewayAPI is enabled without parentRefs
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs: []
+    asserts:
+      - failedTemplate:
+          errorMessage: "gatewayAPI.httpRoute.parentRefs is required when gatewayAPI.enabled is true. Specify at least one parent Gateway reference."
+
+  - it: should create HTTPRoute with correct API version
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+      - isKind:
+          of: HTTPRoute
+
+  - it: should include standard labels
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+    asserts:
+      - isNotEmpty:
+          path: metadata.labels["app.kubernetes.io/name"]
+      - isNotEmpty:
+          path: metadata.labels["app.kubernetes.io/instance"]
+
+  - it: should include custom labels
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.labels:
+        custom-label: custom-value
+    asserts:
+      - equal:
+          path: metadata.labels["custom-label"]
+          value: custom-value
+
+  - it: should include custom annotations
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.annotations:
+        custom-annotation: custom-value
+    asserts:
+      - equal:
+          path: metadata.annotations["custom-annotation"]
+          value: custom-value
+
+  # ==========================================
+  # HTTPRoute ParentRefs Tests
+  # ==========================================
+
+  - it: should configure parentRefs correctly
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].name
+          value: internal
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: envoy-gateway-system
+
+  - it: should support multiple parentRefs
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+        - name: external
+          namespace: envoy-gateway-system
+          sectionName: https
+    asserts:
+      - lengthEqual:
+          path: spec.parentRefs
+          count: 2
+      - equal:
+          path: spec.parentRefs[1].name
+          value: external
+      - equal:
+          path: spec.parentRefs[1].sectionName
+          value: https
+
+  # ==========================================
+  # HTTPRoute Hostnames Tests
+  # ==========================================
+
+  - it: should configure hostnames correctly
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.hostnames:
+        - mcp-kubernetes.example.com
+    asserts:
+      - equal:
+          path: spec.hostnames[0]
+          value: mcp-kubernetes.example.com
+
+  - it: should support multiple hostnames
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.hostnames:
+        - mcp-kubernetes.example.com
+        - mcp.example.com
+    asserts:
+      - lengthEqual:
+          path: spec.hostnames
+          count: 2
+
+  # ==========================================
+  # HTTPRoute Rules Tests
+  # ==========================================
+
+  - it: should create default PathPrefix rule when no rules specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.rules: []
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+
+  - it: should use service fullname in backendRefs
+    template: templates/httproute.yaml
+    release:
+      name: test-release
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: test-release-mcp-kubernetes
+
+  - it: should use service port in backendRefs
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      service.port: 8080
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 8080
+
+  - it: should support custom rules with matches
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /api
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /api
+
+  - it: should support rules with filters
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          filters:
+            - type: RequestHeaderModifier
+              requestHeaderModifier:
+                add:
+                  - name: X-Custom-Header
+                    value: custom-value
+    asserts:
+      - equal:
+          path: spec.rules[0].filters[0].type
+          value: RequestHeaderModifier
+
+  - it: should support rules with timeouts
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /api
+          timeouts:
+            request: 30s
+    asserts:
+      - equal:
+          path: spec.rules[0].timeouts.request
+          value: 30s
+
+  - it: should use default PathPrefix match when rule has no matches
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.rules:
+        - filters:
+            - type: RequestHeaderModifier
+              requestHeaderModifier:
+                add:
+                  - name: X-Custom-Header
+                    value: custom-value
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+      - equal:
+          path: spec.rules[0].filters[0].type
+          value: RequestHeaderModifier
+
+  # ==========================================
+  # BackendTrafficPolicy Tests
+  # ==========================================
+
+  - it: should not create BackendTrafficPolicy when gatewayAPI is disabled
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: false
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create BackendTrafficPolicy when not enabled
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create BackendTrafficPolicy when enabled
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isAPIVersion:
+          of: gateway.envoyproxy.io/v1alpha1
+      - isKind:
+          of: BackendTrafficPolicy
+
+  - it: should configure BackendTrafficPolicy targetRef to HTTPRoute
+    template: templates/backendtrafficpolicy.yaml
+    release:
+      name: test-release
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.targetRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.targetRefs[0].kind
+          value: HTTPRoute
+      - equal:
+          path: spec.targetRefs[0].name
+          value: test-release-mcp-kubernetes
+
+  - it: should configure default timeout
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.timeout.http.requestTimeout
+          value: "300s"
+
+  - it: should configure custom timeout
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+      gatewayAPI.backendTrafficPolicy.timeout: "600s"
+    asserts:
+      - equal:
+          path: spec.timeout.http.requestTimeout
+          value: "600s"
+
+  - it: should include standard labels in BackendTrafficPolicy
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - isNotEmpty:
+          path: metadata.labels["app.kubernetes.io/name"]
+      - isNotEmpty:
+          path: metadata.labels["app.kubernetes.io/instance"]
+
+  - it: should include custom labels in BackendTrafficPolicy
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+      gatewayAPI.backendTrafficPolicy.labels:
+        custom-label: custom-value
+    asserts:
+      - equal:
+          path: metadata.labels["custom-label"]
+          value: custom-value
+
+  - it: should include custom annotations in BackendTrafficPolicy
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+      gatewayAPI.backendTrafficPolicy.annotations:
+        custom-annotation: custom-value
+    asserts:
+      - equal:
+          path: metadata.annotations["custom-annotation"]
+          value: custom-value
+
+  # ==========================================
+  # Integration with Ingress Tests
+  # ==========================================
+
+  - it: should allow both Ingress and Gateway API to be enabled
+    template: templates/httproute.yaml
+    set:
+      ingress.enabled: true
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: HTTPRoute

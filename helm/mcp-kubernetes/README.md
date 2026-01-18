@@ -75,6 +75,21 @@ The following table lists the configurable parameters of the mcp-kubernetes char
 | `ingress.hosts` | Ingress hosts configuration | See values.yaml |
 | `ingress.tls` | Ingress TLS configuration | `[]` |
 
+### Gateway API Configuration
+
+Gateway API is the successor to Ingress in Kubernetes, providing more expressive routing capabilities. Both Ingress and Gateway API can be enabled simultaneously for migration scenarios.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `gatewayAPI.enabled` | Enable Gateway API resources (HTTPRoute) | `false` |
+| `gatewayAPI.labels` | Additional labels for Gateway API resources | `{}` |
+| `gatewayAPI.annotations` | Additional annotations for Gateway API resources | `{}` |
+| `gatewayAPI.httpRoute.parentRefs` | Parent gateway references | `[]` |
+| `gatewayAPI.httpRoute.hostnames` | Hostnames for the route | `[]` |
+| `gatewayAPI.httpRoute.rules` | Custom routing rules (defaults to PathPrefix /) | `[]` |
+| `gatewayAPI.backendTrafficPolicy.enabled` | Enable BackendTrafficPolicy (Envoy Gateway) | `false` |
+| `gatewayAPI.backendTrafficPolicy.timeout` | Request timeout for backend connections | `"300s"` |
+
 ### Resource Management
 
 | Parameter | Description | Default |
@@ -388,6 +403,80 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
   --set ingress.hosts[0].host=mcp-kubernetes.example.com \
   --set ingress.hosts[0].paths[0].path=/ \
   --set ingress.hosts[0].paths[0].pathType=Prefix
+```
+
+### Installation with Gateway API (HTTPRoute)
+
+Gateway API provides a more expressive routing model than Ingress. This example uses Envoy Gateway, but any Gateway API implementation (Cilium Gateway, Contour, etc.) works.
+
+**Basic HTTPRoute:**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set gatewayAPI.enabled=true \
+  --set gatewayAPI.httpRoute.parentRefs[0].name=internal \
+  --set gatewayAPI.httpRoute.parentRefs[0].namespace=envoy-gateway-system \
+  --set gatewayAPI.httpRoute.hostnames[0]=mcp-kubernetes.example.com
+```
+
+**With BackendTrafficPolicy (Envoy Gateway):**
+
+MCP sessions can be long-running, so extended timeouts are recommended. The BackendTrafficPolicy is Envoy Gateway-specific and configures backend connection behavior.
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set gatewayAPI.enabled=true \
+  --set gatewayAPI.httpRoute.parentRefs[0].name=internal \
+  --set gatewayAPI.httpRoute.parentRefs[0].namespace=envoy-gateway-system \
+  --set gatewayAPI.httpRoute.hostnames[0]=mcp-kubernetes.example.com \
+  --set gatewayAPI.backendTrafficPolicy.enabled=true \
+  --set gatewayAPI.backendTrafficPolicy.timeout=300s
+```
+
+**Using values file:**
+
+```yaml
+# values-gateway-api.yaml
+gatewayAPI:
+  enabled: true
+  httpRoute:
+    parentRefs:
+      - name: internal
+        namespace: envoy-gateway-system
+    hostnames:
+      - mcp-kubernetes.example.com
+  backendTrafficPolicy:
+    enabled: true
+    timeout: "300s"
+```
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes -f values-gateway-api.yaml
+```
+
+**Migration Scenario (Ingress + Gateway API):**
+
+Both can be enabled simultaneously for gradual migration:
+
+```yaml
+# values-migration.yaml
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: mcp-kubernetes.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+gatewayAPI:
+  enabled: true
+  httpRoute:
+    parentRefs:
+      - name: internal
+        namespace: envoy-gateway-system
+    hostnames:
+      - mcp-kubernetes-new.example.com
 ```
 
 ### Installation with Resource Limits
