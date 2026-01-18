@@ -1,4 +1,7 @@
 {{- if .Values.gatewayAPI.enabled -}}
+{{- if not .Values.gatewayAPI.httpRoute.parentRefs }}
+{{- fail "gatewayAPI.httpRoute.parentRefs is required when gatewayAPI.enabled is true. Specify at least one parent Gateway reference." }}
+{{- end }}
 {{- $fullName := include "mcp-kubernetes.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 apiVersion: gateway.networking.k8s.io/v1
