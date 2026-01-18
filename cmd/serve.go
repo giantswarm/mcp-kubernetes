@@ -189,7 +189,8 @@ func newServeCmd() *cobra.Command {
 		cimdAllowPrivateIPs bool
 
 		// Trusted audiences for SSO token forwarding
-		trustedAudiences []string
+		trustedAudiences   []string
+		ssoAllowPrivateIPs bool
 	)
 
 	cmd := &cobra.Command{
@@ -260,6 +261,20 @@ Downstream OAuth (--downstream-oauth):
 				}
 			}
 
+			// SSO allow private IPs env var - only apply if flag was not explicitly set
+			if !cmd.Flags().Changed("sso-allow-private-ips") {
+				if envVal := os.Getenv("SSO_ALLOW_PRIVATE_IPS"); envVal != "" {
+					if parsed, err := strconv.ParseBool(envVal); err == nil {
+						ssoAllowPrivateIPs = parsed
+					} else {
+						slog.Warn("invalid SSO_ALLOW_PRIVATE_IPS value, using default",
+							"value", envVal,
+							"default", ssoAllowPrivateIPs,
+							"error", err)
+					}
+				}
+			}
+
 			// Security warning: CLI password flags may be visible in process listings
 			if cmd.Flags().Changed("valkey-password") {
 				slog.Warn("valkey password provided via CLI flag",
@@ -315,6 +330,7 @@ Downstream OAuth (--downstream-oauth):
 					EnableCIMD:                       enableCIMD,
 					CIMDAllowPrivateIPs:              cimdAllowPrivateIPs,
 					TrustedAudiences:                 trustedAudiences,
+					SSOAllowPrivateIPs:               ssoAllowPrivateIPs,
 				},
 				DownstreamOAuth: downstreamOAuth,
 				Metrics: MetricsServeConfig{
@@ -398,6 +414,7 @@ Downstream OAuth (--downstream-oauth):
 
 	// Trusted audiences for SSO token forwarding from aggregators
 	cmd.Flags().StringSliceVar(&trustedAudiences, "oauth-trusted-audiences", nil, "Client IDs whose tokens are accepted for SSO (e.g., muster-client). Enables token forwarding from trusted aggregators (can also be set via OAUTH_TRUSTED_AUDIENCES env var as comma-separated list)")
+	cmd.Flags().BoolVar(&ssoAllowPrivateIPs, "sso-allow-private-ips", false, "Allow JWKS endpoints (for SSO token validation) to resolve to private IPs. Required when your IdP (e.g., Dex) runs on an internal network. (SSRF risk; internal deployments only, can also be set via SSO_ALLOW_PRIVATE_IPS env var)")
 
 	return cmd
 }
@@ -782,6 +799,13 @@ func runServe(config ServeConfig) error {
 				slog.Warn("SSO token forwarding enabled: tokens from trusted upstream clients will be accepted",
 					"trusted_audiences", config.OAuth.TrustedAudiences,
 					"security_note", "ensure these client IDs are from services you control and trust")
+
+				// Additional info log when SSO private IPs are configured (mcp-oauth v0.2.40+)
+				if config.OAuth.SSOAllowPrivateIPs {
+					slog.Info("SSO private IP allowance configured",
+						"sso_allow_private_ips", true,
+						"note", "JWKS endpoints on private networks will be allowed for SSO token validation")
+				}
 			}
 
 			// Registration token is required unless:
@@ -872,7 +896,8 @@ func runServe(config ServeConfig) error {
 				EnableCIMD:          config.OAuth.EnableCIMD,
 				CIMDAllowPrivateIPs: config.OAuth.CIMDAllowPrivateIPs,
 				// Trusted audiences for SSO token forwarding from upstream aggregators
-				TrustedAudiences: config.OAuth.TrustedAudiences,
+				TrustedAudiences:   config.OAuth.TrustedAudiences,
+				SSOAllowPrivateIPs: config.OAuth.SSOAllowPrivateIPs,
 			}, serverContext, config.Metrics)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)

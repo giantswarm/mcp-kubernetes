@@ -220,6 +220,11 @@ spec:
             - name: OAUTH_TRUSTED_AUDIENCES
               value: {{ .Values.mcpKubernetes.oauth.trustedAudiences | join "," | quote }}
             {{- end }}
+            {{- /* SSO Security (mcp-oauth v0.2.40+) */ -}}
+            {{- if and .Values.mcpKubernetes.oauth.sso .Values.mcpKubernetes.oauth.sso.allowPrivateIPs }}
+            - name: SSO_ALLOW_PRIVATE_IPS
+              value: "true"
+            {{- end }}
             # Valkey storage configuration
             {{- if eq .Values.mcpKubernetes.oauth.storage.type "valkey" }}
             - name: OAUTH_STORAGE_TYPE

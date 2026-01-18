@@ -470,20 +470,37 @@ mcpKubernetes:
     # already authenticated. This setting allows mcp-kubernetes to accept tokens
     # issued to those trusted upstream services, enabling Single Sign-On (SSO).
     #
-    # How it works:
-    # 1. User authenticates with muster (gets token with audience "muster-client")
-    # 2. Muster forwards the user's ID token to mcp-kubernetes
-    # 3. mcp-kubernetes accepts the token because "muster-client" is in trustedAudiences
+    # How it works (mcp-oauth v0.2.39):
+    #   - When a trusted audience is detected, the token is validated via JWT/JWKS
+    #   - The IdP's JWKS endpoint is fetched to verify the token signature
+    #   - User info is extracted directly from JWT claims (no userinfo call needed)
+    #   - This fixes the bug where userinfo calls failed for forwarded ID tokens
     #
-    # Security considerations:
-    # - Only explicitly listed client IDs are trusted (no implicit trust)
-    # - Tokens must still be from the configured issuer (Dex/Google)
-    # - The IdP's cryptographic signature proves token authenticity
-    # - Audit events are logged when accepting cross-client tokens
+    # Security Model:
+    #   - Tokens MUST still be from the configured issuer (Google/Dex)
+    #   - Tokens MUST be cryptographically signed by the issuer
+    #   - Only explicitly listed client IDs are trusted
+    #   - Audit events are logged when accepting cross-client tokens
     #
     # Example: ["muster-client", "my-aggregator-client"]
-    # Default: [] (no trusted audiences, SSO disabled)
+    # Default: [] (only accept tokens issued directly to this server's client_id)
     trustedAudiences: []
+
+    # SSO Security Configuration (mcp-oauth v0.2.40+)
+    sso:
+      # Allow JWKS endpoints to resolve to private IP addresses during SSO token validation.
+      # This is necessary for private/internal deployments where the IdP (e.g., Dex)
+      # runs on a private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+      #
+      # WARNING: Reduces SSRF protection. Only enable for internal/VPN deployments
+      # where the IdP legitimately runs on private networks.
+      #
+      # Note: For Google OAuth, this setting has no effect as Google's JWKS endpoint
+      # (https://www.googleapis.com/oauth2/v3/certs) is always publicly accessible.
+      # This option is primarily for private Dex deployments.
+      #
+      # Default: false (blocked for security - SSRF protection enabled)
+      allowPrivateIPs: false
 
   # OpenTelemetry Instrumentation configuration
   instrumentation:

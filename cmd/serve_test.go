@@ -287,6 +287,43 @@ func TestCIMDEnvVarParsing(t *testing.T) {
 			expectedValue: false, // default is false
 			expectWarning: true,
 		},
+		// SSO_ALLOW_PRIVATE_IPS tests (mcp-oauth v0.2.40+)
+		{
+			name:          "SSO_ALLOW_PRIVATE_IPS=true enables SSO private IPs",
+			envVar:        "SSO_ALLOW_PRIVATE_IPS",
+			envValue:      "true",
+			flagName:      "sso-allow-private-ips",
+			expectedValue: true,
+		},
+		{
+			name:          "SSO_ALLOW_PRIVATE_IPS=false keeps disabled",
+			envVar:        "SSO_ALLOW_PRIVATE_IPS",
+			envValue:      "false",
+			flagName:      "sso-allow-private-ips",
+			expectedValue: false,
+		},
+		{
+			name:          "SSO_ALLOW_PRIVATE_IPS=1 enables SSO private IPs",
+			envVar:        "SSO_ALLOW_PRIVATE_IPS",
+			envValue:      "1",
+			flagName:      "sso-allow-private-ips",
+			expectedValue: true,
+		},
+		{
+			name:          "SSO_ALLOW_PRIVATE_IPS=0 keeps disabled",
+			envVar:        "SSO_ALLOW_PRIVATE_IPS",
+			envValue:      "0",
+			flagName:      "sso-allow-private-ips",
+			expectedValue: false,
+		},
+		{
+			name:          "SSO_ALLOW_PRIVATE_IPS invalid value uses default",
+			envVar:        "SSO_ALLOW_PRIVATE_IPS",
+			envValue:      "notabool",
+			flagName:      "sso-allow-private-ips",
+			expectedValue: false, // default is false
+			expectWarning: true,
+		},
 		// Flag overrides env var
 		{
 			name:           "flag overrides ENABLE_CIMD env var",
@@ -302,6 +339,15 @@ func TestCIMDEnvVarParsing(t *testing.T) {
 			envVar:         "CIMD_ALLOW_PRIVATE_IPS",
 			envValue:       "true",
 			flagName:       "cimd-allow-private-ips",
+			setFlag:        true,
+			flagValue:      false,
+			expectedResult: false, // flag wins
+		},
+		{
+			name:           "flag overrides SSO_ALLOW_PRIVATE_IPS env var",
+			envVar:         "SSO_ALLOW_PRIVATE_IPS",
+			envValue:       "true",
+			flagName:       "sso-allow-private-ips",
 			setFlag:        true,
 			flagValue:      false,
 			expectedResult: false, // flag wins

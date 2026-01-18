@@ -172,6 +172,26 @@ type OAuthServeConfig struct {
 	// Example: ["muster-client", "another-aggregator"]
 	TrustedAudiences []string
 
+	// SSOAllowPrivateIPs allows JWKS endpoints (used for SSO token validation) that
+	// resolve to private IP addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 per RFC 1918).
+	// This also allows loopback addresses (127.0.0.0/8, ::1) and link-local addresses.
+	//
+	// When TrustedAudiences is configured, mcp-kubernetes validates forwarded ID tokens
+	// by fetching the IdP's JWKS (JSON Web Key Set) to verify signatures. If your IdP
+	// (like Dex) is deployed on a private network, JWKS fetching will fail without this option.
+	//
+	// Use cases:
+	//   - Home lab deployments where Dex runs on an internal network
+	//   - Air-gapped environments
+	//   - Internal enterprise networks
+	//   - Any deployment where the IdP is only accessible over private networks
+	//
+	// WARNING: Reduces SSRF protection. Only enable for internal deployments
+	// that are not exposed to the public internet.
+	//
+	// Default: false (blocked for security)
+	SSOAllowPrivateIPs bool
+
 	// Storage configuration
 	Storage server.OAuthStorageConfig
 }

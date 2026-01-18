@@ -11,15 +11,30 @@ When users connect to mcp-kubernetes through an aggregator like [muster](https:/
 
 This creates friction because both services often use the same Identity Provider (e.g., Dex). The user has already proven their identity to the aggregator - downstream servers should be able to accept that proof.
 
-## How Token Forwarding Works
+## How Token Forwarding Works (mcp-oauth v0.2.39)
 
-With SSO token forwarding enabled:
+The SSO token forwarding implementation uses JWKS-based JWT validation, which correctly handles ID token forwarding scenarios where the previous userinfo-based validation failed.
 
-1. User authenticates with the aggregator (gets an ID token with audience "aggregator-client")
-2. Aggregator forwards the user's ID token to mcp-kubernetes in the `Authorization` header
-3. mcp-kubernetes validates the token signature against the configured issuer
-4. mcp-kubernetes checks if the token's audience is in the `trustedAudiences` list
-5. If trusted, the user is authenticated without requiring a separate OAuth flow
+```
+User ─── authenticates ───> Aggregator (muster)
+                               │
+                          forwards ID token
+                               │
+                               ▼
+                          mcp-kubernetes
+                               │
+                               │ validates token via JWKS:
+                               │ 1. Detect JWT format (3 dot-separated parts)
+                               │ 2. Fetch JWKS from IdP (Google/Dex)
+                               │ 3. Validate signature using public key
+                               │ 4. Validate issuer matches provider
+                               │ 5. Check audience in TrustedAudiences
+                               │ 6. Extract user info from JWT claims
+                               ▼
+                          Access granted
+```
+
+**Key Improvement (v0.2.39):** The previous implementation called the IdP's userinfo endpoint, which fails for ID tokens (userinfo expects access tokens). The new implementation validates ID tokens directly using JWKS signature verification.
 
 ## Configuration
 
@@ -126,6 +141,42 @@ If tokens from an aggregator are not being accepted:
 2. **Check the issuer**: Ensure both services use the same Dex/Google issuer URL
 3. **Enable debug logging**: Use `--debug` to see detailed token validation logs
 4. **Check token expiry**: Ensure the forwarded token hasn't expired
+
+### JWKS Fetching Fails (SSRF Error)
+
+If you see errors like "JWKS URI must not point to private IP ranges" when using TrustedAudiences:
+
+1. **Check your IdP location**: If Dex/your IdP is on a private network (10.x, 172.16.x, 192.168.x), you need to enable private IP allowance
+2. **Enable SSO private IPs**: Set `--sso-allow-private-ips=true` or `SSO_ALLOW_PRIVATE_IPS=true` (or `sso.allowPrivateIPs: true` in Helm values)
+3. **Security note**: Only enable this for internal/VPN deployments not exposed to the public internet
+
+```bash
+# CLI flag
+mcp-kubernetes serve \
+  --enable-oauth \
+  --oauth-trusted-audiences "muster-client" \
+  --sso-allow-private-ips
+```
+
+```yaml
+# Helm values
+mcpKubernetes:
+  oauth:
+    trustedAudiences:
+      - "muster-client"
+    sso:
+      # Enable for private Dex on internal networks (10.x, 172.16.x, 192.168.x)
+      allowPrivateIPs: true
+```
+
+**Warning:** Enabling `sso.allowPrivateIPs` reduces SSRF protection. Only use for:
+- Home lab deployments
+- Air-gapped environments  
+- Internal enterprise networks
+
+**Note:** For Google OAuth, this setting has no effect because Google's JWKS endpoint (`https://www.googleapis.com/oauth2/v3/certs`) is always publicly accessible. This option is primarily for private Dex deployments.
+
+**Availability:** This feature requires mcp-oauth v0.2.40 or later.
 
 ### Debug Logging
 

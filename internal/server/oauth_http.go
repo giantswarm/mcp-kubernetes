@@ -274,6 +274,14 @@ type OAuthConfig struct {
 	//
 	// Example: ["muster-client", "another-aggregator"]
 	TrustedAudiences []string
+
+	// SSOAllowPrivateIPs allows JWKS endpoints (used for SSO token validation) that
+	// resolve to private IP addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+	// This is required when your IdP (like Dex) runs on a private network.
+	// Maps to AllowPrivateIPJWKS in mcp-oauth v0.2.40+.
+	// WARNING: Reduces SSRF protection. Only enable for internal deployments.
+	// Default: false (blocked for security)
+	SSOAllowPrivateIPs bool
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -514,6 +522,10 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// TrustedAudiences for SSO token forwarding from upstream aggregators
 		// Allows accepting tokens issued to other clients (e.g., muster)
 		TrustedAudiences: config.TrustedAudiences,
+
+		// AllowPrivateIPJWKS for JWKS fetching from internal IdPs (mcp-oauth v0.2.40+)
+		// Enables SSO token forwarding when IdP (e.g., Dex) is on a private network
+		AllowPrivateIPJWKS: config.SSOAllowPrivateIPs,
 	}
 
 	// Debug logging for registration token configuration
