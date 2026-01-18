@@ -232,21 +232,13 @@
           "type": "boolean",
           "description": "Enable Gateway API resources (HTTPRoute)"
         },
-        "labels": {
-          "type": "object",
-          "description": "Additional labels to add to Gateway API resources"
-        },
-        "annotations": {
-          "type": "object",
-          "description": "Additional annotations to add to Gateway API resources"
-        },
         "httpRoute": {
           "type": "object",
           "description": "HTTPRoute configuration",
           "properties": {
             "parentRefs": {
               "type": "array",
-              "description": "Parent gateway references",
+              "description": "Parent gateway references (required when gatewayAPI.enabled is true)",
               "items": {
                 "type": "object",
                 "properties": {
@@ -286,9 +278,21 @@
                   "filters": {
                     "type": "array",
                     "description": "Request/response filters"
+                  },
+                  "timeouts": {
+                    "type": "object",
+                    "description": "Per-rule timeout configuration"
                   }
                 }
               }
+            },
+            "annotations": {
+              "type": "object",
+              "description": "Additional annotations for the HTTPRoute"
+            },
+            "labels": {
+              "type": "object",
+              "description": "Additional labels for the HTTPRoute"
             }
           }
         },
@@ -304,6 +308,14 @@
               "type": "string",
               "description": "Request timeout for backend connections (e.g., '300s')",
               "pattern": "^[0-9]+(s|m|h)$"
+            },
+            "annotations": {
+              "type": "object",
+              "description": "Additional annotations for the BackendTrafficPolicy"
+            },
+            "labels": {
+              "type": "object",
+              "description": "Additional labels for the BackendTrafficPolicy"
             }
           }
         }

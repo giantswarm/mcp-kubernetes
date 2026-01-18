@@ -128,12 +128,6 @@ gatewayAPI:
   # Enable Gateway API resources (HTTPRoute)
   enabled: false
 
-  # Additional labels to add to Gateway API resources
-  labels: {}
-
-  # Additional annotations to add to Gateway API resources
-  annotations: {}
-
   # HTTPRoute configuration
   httpRoute:
     # Parent gateway references (required when enabled)
@@ -143,7 +137,7 @@ gatewayAPI:
     #     sectionName: https  # optional: specific listener
     parentRefs: []
 
-    # Hostnames for the route (required when enabled)
+    # Hostnames for the route
     # Example:
     #   - mcp-kubernetes.example.com
     hostnames: []
@@ -155,8 +149,16 @@ gatewayAPI:
     #       - path:
     #           type: PathPrefix
     #           value: /api
-    #     filters: []  # optional request/response filters
+    #     filters: []   # optional request/response filters
+    #     timeouts:     # optional per-rule timeouts
+    #       request: 30s
     rules: []
+
+    # Additional annotations for the HTTPRoute
+    annotations: {}
+
+    # Additional labels for the HTTPRoute
+    labels: {}
 
   # BackendTrafficPolicy configuration (Envoy Gateway specific)
   # Configures backend connection behavior like timeouts.
@@ -164,9 +166,16 @@ gatewayAPI:
   backendTrafficPolicy:
     # Enable BackendTrafficPolicy resource
     enabled: false
+
     # Request timeout for backend connections
     # MCP sessions can be long-running, so longer timeouts are recommended
     timeout: "300s"
+
+    # Additional annotations for the BackendTrafficPolicy
+    annotations: {}
+
+    # Additional labels for the BackendTrafficPolicy
+    labels: {}
 
 resources:
   limits:

@@ -10,10 +10,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
-    {{- with .Values.gatewayAPI.labels }}
+    {{- with .Values.gatewayAPI.backendTrafficPolicy.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-  {{- with .Values.gatewayAPI.annotations }}
+  {{- with .Values.gatewayAPI.backendTrafficPolicy.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}

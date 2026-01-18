@@ -68,7 +68,7 @@ tests:
       gatewayAPI.httpRoute.parentRefs:
         - name: internal
           namespace: envoy-gateway-system
-      gatewayAPI.labels:
+      gatewayAPI.httpRoute.labels:
         custom-label: custom-value
     asserts:
       - equal:
@@ -82,7 +82,7 @@ tests:
       gatewayAPI.httpRoute.parentRefs:
         - name: internal
           namespace: envoy-gateway-system
-      gatewayAPI.annotations:
+      gatewayAPI.httpRoute.annotations:
         custom-annotation: custom-value
     asserts:
       - equal:
@@ -252,6 +252,50 @@ tests:
           path: spec.rules[0].filters[0].type
           value: RequestHeaderModifier
 
+  - it: should support rules with timeouts
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /api
+          timeouts:
+            request: 30s
+    asserts:
+      - equal:
+          path: spec.rules[0].timeouts.request
+          value: 30s
+
+  - it: should use default PathPrefix match when rule has no matches
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.httpRoute.rules:
+        - filters:
+            - type: RequestHeaderModifier
+              requestHeaderModifier:
+                add:
+                  - name: X-Custom-Header
+                    value: custom-value
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+      - equal:
+          path: spec.rules[0].filters[0].type
+          value: RequestHeaderModifier
+
   # ==========================================
   # BackendTrafficPolicy Tests
   # ==========================================
@@ -363,11 +407,26 @@ tests:
         - name: internal
           namespace: envoy-gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: true
-      gatewayAPI.labels:
+      gatewayAPI.backendTrafficPolicy.labels:
         custom-label: custom-value
     asserts:
       - equal:
           path: metadata.labels["custom-label"]
+          value: custom-value
+
+  - it: should include custom annotations in BackendTrafficPolicy
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+      gatewayAPI.backendTrafficPolicy.enabled: true
+      gatewayAPI.backendTrafficPolicy.annotations:
+        custom-annotation: custom-value
+    asserts:
+      - equal:
+          path: metadata.annotations["custom-annotation"]
           value: custom-value
 
   # ==========================================
