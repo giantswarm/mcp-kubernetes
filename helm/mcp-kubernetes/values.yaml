@@ -120,6 +120,54 @@ ingress:
   #    hosts:
   #      - chart-example.local
 
+# Gateway API configuration
+# Enables exposure via Gateway API HTTPRoute instead of or alongside Ingress.
+# Gateway API is the successor to Ingress, providing more expressive routing.
+# Both Ingress and Gateway API can be enabled simultaneously for migration scenarios.
+gatewayAPI:
+  # Enable Gateway API resources (HTTPRoute)
+  enabled: false
+
+  # Additional labels to add to Gateway API resources
+  labels: {}
+
+  # Additional annotations to add to Gateway API resources
+  annotations: {}
+
+  # HTTPRoute configuration
+  httpRoute:
+    # Parent gateway references (required when enabled)
+    # Example:
+    #   - name: internal
+    #     namespace: envoy-gateway-system
+    #     sectionName: https  # optional: specific listener
+    parentRefs: []
+
+    # Hostnames for the route (required when enabled)
+    # Example:
+    #   - mcp-kubernetes.example.com
+    hostnames: []
+
+    # Optional: custom rules for path matching
+    # If not specified, defaults to PathPrefix "/"
+    # Example:
+    #   - matches:
+    #       - path:
+    #           type: PathPrefix
+    #           value: /api
+    #     filters: []  # optional request/response filters
+    rules: []
+
+  # BackendTrafficPolicy configuration (Envoy Gateway specific)
+  # Configures backend connection behavior like timeouts.
+  # Only applies when using Envoy Gateway as the Gateway implementation.
+  backendTrafficPolicy:
+    # Enable BackendTrafficPolicy resource
+    enabled: false
+    # Request timeout for backend connections
+    # MCP sessions can be long-running, so longer timeouts are recommended
+    timeout: "300s"
+
 resources:
   limits:
     cpu: 500m
