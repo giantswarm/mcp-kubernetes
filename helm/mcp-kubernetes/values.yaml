@@ -501,9 +501,6 @@ mcpKubernetes:
       #   - Internal enterprise networks
       #   - Any deployment where the IdP is only accessible over private networks
       #
-      # Note: This option requires mcp-oauth library support. If JWKS fetching still
-      # fails with SSRF errors, check for updates to the mcp-oauth dependency.
-      #
       # WARNING: Reduces SSRF protection. Only enable for internal deployments
       # that are not exposed to the public internet.
       #

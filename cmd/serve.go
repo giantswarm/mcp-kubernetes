@@ -800,11 +800,11 @@ func runServe(config ServeConfig) error {
 					"trusted_audiences", config.OAuth.TrustedAudiences,
 					"security_note", "ensure these client IDs are from services you control and trust")
 
-				// Additional warning when SSO private IPs are allowed
+				// Log when SSO private IPs are allowed (mcp-oauth v0.2.40+)
 				if config.OAuth.SSOAllowPrivateIPs {
-					slog.Info("SSO private IP allowance configured",
+					slog.Warn("SSO private IP allowance enabled: JWKS endpoints on private networks will be allowed",
 						"sso_allow_private_ips", true,
-						"note", "JWKS endpoints on private networks will be allowed for SSO token validation")
+						"security_note", "reduces SSRF protection - only use for internal deployments")
 				}
 			}
 
