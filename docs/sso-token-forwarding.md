@@ -127,6 +127,32 @@ If tokens from an aggregator are not being accepted:
 3. **Enable debug logging**: Use `--debug` to see detailed token validation logs
 4. **Check token expiry**: Ensure the forwarded token hasn't expired
 
+### JWKS Fetching Fails (SSRF Error)
+
+If you see errors like "JWKS URI must not point to private IP ranges" when using TrustedAudiences:
+
+1. **Check your IdP location**: If Dex/your IdP is on a private network (10.x, 172.16.x, 192.168.x), you need to enable private IP allowance
+2. **Enable SSO private IPs**: Set `--sso-allow-private-ips=true` or `SSO_ALLOW_PRIVATE_IPS=true` (or `sso.allowPrivateIPs: true` in Helm values)
+3. **Security note**: Only enable this for internal/VPN deployments not exposed to the public internet
+
+```bash
+# CLI flag
+mcp-kubernetes serve \
+  --enable-oauth \
+  --oauth-trusted-audiences "muster-client" \
+  --sso-allow-private-ips
+```
+
+```yaml
+# Helm values
+mcpKubernetes:
+  oauth:
+    trustedAudiences:
+      - "muster-client"
+    sso:
+      allowPrivateIPs: true  # Allow JWKS from internal IdP
+```
+
 ### Debug Logging
 
 ```bash

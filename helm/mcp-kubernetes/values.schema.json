@@ -537,6 +537,16 @@
               "items": {
                 "type": "string"
               }
+            },
+            "sso": {
+              "type": "object",
+              "description": "SSO (Single Sign-On) token forwarding configuration.",
+              "properties": {
+                "allowPrivateIPs": {
+                  "type": "boolean",
+                  "description": "Allow JWKS endpoints (for SSO token validation) to resolve to private IP addresses. Required when IdP (e.g., Dex) runs on an internal network. WARNING: Reduces SSRF protection. Default: false."
+                }
+              }
             }
           }
         },

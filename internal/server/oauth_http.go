@@ -274,6 +274,13 @@ type OAuthConfig struct {
 	//
 	// Example: ["muster-client", "another-aggregator"]
 	TrustedAudiences []string
+
+	// SSOAllowPrivateIPs allows JWKS endpoints (used for SSO token validation) that
+	// resolve to private IP addresses. This is required when your IdP (like Dex)
+	// runs on a private network.
+	// WARNING: Reduces SSRF protection. Only enable for internal deployments.
+	// Default: false (blocked for security)
+	SSOAllowPrivateIPs bool
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -514,6 +521,16 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// TrustedAudiences for SSO token forwarding from upstream aggregators
 		// Allows accepting tokens issued to other clients (e.g., muster)
 		TrustedAudiences: config.TrustedAudiences,
+	}
+
+	// Log warning if SSOAllowPrivateIPs is requested but not yet supported
+	// This configuration option requires mcp-oauth to add AllowPrivateIPSSO support
+	// Issue: https://github.com/giantswarm/mcp-oauth/issues/175
+	if config.SSOAllowPrivateIPs {
+		logger.Warn("SSO private IP allowance requested but not yet supported by mcp-oauth",
+			"config", "SSOAllowPrivateIPs=true",
+			"impact", "JWKS fetching from private IP IdPs may fail with SSRF protection errors",
+			"workaround", "ensure your IdP's JWKS endpoint is accessible via a public IP or wait for mcp-oauth support")
 	}
 
 	// Debug logging for registration token configuration

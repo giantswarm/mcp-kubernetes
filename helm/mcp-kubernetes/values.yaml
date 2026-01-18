@@ -485,6 +485,31 @@ mcpKubernetes:
     # Default: [] (no trusted audiences, SSO disabled)
     trustedAudiences: []
 
+    # SSO (Single Sign-On) Token Forwarding Configuration
+    sso:
+      # Allow JWKS endpoints (used for SSO token validation) that resolve to private
+      # IP addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 per RFC 1918).
+      # This also allows loopback (127.0.0.0/8, ::1) and link-local addresses.
+      #
+      # When trustedAudiences is configured, mcp-kubernetes validates forwarded ID
+      # tokens by fetching the IdP's JWKS to verify signatures. If your IdP (like Dex)
+      # is deployed on a private network, JWKS fetching may fail without this option.
+      #
+      # Use cases:
+      #   - Home lab deployments where Dex runs on an internal network
+      #   - Air-gapped environments
+      #   - Internal enterprise networks
+      #   - Any deployment where the IdP is only accessible over private networks
+      #
+      # Note: This option requires mcp-oauth library support. If JWKS fetching still
+      # fails with SSRF errors, check for updates to the mcp-oauth dependency.
+      #
+      # WARNING: Reduces SSRF protection. Only enable for internal deployments
+      # that are not exposed to the public internet.
+      #
+      # Default: false (blocked for security)
+      allowPrivateIPs: false
+
   # OpenTelemetry Instrumentation configuration
   instrumentation:
     # Enable OpenTelemetry instrumentation (default: true)
