@@ -368,6 +368,11 @@
     "mcpKubernetes": {
       "type": "object",
       "properties": {
+        "debug": {
+          "type": "boolean",
+          "description": "Enable debug mode. WARNING: May expose sensitive information in logs. Only for development/troubleshooting, never in production.",
+          "default": false
+        },
         "kubernetes": {
           "type": "object",
           "properties": {

@@ -76,3 +76,18 @@ tests:
           path: spec.template.spec.containers[0].securityContext.runAsNonRoot
           value: true
 
+  - it: should disable debug mode by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--debug=false"
+
+  - it: should enable debug mode when configured
+    set:
+      mcpKubernetes:
+        debug: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--debug=true"
+

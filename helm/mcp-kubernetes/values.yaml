@@ -213,6 +213,11 @@ affinity: {}
 
 # MCP Kubernetes specific configuration
 mcpKubernetes:
+  # Enable debug mode (default: false)
+  # WARNING: Debug mode may expose sensitive information in logs.
+  # Only enable for development or troubleshooting, never in production.
+  debug: false
+
   # Kubernetes configuration
   kubernetes:
     # If true, use in-cluster configuration
