@@ -29,15 +29,15 @@ All three assessments independently identified these critical issues requiring i
 | SEC-001 | Debug mode hardcoded in Helm template (`--debug=true`) | All three | [#227](https://github.com/giantswarm/mcp-kubernetes/issues/227) |
 | SEC-002 | Standard RBAC profile grants cluster-wide Secret access | All three | [#228](https://github.com/giantswarm/mcp-kubernetes/issues/228) |
 | SEC-003 | In-memory token storage default for production | Opus 4.5, GPT-5.2-Codex | [#229](https://github.com/giantswarm/mcp-kubernetes/issues/229) |
-| SEC-004 | Non-OAuth HTTP transport has no authentication | GPT-5.2-Codex | - |
+| SEC-004 | Non-OAuth HTTP transport has no authentication | GPT-5.2-Codex | [#233](https://github.com/giantswarm/mcp-kubernetes/issues/233) |
 
 ### Medium Priority Issues
 
-| ID | Issue | Identified By |
-|----|-------|---------------|
-| SEC-005 | Token encryption at rest is optional | GPT-5.2-Codex |
-| SEC-006 | No request size limits visible | Opus 4.5 |
-| SEC-007 | Command logging for exec relies on K8s audit logs | Gemini 3 Pro |
+| ID | Issue | Identified By | Tracking |
+|----|-------|---------------|----------|
+| SEC-005 | Token encryption at rest is optional | GPT-5.2-Codex | [#234](https://github.com/giantswarm/mcp-kubernetes/issues/234) |
+| SEC-006 | No request size limits visible | Opus 4.5 | [#235](https://github.com/giantswarm/mcp-kubernetes/issues/235) |
+| SEC-007 | Command logging for exec relies on K8s audit logs | Gemini 3 Pro | Informational |
 
 ---
 
