@@ -191,6 +191,9 @@ func newServeCmd() *cobra.Command {
 		// Trusted audiences for SSO token forwarding
 		trustedAudiences   []string
 		ssoAllowPrivateIPs bool
+
+		// Request size limit
+		maxRequestSize int64
 	)
 
 	cmd := &cobra.Command{
@@ -282,6 +285,20 @@ Downstream OAuth (--downstream-oauth):
 					"recommendation", "use the VALKEY_PASSWORD environment variable instead")
 			}
 
+			// Load max request size from environment if flag not explicitly set
+			if !cmd.Flags().Changed("max-request-size") {
+				if envVal := os.Getenv("MAX_REQUEST_SIZE"); envVal != "" {
+					if parsed, err := strconv.ParseInt(envVal, 10, 64); err == nil {
+						maxRequestSize = parsed
+					} else {
+						slog.Warn("invalid MAX_REQUEST_SIZE value, using default",
+							"value", envVal,
+							"default", DefaultMaxRequestSize,
+							"error", err)
+					}
+				}
+			}
+
 			config := ServeConfig{
 				Transport:          transport,
 				HTTPAddr:           httpAddr,
@@ -294,6 +311,7 @@ Downstream OAuth (--downstream-oauth):
 				BurstLimit:         burstLimit,
 				DebugMode:          debugMode,
 				InCluster:          inCluster,
+				MaxRequestSize:     maxRequestSize,
 				OAuth: OAuthServeConfig{
 					Enabled:                            enableOAuth,
 					BaseURL:                            oauthBaseURL,
@@ -415,6 +433,9 @@ Downstream OAuth (--downstream-oauth):
 	// Trusted audiences for SSO token forwarding from aggregators
 	cmd.Flags().StringSliceVar(&trustedAudiences, "oauth-trusted-audiences", nil, "Client IDs whose tokens are accepted for SSO (e.g., muster-client). Enables token forwarding from trusted aggregators (can also be set via OAUTH_TRUSTED_AUDIENCES env var as comma-separated list)")
 	cmd.Flags().BoolVar(&ssoAllowPrivateIPs, "sso-allow-private-ips", false, "Allow JWKS endpoints (for SSO token validation) to resolve to private IPs. Required when your IdP (e.g., Dex) runs on an internal network. (SSRF risk; internal deployments only, can also be set via SSO_ALLOW_PRIVATE_IPS env var)")
+
+	// Request size limit flag
+	cmd.Flags().Int64Var(&maxRequestSize, "max-request-size", DefaultMaxRequestSize, "Maximum allowed request body size in bytes (default: 5MB). Requests exceeding this limit will receive a 413 Request Entity Too Large response")
 
 	return cmd
 }
@@ -898,9 +919,11 @@ func runServe(config ServeConfig) error {
 				// Trusted audiences for SSO token forwarding from upstream aggregators
 				TrustedAudiences:   config.OAuth.TrustedAudiences,
 				SSOAllowPrivateIPs: config.OAuth.SSOAllowPrivateIPs,
+				// Request size limiting for DoS protection
+				MaxRequestSize: config.MaxRequestSize,
 			}, serverContext, config.Metrics)
 		}
-		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics, config.MaxRequestSize)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}

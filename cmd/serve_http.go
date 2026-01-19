@@ -11,10 +11,11 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
 
 // runStreamableHTTPServer runs the server with Streamable HTTP transport
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig) error {
+func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig, maxRequestSize int64) error {
 	// Create a custom HTTP server (metrics are now on a separate server)
 	mux := http.NewServeMux()
 
@@ -47,10 +48,17 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 		}
 	}
 
+	// Apply request size limiting middleware for DoS protection
+	var handler http.Handler = mux
+	if maxRequestSize > 0 {
+		handler = middleware.MaxRequestSize(maxRequestSize)(mux)
+		fmt.Printf("  Max request size: %d bytes\n", maxRequestSize)
+	}
+
 	// Create HTTP server with security timeouts
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,

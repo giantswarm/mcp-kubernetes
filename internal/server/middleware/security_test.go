@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"bytes"
 	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -241,4 +244,154 @@ func TestValidateAllowedOrigins(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMaxRequestSize tests request body size limiting middleware
+func TestMaxRequestSize(t *testing.T) {
+	tests := []struct {
+		name           string
+		maxBytes       int64
+		bodySize       int
+		wantBodyRead   bool
+		wantReadError  bool
+		wantBytesRead  int // Number of bytes expected to be read (limited by maxBytes)
+	}{
+		{
+			name:          "request within limit",
+			maxBytes:      1024,
+			bodySize:      100,
+			wantBodyRead:  true,
+			wantReadError: false,
+			wantBytesRead: 100,
+		},
+		{
+			name:          "request exactly at limit",
+			maxBytes:      1024,
+			bodySize:      1024,
+			wantBodyRead:  true,
+			wantReadError: false,
+			wantBytesRead: 1024,
+		},
+		{
+			name:          "request exceeds limit",
+			maxBytes:      1024,
+			bodySize:      2048,
+			wantBodyRead:  false,
+			wantReadError: true,
+			wantBytesRead: 0, // ReadAll returns error, partial read not guaranteed
+		},
+		{
+			name:          "limit disabled with zero",
+			maxBytes:      0,
+			bodySize:      10000,
+			wantBodyRead:  true,
+			wantReadError: false,
+			wantBytesRead: 10000,
+		},
+		{
+			name:          "limit disabled with negative",
+			maxBytes:      -1,
+			bodySize:      10000,
+			wantBodyRead:  true,
+			wantReadError: false,
+			wantBytesRead: 10000,
+		},
+		{
+			name:          "empty body within limit",
+			maxBytes:      1024,
+			bodySize:      0,
+			wantBodyRead:  true,
+			wantReadError: false,
+			wantBytesRead: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var bodyWasRead bool
+			var readError error
+			var bytesRead int
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Try to read the body to trigger the limit check
+				body, err := io.ReadAll(r.Body)
+				readError = err
+				if err == nil {
+					bodyWasRead = true
+					bytesRead = len(body)
+					w.WriteHeader(http.StatusOK)
+				} else {
+					// Body read failed - MaxBytesReader returns an error
+					// In production, the ResponseWriter may set 413 automatically
+					// For testing with httptest.ResponseRecorder, we manually set it
+					w.WriteHeader(http.StatusRequestEntityTooLarge)
+				}
+			})
+
+			middleware := MaxRequestSize(tt.maxBytes)(handler)
+
+			// Create a body of the specified size
+			body := strings.Repeat("a", tt.bodySize)
+			req := httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
+			req.ContentLength = int64(tt.bodySize)
+			rec := httptest.NewRecorder()
+
+			middleware.ServeHTTP(rec, req)
+
+			if tt.wantBodyRead {
+				assert.True(t, bodyWasRead, "expected body to be read successfully")
+				assert.NoError(t, readError)
+				assert.Equal(t, tt.wantBytesRead, bytesRead)
+				assert.Equal(t, http.StatusOK, rec.Code)
+			} else {
+				// When body exceeds limit, ReadAll returns an error
+				assert.Error(t, readError, "expected read error for body exceeding limit")
+				assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+			}
+		})
+	}
+}
+
+// TestMaxRequestSizePassthrough tests that middleware passes through when disabled
+func TestMaxRequestSizePassthrough(t *testing.T) {
+	var handlerCalled bool
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Test with zero maxBytes (disabled)
+	middleware := MaxRequestSize(0)(handler)
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+
+	middleware.ServeHTTP(rec, req)
+
+	assert.True(t, handlerCalled, "expected handler to be called")
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestMaxRequestSizeChunkedTransfer tests handling of chunked transfer encoding
+func TestMaxRequestSizeChunkedTransfer(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	middleware := MaxRequestSize(100)(handler)
+
+	// Create a chunked body that exceeds the limit
+	body := strings.Repeat("a", 200)
+	req := httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
+	// Don't set ContentLength to simulate chunked transfer
+	req.ContentLength = -1
+	rec := httptest.NewRecorder()
+
+	middleware.ServeHTTP(rec, req)
+
+	// The middleware should return 413 when the body exceeds the limit
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }

@@ -282,6 +282,11 @@ type OAuthConfig struct {
 	// WARNING: Reduces SSRF protection. Only enable for internal deployments.
 	// Default: false (blocked for security)
 	SSOAllowPrivateIPs bool
+
+	// MaxRequestSize is the maximum allowed request body size in bytes.
+	// Requests exceeding this limit will receive a 413 Request Entity Too Large response.
+	// Default: 0 (uses caller's value, typically 5MB from serve command)
+	MaxRequestSize int64
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -752,8 +757,13 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		s.healthChecker.RegisterHealthEndpoints(mux)
 	}
 
-	// Create HTTP server with security and CORS middleware
+	// Create HTTP server with security, CORS, and request size limiting middleware
 	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
+
+	// Apply request size limiting middleware for DoS protection
+	if config.MaxRequestSize > 0 {
+		handler = middleware.MaxRequestSize(config.MaxRequestSize)(handler)
+	}
 
 	s.httpServer = &http.Server{
 		Addr:              addr,

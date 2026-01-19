@@ -589,6 +589,18 @@
               "maximum": 65535
             }
           }
+        },
+        "server": {
+          "type": "object",
+          "description": "Server security configuration",
+          "properties": {
+            "maxRequestSize": {
+              "type": "integer",
+              "description": "Maximum allowed request body size in bytes. Provides DoS protection against oversized requests. Set to 0 to disable (not recommended for production).",
+              "minimum": 0,
+              "default": 5242880
+            }
+          }
         }
       }
     },

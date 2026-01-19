@@ -77,6 +77,23 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 	}
 }
 
+// MaxRequestSize creates middleware that limits the size of request bodies.
+// Requests with bodies exceeding maxBytes will receive a 413 Request Entity Too Large response.
+// A maxBytes value of 0 or negative disables the limit (not recommended for production).
+func MaxRequestSize(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		// If maxBytes is 0 or negative, disable the limit (pass through)
+		if maxBytes <= 0 {
+			return next
+		}
+
+		// Use http.MaxBytesHandler which handles the size limiting
+		// It wraps the request body with http.MaxBytesReader and returns
+		// 413 Request Entity Too Large if the body exceeds the limit
+		return http.MaxBytesHandler(next, maxBytes)
+	}
+}
+
 // ValidateAllowedOrigins validates and normalizes allowed CORS origins
 func ValidateAllowedOrigins(originsEnv string) ([]string, error) {
 	if originsEnv == "" {
