@@ -131,6 +131,17 @@ mcpKubernetes:
     enableDownstreamOAuth: true  # Use tokens for K8s API auth
 ```
 
+## Downstream OAuth with SSO Token Forwarding
+
+When `enableDownstreamOAuth: true` is configured alongside `trustedAudiences`, mcp-kubernetes automatically uses SSO-forwarded tokens for Kubernetes API authentication:
+
+1. Muster forwards the user's ID token to mcp-kubernetes
+2. mcp-kubernetes validates the token via JWKS (TrustedAudiences)
+3. mcp-kubernetes uses the forwarded ID token directly for Kubernetes API calls
+4. The user gets their own RBAC permissions in the cluster
+
+This works because for SSO-forwarded tokens, the Bearer token **is** the ID token. mcp-kubernetes detects this via the `TokenSource` metadata set during token validation (requires mcp-oauth v0.2.43+).
+
 ## Troubleshooting
 
 ### Token Not Accepted

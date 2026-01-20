@@ -832,10 +832,18 @@ func extractBearerToken(r *http.Request) (string, bool) {
 // OAuth provider token (specifically the ID token) into the request context.
 // This token can then be used for downstream Kubernetes API authentication.
 //
-// Token Lookup Strategy:
-// The middleware looks up the provider token using the MCP access token as the key.
-// This ensures we get the most up-to-date provider token, including any tokens that
-// have been proactively refreshed by mcp-oauth's token validation.
+// Token Injection Strategy:
+//
+//  1. SSO Token Forwarding (IsSSO() == true):
+//     When the token was validated via TrustedAudiences/JWKS (SSO token forwarding),
+//     the Bearer token IS the ID token forwarded from a trusted upstream service
+//     (e.g., muster). We use it directly without token store lookup.
+//
+//  2. Normal OAuth Flow (IsSSO() == false):
+//     When the token was issued by this server's OAuth flow, we look up the provider's
+//     ID token from the token store using the MCP access token as the key.
+//     This ensures we get the most up-to-date provider token, including any tokens
+//     that have been proactively refreshed by mcp-oauth's token validation.
 //
 // Background: mcp-oauth stores provider tokens keyed by the MCP access token during
 // token exchange and proactive refresh. Looking up by access token (instead of email)
@@ -859,23 +867,34 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// Extract the MCP access token from the Authorization header
-		// We use this as the key to look up the provider token, which ensures
-		// we get the most up-to-date token (including proactively refreshed tokens)
-		mcpAccessToken, ok := extractBearerToken(r)
-		if !ok || mcpAccessToken == "" {
+		// Extract the Bearer token from the Authorization header
+		bearerToken, ok := extractBearerToken(r)
+		if !ok || bearerToken == "" {
 			slog.Debug("AccessTokenInjector: no bearer token in Authorization header",
 				"user_id", userInfo.ID)
 			next.ServeHTTP(w, r)
 			return
 		}
 
+		// SSO Token Forwarding: If the token was validated via TrustedAudiences/JWKS,
+		// the Bearer token IS the ID token - use it directly instead of looking it up.
+		// This happens when an upstream aggregator (e.g., muster) forwards a user's ID token.
+		if userInfo.IsSSO() {
+			slog.Debug("AccessTokenInjector: using SSO-forwarded token directly as ID token",
+				logging.UserHash(userInfo.Email))
+			ctx = mcpoauth.ContextWithAccessToken(ctx, bearerToken)
+			r = r.WithContext(ctx)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Normal OAuth flow: Look up the provider's ID token from the token store
 		slog.Debug("AccessTokenInjector: looking up provider token by MCP access token",
 			logging.UserHash(userInfo.Email))
 
-		// Retrieve the provider token using the MCP access token as the key
+		// Retrieve the provider token using the MCP access token (Bearer token) as the key
 		// This is the same key used by mcp-oauth during token exchange and proactive refresh
-		token, err := s.tokenStore.GetToken(ctx, mcpAccessToken)
+		token, err := s.tokenStore.GetToken(ctx, bearerToken)
 		if err != nil {
 			slog.Debug("AccessTokenInjector: failed to get token from store by access token",
 				logging.UserHash(userInfo.Email), logging.Err(err))
