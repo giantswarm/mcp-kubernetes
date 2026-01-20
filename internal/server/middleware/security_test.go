@@ -530,18 +530,18 @@ func TestLooksLikeDynamicSegment(t *testing.T) {
 	}{
 		{"", false},
 		{"api", false},
-		{"v1", false},              // Version pattern
-		{"v2", false},              // Version pattern
-		{"v1beta1", false},         // Version pattern with suffix
-		{"v1alpha2", false},        // Version pattern with suffix
-		{"users", false},           // No digits
-		{"abc", false},             // Too short
-		{"12345", true},            // All digits, 5+ chars
-		{"user1234", true},         // >40% digits, 4+ chars
-		{"abc123def456", true},     // UUID-like
-		{"pod-name-here", false},   // Typical k8s name
-		{"1234567890abcd", true},   // Long with many digits
-		{"default", false},         // Common namespace name
+		{"v1", false},            // Version pattern
+		{"v2", false},            // Version pattern
+		{"v1beta1", false},       // Version pattern with suffix
+		{"v1alpha2", false},      // Version pattern with suffix
+		{"users", false},         // No digits
+		{"abc", false},           // Too short
+		{"12345", true},          // All digits, 5+ chars
+		{"user1234", true},       // >40% digits, 4+ chars
+		{"abc123def456", true},   // UUID-like
+		{"pod-name-here", false}, // Typical k8s name
+		{"1234567890abcd", true}, // Long with many digits
+		{"default", false},       // Common namespace name
 	}
 
 	for _, tt := range tests {
