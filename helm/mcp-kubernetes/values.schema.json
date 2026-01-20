@@ -596,7 +596,7 @@
           "properties": {
             "maxRequestSize": {
               "type": "integer",
-              "description": "Maximum allowed request body size in bytes. Provides DoS protection against oversized requests. Set to 0 to disable (not recommended for production).",
+              "description": "Maximum allowed request body size in bytes. Provides DoS protection against oversized requests. Recommended minimum: 1MB (1048576). Values below 1MB trigger a security warning. Set to 0 to disable (not recommended for production). When a request exceeds this limit, it is rejected with HTTP 413 and logged for security monitoring.",
               "minimum": 0,
               "default": 5242880
             }

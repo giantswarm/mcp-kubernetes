@@ -16,6 +16,7 @@
 // Server/HTTP Metrics:
 //   - http_requests_total: Counter of HTTP requests by method, path, and status
 //   - http_request_duration_seconds: Histogram of HTTP request durations
+//   - http_request_size_rejected_total: Counter of requests rejected due to size limits (by method, path)
 //   - active_sessions: Gauge of active port-forward sessions
 //
 // Kubernetes Operation Metrics:

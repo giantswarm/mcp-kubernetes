@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -289,4 +290,13 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 // Enabled returns true if instrumentation is enabled.
 func (p *Provider) Enabled() bool {
 	return p.enabled
+}
+
+// Meter returns a meter for creating custom metrics.
+// Returns nil if instrumentation is not enabled.
+func (p *Provider) Meter(name string) otelmetric.Meter {
+	if !p.enabled || p.meterProvider == nil {
+		return nil
+	}
+	return p.meterProvider.Meter(name)
 }

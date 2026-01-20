@@ -48,9 +48,25 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 		}
 	}
 
+	// Create request size metrics if instrumentation is available
+	var requestSizeMetrics *middleware.RequestSizeLimitMetrics
+	if provider != nil && provider.Enabled() {
+		meter := provider.Meter("mcp-kubernetes")
+		if meter != nil {
+			var err error
+			requestSizeMetrics, err = middleware.NewRequestSizeLimitMetrics(meter)
+			if err != nil {
+				slog.Warn("failed to create request size metrics", "error", err)
+			}
+		}
+	}
+
 	// Apply request size limiting middleware for DoS protection
-	// The middleware handles zero/negative values by passing through
-	handler := middleware.MaxRequestSize(maxRequestSize)(mux)
+	// The middleware handles zero/negative values by passing through with a warning
+	handler := middleware.MaxRequestSizeWithConfig(middleware.MaxRequestSizeConfig{
+		MaxBytes: maxRequestSize,
+		Metrics:  requestSizeMetrics,
+	})(mux)
 	if maxRequestSize > 0 {
 		slog.Info("request size limiting enabled", "max_bytes", maxRequestSize)
 	}

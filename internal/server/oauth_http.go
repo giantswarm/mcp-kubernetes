@@ -757,11 +757,27 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		s.healthChecker.RegisterHealthEndpoints(mux)
 	}
 
+	// Create request size metrics if instrumentation is available
+	var requestSizeMetrics *middleware.RequestSizeLimitMetrics
+	if config.InstrumentationProvider != nil && config.InstrumentationProvider.Enabled() {
+		meter := config.InstrumentationProvider.Meter("mcp-kubernetes")
+		if meter != nil {
+			var err error
+			requestSizeMetrics, err = middleware.NewRequestSizeLimitMetrics(meter)
+			if err != nil {
+				slog.Warn("failed to create request size metrics", "error", err)
+			}
+		}
+	}
+
 	// Create HTTP server with security, CORS, and request size limiting middleware
 	// Order matters: MaxRequestSize is outermost (applied last, executed first)
 	// to reject oversized requests before any processing occurs
 	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
-	handler = middleware.MaxRequestSize(config.MaxRequestSize)(handler)
+	handler = middleware.MaxRequestSizeWithConfig(middleware.MaxRequestSizeConfig{
+		MaxBytes: config.MaxRequestSize,
+		Metrics:  requestSizeMetrics,
+	})(handler)
 
 	s.httpServer = &http.Server{
 		Addr:              addr,

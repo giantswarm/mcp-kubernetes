@@ -395,3 +395,165 @@ func TestMaxRequestSizeChunkedTransfer(t *testing.T) {
 	// The middleware should return 413 when the body exceeds the limit
 	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }
+
+// TestMaxRequestSizeWithConfig tests the enhanced middleware with configuration
+func TestMaxRequestSizeWithConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       MaxRequestSizeConfig
+		bodySize     int
+		wantStatus   int
+		wantBodyRead bool
+	}{
+		{
+			name: "request within limit with config",
+			config: MaxRequestSizeConfig{
+				MaxBytes: 1024,
+				Metrics:  nil, // No metrics for this test
+			},
+			bodySize:     100,
+			wantStatus:   http.StatusOK,
+			wantBodyRead: true,
+		},
+		{
+			name: "request exceeds limit with config",
+			config: MaxRequestSizeConfig{
+				MaxBytes: 1024,
+				Metrics:  nil,
+			},
+			bodySize:     2048,
+			wantStatus:   http.StatusRequestEntityTooLarge,
+			wantBodyRead: false,
+		},
+		{
+			name: "disabled limit with zero",
+			config: MaxRequestSizeConfig{
+				MaxBytes: 0,
+				Metrics:  nil,
+			},
+			bodySize:     10000,
+			wantStatus:   http.StatusOK,
+			wantBodyRead: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var bodyWasRead bool
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, err := io.ReadAll(r.Body)
+				if err != nil {
+					w.WriteHeader(http.StatusRequestEntityTooLarge)
+					return
+				}
+				bodyWasRead = true
+				w.WriteHeader(http.StatusOK)
+			})
+
+			middleware := MaxRequestSizeWithConfig(tt.config)(handler)
+
+			body := strings.Repeat("a", tt.bodySize)
+			req := httptest.NewRequest("POST", "/test", bytes.NewBufferString(body))
+			req.ContentLength = int64(tt.bodySize)
+			rec := httptest.NewRecorder()
+
+			middleware.ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, tt.wantBodyRead, bodyWasRead)
+		})
+	}
+}
+
+// TestNormalizePath tests path normalization for metrics
+func TestNormalizePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "empty path",
+			path: "",
+			want: "/",
+		},
+		{
+			name: "root path",
+			path: "/",
+			want: "/",
+		},
+		{
+			name: "simple path",
+			path: "/mcp",
+			want: "/mcp",
+		},
+		{
+			name: "path with static segments",
+			path: "/api/v1/resources",
+			want: "/api/v1/resources",
+		},
+		{
+			name: "path with numeric ID",
+			path: "/api/users/12345",
+			want: "/api/users/:id",
+		},
+		{
+			name: "path with UUID-like segment",
+			path: "/api/items/abc123def456",
+			want: "/api/items/:id",
+		},
+		{
+			name: "long path truncated",
+			path: "/api/v1/namespaces/default/pods",
+			want: "/api/v1/namespaces/...",
+		},
+		{
+			name: "path with leading and trailing slashes",
+			path: "/mcp/",
+			want: "/mcp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizePath(tt.path)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestLooksLikeDynamicSegment tests detection of dynamic path segments
+func TestLooksLikeDynamicSegment(t *testing.T) {
+	tests := []struct {
+		segment string
+		want    bool
+	}{
+		{"", false},
+		{"api", false},
+		{"v1", false},              // Version pattern
+		{"v2", false},              // Version pattern
+		{"v1beta1", false},         // Version pattern with suffix
+		{"v1alpha2", false},        // Version pattern with suffix
+		{"users", false},           // No digits
+		{"abc", false},             // Too short
+		{"12345", true},            // All digits, 5+ chars
+		{"user1234", true},         // >40% digits, 4+ chars
+		{"abc123def456", true},     // UUID-like
+		{"pod-name-here", false},   // Typical k8s name
+		{"1234567890abcd", true},   // Long with many digits
+		{"default", false},         // Common namespace name
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.segment, func(t *testing.T) {
+			got := looksLikeDynamicSegment(tt.segment)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestMinRecommendedRequestSize verifies the constant value
+func TestMinRecommendedRequestSize(t *testing.T) {
+	// Verify the constant is 1MB
+	assert.Equal(t, int64(1*1024*1024), MinRecommendedRequestSize)
+}
