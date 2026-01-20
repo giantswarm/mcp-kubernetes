@@ -3,15 +3,16 @@
 #
 # Security Model:
 # - Downstream OAuth enabled: User tokens authenticate to Kubernetes API
-# - RBAC profile "minimal": ServiceAccount has no K8s API permissions
-# - Per-user RBAC applies: Each user needs their own RBAC bindings
+# - ServiceAccount reads kubeconfig secrets (privileged access)
+# - Users DO NOT need secret access - prevents credential leakage
+# - Impersonation enforced: Users access WCs with their identity, not admin
 #
 # Prerequisites:
 # 1. Deploy on a CAPI Management Cluster
 # 2. Configure Dex OIDC for authentication
 # 3. Create organization namespaces (org-*) with kubeconfig secrets
 # 4. Set up proper TLS certificates for the ingress
-# 5. Grant users RBAC for CAPI cluster discovery and secret access
+# 5. Grant users RBAC for CAPI cluster discovery (NOT secret access)
 
 # Ingress configuration for external access
 ingress:
@@ -114,16 +115,30 @@ capiMode:
     maskSecrets: true
 
   # RBAC for CAPI mode - namespace-scoped (recommended)
+  # SECURITY: ServiceAccount needs secret access to read kubeconfigs
+  # Users DO NOT need secret access - this prevents credential leakage
   rbac:
     create: true
-    # Grant access to organization namespaces
+    # Grant ServiceAccount access to organization namespaces
     # Add all organization namespaces that contain workload clusters
+    # The ServiceAccount reads kubeconfig secrets on behalf of users
     allowedNamespaces:
       - org-acme
       - org-beta
       - org-gamma
     # Do NOT enable cluster-wide secret access in production
     clusterWideSecrets: false
+
+  # Privileged secret access configuration (split-credential model)
+  # SECURITY: Enforce strict mode in production
+  privilegedSecretAccess:
+    # STRICT MODE ENABLED: Fails instead of falling back to user credentials
+    # This enforces the split-credential security model
+    strict: true
+    # Rate limiting for privileged secret access
+    rateLimit:
+      perSecond: 10.0
+      burst: 20
 
 # Resources for production workloads
 resources:

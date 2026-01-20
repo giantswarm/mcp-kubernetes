@@ -56,6 +56,9 @@ type Metrics struct {
 	impersonationTotal        metric.Int64Counter
 	federationClientCreations metric.Int64Counter
 
+	// Privileged secret access metrics
+	privilegedSecretAccessTotal metric.Int64Counter
+
 	// Configuration
 	// detailedLabels controls whether high-cardinality labels (namespace, resource_type)
 	// are included in Kubernetes operation metrics
@@ -231,6 +234,19 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mcp_federation_client_creations_total counter: %w", err)
+	}
+
+	// Privileged Secret Access Metrics
+	//
+	// Note on cardinality: Uses user_domain instead of full email to control cardinality.
+	// Result values: "success", "error", "rate_limited", "fallback"
+	m.privilegedSecretAccessTotal, err = meter.Int64Counter(
+		"mcp_privileged_secret_access_total",
+		metric.WithDescription("Total privileged secret access attempts. Labels: user_domain, result"),
+		metric.WithUnit("{access}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_privileged_secret_access_total counter: %w", err)
 	}
 
 	return m, nil
@@ -469,4 +485,31 @@ func (m *Metrics) RecordFederationClientCreation(ctx context.Context, clusterNam
 	}
 
 	m.federationClientCreations.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// RecordPrivilegedSecretAccess records a privileged secret access attempt.
+// This metric tracks ServiceAccount-based kubeconfig secret access for security monitoring.
+//
+// # Security Monitoring
+//
+// Use this metric to:
+//   - Monitor privileged access patterns
+//   - Detect rate limiting events
+//   - Track fallback to user credentials (potential security weakness)
+//   - Identify errors in privileged access setup
+//
+// Parameters:
+//   - userDomain: User's email domain (e.g., "giantswarm.io") for cardinality control
+//   - result: One of "success", "error", "rate_limited", "fallback"
+func (m *Metrics) RecordPrivilegedSecretAccess(ctx context.Context, userDomain, result string) {
+	if m.privilegedSecretAccessTotal == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(attrUserDomain, userDomain),
+		attribute.String(attrResult, result),
+	}
+
+	m.privilegedSecretAccessTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 }

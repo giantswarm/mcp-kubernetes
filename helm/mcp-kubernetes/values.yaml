@@ -633,10 +633,25 @@ capiMode:
     maskSecrets: true
 
   # RBAC configuration for CAPI mode
-  # NOTE: This RBAC is for the ServiceAccount and is ONLY used when
-  # enableDownstreamOAuth is FALSE. See the oauth section above.
+  #
+  # SECURITY MODEL:
+  # The ServiceAccount ALWAYS needs secret access in CAPI mode, regardless of
+  # whether OAuth Downstream is enabled. This is a security feature.
+  #
+  # When enableDownstreamOAuth is TRUE (recommended for production):
+  #   - Users authenticate via OAuth (Dex, Google, etc.)
+  #   - Users can discover clusters they have RBAC to list
+  #   - ServiceAccount reads kubeconfig secrets (users cannot access directly)
+  #   - This prevents users from bypassing impersonation via kubectl
+  #   - All workload cluster operations enforce user impersonation
+  #
+  # When enableDownstreamOAuth is FALSE (legacy mode):
+  #   - ServiceAccount is used for all Kubernetes API operations
+  #   - Users share the ServiceAccount's RBAC permissions
+  #
   rbac:
-    # Create CAPI-specific RBAC resources (for ServiceAccount mode only)
+    # Create CAPI-specific RBAC resources
+    # This grants the ServiceAccount permission to read kubeconfig secrets
     create: true
     # Namespaces to grant kubeconfig secret access
     # Use [] for cluster-wide access (not recommended)
@@ -645,6 +660,36 @@ capiMode:
     # When allowedNamespaces is empty and clusterWideSecrets is true,
     # grants cluster-wide secret access (use with caution)
     clusterWideSecrets: false
+
+  # Privileged secret access configuration (split-credential model)
+  #
+  # SECURITY MODEL:
+  # When OAuth downstream is enabled, the ServiceAccount reads kubeconfig secrets
+  # on behalf of users. This prevents users from bypassing impersonation by
+  # extracting admin credentials directly via kubectl.
+  #
+  # See docs/rbac-security.md for detailed security model explanation.
+  privilegedSecretAccess:
+    # Strict mode: When enabled, fails instead of falling back to user credentials
+    # when ServiceAccount access is unavailable.
+    #
+    # SECURITY RECOMMENDATION:
+    # Enable this in production to enforce the split-credential security model.
+    # When disabled (default), the system falls back to user credentials,
+    # which may require users to have secret read permissions (weaker security).
+    #
+    # Default: false (fallback enabled for backward compatibility)
+    strict: false
+
+    # Rate limiting for privileged secret access
+    # Prevents abuse by limiting requests per user
+    rateLimit:
+      # Rate limit per user (requests per second)
+      # Default: 10.0
+      perSecond: 10.0
+      # Burst size per user
+      # Default: 20
+      burst: 20
 
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:
