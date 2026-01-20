@@ -28,6 +28,7 @@
 //
 // OAuth Authentication Metrics:
 //   - oauth_downstream_auth_total: Counter of OAuth authentication events by result
+//   - oauth_sso_token_injection_total: Counter of SSO token injections for downstream K8s API auth (by result)
 //
 // OAuth CIMD (Client ID Metadata Documents) Metrics:
 // Note: CIMD metrics are provided by the mcp-oauth library when instrumentation is enabled.

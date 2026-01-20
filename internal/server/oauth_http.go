@@ -849,6 +849,13 @@ func extractBearerToken(r *http.Request) (string, bool) {
 // token exchange and proactive refresh. Looking up by access token (instead of email)
 // ensures we always get the current provider token, even after automatic refreshes.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
+	// Helper to record SSO token injection metrics
+	recordMetric := func(ctx context.Context, result string) {
+		if s.instrumentationProvider != nil && s.instrumentationProvider.Metrics() != nil {
+			s.instrumentationProvider.Metrics().RecordSSOTokenInjection(ctx, result)
+		}
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log entry to confirm middleware is being called
 		slog.Debug("AccessTokenInjector: middleware entry",
@@ -863,6 +870,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil {
 			slog.Debug("AccessTokenInjector: no user info in context")
+			recordMetric(ctx, "no_user")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -872,6 +880,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if !ok || bearerToken == "" {
 			slog.Debug("AccessTokenInjector: no bearer token in Authorization header",
 				"user_id", userInfo.ID)
+			recordMetric(ctx, "no_token")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -884,11 +893,21 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				logging.UserHash(userInfo.Email))
 			ctx = mcpoauth.ContextWithAccessToken(ctx, bearerToken)
 			r = r.WithContext(ctx)
+			recordMetric(ctx, "sso_success")
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// Normal OAuth flow: Look up the provider's ID token from the token store
+		// Safety check: tokenStore should always be set in production, but handle nil defensively
+		if s.tokenStore == nil {
+			slog.Debug("AccessTokenInjector: tokenStore is nil, cannot look up provider token",
+				logging.UserHash(userInfo.Email))
+			recordMetric(ctx, "no_store")
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		slog.Debug("AccessTokenInjector: looking up provider token by MCP access token",
 			logging.UserHash(userInfo.Email))
 
@@ -903,6 +922,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if err != nil {
 				slog.Debug("AccessTokenInjector: fallback email lookup also failed",
 					logging.UserHash(userInfo.Email), logging.Err(err))
+				recordMetric(ctx, "lookup_failed")
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -912,6 +932,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if token == nil {
 			slog.Debug("AccessTokenInjector: token is nil for user",
 				logging.UserHash(userInfo.Email))
+			recordMetric(ctx, "lookup_failed")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -925,6 +946,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				slog.Bool("has_access_token", token.AccessToken != ""),
 				slog.Bool("has_refresh_token", token.RefreshToken != ""))
 			slog.Debug("AccessTokenInjector: calling next handler without ID token")
+			recordMetric(ctx, "no_id_token")
 			next.ServeHTTP(w, r)
 			slog.Debug("AccessTokenInjector: next handler returned (no ID token path)")
 			return
@@ -934,6 +956,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			logging.UserHash(userInfo.Email))
 		ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
 		r = r.WithContext(ctx)
+		recordMetric(ctx, "oauth_success")
 
 		slog.Debug("AccessTokenInjector: calling next handler (mcp-go)")
 		next.ServeHTTP(w, r)

@@ -639,6 +639,44 @@ func TestAccessTokenInjectorMiddleware_NoBearerToken(t *testing.T) {
 	assert.False(t, ok, "No token should be injected without bearer token")
 }
 
+// TestAccessTokenInjectorMiddleware_NilTokenStoreWithOAuthToken tests that requests with OAuth tokens
+// (non-SSO) gracefully handle nil tokenStore by passing through without injecting a token.
+// This ensures defensive coding against misconfiguration.
+func TestAccessTokenInjectorMiddleware_NilTokenStoreWithOAuthToken(t *testing.T) {
+	var capturedCtx context.Context
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Create OAuthHTTPServer with nil tokenStore (simulates misconfiguration)
+	s := &OAuthHTTPServer{
+		tokenStore: nil, // Explicitly nil - this is the condition we're testing
+	}
+	middleware := s.createAccessTokenInjectorMiddleware(nextHandler)
+
+	// Request with OAuth user info (NOT SSO - so it will try to look up token)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer mcp-access-token-123")
+	userInfo := &providers.UserInfo{
+		ID:          "user-456",
+		Email:       "oauth-user@example.com",
+		TokenSource: providers.TokenSourceOAuth, // OAuth, not SSO
+	}
+	ctx := mcpoauth.ContextWithUserInfo(req.Context(), userInfo)
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	middleware.ServeHTTP(rr, req)
+
+	// Request should complete successfully (not panic)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// No token should be injected (token store lookup would fail/panic without nil check)
+	_, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	assert.False(t, ok, "No token should be injected when tokenStore is nil")
+}
+
 // TestDexScopesWithKubernetesAuthenticator tests that cross-client audience scope is correctly added
 func TestDexScopesWithKubernetesAuthenticator(t *testing.T) {
 	tests := []struct {

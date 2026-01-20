@@ -142,6 +142,33 @@ When `enableDownstreamOAuth: true` is configured alongside `trustedAudiences`, m
 
 This works because for SSO-forwarded tokens, the Bearer token **is** the ID token. mcp-kubernetes detects this via the `TokenSource` metadata set during token validation (requires mcp-oauth v0.2.43+).
 
+### Kubernetes API Server OIDC Configuration
+
+**Important:** When using SSO-forwarded tokens for Kubernetes API authentication, the token's `aud` (audience) claim contains the upstream service's client ID (e.g., `muster-client`), not the Kubernetes API server's expected audience.
+
+You must configure the Kubernetes API server to accept tokens with the upstream service's audience:
+
+```yaml
+# kube-apiserver configuration
+--oidc-issuer-url=https://dex.example.com
+--oidc-client-id=muster-client  # Use the upstream aggregator's client ID
+--oidc-username-claim=email
+--oidc-groups-claim=groups
+```
+
+Alternatively, if your Kubernetes cluster supports multiple audiences (Kubernetes 1.29+), you can use:
+
+```yaml
+--oidc-issuer-url=https://dex.example.com
+--oidc-client-id=kubernetes  # Primary audience
+--oidc-username-claim=email
+--oidc-groups-claim=groups
+# Additional audiences accepted for authentication
+--api-audiences=kubernetes,muster-client,another-aggregator
+```
+
+**Note:** If you're using Dex with `DexKubernetesAuthenticatorClientID` configured for normal OAuth flow, ensure the same client ID is used consistently across your SSO token forwarding setup.
+
 ## Troubleshooting
 
 ### Token Not Accepted
