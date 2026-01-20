@@ -758,12 +758,10 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 	}
 
 	// Create HTTP server with security, CORS, and request size limiting middleware
+	// Order matters: MaxRequestSize is outermost (applied last, executed first)
+	// to reject oversized requests before any processing occurs
 	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
-
-	// Apply request size limiting middleware for DoS protection
-	if config.MaxRequestSize > 0 {
-		handler = middleware.MaxRequestSize(config.MaxRequestSize)(handler)
-	}
+	handler = middleware.MaxRequestSize(config.MaxRequestSize)(handler)
 
 	s.httpServer = &http.Server{
 		Addr:              addr,

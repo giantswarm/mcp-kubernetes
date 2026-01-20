@@ -49,10 +49,10 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	}
 
 	// Apply request size limiting middleware for DoS protection
-	var handler http.Handler = mux
+	// The middleware handles zero/negative values by passing through
+	handler := middleware.MaxRequestSize(maxRequestSize)(mux)
 	if maxRequestSize > 0 {
-		handler = middleware.MaxRequestSize(maxRequestSize)(mux)
-		fmt.Printf("  Max request size: %d bytes\n", maxRequestSize)
+		slog.Info("request size limiting enabled", "max_bytes", maxRequestSize)
 	}
 
 	// Create HTTP server with security timeouts
