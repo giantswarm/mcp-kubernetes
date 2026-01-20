@@ -249,12 +249,12 @@ func TestValidateAllowedOrigins(t *testing.T) {
 // TestMaxRequestSize tests request body size limiting middleware
 func TestMaxRequestSize(t *testing.T) {
 	tests := []struct {
-		name           string
-		maxBytes       int64
-		bodySize       int
-		wantBodyRead   bool
-		wantReadError  bool
-		wantBytesRead  int // Number of bytes expected to be read (limited by maxBytes)
+		name          string
+		maxBytes      int64
+		bodySize      int
+		wantBodyRead  bool
+		wantReadError bool
+		wantBytesRead int // Number of bytes expected to be read (limited by maxBytes)
 	}{
 		{
 			name:          "request within limit",
