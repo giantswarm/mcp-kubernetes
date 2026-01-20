@@ -28,12 +28,8 @@ const (
 const (
 	// DefaultMaxRequestSize is the default maximum request body size in bytes (5MB).
 	// This provides protection against denial-of-service attacks via oversized requests.
+	// The minimum recommended size (1MB) is defined in internal/server/middleware.MinRecommendedRequestSize.
 	DefaultMaxRequestSize int64 = 5 * 1024 * 1024
-
-	// MinRecommendedRequestSize is the minimum recommended request size limit (1MB).
-	// Values below this threshold trigger a security warning as they may cause
-	// legitimate requests to be rejected. This should match the middleware constant.
-	MinRecommendedRequestSize int64 = 1 * 1024 * 1024
 )
 
 // ServeConfig holds all configuration for the serve command.

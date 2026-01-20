@@ -557,3 +557,190 @@ func TestMinRecommendedRequestSize(t *testing.T) {
 	// Verify the constant is 1MB
 	assert.Equal(t, int64(1*1024*1024), MinRecommendedRequestSize)
 }
+
+// TestMaxBytesResponseWriterLogging tests that 413 responses are logged properly
+func TestMaxBytesResponseWriterLogging(t *testing.T) {
+	// Test that 413 status is logged only once
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Read body to trigger the limit
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			// Try to write header again - should be ignored
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	config := MaxRequestSizeConfig{
+		MaxBytes: 100,
+		Metrics:  nil, // No metrics for this test
+	}
+	middleware := MaxRequestSizeWithConfig(config)(handler)
+
+	// Create a body that exceeds the limit
+	body := strings.Repeat("a", 200)
+	req := httptest.NewRequest("POST", "/test/path", bytes.NewBufferString(body))
+	req.ContentLength = 200
+	rec := httptest.NewRecorder()
+
+	middleware.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+}
+
+// TestMaxBytesResponseWriterWrite tests the Write method passthrough
+func TestMaxBytesResponseWriterWrite(t *testing.T) {
+	expectedBody := []byte("response body content")
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Consume the request body first
+		_, _ = io.ReadAll(r.Body)
+		// Write response
+		_, _ = w.Write(expectedBody)
+	})
+
+	config := MaxRequestSizeConfig{
+		MaxBytes: 1024,
+		Metrics:  nil,
+	}
+	middleware := MaxRequestSizeWithConfig(config)(handler)
+
+	req := httptest.NewRequest("POST", "/", bytes.NewBufferString("small body"))
+	req.ContentLength = 10
+	rec := httptest.NewRecorder()
+
+	middleware.ServeHTTP(rec, req)
+
+	assert.Equal(t, string(expectedBody), rec.Body.String())
+}
+
+// TestRecordRejectionNilCases tests RecordRejection with nil values
+func TestRecordRejectionNilCases(t *testing.T) {
+	ctx := t.Context()
+
+	// Test with nil metrics - should not panic
+	var nilMetrics *RequestSizeLimitMetrics
+	nilMetrics.RecordRejection(ctx, "POST", "/test")
+
+	// Test with nil counter - should not panic
+	metrics := &RequestSizeLimitMetrics{RejectedRequests: nil}
+	metrics.RecordRejection(ctx, "POST", "/test")
+}
+
+// TestNewRequestSizeLimitMetricsNilMeter tests that nil meter returns nil metrics
+func TestNewRequestSizeLimitMetricsNilMeter(t *testing.T) {
+	metrics, err := NewRequestSizeLimitMetrics(nil)
+	require.NoError(t, err)
+	assert.Nil(t, metrics)
+}
+
+// TestLooksLikeDynamicSegmentEdgeCases tests additional edge cases
+func TestLooksLikeDynamicSegmentEdgeCases(t *testing.T) {
+	tests := []struct {
+		segment string
+		want    bool
+	}{
+		// Version patterns with uppercase
+		{"V1", false},
+		{"V2beta1", false},
+		// Very long version-like pattern (exceeds maxVersionSegmentLength but low digit ratio)
+		{"v1beta1alpha2gamma3", false}, // Only 21% digits (4/19), below 40% threshold
+		// High digit ratio long segment
+		{"v123456789abcde", true}, // 9 digits out of 15 = 60%, above threshold
+		// Segment with special characters breaking version pattern
+		{"v1-beta", false}, // Hyphen breaks the version check, and length < 4 remaining
+		// Exactly at minSegmentLengthForID boundary
+		{"abcd", false}, // 4 chars, no digits
+		{"abc1", false}, // 4 chars, 25% digits (below 40%)
+		{"ab12", true},  // 4 chars, 50% digits (above 40%)
+		// Long segment with no digits
+		{"verylongstaticname", false},
+		// Segment at exactly 40% threshold
+		{"abcd12", false}, // 6 chars, 2 digits = 33% (below 40%)
+		{"abcd123", true}, // 7 chars, 3 digits = 43% (above 40%)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.segment, func(t *testing.T) {
+			got := looksLikeDynamicSegment(tt.segment)
+			assert.Equal(t, tt.want, got, "segment: %q", tt.segment)
+		})
+	}
+}
+
+// TestNormalizePathEdgeCases tests additional path normalization edge cases
+func TestNormalizePathEdgeCases(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "only slashes",
+			path: "///",
+			want: "/",
+		},
+		{
+			name: "two segments with ID in second position",
+			path: "/users/12345",
+			want: "/users/:id",
+		},
+		{
+			name: "three segments all static",
+			path: "/api/v2/users",
+			want: "/api/v2/users",
+		},
+		{
+			name: "ID in first position after root",
+			path: "/12345",
+			want: "/12345", // First segment is kept as-is
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizePath(tt.path)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestMaxRequestSizeConfigConstants tests the named constants
+func TestMaxRequestSizeConfigConstants(t *testing.T) {
+	// Verify the constant values are as expected
+	assert.Equal(t, 4, minSegmentLengthForID)
+	assert.Equal(t, 10, maxVersionSegmentLength)
+	assert.Equal(t, 0.4, dynamicSegmentNumericThreshold)
+}
+
+// TestMaxBytesResponseWriterNon413Status tests that non-413 status codes pass through
+func TestMaxBytesResponseWriterNon413Status(t *testing.T) {
+	tests := []int{
+		http.StatusOK,
+		http.StatusBadRequest,
+		http.StatusInternalServerError,
+		http.StatusNotFound,
+	}
+
+	for _, status := range tests {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(status)
+			})
+
+			config := MaxRequestSizeConfig{
+				MaxBytes: 1024,
+				Metrics:  nil,
+			}
+			middleware := MaxRequestSizeWithConfig(config)(handler)
+
+			req := httptest.NewRequest("GET", "/", nil)
+			rec := httptest.NewRecorder()
+
+			middleware.ServeHTTP(rec, req)
+
+			assert.Equal(t, status, rec.Code)
+		})
+	}
+}

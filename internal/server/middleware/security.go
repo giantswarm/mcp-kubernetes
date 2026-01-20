@@ -23,6 +23,17 @@ const (
 	attrPath = "path"
 	// attrMethod is the attribute key for request method in metrics
 	attrMethod = "method"
+
+	// minSegmentLengthForID is the minimum length for a path segment to be considered a dynamic ID.
+	// Segments shorter than this are typically static (e.g., "api", "v1").
+	minSegmentLengthForID = 4
+
+	// maxVersionSegmentLength is the maximum length for version-like segments (e.g., "v1beta1").
+	maxVersionSegmentLength = 10
+
+	// dynamicSegmentNumericThreshold is the percentage of numeric characters that suggests
+	// a path segment is a dynamic ID rather than a static name.
+	dynamicSegmentNumericThreshold = 0.4
 )
 
 // RequestSizeLimitMetrics holds metrics for request size limiting.
@@ -120,13 +131,13 @@ func looksLikeDynamicSegment(segment string) bool {
 				break
 			}
 		}
-		if allDigitsAfterV && len(segment) <= 10 { // v1, v2, v1beta1, v1alpha2, etc.
+		if allDigitsAfterV && len(segment) <= maxVersionSegmentLength {
 			return false
 		}
 	}
 
-	// Segments that are too short are rarely IDs (need at least 4+ chars for IDs)
-	if len(segment) < 4 {
+	// Segments that are too short are rarely IDs
+	if len(segment) < minSegmentLengthForID {
 		return false
 	}
 
@@ -138,8 +149,8 @@ func looksLikeDynamicSegment(segment string) bool {
 		}
 	}
 
-	// If more than 40% numbers, likely an ID
-	return float64(numCount)/float64(len(segment)) > 0.4
+	// If more than the threshold percentage of numbers, likely an ID
+	return float64(numCount)/float64(len(segment)) > dynamicSegmentNumericThreshold
 }
 
 // SecurityHeaders adds comprehensive security headers to all HTTP responses
@@ -276,70 +287,21 @@ func (h *maxBytesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Wrap the body with MaxBytesReader
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBytes)
 
-	// Create a response writer wrapper to detect 413 responses
-	wrapped := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+	// Create a response writer wrapper to detect and log 413 responses
+	wrapped := &maxBytesResponseWriter{
+		ResponseWriter: w,
+		request:        r,
+		metrics:        h.metrics,
+	}
 
-	// Serve the request
+	// Serve the request with the wrapped writer
 	h.next.ServeHTTP(wrapped, r)
-
-	// Check if we got a 413 (either from MaxBytesReader or the handler)
-	// Note: MaxBytesReader returns an error when the body is read, not immediately
-	// So we need to check if the status was set to 413 by the handler
-}
-
-// statusRecorder wraps http.ResponseWriter to record the status code.
-type statusRecorder struct {
-	http.ResponseWriter
-	statusCode int
-	written    bool
-}
-
-func (r *statusRecorder) WriteHeader(code int) {
-	if !r.written {
-		r.statusCode = code
-		r.written = true
-	}
-	r.ResponseWriter.WriteHeader(code)
-}
-
-func (r *statusRecorder) Write(b []byte) (int, error) {
-	if !r.written {
-		r.statusCode = http.StatusOK
-		r.written = true
-	}
-	return r.ResponseWriter.Write(b)
-}
-
-// MaxBytesExceededHandler creates a handler that explicitly handles max bytes exceeded errors.
-// This is useful when you need custom error responses or logging when request size is exceeded.
-// It wraps the request body with http.MaxBytesReader and handles the error when reading fails.
-func MaxBytesExceededHandler(maxBytes int64, metrics *RequestSizeLimitMetrics) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		if maxBytes <= 0 {
-			return next
-		}
-
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Wrap the body to limit reading
-			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-
-			// Create a wrapper to intercept any 413 errors that MaxBytesReader triggers
-			wrapped := &maxBytesResponseWriter{
-				ResponseWriter: w,
-				r:              r,
-				metrics:        metrics,
-				logged:         false,
-			}
-
-			next.ServeHTTP(wrapped, r)
-		})
-	}
 }
 
 // maxBytesResponseWriter intercepts WriteHeader to log and record metrics for 413 responses.
 type maxBytesResponseWriter struct {
 	http.ResponseWriter
-	r       *http.Request
+	request *http.Request
 	metrics *RequestSizeLimitMetrics
 	logged  bool
 }
@@ -348,20 +310,24 @@ func (w *maxBytesResponseWriter) WriteHeader(code int) {
 	if code == http.StatusRequestEntityTooLarge && !w.logged {
 		w.logged = true
 
-		// Log the rejection
+		// Log the rejection for security monitoring
 		slog.Warn("request rejected: body size exceeds limit",
-			"method", w.r.Method,
-			"path", w.r.URL.Path,
-			"content_length", w.r.ContentLength,
-			"remote_addr", w.r.RemoteAddr,
+			"method", w.request.Method,
+			"path", w.request.URL.Path,
+			"content_length", w.request.ContentLength,
+			"remote_addr", w.request.RemoteAddr,
 		)
 
-		// Record metric
+		// Record metric if configured
 		if w.metrics != nil {
-			w.metrics.RecordRejection(w.r.Context(), w.r.Method, w.r.URL.Path)
+			w.metrics.RecordRejection(w.request.Context(), w.request.Method, w.request.URL.Path)
 		}
 	}
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *maxBytesResponseWriter) Write(b []byte) (int, error) {
+	return w.ResponseWriter.Write(b)
 }
 
 // ValidateAllowedOrigins validates and normalizes allowed CORS origins
