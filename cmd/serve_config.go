@@ -86,7 +86,35 @@ type CAPIModeConfig struct {
 	ConnectivityRequestTimeout string
 	ConnectivityQPS            float32
 	ConnectivityBurst          int
+
+	// Workload cluster authentication configuration
+	WorkloadClusterAuth WorkloadClusterAuthConfig
 }
+
+// WorkloadClusterAuthConfig configures how mcp-kubernetes authenticates to workload clusters.
+type WorkloadClusterAuthConfig struct {
+	// Mode determines the authentication method for workload clusters.
+	// Options:
+	//   - "impersonation" (default): Uses admin credentials from kubeconfig secrets
+	//     with user impersonation headers.
+	//   - "sso-passthrough": Forwards the user's SSO/OAuth ID token directly to
+	//     workload cluster API servers. Requires WC API servers to be configured
+	//     with OIDC authentication.
+	Mode string
+
+	// CASecretSuffix is the suffix for CA-only secrets used in sso-passthrough mode.
+	// The full secret name is: ${CLUSTER_NAME}${CASecretSuffix}
+	// Default: "-ca"
+	CASecretSuffix string
+}
+
+// WorkloadClusterAuthMode constants matching federation package values.
+const (
+	// WorkloadClusterAuthModeImpersonation uses admin credentials with impersonation.
+	WorkloadClusterAuthModeImpersonation = "impersonation"
+	// WorkloadClusterAuthModeSSOPassthrough forwards user's SSO token directly.
+	WorkloadClusterAuthModeSSOPassthrough = "sso-passthrough"
+)
 
 // OAuthServeConfig holds OAuth-specific configuration.
 type OAuthServeConfig struct {

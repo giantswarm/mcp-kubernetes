@@ -713,6 +713,22 @@
               "description": "Grant cluster-wide secret access (NOT recommended)"
             }
           }
+        },
+        "workloadClusterAuth": {
+          "type": "object",
+          "description": "Workload cluster authentication configuration",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["impersonation", "sso-passthrough"],
+              "description": "Authentication mode: 'impersonation' (default) uses admin credentials with user impersonation headers; 'sso-passthrough' forwards user's SSO token directly to WC API servers"
+            },
+            "caSecretSuffix": {
+              "type": "string",
+              "description": "Secret suffix for CA-only secrets in sso-passthrough mode (e.g., '-ca')",
+              "pattern": "^-[a-z0-9-]+$"
+            }
+          }
         }
       }
     },

@@ -575,6 +575,40 @@ func runServe(config ServeConfig) error {
 		// Build federation manager options
 		var managerOpts []federation.ManagerOption
 
+		// Configure workload cluster authentication mode
+		wcAuthMode := config.CAPIMode.WorkloadClusterAuth.Mode
+		if wcAuthMode == "" {
+			wcAuthMode = WorkloadClusterAuthModeImpersonation // default
+		}
+
+		switch wcAuthMode {
+		case WorkloadClusterAuthModeImpersonation:
+			managerOpts = append(managerOpts, federation.WithWorkloadClusterAuthMode(federation.WorkloadClusterAuthModeImpersonation))
+			slog.Info("Workload cluster auth mode: impersonation",
+				"description", "using admin credentials with user impersonation headers")
+
+		case WorkloadClusterAuthModeSSOPassthrough:
+			managerOpts = append(managerOpts, federation.WithWorkloadClusterAuthMode(federation.WorkloadClusterAuthModeSSOPassthrough))
+
+			// Configure SSO passthrough
+			ssoConfig := federation.DefaultSSOPassthroughConfig()
+			ssoConfig.TokenExtractor = oauth.GetAccessTokenFromContext
+
+			// Use custom CA secret suffix if configured
+			if config.CAPIMode.WorkloadClusterAuth.CASecretSuffix != "" {
+				ssoConfig.CASecretSuffix = config.CAPIMode.WorkloadClusterAuth.CASecretSuffix
+			}
+
+			managerOpts = append(managerOpts, federation.WithSSOPassthroughConfig(ssoConfig))
+
+			slog.Info("Workload cluster auth mode: sso-passthrough",
+				"description", "forwarding user SSO token directly to WC API servers",
+				"ca_secret_suffix", ssoConfig.CASecretSuffix)
+
+		default:
+			return fmt.Errorf("invalid workload cluster auth mode: %s (supported: impersonation, sso-passthrough)", wcAuthMode)
+		}
+
 		// Configure cache
 		if config.CAPIMode.CacheTTL != "" {
 			ttl, err := time.ParseDuration(config.CAPIMode.CacheTTL)
@@ -956,6 +990,14 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	// Check if CAPI mode is enabled
 	if os.Getenv("CAPI_MODE_ENABLED") == envValueTrue {
 		config.Enabled = true
+	}
+
+	// Workload cluster authentication mode
+	if mode := os.Getenv("WC_AUTH_MODE"); mode != "" {
+		config.WorkloadClusterAuth.Mode = mode
+	}
+	if suffix := os.Getenv("WC_CA_SECRET_SUFFIX"); suffix != "" {
+		config.WorkloadClusterAuth.CASecretSuffix = suffix
 	}
 
 	// Cache configuration - store as strings for later validation

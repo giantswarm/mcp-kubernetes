@@ -282,6 +282,15 @@ spec:
             {{- if .Values.capiMode.enabled }}
             - name: CAPI_MODE_ENABLED
               value: "true"
+            # Workload Cluster Authentication Mode
+            {{- if .Values.capiMode.workloadClusterAuth }}
+            - name: WC_AUTH_MODE
+              value: {{ .Values.capiMode.workloadClusterAuth.mode | default "impersonation" | quote }}
+            {{- if .Values.capiMode.workloadClusterAuth.caSecretSuffix }}
+            - name: WC_CA_SECRET_SUFFIX
+              value: {{ .Values.capiMode.workloadClusterAuth.caSecretSuffix | quote }}
+            {{- end }}
+            {{- end }}
             # Cache Configuration
             - name: CLIENT_CACHE_TTL
               value: {{ .Values.capiMode.cache.ttl | quote }}
