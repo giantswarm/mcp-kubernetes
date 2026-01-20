@@ -567,6 +567,23 @@ mcpKubernetes:
   service:
     port: 8080
 
+  # Server security configuration
+  server:
+    # Maximum allowed request body size in bytes
+    # Provides protection against denial-of-service attacks via oversized requests.
+    # Requests exceeding this limit will receive a 413 Request Entity Too Large response
+    # and are logged for security monitoring.
+    #
+    # Security recommendations:
+    #   - Default: 5242880 (5 MB) - suitable for most MCP operations
+    #   - Minimum recommended: 1048576 (1 MB) - values below trigger a warning
+    #   - Set to 0 to disable the limit (not recommended for production)
+    #
+    # Rejected requests are:
+    #   - Logged with method, path, content-length, and remote address
+    #   - Counted in the http_request_size_rejected_total metric (when metrics enabled)
+    maxRequestSize: 5242880
+
   # Additional environment variables
   env: []
   # - name: EXAMPLE_VAR

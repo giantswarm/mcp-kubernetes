@@ -24,6 +24,14 @@ const (
 	schemeHTTP  = "http"
 )
 
+// Request size limiting constants
+const (
+	// DefaultMaxRequestSize is the default maximum request body size in bytes (5MB).
+	// This provides protection against denial-of-service attacks via oversized requests.
+	// The minimum recommended size (1MB) is defined in internal/server/middleware.MinRecommendedRequestSize.
+	DefaultMaxRequestSize int64 = 5 * 1024 * 1024
+)
+
 // ServeConfig holds all configuration for the serve command.
 type ServeConfig struct {
 	// Transport settings
@@ -52,6 +60,11 @@ type ServeConfig struct {
 
 	// Metrics server configuration
 	Metrics MetricsServeConfig
+
+	// MaxRequestSize is the maximum allowed request body size in bytes.
+	// Requests exceeding this limit will receive a 413 Request Entity Too Large response.
+	// Default: 5MB (5242880 bytes)
+	MaxRequestSize int64
 }
 
 // MetricsServeConfig holds configuration for the metrics server.

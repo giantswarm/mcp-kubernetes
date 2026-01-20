@@ -11,10 +11,11 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
 
 // runStreamableHTTPServer runs the server with Streamable HTTP transport
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig) error {
+func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig, maxRequestSize int64) error {
 	// Create a custom HTTP server (metrics are now on a separate server)
 	mux := http.NewServeMux()
 
@@ -47,10 +48,33 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 		}
 	}
 
+	// Create request size metrics if instrumentation is available
+	var requestSizeMetrics *middleware.RequestSizeLimitMetrics
+	if provider != nil && provider.Enabled() {
+		meter := provider.Meter("mcp-kubernetes")
+		if meter != nil {
+			var err error
+			requestSizeMetrics, err = middleware.NewRequestSizeLimitMetrics(meter)
+			if err != nil {
+				slog.Warn("failed to create request size metrics", "error", err)
+			}
+		}
+	}
+
+	// Apply request size limiting middleware for DoS protection
+	// The middleware handles zero/negative values by passing through with a warning
+	handler := middleware.MaxRequestSizeWithConfig(middleware.MaxRequestSizeConfig{
+		MaxBytes: maxRequestSize,
+		Metrics:  requestSizeMetrics,
+	})(mux)
+	if maxRequestSize > 0 {
+		slog.Info("request size limiting enabled", "max_bytes", maxRequestSize)
+	}
+
 	// Create HTTP server with security timeouts
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,

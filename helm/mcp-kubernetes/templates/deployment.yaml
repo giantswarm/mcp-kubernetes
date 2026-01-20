@@ -118,6 +118,10 @@ spec:
             - --cimd-allow-private-ips=true
             {{- end }}
             {{- end }}
+            {{- /* Server security configuration */ -}}
+            {{- if and .Values.mcpKubernetes.server .Values.mcpKubernetes.server.maxRequestSize }}
+            - --max-request-size={{ .Values.mcpKubernetes.server.maxRequestSize }}
+            {{- end }}
             {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
             - --metrics-enabled=true
             - --metrics-addr=:{{ .Values.mcpKubernetes.metrics.port }}
