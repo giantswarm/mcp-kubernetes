@@ -53,6 +53,13 @@ var (
 	//   - DNS resolution failures
 	ErrClusterUnreachable = errors.New("cluster unreachable")
 
+	// ErrSSOTokenMissing indicates that the SSO/OAuth token was not found in the
+	// request context when SSO passthrough mode is enabled. This typically means:
+	//   - The request did not include an OAuth token
+	//   - The OAuth middleware did not inject the token into context
+	//   - The token extractor is not properly configured
+	ErrSSOTokenMissing = errors.New("SSO token not available in context for passthrough authentication")
+
 	// ErrTLSHandshakeFailed indicates that the TLS handshake with the cluster failed.
 	// Common causes include:
 	//   - Certificate signed by unknown authority

@@ -405,19 +405,36 @@ metadata:
   labels:
     {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
   annotations:
-    {{- if $.Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
-    # Security: ServiceAccount has privileged secret access, NOT users
+    {{- if eq ($.Values.capiMode.workloadClusterAuth.mode | default "impersonation") "sso-passthrough" }}
+    # SSO Passthrough Mode: Only CA-only secrets are accessed
+    # This mode has REDUCED privilege requirements compared to impersonation mode.
+    # Only secrets named ${CLUSTER_NAME}-ca are read (not full kubeconfig secrets).
+    # Note: RBAC grants "get" on all secrets (K8s limitation on patterns), but
+    # the ServiceAccount only actually accesses CA-only secrets.
+    mcp-kubernetes.giantswarm.io/wc-auth-mode: "sso-passthrough"
+    mcp-kubernetes.giantswarm.io/secret-access: "ca-only"
+    mcp-kubernetes.giantswarm.io/note: "Only CA secrets (${CLUSTER_NAME}{{ $.Values.capiMode.workloadClusterAuth.caSecretSuffix | default "-ca" }}) are accessed"
+    {{- else if $.Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+    # Impersonation Mode with OAuth: ServiceAccount has privileged secret access
     # Users authenticate via OAuth and their identity is impersonated on workload clusters
     # This prevents users from extracting admin kubeconfig via kubectl
+    mcp-kubernetes.giantswarm.io/wc-auth-mode: "impersonation"
     mcp-kubernetes.giantswarm.io/security-model: "privileged-secret-access"
-    mcp-kubernetes.giantswarm.io/note: "ServiceAccount reads secrets; users DO NOT need secret access"
+    mcp-kubernetes.giantswarm.io/note: "ServiceAccount reads kubeconfig secrets; users DO NOT need secret access"
     {{- else }}
+    mcp-kubernetes.giantswarm.io/wc-auth-mode: "impersonation"
     mcp-kubernetes.giantswarm.io/security-model: "service-account"
     {{- end }}
 rules:
-  # Access to kubeconfig secrets in this namespace
+  {{- if eq ($.Values.capiMode.workloadClusterAuth.mode | default "impersonation") "sso-passthrough" }}
+  # SSO Passthrough: Access to CA-only secrets
+  # Only ${CLUSTER_NAME}-ca secrets are actually accessed (not full kubeconfig)
+  # This is a reduced privilege compared to impersonation mode
+  {{- else }}
+  # Impersonation: Access to kubeconfig secrets in this namespace
   # ServiceAccount reads secrets on behalf of authenticated users
   # This enables impersonation-enforced access to workload clusters
+  {{- end }}
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]

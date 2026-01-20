@@ -299,7 +299,7 @@ func (m *Manager) CreateSSOPassthroughClient(ctx context.Context, clusterName st
 		m.logger.Debug("No SSO token available for passthrough",
 			"cluster", clusterName,
 			UserHashAttr(user.Email))
-		return nil, nil, nil, fmt.Errorf("SSO token not available in context for passthrough authentication")
+		return nil, nil, nil, ErrSSOTokenMissing
 	}
 
 	// Get CA certificate and endpoint for the cluster

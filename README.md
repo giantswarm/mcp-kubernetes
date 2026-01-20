@@ -120,6 +120,27 @@ mcp-kubernetes serve \
 - `Impersonate-Group`: User's groups from OAuth
 - `Impersonate-Extra-agent`: `mcp-kubernetes` (for audit trail)
 
+**SSO Token Passthrough Mode (Alternative):**
+
+For organizations where workload cluster API servers are configured with OIDC authentication, an alternative authentication mode forwards the user's SSO token directly to workload clusters instead of using impersonation:
+
+```yaml
+# Helm values for SSO passthrough mode
+capiMode:
+  enabled: true
+  workloadClusterAuth:
+    mode: "sso-passthrough"  # Instead of default "impersonation"
+    caSecretSuffix: "-ca"    # CA-only secrets (no admin credentials needed)
+```
+
+| Aspect | Impersonation (default) | SSO Passthrough |
+|--------|------------------------|-----------------|
+| ServiceAccount privileges | High (secret read, impersonate) | Low (CA secret read only) |
+| WC API server requirements | None | OIDC configuration required |
+| Audit trail | Shows impersonated user | Shows direct OIDC user |
+
+**See [docs/sso-passthrough-wc.md](docs/sso-passthrough-wc.md) for detailed configuration and requirements.**
+
 ### Observability
 
 The server includes comprehensive OpenTelemetry instrumentation for production monitoring:

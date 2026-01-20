@@ -588,6 +588,12 @@ func runServe(config ServeConfig) error {
 				"description", "using admin credentials with user impersonation headers")
 
 		case WorkloadClusterAuthModeSSOPassthrough:
+			// SSO passthrough requires OAuth downstream to be enabled
+			// because the TokenExtractor needs the user's OAuth token from context
+			if !config.DownstreamOAuth {
+				return fmt.Errorf("SSO passthrough mode (WC_AUTH_MODE=sso-passthrough) requires downstream OAuth to be enabled (--downstream-oauth). " +
+					"The SSO token must be available in the request context for forwarding to workload clusters")
+			}
 			managerOpts = append(managerOpts, federation.WithWorkloadClusterAuthMode(federation.WorkloadClusterAuthModeSSOPassthrough))
 
 			// Configure SSO passthrough
@@ -680,6 +686,7 @@ func runServe(config ServeConfig) error {
 		// Add instrumentation metrics if enabled
 		if instrumentationProvider.Enabled() {
 			managerOpts = append(managerOpts, federation.WithManagerCacheMetrics(instrumentationProvider.Metrics()))
+			managerOpts = append(managerOpts, federation.WithAuthMetrics(instrumentationProvider.Metrics()))
 		}
 
 		// Create federation manager

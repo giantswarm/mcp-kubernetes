@@ -2,6 +2,7 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,6 +12,23 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
+
+// AuthMetricsRecorder defines the interface for recording authentication metrics.
+// This allows decoupling from the concrete instrumentation implementation.
+type AuthMetricsRecorder interface {
+	// RecordWorkloadClusterAuth records a workload cluster authentication attempt.
+	// authMode: "impersonation" or "sso-passthrough"
+	// clusterName: Target cluster name
+	// result: "success", "error", "token_missing"
+	RecordWorkloadClusterAuth(ctx context.Context, authMode, clusterName, result string)
+}
+
+// noopAuthMetricsRecorder is a no-op implementation of AuthMetricsRecorder.
+// Used as default to avoid nil checks throughout the codebase.
+type noopAuthMetricsRecorder struct{}
+
+func (n *noopAuthMetricsRecorder) RecordWorkloadClusterAuth(context.Context, string, string, string) {
+}
 
 // ClusterClientManager manages Kubernetes clients for multi-cluster operations.
 // It retrieves clients for both the local Management Cluster and remote Workload
@@ -110,6 +128,9 @@ type Manager struct {
 	cacheConfig  *CacheConfig
 	cacheMetrics CacheMetricsRecorder
 
+	// Auth metrics recorder for tracking authentication mode usage
+	authMetrics AuthMetricsRecorder
+
 	// Connection validation timeout for workload cluster health checks
 	connectionValidationTimeout time.Duration
 
@@ -163,6 +184,15 @@ func WithManagerCacheConfig(config CacheConfig) ManagerOption {
 func WithManagerCacheMetrics(metrics CacheMetricsRecorder) ManagerOption {
 	return func(m *Manager) {
 		m.cacheMetrics = metrics
+	}
+}
+
+// WithAuthMetrics sets the metrics recorder for authentication events.
+// This enables tracking of workload cluster authentication by mode
+// (impersonation vs sso-passthrough).
+func WithAuthMetrics(metrics AuthMetricsRecorder) ManagerOption {
+	return func(m *Manager) {
+		m.authMetrics = metrics
 	}
 }
 
@@ -298,6 +328,7 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 	m := &Manager{
 		clientProvider:              clientProvider,
 		connectionValidationTimeout: DefaultConnectionValidationTimeout,
+		authMetrics:                 &noopAuthMetricsRecorder{},
 		logger:                      slog.Default(),
 	}
 
@@ -652,6 +683,7 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	// This enforces MC RBAC - user must have permission to read the secret
 	baseConfig, err := m.GetKubeconfigForCluster(ctx, clusterName, user)
 	if err != nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 		return nil, nil, nil, err
 	}
 
@@ -663,6 +695,7 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	// Optionally validate connectivity before caching
 	if m.validateConnectivity {
 		if err := m.checkClusterConnectivity(ctx, clusterName, baseConfig); err != nil {
+			m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 			return nil, nil, nil, err
 		}
 	}
@@ -674,12 +707,14 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	// Create the clientset
 	clientset, err := kubernetes.NewForConfig(impersonatedConfig)
 	if err != nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("failed to create clientset for cluster %s: %w", clusterName, err)
 	}
 
 	// Create the dynamic client
 	dynClient, err := dynamic.NewForConfig(impersonatedConfig)
 	if err != nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("failed to create dynamic client for cluster %s: %w", clusterName, err)
 	}
 
@@ -687,6 +722,9 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 		"cluster", clusterName,
 		"endpoint_type", GetEndpointType(baseConfig.Host),
 		UserHashAttr(user.Email))
+
+	// Record successful auth metric
+	m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "success")
 
 	return clientset, dynClient, impersonatedConfig, nil
 }
@@ -696,21 +734,30 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 func (m *Manager) createSSOPassthroughClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
 	// Validate SSO passthrough is properly configured
 	if m.ssoPassthroughConfig == nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("SSO passthrough mode enabled but no configuration provided")
 	}
 	if m.ssoPassthroughConfig.TokenExtractor == nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("SSO passthrough mode enabled but no token extractor configured")
 	}
 
 	// Create client using SSO passthrough
 	clientset, dynClient, restConfig, err := m.CreateSSOPassthroughClient(ctx, clusterName, user)
 	if err != nil {
+		// Determine error type for metrics using sentinel error
+		result := "error"
+		if errors.Is(err, ErrSSOTokenMissing) {
+			result = "token_missing"
+		}
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, result)
 		return nil, nil, nil, err
 	}
 
 	// Optionally validate connectivity before caching
 	if m.validateConnectivity {
 		if err := m.checkClusterConnectivity(ctx, clusterName, restConfig); err != nil {
+			m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
 			return nil, nil, nil, err
 		}
 	}
@@ -719,6 +766,9 @@ func (m *Manager) createSSOPassthroughClient(ctx context.Context, clusterName st
 		"cluster", clusterName,
 		"endpoint_type", GetEndpointType(restConfig.Host),
 		UserHashAttr(user.Email))
+
+	// Record successful auth metric
+	m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "success")
 
 	return clientset, dynClient, restConfig, nil
 }

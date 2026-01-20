@@ -26,6 +26,7 @@ const (
 	// CAPI/Federation specific attributes (with cardinality controls)
 	attrUserDomain  = "user_domain"
 	attrClusterType = "cluster_type"
+	attrAuthMode    = "auth_mode"
 )
 
 // Metrics provides methods for recording observability metrics.
@@ -59,6 +60,9 @@ type Metrics struct {
 
 	// Privileged secret access metrics
 	privilegedSecretAccessTotal metric.Int64Counter
+
+	// Workload cluster authentication metrics
+	wcAuthTotal metric.Int64Counter
 
 	// Configuration
 	// detailedLabels controls whether high-cardinality labels (namespace, resource_type)
@@ -257,6 +261,19 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mcp_privileged_secret_access_total counter: %w", err)
+	}
+
+	// Workload Cluster Authentication Metrics
+	//
+	// Note on cardinality: Uses auth_mode (impersonation, sso-passthrough) and result.
+	// cluster_type is used instead of cluster_name for cardinality control.
+	m.wcAuthTotal, err = meter.Int64Counter(
+		"mcp_wc_auth_total",
+		metric.WithDescription("Total workload cluster authentication attempts. Labels: auth_mode (impersonation, sso-passthrough), cluster_type, result"),
+		metric.WithUnit("{auth}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mcp_wc_auth_total counter: %w", err)
 	}
 
 	return m, nil
@@ -544,4 +561,33 @@ func (m *Metrics) RecordPrivilegedSecretAccess(ctx context.Context, userDomain, 
 	}
 
 	m.privilegedSecretAccessTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// RecordWorkloadClusterAuth records a workload cluster authentication attempt.
+// This metric distinguishes between impersonation and SSO passthrough auth modes.
+//
+// # Monitoring Use Cases
+//
+// Use this metric to:
+//   - Track adoption of SSO passthrough mode
+//   - Monitor auth failures by mode
+//   - Identify clusters with auth issues
+//   - Compare success rates between auth modes
+//
+// Parameters:
+//   - authMode: Authentication mode ("impersonation" or "sso-passthrough")
+//   - clusterName: Target cluster (will be classified for cardinality control)
+//   - result: One of "success", "error", "token_missing"
+func (m *Metrics) RecordWorkloadClusterAuth(ctx context.Context, authMode, clusterName, result string) {
+	if m.wcAuthTotal == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(attrAuthMode, authMode),
+		attribute.String(attrClusterType, ClassifyClusterName(clusterName)),
+		attribute.String(attrResult, result),
+	}
+
+	m.wcAuthTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 }
