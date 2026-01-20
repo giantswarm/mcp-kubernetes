@@ -42,7 +42,8 @@ type Metrics struct {
 	k8sPodOperationDuration metric.Float64Histogram
 
 	// OAuth authentication metrics
-	oauthDownstreamAuthTotal metric.Int64Counter
+	oauthDownstreamAuthTotal    metric.Int64Counter
+	oauthSSOTokenInjectionTotal metric.Int64Counter
 
 	// Client cache metrics
 	clientCacheHitsTotal      metric.Int64Counter
@@ -151,6 +152,15 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create oauth_downstream_auth_total counter: %w", err)
+	}
+
+	m.oauthSSOTokenInjectionTotal, err = meter.Int64Counter(
+		"oauth_sso_token_injection_total",
+		metric.WithDescription("Total number of SSO token injections for downstream K8s API auth. Labels: result (success, no_token, no_user)"),
+		metric.WithUnit("{injection}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create oauth_sso_token_injection_total counter: %w", err)
 	}
 
 	// Client Cache Metrics
@@ -337,6 +347,28 @@ func (m *Metrics) RecordOAuthDownstreamAuth(ctx context.Context, result string) 
 	}
 
 	m.oauthDownstreamAuthTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// RecordSSOTokenInjection records an SSO token injection event for downstream K8s API auth.
+// This metric helps operators monitor SSO adoption and detect anomalies.
+//
+// Result values:
+//   - "success": SSO token was successfully injected into context
+//   - "oauth_success": OAuth token was successfully looked up and injected
+//   - "no_token": No bearer token in request (passthrough)
+//   - "no_user": No authenticated user in context (passthrough)
+//   - "no_store": Token store not available (passthrough)
+//   - "lookup_failed": Token lookup failed (passthrough)
+func (m *Metrics) RecordSSOTokenInjection(ctx context.Context, result string) {
+	if m.oauthSSOTokenInjectionTotal == nil {
+		return // Instrumentation not initialized
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(attrResult, result),
+	}
+
+	m.oauthSSOTokenInjectionTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 }
 
 // IncrementActiveSessions increments the active port-forward sessions counter.

@@ -832,15 +832,30 @@ func extractBearerToken(r *http.Request) (string, bool) {
 // OAuth provider token (specifically the ID token) into the request context.
 // This token can then be used for downstream Kubernetes API authentication.
 //
-// Token Lookup Strategy:
-// The middleware looks up the provider token using the MCP access token as the key.
-// This ensures we get the most up-to-date provider token, including any tokens that
-// have been proactively refreshed by mcp-oauth's token validation.
+// Token Injection Strategy:
+//
+//  1. SSO Token Forwarding (IsSSO() == true):
+//     When the token was validated via TrustedAudiences/JWKS (SSO token forwarding),
+//     the Bearer token IS the ID token forwarded from a trusted upstream service
+//     (e.g., muster). We use it directly without token store lookup.
+//
+//  2. Normal OAuth Flow (IsSSO() == false):
+//     When the token was issued by this server's OAuth flow, we look up the provider's
+//     ID token from the token store using the MCP access token as the key.
+//     This ensures we get the most up-to-date provider token, including any tokens
+//     that have been proactively refreshed by mcp-oauth's token validation.
 //
 // Background: mcp-oauth stores provider tokens keyed by the MCP access token during
 // token exchange and proactive refresh. Looking up by access token (instead of email)
 // ensures we always get the current provider token, even after automatic refreshes.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
+	// Helper to record SSO token injection metrics
+	recordMetric := func(ctx context.Context, result string) {
+		if s.instrumentationProvider != nil && s.instrumentationProvider.Metrics() != nil {
+			s.instrumentationProvider.Metrics().RecordSSOTokenInjection(ctx, result)
+		}
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log entry to confirm middleware is being called
 		slog.Debug("AccessTokenInjector: middleware entry",
@@ -855,17 +870,40 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil {
 			slog.Debug("AccessTokenInjector: no user info in context")
+			recordMetric(ctx, "no_user")
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Extract the MCP access token from the Authorization header
-		// We use this as the key to look up the provider token, which ensures
-		// we get the most up-to-date token (including proactively refreshed tokens)
-		mcpAccessToken, ok := extractBearerToken(r)
-		if !ok || mcpAccessToken == "" {
+		// Extract the Bearer token from the Authorization header
+		bearerToken, ok := extractBearerToken(r)
+		if !ok || bearerToken == "" {
 			slog.Debug("AccessTokenInjector: no bearer token in Authorization header",
 				"user_id", userInfo.ID)
+			recordMetric(ctx, "no_token")
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// SSO Token Forwarding: If the token was validated via TrustedAudiences/JWKS,
+		// the Bearer token IS the ID token - use it directly instead of looking it up.
+		// This happens when an upstream aggregator (e.g., muster) forwards a user's ID token.
+		if userInfo.IsSSO() {
+			slog.Debug("AccessTokenInjector: using SSO-forwarded token directly as ID token",
+				logging.UserHash(userInfo.Email))
+			ctx = mcpoauth.ContextWithAccessToken(ctx, bearerToken)
+			r = r.WithContext(ctx)
+			recordMetric(ctx, "sso_success")
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Normal OAuth flow: Look up the provider's ID token from the token store
+		// Safety check: tokenStore should always be set in production, but handle nil defensively
+		if s.tokenStore == nil {
+			slog.Debug("AccessTokenInjector: tokenStore is nil, cannot look up provider token",
+				logging.UserHash(userInfo.Email))
+			recordMetric(ctx, "no_store")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -873,9 +911,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		slog.Debug("AccessTokenInjector: looking up provider token by MCP access token",
 			logging.UserHash(userInfo.Email))
 
-		// Retrieve the provider token using the MCP access token as the key
+		// Retrieve the provider token using the MCP access token (Bearer token) as the key
 		// This is the same key used by mcp-oauth during token exchange and proactive refresh
-		token, err := s.tokenStore.GetToken(ctx, mcpAccessToken)
+		token, err := s.tokenStore.GetToken(ctx, bearerToken)
 		if err != nil {
 			slog.Debug("AccessTokenInjector: failed to get token from store by access token",
 				logging.UserHash(userInfo.Email), logging.Err(err))
@@ -884,6 +922,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if err != nil {
 				slog.Debug("AccessTokenInjector: fallback email lookup also failed",
 					logging.UserHash(userInfo.Email), logging.Err(err))
+				recordMetric(ctx, "lookup_failed")
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -893,6 +932,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if token == nil {
 			slog.Debug("AccessTokenInjector: token is nil for user",
 				logging.UserHash(userInfo.Email))
+			recordMetric(ctx, "lookup_failed")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -906,6 +946,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				slog.Bool("has_access_token", token.AccessToken != ""),
 				slog.Bool("has_refresh_token", token.RefreshToken != ""))
 			slog.Debug("AccessTokenInjector: calling next handler without ID token")
+			recordMetric(ctx, "no_id_token")
 			next.ServeHTTP(w, r)
 			slog.Debug("AccessTokenInjector: next handler returned (no ID token path)")
 			return
@@ -915,6 +956,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			logging.UserHash(userInfo.Email))
 		ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
 		r = r.WithContext(ctx)
+		recordMetric(ctx, "oauth_success")
 
 		slog.Debug("AccessTokenInjector: calling next handler (mcp-go)")
 		next.ServeHTTP(w, r)

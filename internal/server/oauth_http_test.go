@@ -3,11 +3,17 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	mcpoauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 )
 
 // TestExtractBearerToken tests bearer token extraction from Authorization header
@@ -491,6 +497,184 @@ func TestClientRegistrationRateLimiterConfiguration(t *testing.T) {
 			assert.Equal(t, tt.expectedMax, stats.MaxPerWindow, "maxClientsPerIP should match configured value")
 		})
 	}
+}
+
+// TestAccessTokenInjectorMiddleware_SSOToken tests that SSO-forwarded tokens are used directly
+// as the ID token without looking them up in the token store.
+func TestAccessTokenInjectorMiddleware_SSOToken(t *testing.T) {
+	// Create a mock next handler that captures the context
+	var capturedCtx context.Context
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Create a minimal OAuthHTTPServer with no token store (SSO doesn't need it)
+	s := &OAuthHTTPServer{}
+
+	// Create the middleware
+	middleware := s.createAccessTokenInjectorMiddleware(nextHandler)
+
+	// Create a request with an SSO-validated user
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	//nolint:gosec // G101 false positive - this is a test token, not a credential
+	ssoToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.sso-token-payload.signature"
+	req.Header.Set("Authorization", "Bearer "+ssoToken)
+
+	// Set up context with SSO user info (TokenSource = SSO)
+	userInfo := &providers.UserInfo{
+		ID:          "user-123",
+		Email:       "test@example.com",
+		TokenSource: providers.TokenSourceSSO,
+	}
+	ctx := mcpoauth.ContextWithUserInfo(req.Context(), userInfo)
+	req = req.WithContext(ctx)
+
+	// Execute the middleware
+	rr := httptest.NewRecorder()
+	middleware.ServeHTTP(rr, req)
+
+	// Verify the request completed successfully
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// Verify the ID token was injected into context (it should be the Bearer token itself)
+	injectedToken, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	assert.True(t, ok, "ID token should be present in context for SSO tokens")
+	assert.Equal(t, ssoToken, injectedToken, "SSO token should be used directly as ID token")
+}
+
+// TestAccessTokenInjectorMiddleware_SSOTokenIsSSO verifies IsSSO() method behavior
+func TestAccessTokenInjectorMiddleware_SSOTokenIsSSO(t *testing.T) {
+	tests := []struct {
+		name        string
+		tokenSource providers.TokenSource
+		isSSO       bool
+		isOAuth     bool
+	}{
+		{
+			name:        "SSO token source",
+			tokenSource: providers.TokenSourceSSO,
+			isSSO:       true,
+			isOAuth:     false,
+		},
+		{
+			name:        "OAuth token source",
+			tokenSource: providers.TokenSourceOAuth,
+			isSSO:       false,
+			isOAuth:     true,
+		},
+		{
+			name:        "Empty token source (backward compatibility)",
+			tokenSource: "",
+			isSSO:       false,
+			isOAuth:     true, // Empty is treated as OAuth for backward compatibility
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			userInfo := &providers.UserInfo{
+				Email:       "test@example.com",
+				TokenSource: tt.tokenSource,
+			}
+
+			assert.Equal(t, tt.isSSO, userInfo.IsSSO(), "IsSSO() mismatch")
+			assert.Equal(t, tt.isOAuth, userInfo.IsOAuth(), "IsOAuth() mismatch")
+		})
+	}
+}
+
+// TestAccessTokenInjectorMiddleware_NoUserInfo tests that requests without user info pass through
+func TestAccessTokenInjectorMiddleware_NoUserInfo(t *testing.T) {
+	var capturedCtx context.Context
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	})
+
+	s := &OAuthHTTPServer{}
+	middleware := s.createAccessTokenInjectorMiddleware(nextHandler)
+
+	// Request without user info in context
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer some-token")
+
+	rr := httptest.NewRecorder()
+	middleware.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// No token should be injected
+	_, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	assert.False(t, ok, "No token should be injected without user info")
+}
+
+// TestAccessTokenInjectorMiddleware_NoBearerToken tests that requests without bearer token pass through
+func TestAccessTokenInjectorMiddleware_NoBearerToken(t *testing.T) {
+	var capturedCtx context.Context
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	})
+
+	s := &OAuthHTTPServer{}
+	middleware := s.createAccessTokenInjectorMiddleware(nextHandler)
+
+	// Request with user info but no Authorization header
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	userInfo := &providers.UserInfo{
+		Email:       "test@example.com",
+		TokenSource: providers.TokenSourceSSO,
+	}
+	ctx := mcpoauth.ContextWithUserInfo(req.Context(), userInfo)
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	middleware.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// No token should be injected
+	_, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	assert.False(t, ok, "No token should be injected without bearer token")
+}
+
+// TestAccessTokenInjectorMiddleware_NilTokenStoreWithOAuthToken tests that requests with OAuth tokens
+// (non-SSO) gracefully handle nil tokenStore by passing through without injecting a token.
+// This ensures defensive coding against misconfiguration.
+func TestAccessTokenInjectorMiddleware_NilTokenStoreWithOAuthToken(t *testing.T) {
+	var capturedCtx context.Context
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Create OAuthHTTPServer with nil tokenStore (simulates misconfiguration)
+	s := &OAuthHTTPServer{
+		tokenStore: nil, // Explicitly nil - this is the condition we're testing
+	}
+	middleware := s.createAccessTokenInjectorMiddleware(nextHandler)
+
+	// Request with OAuth user info (NOT SSO - so it will try to look up token)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer mcp-access-token-123")
+	userInfo := &providers.UserInfo{
+		ID:          "user-456",
+		Email:       "oauth-user@example.com",
+		TokenSource: providers.TokenSourceOAuth, // OAuth, not SSO
+	}
+	ctx := mcpoauth.ContextWithUserInfo(req.Context(), userInfo)
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	middleware.ServeHTTP(rr, req)
+
+	// Request should complete successfully (not panic)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// No token should be injected (token store lookup would fail/panic without nil check)
+	_, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	assert.False(t, ok, "No token should be injected when tokenStore is nil")
 }
 
 // TestDexScopesWithKubernetesAuthenticator tests that cross-client audience scope is correctly added
