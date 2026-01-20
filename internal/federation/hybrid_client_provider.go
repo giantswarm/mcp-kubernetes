@@ -95,36 +95,13 @@ type userRateLimiter struct {
 // HybridOAuthClientProvider implements PrivilegedSecretAccessProvider for OAuth downstream
 // authentication with split credential model.
 //
-// # Architecture
+// This provider wraps two credential sources: user OAuth tokens for user-scoped operations
+// (CAPI discovery, WC operations) and ServiceAccount credentials for privileged operations
+// (kubeconfig secret access). This split-credential model prevents users from extracting
+// admin kubeconfig credentials via kubectl and bypassing impersonation.
 //
-// This provider wraps two credential sources:
-//  1. User OAuth tokens - for user-scoped operations (CAPI discovery, WC operations)
-//  2. ServiceAccount credentials - for privileged operations (kubeconfig secret access)
-//
-// # Security Model
-//
-// When OAuth downstream is enabled with CAPI mode:
-//   - Users authenticate via OAuth (Dex, Google, etc.)
-//   - Their OAuth token is used for CAPI cluster discovery (RBAC enforced)
-//   - ServiceAccount reads kubeconfig secrets (users cannot access directly)
-//   - mcp-kubernetes applies impersonation to WC operations
-//   - Users cannot bypass impersonation by reading secrets via kubectl
-//
-// # Rate Limiting
-//
-// Privileged secret access is rate-limited per user to prevent abuse:
-//   - Default: 10 requests/second with burst of 20
-//   - Rate limiters are automatically cleaned up after inactivity
-//   - Configurable via RateLimitPerSecond and RateLimitBurst
-//
-// # Audit Trail
-//
-// All privileged secret access is logged with:
-//   - User email (hashed for privacy in logs)
-//   - Cluster name being accessed
-//   - Timestamp of access
-//
-// This provides a complete audit trail of who accessed which cluster's kubeconfig.
+// See docs/rbac-security.md for the complete security model, rate limiting configuration,
+// and audit trail details.
 type HybridOAuthClientProvider struct {
 	// userProvider handles user-scoped operations using OAuth tokens
 	userProvider *OAuthClientProvider
