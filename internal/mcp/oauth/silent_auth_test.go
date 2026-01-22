@@ -209,6 +209,14 @@ func TestParseCallbackQuery(t *testing.T) {
 			wantIsError:      true,
 			wantSilentAuth:   true,
 		},
+		{
+			name:             "error with empty description",
+			state:            "state_456",
+			errorCode:        ErrorCodeLoginRequired,
+			errorDescription: "",
+			wantIsError:      true,
+			wantSilentAuth:   true,
+		},
 	}
 
 	for _, tt := range tests {

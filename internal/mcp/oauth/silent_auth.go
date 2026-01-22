@@ -61,23 +61,16 @@ type CallbackResult = mcpoauth.CallbackResult
 // Use IsSilentAuthError to check if an error indicates silent auth failure.
 var ErrSilentAuthFailed = mcpoauth.ErrSilentAuthFailed
 
-// Silent authentication error codes (OIDC Core Section 3.1.2.6).
-// These indicate the IdP requires user interaction and silent auth failed.
+// Silent authentication error codes per OIDC Core Section 3.1.2.6.
+// These indicate the IdP requires user interaction and silent auth failed:
+//   - login_required: User is not logged in at the IdP
+//   - consent_required: User hasn't consented to the requested scopes
+//   - interaction_required: IdP needs user interaction for other reasons
+//   - account_selection_required: Multiple accounts available, user must select one
 const (
-	// ErrorCodeLoginRequired indicates the user is not logged in at the IdP.
-	// The client should redirect to interactive login.
-	ErrorCodeLoginRequired = mcpoauth.ErrorCodeLoginRequired
-
-	// ErrorCodeConsentRequired indicates the user hasn't consented to the requested scopes.
-	// The client should redirect to interactive login with consent.
-	ErrorCodeConsentRequired = mcpoauth.ErrorCodeConsentRequired
-
-	// ErrorCodeInteractionRequired indicates the IdP requires user interaction
-	// for reasons not covered by login_required or consent_required.
-	ErrorCodeInteractionRequired = mcpoauth.ErrorCodeInteractionRequired
-
-	// ErrorCodeAccountSelectionRequired indicates multiple accounts are available
-	// and the user must select one.
+	ErrorCodeLoginRequired            = mcpoauth.ErrorCodeLoginRequired
+	ErrorCodeConsentRequired          = mcpoauth.ErrorCodeConsentRequired
+	ErrorCodeInteractionRequired      = mcpoauth.ErrorCodeInteractionRequired
 	ErrorCodeAccountSelectionRequired = mcpoauth.ErrorCodeAccountSelectionRequired
 )
 
