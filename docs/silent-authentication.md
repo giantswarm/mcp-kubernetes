@@ -56,11 +56,19 @@ Use `IsSilentAuthError()` to detect these failures and fall back to interactive 
 import "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 
 func handleCallback(w http.ResponseWriter, r *http.Request) {
-    // Parse callback parameters
     q := r.URL.Query()
+    callbackState := q.Get("state")
+
+    // SECURITY: Always validate state parameter first to prevent CSRF attacks
+    if !validateAndConsumeState(callbackState) {
+        http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+        return
+    }
+
+    // Parse callback parameters after state validation
     result := oauth.ParseCallbackQuery(
         q.Get("code"),
-        q.Get("state"),
+        callbackState,
         q.Get("error"),
         q.Get("error_description"),
         q.Get("error_uri"),
@@ -130,15 +138,24 @@ func (h *AuthHandler) TrySilentAuth(w http.ResponseWriter, r *http.Request, user
 
 func (h *AuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
     q := r.URL.Query()
+    callbackState := q.Get("state")
+
+    // SECURITY: Validate state parameter FIRST to prevent CSRF attacks
+    authState, ok := h.getAndDeleteAuthState(callbackState)
+    if !ok {
+        h.logger.Warn("CSRF validation failed: unknown state", "state", callbackState)
+        http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+        return
+    }
+
+    // Parse callback after state validation
     result := oauth.ParseCallbackQuery(
         q.Get("code"),
-        q.Get("state"),
+        callbackState,
         q.Get("error"),
         q.Get("error_description"),
         q.Get("error_uri"),
     )
-
-    authState := h.getAuthState(result.State)
 
     if err := result.Err(); err != nil {
         if oauth.IsSilentAuthError(err) && authState.WasSilentAttempt {
@@ -222,6 +239,71 @@ const (
 GitHub doesn't implement the OIDC `prompt` parameter. Instead:
 - `login_hint` is mapped to GitHub's `login` parameter
 - Silent authentication is not supported (GitHub always shows UI)
+
+## Security Considerations
+
+### CSRF Protection with State Parameter
+
+The OAuth `state` parameter is critical for preventing Cross-Site Request Forgery (CSRF) attacks. You **MUST** validate the state parameter before processing any callback.
+
+```go
+func (h *AuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+    q := r.URL.Query()
+    callbackState := q.Get("state")
+
+    // CRITICAL: Validate state BEFORE processing the callback
+    // This prevents CSRF attacks where an attacker tricks a user into
+    // completing an OAuth flow initiated by the attacker
+    expectedState, ok := h.getAndDeleteStoredState(callbackState)
+    if !ok || callbackState != expectedState {
+        h.logger.Warn("CSRF validation failed: state mismatch",
+            "received", callbackState)
+        http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+        return
+    }
+
+    // Now safe to parse and process the callback
+    result := oauth.ParseCallbackQuery(
+        q.Get("code"),
+        callbackState,
+        q.Get("error"),
+        q.Get("error_description"),
+        q.Get("error_uri"),
+    )
+    // ... rest of callback handling
+}
+```
+
+**Key points:**
+- Generate cryptographically secure random state values (use `crypto/rand`)
+- Store state server-side with a short TTL (e.g., 10 minutes)
+- Delete state after validation to prevent replay attacks
+- Validate state before any other callback processing
+
+### State Generation Example
+
+```go
+import (
+    "crypto/rand"
+    "encoding/base64"
+)
+
+func generateSecureState() string {
+    b := make([]byte, 32)
+    if _, err := rand.Read(b); err != nil {
+        panic(err) // crypto/rand should never fail
+    }
+    return base64.URLEncoding.EncodeToString(b)
+}
+```
+
+### Token Storage Security
+
+When storing tokens after successful authentication:
+- Store tokens securely (encrypted at rest if persisted)
+- Use secure, httpOnly cookies for web applications
+- Never expose tokens in URLs or logs
+- Implement token rotation for refresh tokens
 
 ## Best Practices
 

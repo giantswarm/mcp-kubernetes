@@ -117,6 +117,12 @@ func ParseOAuthError(errorCode, errorDescription string) error {
 // ParseCallbackQuery creates a CallbackResult from URL query parameters.
 // This is a convenience function for parsing OAuth callback query strings.
 //
+// # Security Warning
+//
+// You MUST validate the state parameter BEFORE calling this function to prevent
+// CSRF attacks. The state should be compared against a server-side stored value
+// that was generated when the authorization request was initiated.
+//
 // Parameters:
 //   - code: The authorization code (from "code" query param)
 //   - state: The state parameter (from "state" query param)
@@ -127,9 +133,17 @@ func ParseOAuthError(errorCode, errorDescription string) error {
 // Example usage:
 //
 //	q := r.URL.Query()
+//	callbackState := q.Get("state")
+//
+//	// CRITICAL: Validate state first to prevent CSRF
+//	if !validateAndConsumeState(callbackState) {
+//	    http.Error(w, "Invalid state", http.StatusBadRequest)
+//	    return
+//	}
+//
 //	result := oauth.ParseCallbackQuery(
 //	    q.Get("code"),
-//	    q.Get("state"),
+//	    callbackState,
 //	    q.Get("error"),
 //	    q.Get("error_description"),
 //	    q.Get("error_uri"),
