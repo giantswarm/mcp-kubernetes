@@ -86,6 +86,38 @@ type CAPIModeConfig struct {
 	ConnectivityRequestTimeout string
 	ConnectivityQPS            float32
 	ConnectivityBurst          int
+
+	// Workload cluster authentication configuration
+	WorkloadClusterAuth WorkloadClusterAuthConfig
+}
+
+// WorkloadClusterAuthConfig configures how mcp-kubernetes authenticates to workload clusters.
+type WorkloadClusterAuthConfig struct {
+	// Mode determines the authentication method for workload clusters.
+	// Options:
+	//   - "impersonation" (default): Uses admin credentials from kubeconfig secrets
+	//     with user impersonation headers.
+	//   - "sso-passthrough": Forwards the user's SSO/OAuth ID token directly to
+	//     workload cluster API servers. Requires WC API servers to be configured
+	//     with OIDC authentication.
+	Mode string
+
+	// CAConfigMapSuffix is the suffix for CA ConfigMaps used in sso-passthrough mode.
+	// The full ConfigMap name is: ${CLUSTER_NAME}${CAConfigMapSuffix}
+	// These ConfigMaps contain the cluster's CA certificate (public key) for TLS verification.
+	// Default: "-ca-public"
+	CAConfigMapSuffix string
+
+	// DisableCaching disables client caching in sso-passthrough mode.
+	// When enabled, each request creates a fresh client with the current SSO token.
+	// This is recommended for high-security deployments to ensure:
+	//   - Tokens are never cached beyond their natural lifetime
+	//   - Token revocation takes effect immediately
+	//   - No risk of reusing expired tokens from cache
+	//
+	// Trade-off: Higher latency per request (no connection reuse).
+	// Default: false (caching enabled for better performance)
+	DisableCaching bool
 }
 
 // OAuthServeConfig holds OAuth-specific configuration.

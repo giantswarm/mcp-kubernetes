@@ -378,22 +378,74 @@ subjects:
 {{- end }}
 
 {{/*
-Namespace-scoped secret access (recommended)
-Creates Role and RoleBinding for each allowed namespace
+Namespace-scoped access for workload cluster authentication.
+Creates Role and RoleBinding for each allowed namespace.
+
+The resources accessed depend on the authentication mode:
+- Impersonation mode: Secrets (kubeconfig with admin credentials)
+- SSO Passthrough mode: ConfigMaps (CA certificates only - public keys)
 
 SECURITY MODEL:
-- Service Account Mode (enableDownstreamOAuth: false):
+- Impersonation Mode:
     ServiceAccount reads kubeconfig secrets to access workload clusters.
-    Users authenticate via the shared ServiceAccount identity.
+    Uses admin credentials + impersonation headers for user identity.
+    Requires secret read access.
 
-- OAuth Downstream Mode (enableDownstreamOAuth: true):
-    ServiceAccount reads kubeconfig secrets using PRIVILEGED access.
-    Users DO NOT need secret access - this prevents secret leakage.
-    Impersonation is enforced on workload clusters using user's identity.
-    Users can only access clusters where their impersonated identity has RBAC.
+- SSO Passthrough Mode:
+    ServiceAccount only needs CA certificates (public information).
+    CA certificates are stored in ConfigMaps, not Secrets.
+    User's SSO token is forwarded directly to WC API servers.
+    NO secret access required - significantly reduced privileges.
+*/}}
 
-This is the secure default: users cannot bypass impersonation by reading
-kubeconfig secrets directly via kubectl.
+{{- if eq ($.Values.capiMode.workloadClusterAuth.mode | default "impersonation") "sso-passthrough" }}
+{{/*
+SSO Passthrough Mode: ConfigMap access for CA certificates
+CA certificates are public information and stored in ConfigMaps.
+*/}}
+{{- range .Values.capiMode.rbac.allowedNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-ca-configmaps
+  namespace: {{ . }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/wc-auth-mode: "sso-passthrough"
+    mcp-kubernetes.giantswarm.io/resource-access: "configmaps-only"
+    mcp-kubernetes.giantswarm.io/note: "Only CA ConfigMaps (${CLUSTER_NAME}{{ $.Values.capiMode.workloadClusterAuth.caConfigMapSuffix | default "-ca-public" }}) are accessed"
+rules:
+  # SSO Passthrough: Access to CA ConfigMaps
+  # Only ${CLUSTER_NAME}-ca-public ConfigMaps are accessed
+  # These contain the cluster's CA certificate (public key) for TLS verification
+  # NO secret access is required in this mode
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-ca-configmaps
+  namespace: {{ . }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "mcp-kubernetes.fullname" $ }}-ca-configmaps
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+
+{{- else }}
+{{/*
+Impersonation Mode: Secret access for kubeconfig credentials
 */}}
 {{- range .Values.capiMode.rbac.allowedNamespaces }}
 ---
@@ -405,17 +457,15 @@ metadata:
   labels:
     {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
   annotations:
+    mcp-kubernetes.giantswarm.io/wc-auth-mode: "impersonation"
     {{- if $.Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
-    # Security: ServiceAccount has privileged secret access, NOT users
-    # Users authenticate via OAuth and their identity is impersonated on workload clusters
-    # This prevents users from extracting admin kubeconfig via kubectl
     mcp-kubernetes.giantswarm.io/security-model: "privileged-secret-access"
-    mcp-kubernetes.giantswarm.io/note: "ServiceAccount reads secrets; users DO NOT need secret access"
+    mcp-kubernetes.giantswarm.io/note: "ServiceAccount reads kubeconfig secrets; users DO NOT need secret access"
     {{- else }}
     mcp-kubernetes.giantswarm.io/security-model: "service-account"
     {{- end }}
 rules:
-  # Access to kubeconfig secrets in this namespace
+  # Impersonation: Access to kubeconfig secrets in this namespace
   # ServiceAccount reads secrets on behalf of authenticated users
   # This enables impersonation-enforced access to workload clusters
   - apiGroups: [""]
@@ -438,5 +488,6 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
     namespace: {{ $.Release.Namespace }}
+{{- end }}
 {{- end }}
 {{- end }}

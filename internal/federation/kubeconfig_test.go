@@ -601,11 +601,11 @@ func TestGetSecretKeys(t *testing.T) {
 func TestKubeconfigErrorWrapping(t *testing.T) {
 	t.Run("wraps not found error correctly", func(t *testing.T) {
 		err := &KubeconfigError{
-			ClusterName: "test",
-			SecretName:  "test-kubeconfig",
-			Namespace:   "ns",
-			Reason:      "not found",
-			NotFound:    true,
+			ClusterName:  "test",
+			ResourceName: "test-kubeconfig",
+			Namespace:    "ns",
+			Reason:       "not found",
+			NotFound:     true,
 		}
 
 		assert.True(t, errors.Is(err, ErrKubeconfigSecretNotFound))
@@ -614,11 +614,11 @@ func TestKubeconfigErrorWrapping(t *testing.T) {
 
 	t.Run("wraps invalid error correctly", func(t *testing.T) {
 		err := &KubeconfigError{
-			ClusterName: "test",
-			SecretName:  "test-kubeconfig",
-			Namespace:   "ns",
-			Reason:      "invalid data",
-			NotFound:    false,
+			ClusterName:  "test",
+			ResourceName: "test-kubeconfig",
+			Namespace:    "ns",
+			Reason:       "invalid data",
+			NotFound:     false,
 		}
 
 		assert.True(t, errors.Is(err, ErrKubeconfigInvalid))
@@ -628,11 +628,11 @@ func TestKubeconfigErrorWrapping(t *testing.T) {
 	t.Run("wraps underlying error", func(t *testing.T) {
 		underlyingErr := errors.New("underlying error")
 		err := &KubeconfigError{
-			ClusterName: "test",
-			SecretName:  "test-kubeconfig",
-			Namespace:   "ns",
-			Reason:      "some reason",
-			Err:         underlyingErr,
+			ClusterName:  "test",
+			ResourceName: "test-kubeconfig",
+			Namespace:    "ns",
+			Reason:       "some reason",
+			Err:          underlyingErr,
 		}
 
 		assert.True(t, errors.Is(err, underlyingErr))

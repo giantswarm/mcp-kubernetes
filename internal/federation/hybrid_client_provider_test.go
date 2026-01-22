@@ -12,9 +12,6 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// Test constants to reduce string repetition and satisfy goconst
-const testToken = "test-token"
-
 // mockInClusterConfig returns a mock in-cluster config provider for testing.
 func mockInClusterConfig(config *rest.Config, err error) InClusterConfigProvider {
 	return func() (*rest.Config, error) {

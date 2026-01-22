@@ -661,12 +661,59 @@ capiMode:
     # grants cluster-wide secret access (use with caution)
     clusterWideSecrets: false
 
+  # Workload cluster authentication configuration
+  #
+  # This controls how mcp-kubernetes authenticates to workload clusters.
+  # Choose ONE mode per deployment - there is NO automatic fallback between modes.
+  #
+  # 1. "impersonation" (default):
+  #    - Uses admin credentials from kubeconfig secrets
+  #    - Applies user impersonation headers to all WC API requests
+  #    - Requires ServiceAccount to have kubeconfig secret read access
+  #    - WC RBAC enforced via impersonation headers
+  #
+  # 2. "sso-passthrough":
+  #    - Forwards user's SSO/OAuth ID token directly to WC API servers
+  #    - Only requires CA certificate and cluster endpoint (NO admin credentials)
+  #    - ServiceAccount does NOT need access to kubeconfig secrets
+  #    - WC API servers must be configured with OIDC authentication
+  #    - Same Identity Provider must be trusted by all clusters
+  #    - User's own RBAC permissions apply (no impersonation)
+  #    - Better audit trail (shows direct OIDC auth)
+  #    - SECURITY: If SSO token is rejected by WC, the request FAILS
+  #      (no fallback to impersonation - this is by design)
+  #
+  # See docs/sso-passthrough-wc.md for detailed configuration and requirements.
+  workloadClusterAuth:
+    # Authentication mode: "impersonation" or "sso-passthrough"
+    mode: "impersonation"
+    # ConfigMap suffix for CA certificates (used in sso-passthrough mode)
+    # The full ConfigMap name is: ${CLUSTER_NAME}${caConfigMapSuffix}
+    # These ConfigMaps should be created by an operator that extracts the CA certificate
+    # (tls.crt) from the CAPI-generated ${CLUSTER_NAME}-ca secret.
+    # The CA certificate is public information and stored in a ConfigMap, not a Secret.
+    caConfigMapSuffix: "-ca-public"
+    # Disable client caching in sso-passthrough mode (high-security option)
+    #
+    # When enabled, each request creates a fresh client with the current SSO token.
+    # This is recommended for high-security deployments to ensure:
+    #   - Tokens are never cached beyond their natural lifetime
+    #   - Token revocation takes effect immediately
+    #   - No risk of reusing expired tokens from cache
+    #
+    # Trade-off: Higher latency per request (no connection reuse).
+    # Default: false (caching enabled for better performance)
+    disableCaching: false
+
   # Privileged secret access configuration (split-credential model)
   #
   # SECURITY MODEL:
   # When OAuth downstream is enabled, the ServiceAccount reads kubeconfig secrets
   # on behalf of users. This prevents users from bypassing impersonation by
   # extracting admin credentials directly via kubectl.
+  #
+  # NOTE: When using workloadClusterAuth.mode: "sso-passthrough", this configuration
+  # applies to CA-only secret access instead of full kubeconfig secret access.
   #
   # See docs/rbac-security.md for detailed security model explanation.
   privilegedSecretAccess:

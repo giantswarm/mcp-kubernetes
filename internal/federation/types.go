@@ -177,6 +177,52 @@ var (
 // nolint:gosec // G101: This is not a hardcoded credential, it's a suffix for secret naming convention
 const CAPISecretSuffix = "-kubeconfig"
 
+// DefaultCAConfigMapSuffix is the default suffix for CA ConfigMaps used in SSO passthrough mode.
+// The full ConfigMap name is: ${CLUSTER_NAME}-ca-public
+// This ConfigMap contains only the cluster's CA certificate (public key), not any credentials.
+// An operator should create these ConfigMaps by extracting tls.crt from the CAPI-generated
+// ${CLUSTER_NAME}-ca secret (which also contains the private key).
+const DefaultCAConfigMapSuffix = "-ca-public"
+
+// CAConfigMapKey is the key within the CA ConfigMap that contains the CA certificate data.
+const CAConfigMapKey = "ca.crt"
+
+// Default client configuration for SSO passthrough mode.
+// These values are used when no connectivity config is provided.
+const (
+	// DefaultSSOPassthroughQPS is the default QPS limit for SSO passthrough clients.
+	DefaultSSOPassthroughQPS float32 = 50
+	// DefaultSSOPassthroughBurst is the default burst limit for SSO passthrough clients.
+	DefaultSSOPassthroughBurst int = 100
+)
+
+// WorkloadClusterAuthMode defines how mcp-kubernetes authenticates to workload clusters.
+type WorkloadClusterAuthMode string
+
+const (
+	// WorkloadClusterAuthModeImpersonation uses admin credentials from kubeconfig secrets
+	// with user impersonation headers. This is the default and existing behavior.
+	// Security model:
+	//   - ServiceAccount reads kubeconfig secret (contains admin credentials)
+	//   - All WC API requests use admin credentials + Impersonate-User/Group headers
+	//   - WC RBAC enforced via impersonation
+	WorkloadClusterAuthModeImpersonation WorkloadClusterAuthMode = "impersonation"
+
+	// WorkloadClusterAuthModeSSOPassthrough forwards the user's SSO/OAuth ID token
+	// directly to the workload cluster API server. This eliminates the need for
+	// admin credentials in kubeconfig secrets.
+	// Security model:
+	//   - Only CA certificate is needed from the cluster (no admin credentials)
+	//   - User's ID token is forwarded as Bearer token to WC API server
+	//   - WC API server validates token via its OIDC configuration
+	//   - User's own RBAC permissions apply (no impersonation)
+	// Requirements:
+	//   - WC API servers must be configured with OIDC authentication
+	//   - Same Identity Provider must be trusted by all clusters
+	//   - API servers must accept tokens with the upstream aggregator's audience
+	WorkloadClusterAuthModeSSOPassthrough WorkloadClusterAuthMode = "sso-passthrough"
+)
+
 // CAPISecretKey is the key within the kubeconfig secret that contains
 // the actual kubeconfig YAML data (standard CAPI convention).
 const CAPISecretKey = "value"

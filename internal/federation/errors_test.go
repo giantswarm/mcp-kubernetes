@@ -62,36 +62,36 @@ func TestKubeconfigError(t *testing.T) {
 		{
 			name: "with underlying error",
 			err: &KubeconfigError{
-				ClusterName: "my-cluster",
-				SecretName:  "my-cluster-kubeconfig",
-				Namespace:   "org-acme",
-				Reason:      "failed to parse",
-				Err:         fmt.Errorf("invalid YAML"),
+				ClusterName:  "my-cluster",
+				ResourceName: "my-cluster-kubeconfig",
+				Namespace:    "org-acme",
+				Reason:       "failed to parse",
+				Err:          fmt.Errorf("invalid YAML"),
 			},
-			expectedString:  `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): failed to parse: invalid YAML`,
+			expectedString:  `kubeconfig error for cluster "my-cluster" (resource org-acme/my-cluster-kubeconfig): failed to parse: invalid YAML`,
 			matchesSentinel: ErrKubeconfigInvalid, // NotFound is false by default
 		},
 		{
 			name: "secret not found",
 			err: &KubeconfigError{
-				ClusterName: "my-cluster",
-				SecretName:  "my-cluster-kubeconfig",
-				Namespace:   "org-acme",
-				Reason:      "secret not found",
-				NotFound:    true,
+				ClusterName:  "my-cluster",
+				ResourceName: "my-cluster-kubeconfig",
+				Namespace:    "org-acme",
+				Reason:       "secret not found",
+				NotFound:     true,
 			},
-			expectedString:  `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): secret not found`,
+			expectedString:  `kubeconfig error for cluster "my-cluster" (resource org-acme/my-cluster-kubeconfig): secret not found`,
 			matchesSentinel: ErrKubeconfigSecretNotFound,
 		},
 		{
 			name: "invalid kubeconfig",
 			err: &KubeconfigError{
-				ClusterName: "my-cluster",
-				SecretName:  "my-cluster-kubeconfig",
-				Namespace:   "org-acme",
-				Reason:      "invalid data",
+				ClusterName:  "my-cluster",
+				ResourceName: "my-cluster-kubeconfig",
+				Namespace:    "org-acme",
+				Reason:       "invalid data",
 			},
-			expectedString:  `kubeconfig error for cluster "my-cluster" (secret org-acme/my-cluster-kubeconfig): invalid data`,
+			expectedString:  `kubeconfig error for cluster "my-cluster" (resource org-acme/my-cluster-kubeconfig): invalid data`,
 			matchesSentinel: ErrKubeconfigInvalid,
 		},
 	}
@@ -113,11 +113,11 @@ func TestKubeconfigError(t *testing.T) {
 func TestKubeconfigError_ErrorsIs(t *testing.T) {
 	baseErr := fmt.Errorf("underlying error")
 	err := &KubeconfigError{
-		ClusterName: "test",
-		SecretName:  "test-kubeconfig",
-		Namespace:   "default",
-		Reason:      "failed",
-		Err:         baseErr,
+		ClusterName:  "test",
+		ResourceName: "test-kubeconfig",
+		Namespace:    "default",
+		Reason:       "failed",
+		Err:          baseErr,
 	}
 
 	// Should unwrap to the underlying error
@@ -126,11 +126,11 @@ func TestKubeconfigError_ErrorsIs(t *testing.T) {
 
 func TestKubeconfigError_SecretNotFound(t *testing.T) {
 	err := &KubeconfigError{
-		ClusterName: "test",
-		SecretName:  "test-kubeconfig",
-		Namespace:   "default",
-		Reason:      "secret not found",
-		NotFound:    true,
+		ClusterName:  "test",
+		ResourceName: "test-kubeconfig",
+		Namespace:    "default",
+		Reason:       "secret not found",
+		NotFound:     true,
 	}
 
 	assert.True(t, errors.Is(err, ErrKubeconfigSecretNotFound))
@@ -231,11 +231,11 @@ func TestErrorWrapping(t *testing.T) {
 
 	t.Run("KubeconfigError with secret not found", func(t *testing.T) {
 		err := fmt.Errorf("operation failed: %w", &KubeconfigError{
-			ClusterName: "test",
-			SecretName:  "test-kubeconfig",
-			Namespace:   "default",
-			Reason:      "secret not found",
-			NotFound:    true,
+			ClusterName:  "test",
+			ResourceName: "test-kubeconfig",
+			Namespace:    "default",
+			Reason:       "secret not found",
+			NotFound:     true,
 		})
 		assert.True(t, errors.Is(err, ErrKubeconfigSecretNotFound))
 	})
@@ -266,16 +266,16 @@ func TestErrorsAs(t *testing.T) {
 
 	t.Run("KubeconfigError", func(t *testing.T) {
 		err := fmt.Errorf("operation failed: %w", &KubeconfigError{
-			ClusterName: "test-cluster",
-			SecretName:  "test-cluster-kubeconfig",
-			Namespace:   "org-test",
-			Reason:      "invalid",
+			ClusterName:  "test-cluster",
+			ResourceName: "test-cluster-kubeconfig",
+			Namespace:    "org-test",
+			Reason:       "invalid",
 		})
 
 		var kubeconfigErr *KubeconfigError
 		assert.True(t, errors.As(err, &kubeconfigErr))
 		assert.Equal(t, "test-cluster", kubeconfigErr.ClusterName)
-		assert.Equal(t, "test-cluster-kubeconfig", kubeconfigErr.SecretName)
+		assert.Equal(t, "test-cluster-kubeconfig", kubeconfigErr.ResourceName)
 	})
 
 	t.Run("ConnectionError", func(t *testing.T) {
@@ -314,11 +314,11 @@ func TestUserFacingErrors(t *testing.T) {
 
 	t.Run("KubeconfigError user facing error hides secret details", func(t *testing.T) {
 		err := &KubeconfigError{
-			ClusterName: "production-cluster",
-			SecretName:  "production-cluster-kubeconfig",
-			Namespace:   "org-internal",
-			Reason:      "secret data corrupted",
-			NotFound:    false,
+			ClusterName:  "production-cluster",
+			ResourceName: "production-cluster-kubeconfig",
+			Namespace:    "org-internal",
+			Reason:       "secret data corrupted",
+			NotFound:     false,
 		}
 
 		userFacing := err.UserFacingError()
@@ -337,19 +337,19 @@ func TestUserFacingErrors(t *testing.T) {
 		// Security: Both NotFound=true and NotFound=false should return the same
 		// user-facing message to prevent cluster existence leakage
 		errNotFound := &KubeconfigError{
-			ClusterName: "production-cluster",
-			SecretName:  "production-cluster-kubeconfig",
-			Namespace:   "org-internal",
-			Reason:      "secret not found in namespace",
-			NotFound:    true,
+			ClusterName:  "production-cluster",
+			ResourceName: "production-cluster-kubeconfig",
+			Namespace:    "org-internal",
+			Reason:       "secret not found in namespace",
+			NotFound:     true,
 		}
 
 		errInvalid := &KubeconfigError{
-			ClusterName: "production-cluster",
-			SecretName:  "production-cluster-kubeconfig",
-			Namespace:   "org-internal",
-			Reason:      "invalid kubeconfig data",
-			NotFound:    false,
+			ClusterName:  "production-cluster",
+			ResourceName: "production-cluster-kubeconfig",
+			Namespace:    "org-internal",
+			Reason:       "invalid kubeconfig data",
+			NotFound:     false,
 		}
 
 		// Both should return the same message

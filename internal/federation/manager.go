@@ -2,6 +2,7 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,6 +12,23 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
+
+// AuthMetricsRecorder defines the interface for recording authentication metrics.
+// This allows decoupling from the concrete instrumentation implementation.
+type AuthMetricsRecorder interface {
+	// RecordWorkloadClusterAuth records a workload cluster authentication attempt.
+	// authMode: "impersonation" or "sso-passthrough"
+	// clusterName: Target cluster name
+	// result: "success", "error", "token_missing"
+	RecordWorkloadClusterAuth(ctx context.Context, authMode, clusterName, result string)
+}
+
+// noopAuthMetricsRecorder is a no-op implementation of AuthMetricsRecorder.
+// Used as default to avoid nil checks throughout the codebase.
+type noopAuthMetricsRecorder struct{}
+
+func (n *noopAuthMetricsRecorder) RecordWorkloadClusterAuth(context.Context, string, string, string) {
+}
 
 // ClusterClientManager manages Kubernetes clients for multi-cluster operations.
 // It retrieves clients for both the local Management Cluster and remote Workload
@@ -110,6 +128,9 @@ type Manager struct {
 	cacheConfig  *CacheConfig
 	cacheMetrics CacheMetricsRecorder
 
+	// Auth metrics recorder for tracking authentication mode usage
+	authMetrics AuthMetricsRecorder
+
 	// Connection validation timeout for workload cluster health checks
 	connectionValidationTimeout time.Duration
 
@@ -119,6 +140,15 @@ type Manager struct {
 	// validateConnectivity enables connectivity validation before caching clients.
 	// When enabled, CheckConnectivityWithRetry is called before caching a new client.
 	validateConnectivity bool
+
+	// workloadClusterAuthMode determines how to authenticate to workload clusters.
+	// Default is "impersonation" (existing behavior).
+	// "sso-passthrough" forwards user's SSO token directly to WC API servers.
+	workloadClusterAuthMode WorkloadClusterAuthMode
+
+	// ssoPassthroughConfig holds configuration for SSO passthrough mode.
+	// Only used when workloadClusterAuthMode is WorkloadClusterAuthModeSSOPassthrough.
+	ssoPassthroughConfig *SSOPassthroughConfig
 
 	// Logger for operational messages
 	logger *slog.Logger
@@ -154,6 +184,15 @@ func WithManagerCacheConfig(config CacheConfig) ManagerOption {
 func WithManagerCacheMetrics(metrics CacheMetricsRecorder) ManagerOption {
 	return func(m *Manager) {
 		m.cacheMetrics = metrics
+	}
+}
+
+// WithAuthMetrics sets the metrics recorder for authentication events.
+// This enables tracking of workload cluster authentication by mode
+// (impersonation vs sso-passthrough).
+func WithAuthMetrics(metrics AuthMetricsRecorder) ManagerOption {
+	return func(m *Manager) {
+		m.authMetrics = metrics
 	}
 }
 
@@ -207,6 +246,57 @@ func WithConnectivityValidation(enabled bool) ManagerOption {
 	}
 }
 
+// WithWorkloadClusterAuthMode sets the authentication mode for workload clusters.
+//
+// # Supported Modes
+//
+//   - WorkloadClusterAuthModeImpersonation (default): Uses admin credentials from
+//     kubeconfig secrets with user impersonation headers. This is the existing behavior.
+//
+//   - WorkloadClusterAuthModeSSOPassthrough: Forwards the user's SSO/OAuth ID token
+//     directly to workload cluster API servers. This eliminates the need for admin
+//     credentials and requires WC API servers to be configured with OIDC authentication.
+//
+// # Security Model Comparison
+//
+// Impersonation mode:
+//   - ServiceAccount reads kubeconfig secrets (contains admin credentials)
+//   - All WC API requests use admin creds + Impersonate-User/Group headers
+//   - Higher privilege requirements for ServiceAccount
+//
+// SSO Passthrough mode:
+//   - Only CA certificate needed (no admin credentials)
+//   - User's ID token forwarded as Bearer token
+//   - WC API server validates token via OIDC
+//   - Lower privilege requirements, better audit trail
+func WithWorkloadClusterAuthMode(mode WorkloadClusterAuthMode) ManagerOption {
+	return func(m *Manager) {
+		m.workloadClusterAuthMode = mode
+	}
+}
+
+// WithSSOPassthroughConfig sets the configuration for SSO passthrough mode.
+// This must be set when using WorkloadClusterAuthModeSSOPassthrough.
+//
+// The config includes:
+//   - CAConfigMapSuffix: suffix for CA ConfigMaps (default: "-ca-public")
+//   - TokenExtractor: function to extract SSO token from context
+//
+// Example:
+//
+//	manager, err := federation.NewManager(provider,
+//	    federation.WithWorkloadClusterAuthMode(federation.WorkloadClusterAuthModeSSOPassthrough),
+//	    federation.WithSSOPassthroughConfig(&federation.SSOPassthroughConfig{
+//	        CAConfigMapSuffix: "-ca-public",
+//	        TokenExtractor: oauth.GetAccessTokenFromContext,
+//	    }),
+//	)
+func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
+	return func(m *Manager) {
+		m.ssoPassthroughConfig = config
+	}
+}
+
 // NewManager creates a new ClusterClientManager with the provided ClientProvider.
 //
 // # Security Model
@@ -238,6 +328,7 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 	m := &Manager{
 		clientProvider:              clientProvider,
 		connectionValidationTimeout: DefaultConnectionValidationTimeout,
+		authMetrics:                 &noopAuthMetricsRecorder{},
 		logger:                      slog.Default(),
 	}
 
@@ -549,15 +640,19 @@ func (m *Manager) getRemoteRestConfigWithImpersonation(ctx context.Context, clus
 //
 // # Security Model
 //
-// The method uses the user's credentials for ALL operations:
+// The authentication method depends on the configured workloadClusterAuthMode:
+//
+// Impersonation mode (default):
 //  1. Retrieves the kubeconfig secret using user's MC RBAC permissions
 //  2. Optionally validates connectivity to the cluster
 //  3. Configures impersonation headers for WC operations
 //  4. Creates clientset and dynamic client with the impersonated config
 //
-// This ensures defense in depth: the user must have permission to read the
-// kubeconfig secret on the MC, AND their impersonated identity must have
-// permissions on the WC.
+// SSO Passthrough mode:
+//  1. Retrieves only the CA certificate from a CA-only secret
+//  2. Extracts the cluster API endpoint from the CAPI Cluster resource
+//  3. Forwards user's SSO token directly to WC API server
+//  4. No impersonation - user's own RBAC applies via OIDC auth
 //
 // # Network Topology
 //
@@ -568,13 +663,27 @@ func (m *Manager) getRemoteRestConfigWithImpersonation(ctx context.Context, clus
 func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
 	m.logger.Debug("Creating remote cluster client",
 		"cluster", clusterName,
+		"auth_mode", string(m.workloadClusterAuthMode),
 		UserHashAttr(user.Email),
 		"group_count", len(user.Groups))
 
+	// Use SSO passthrough if configured
+	if m.workloadClusterAuthMode == WorkloadClusterAuthModeSSOPassthrough {
+		return m.createSSOPassthroughClient(ctx, clusterName, user)
+	}
+
+	// Default: impersonation mode
+	return m.createImpersonationClient(ctx, clusterName, user)
+}
+
+// createImpersonationClient creates a client using admin credentials with impersonation headers.
+// This is the original/default behavior.
+func (m *Manager) createImpersonationClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
 	// Retrieve the kubeconfig for the cluster using user's credentials
 	// This enforces MC RBAC - user must have permission to read the secret
 	baseConfig, err := m.GetKubeconfigForCluster(ctx, clusterName, user)
 	if err != nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 		return nil, nil, nil, err
 	}
 
@@ -586,6 +695,7 @@ func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName str
 	// Optionally validate connectivity before caching
 	if m.validateConnectivity {
 		if err := m.checkClusterConnectivity(ctx, clusterName, baseConfig); err != nil {
+			m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 			return nil, nil, nil, err
 		}
 	}
@@ -597,21 +707,70 @@ func (m *Manager) createRemoteClusterClient(ctx context.Context, clusterName str
 	// Create the clientset
 	clientset, err := kubernetes.NewForConfig(impersonatedConfig)
 	if err != nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("failed to create clientset for cluster %s: %w", clusterName, err)
 	}
 
 	// Create the dynamic client
 	dynClient, err := dynamic.NewForConfig(impersonatedConfig)
 	if err != nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("failed to create dynamic client for cluster %s: %w", clusterName, err)
 	}
 
-	m.logger.Debug("Successfully created remote cluster client",
+	m.logger.Debug("Successfully created impersonation client",
 		"cluster", clusterName,
 		"endpoint_type", GetEndpointType(baseConfig.Host),
 		UserHashAttr(user.Email))
 
+	// Record successful auth metric
+	m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "success")
+
 	return clientset, dynClient, impersonatedConfig, nil
+}
+
+// createSSOPassthroughClient creates a client using the user's SSO token directly.
+// This forwards the user's ID token to the workload cluster API server.
+func (m *Manager) createSSOPassthroughClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	// Validate SSO passthrough is properly configured
+	if m.ssoPassthroughConfig == nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
+		return nil, nil, nil, fmt.Errorf("SSO passthrough mode enabled but no configuration provided")
+	}
+	if m.ssoPassthroughConfig.TokenExtractor == nil {
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
+		return nil, nil, nil, fmt.Errorf("SSO passthrough mode enabled but no token extractor configured")
+	}
+
+	// Create client using SSO passthrough
+	clientset, dynClient, restConfig, err := m.CreateSSOPassthroughClient(ctx, clusterName, user)
+	if err != nil {
+		// Determine error type for metrics using sentinel error
+		result := "error"
+		if errors.Is(err, ErrSSOTokenMissing) {
+			result = "token_missing"
+		}
+		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, result)
+		return nil, nil, nil, err
+	}
+
+	// Optionally validate connectivity before caching
+	if m.validateConnectivity {
+		if err := m.checkClusterConnectivity(ctx, clusterName, restConfig); err != nil {
+			m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
+			return nil, nil, nil, err
+		}
+	}
+
+	m.logger.Debug("Successfully created SSO passthrough client",
+		"cluster", clusterName,
+		"endpoint_type", GetEndpointType(restConfig.Host),
+		UserHashAttr(user.Email))
+
+	// Record successful auth metric
+	m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "success")
+
+	return clientset, dynClient, restConfig, nil
 }
 
 // ManagerStats provides statistics about the manager for monitoring and health checks.

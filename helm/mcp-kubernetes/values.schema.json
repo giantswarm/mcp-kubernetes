@@ -713,6 +713,26 @@
               "description": "Grant cluster-wide secret access (NOT recommended)"
             }
           }
+        },
+        "workloadClusterAuth": {
+          "type": "object",
+          "description": "Workload cluster authentication configuration",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["impersonation", "sso-passthrough"],
+              "description": "Authentication mode: 'impersonation' (default) uses admin credentials with user impersonation headers; 'sso-passthrough' forwards user's SSO token directly to WC API servers"
+            },
+            "caConfigMapSuffix": {
+              "type": "string",
+              "description": "ConfigMap suffix for CA certificates in sso-passthrough mode (e.g., '-ca-public'). These ConfigMaps contain the cluster's public CA certificate.",
+              "pattern": "^-[a-z0-9-]+$"
+            },
+            "disableCaching": {
+              "type": "boolean",
+              "description": "Disable client caching in sso-passthrough mode. Each request creates a fresh client with current SSO token. Recommended for high-security deployments to ensure token revocation takes effect immediately."
+            }
+          }
         }
       }
     },

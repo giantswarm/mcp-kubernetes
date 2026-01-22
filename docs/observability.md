@@ -280,6 +280,33 @@ mcp_federation_client_creations_total{result="cached"}
 / sum(mcp_federation_client_creations_total)
 ```
 
+#### `mcp_wc_auth_total`
+Counter of workload cluster authentication attempts. Distinguishes between authentication modes.
+
+**Labels:**
+- `auth_mode`: Authentication mode (`impersonation` or `sso-passthrough`)
+- `cluster_type`: Classified cluster type (production, staging, development, other)
+- `result`: Result (`success`, `error`, `token_missing`, `token_expired`)
+
+**Use Cases:**
+- Monitor adoption of SSO passthrough mode
+- Track authentication failures by mode
+- Detect clusters with auth issues
+- Compare success rates between auth modes
+
+**Example:**
+```promql
+# Total auth by mode
+sum by (auth_mode) (mcp_wc_auth_total)
+
+# SSO passthrough success rate
+sum(rate(mcp_wc_auth_total{auth_mode="sso-passthrough", result="success"}[5m]))
+/ sum(rate(mcp_wc_auth_total{auth_mode="sso-passthrough"}[5m]))
+
+# Token-related failures in SSO passthrough mode
+rate(mcp_wc_auth_total{auth_mode="sso-passthrough", result=~"token.*"}[5m])
+```
+
 #### `mcp_client_cache_hits_total`
 Counter of client cache hits.
 
