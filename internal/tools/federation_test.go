@@ -115,11 +115,11 @@ func TestFormatClusterError(t *testing.T) {
 		{
 			name: "KubeconfigError not found",
 			err: &federation.KubeconfigError{
-				ClusterName: "my-cluster",
-				ResourceName:  "my-cluster-kubeconfig",
-				Namespace:   "default",
-				Reason:      "secret not found",
-				NotFound:    true,
+				ClusterName:  "my-cluster",
+				ResourceName: "my-cluster-kubeconfig",
+				Namespace:    "default",
+				Reason:       "secret not found",
+				NotFound:     true,
 			},
 			clusterName: "my-cluster",
 			contains:    []string{"cluster access denied"},
@@ -127,11 +127,11 @@ func TestFormatClusterError(t *testing.T) {
 		{
 			name: "KubeconfigError invalid",
 			err: &federation.KubeconfigError{
-				ClusterName: "my-cluster",
-				ResourceName:  "my-cluster-kubeconfig",
-				Namespace:   "default",
-				Reason:      "invalid kubeconfig",
-				NotFound:    false,
+				ClusterName:  "my-cluster",
+				ResourceName: "my-cluster-kubeconfig",
+				Namespace:    "default",
+				Reason:       "invalid kubeconfig",
+				NotFound:     false,
 			},
 			clusterName: "my-cluster",
 			contains:    []string{"cluster access denied"},
