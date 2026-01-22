@@ -290,6 +290,10 @@ spec:
             - name: WC_CA_SECRET_SUFFIX
               value: {{ .Values.capiMode.workloadClusterAuth.caSecretSuffix | quote }}
             {{- end }}
+            {{- if .Values.capiMode.workloadClusterAuth.disableCaching }}
+            - name: WC_DISABLE_CACHING
+              value: "true"
+            {{- end }}
             {{- end }}
             # Cache Configuration
             - name: CLIENT_CACHE_TTL

@@ -106,6 +106,17 @@ type WorkloadClusterAuthConfig struct {
 	// The full secret name is: ${CLUSTER_NAME}${CASecretSuffix}
 	// Default: "-ca"
 	CASecretSuffix string
+
+	// DisableCaching disables client caching in sso-passthrough mode.
+	// When enabled, each request creates a fresh client with the current SSO token.
+	// This is recommended for high-security deployments to ensure:
+	//   - Tokens are never cached beyond their natural lifetime
+	//   - Token revocation takes effect immediately
+	//   - No risk of reusing expired tokens from cache
+	//
+	// Trade-off: Higher latency per request (no connection reuse).
+	// Default: false (caching enabled for better performance)
+	DisableCaching bool
 }
 
 // WorkloadClusterAuthMode constants matching federation package values.

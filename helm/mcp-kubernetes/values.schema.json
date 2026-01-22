@@ -727,6 +727,10 @@
               "type": "string",
               "description": "Secret suffix for CA-only secrets in sso-passthrough mode (e.g., '-ca')",
               "pattern": "^-[a-z0-9-]+$"
+            },
+            "disableCaching": {
+              "type": "boolean",
+              "description": "Disable client caching in sso-passthrough mode. Each request creates a fresh client with current SSO token. Recommended for high-security deployments to ensure token revocation takes effect immediately."
             }
           }
         }

@@ -607,16 +607,32 @@ func runServe(config ServeConfig) error {
 
 			managerOpts = append(managerOpts, federation.WithSSOPassthroughConfig(ssoConfig))
 
+			// Log configuration including security-relevant options
 			slog.Info("Workload cluster auth mode: sso-passthrough",
 				"description", "forwarding user SSO token directly to WC API servers",
-				"ca_secret_suffix", ssoConfig.CASecretSuffix)
+				"ca_secret_suffix", ssoConfig.CASecretSuffix,
+				"disable_caching", config.CAPIMode.WorkloadClusterAuth.DisableCaching)
+
+			if config.CAPIMode.WorkloadClusterAuth.DisableCaching {
+				slog.Info("SSO passthrough caching disabled",
+					"description", "each request creates a fresh client with current SSO token",
+					"security_benefit", "tokens never cached, immediate revocation effect")
+			}
 
 		default:
 			return fmt.Errorf("invalid workload cluster auth mode: %s (supported: impersonation, sso-passthrough)", wcAuthMode)
 		}
 
-		// Configure cache
-		if config.CAPIMode.CacheTTL != "" {
+		// Configure cache (skip if SSO passthrough with caching disabled)
+		ssoPassthroughNoCaching := wcAuthMode == WorkloadClusterAuthModeSSOPassthrough &&
+			config.CAPIMode.WorkloadClusterAuth.DisableCaching
+
+		if ssoPassthroughNoCaching {
+			// Security: In SSO passthrough mode with caching disabled,
+			// each request creates a fresh client with the current SSO token.
+			// This ensures token revocation takes effect immediately.
+			slog.Debug("Client caching disabled for SSO passthrough mode")
+		} else if config.CAPIMode.CacheTTL != "" {
 			ttl, err := time.ParseDuration(config.CAPIMode.CacheTTL)
 			if err != nil {
 				return fmt.Errorf("invalid cache TTL: %w", err)
@@ -639,10 +655,19 @@ func runServe(config ServeConfig) error {
 			// Security warning: Cache TTL exceeding OAuth token lifetime
 			// could lead to using expired tokens for cached clients.
 			if ttl > tokenLifetime {
-				slog.Warn("cache TTL exceeds OAuth token lifetime",
-					"cache_ttl", ttl,
-					"token_lifetime", tokenLifetime,
-					"recommendation", "set CLIENT_CACHE_TTL <= token_lifetime or configure longer token lifetimes in your OAuth provider")
+				// Provide more specific guidance for SSO passthrough mode
+				if wcAuthMode == WorkloadClusterAuthModeSSOPassthrough {
+					slog.Warn("SECURITY: cache TTL exceeds OAuth token lifetime in SSO passthrough mode",
+						"cache_ttl", ttl,
+						"token_lifetime", tokenLifetime,
+						"risk", "expired tokens may be used for cached clients until cache eviction",
+						"recommendation", "set CLIENT_CACHE_TTL <= token_lifetime, or enable WC_DISABLE_CACHING=true for high-security deployments")
+				} else {
+					slog.Warn("cache TTL exceeds OAuth token lifetime",
+						"cache_ttl", ttl,
+						"token_lifetime", tokenLifetime,
+						"recommendation", "set CLIENT_CACHE_TTL <= token_lifetime or configure longer token lifetimes in your OAuth provider")
+				}
 			}
 
 			cacheConfig := federation.CacheConfig{
@@ -1005,6 +1030,9 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	}
 	if suffix := os.Getenv("WC_CA_SECRET_SUFFIX"); suffix != "" {
 		config.WorkloadClusterAuth.CASecretSuffix = suffix
+	}
+	if os.Getenv("WC_DISABLE_CACHING") == envValueTrue {
+		config.WorkloadClusterAuth.DisableCaching = true
 	}
 
 	// Cache configuration - store as strings for later validation

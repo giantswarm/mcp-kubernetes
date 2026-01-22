@@ -50,7 +50,28 @@ capiMode:
     # Secret suffix for CA-only secrets (used in sso-passthrough mode)
     # The full secret name is: ${CLUSTER_NAME}${caSecretSuffix}
     caSecretSuffix: "-ca"
+    # Disable client caching for high-security deployments (optional)
+    disableCaching: false
 ```
+
+### High-Security Configuration
+
+For deployments with strict security requirements, you can disable client caching to ensure:
+- Tokens are never cached beyond their natural lifetime
+- Token revocation takes effect immediately
+- No risk of reusing expired tokens from cache
+
+```yaml
+capiMode:
+  enabled: true
+  workloadClusterAuth:
+    mode: "sso-passthrough"
+    caSecretSuffix: "-ca"
+    # Enable for high-security deployments
+    disableCaching: true
+```
+
+**Trade-off:** Disabling caching increases latency per request since each request creates a fresh client connection. For most deployments, keeping caching enabled with a conservative TTL (e.g., 10 minutes) provides a good balance.
 
 ### Environment Variables
 
@@ -58,6 +79,7 @@ capiMode:
 |----------|-------------|---------|
 | `WC_AUTH_MODE` | Authentication mode: `impersonation` or `sso-passthrough` | `impersonation` |
 | `WC_CA_SECRET_SUFFIX` | Suffix for CA-only secrets | `-ca` |
+| `WC_DISABLE_CACHING` | Disable client caching in SSO passthrough mode | `false` |
 
 ## Requirements
 
@@ -294,12 +316,28 @@ mcp-kubernetes does not proactively refresh tokens for cached clients. When a ca
 - The client will be evicted from cache on the next cleanup cycle
 - A new client will be created with a fresh token on the next request
 
-**Mitigation:**
+**Mitigation Options:**
 
-For production deployments:
-1. Set conservative cache TTL values (default 10m is usually safe)
-2. Monitor `mcp_wc_auth_total{result="token_expired"}` metric (if enabled)
-3. Consider implementing retry logic in calling applications
+For production deployments, choose one of these approaches:
+
+1. **Conservative cache TTL (recommended for most deployments):**
+   - Set cache TTL values shorter than token lifetime (default 10m is usually safe)
+   - Good balance between security and performance
+
+2. **Disable caching entirely (high-security deployments):**
+   ```yaml
+   capiMode:
+     workloadClusterAuth:
+       mode: "sso-passthrough"
+       disableCaching: true
+   ```
+   - Each request uses a fresh client with the current token
+   - Token revocation takes effect immediately
+   - Trade-off: Higher latency per request
+
+3. **Monitor and alert:**
+   - Monitor `mcp_wc_auth_total{result="token_expired"}` metric (if enabled)
+   - Implement retry logic in calling applications
 
 ## Troubleshooting
 
