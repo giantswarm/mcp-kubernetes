@@ -738,61 +738,85 @@
     },
     "grafanaDashboards": {
       "type": "object",
-      "description": "Grafana dashboard provisioning configuration",
+      "description": "Grafana dashboard provisioning configuration. Prerequisites: Prometheus scraping metrics, Grafana sidecar watching for ConfigMaps, Prometheus datasource configured.",
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable Grafana dashboard provisioning via ConfigMaps"
+          "description": "Enable Grafana dashboard provisioning via ConfigMaps. When enabled, creates ConfigMaps for each dashboard that Grafana's sidecar can discover.",
+          "default": false
         },
         "namespace": {
           "type": "string",
-          "description": "Namespace for the dashboard ConfigMaps (defaults to release namespace)"
+          "description": "Namespace for the dashboard ConfigMaps. Defaults to release namespace. Override when Grafana sidecar watches a specific namespace (common in multi-tenant setups where Grafana runs in a shared monitoring namespace).",
+          "default": ""
         },
         "labels": {
           "type": "object",
-          "description": "Labels to add to dashboard ConfigMaps. The grafana_dashboard label is required for Grafana sidecar discovery."
+          "description": "Labels to add to dashboard ConfigMaps. The 'grafana_dashboard: 1' label is required for standard Grafana sidecar discovery.",
+          "default": {"grafana_dashboard": "1"}
         },
         "annotations": {
           "type": "object",
-          "description": "Additional annotations to add to dashboard ConfigMaps"
+          "description": "Additional annotations to add to dashboard ConfigMaps",
+          "default": {}
         },
         "folder": {
           "type": "string",
-          "description": "Grafana folder name for the dashboards"
+          "description": "Grafana folder name where dashboards will appear. The folder is created automatically by the Grafana sidecar if it doesn't exist.",
+          "default": "mcp-kubernetes"
         },
         "dashboards": {
           "type": "object",
-          "description": "Individual dashboard toggles",
+          "description": "Individual dashboard toggles. Each enabled dashboard creates a ConfigMap named <release>-mcp-kubernetes-dashboard-<name>.",
           "properties": {
             "administrator": {
               "type": "object",
-              "description": "Platform Administrator Dashboard - Monitor service health, performance, and Kubernetes operations",
+              "description": "Platform Administrator Dashboard - Monitor service health, performance, and Kubernetes operations. ConfigMap suffix: -dashboard-administrator",
               "properties": {
                 "enabled": {
                   "type": "boolean",
-                  "description": "Enable the Platform Administrator dashboard"
+                  "description": "Enable the Platform Administrator dashboard",
+                  "default": true
                 }
               }
             },
             "security": {
               "type": "object",
-              "description": "Security Operations Dashboard - Incident investigation, audit trails, and anomaly detection",
+              "description": "Security Operations Dashboard - Incident investigation, audit trails, and anomaly detection. ConfigMap suffix: -dashboard-security",
               "properties": {
                 "enabled": {
                   "type": "boolean",
-                  "description": "Enable the Security Operations dashboard"
+                  "description": "Enable the Security Operations dashboard",
+                  "default": true
                 }
               }
             },
             "clusterOperator": {
               "type": "object",
-              "description": "Cluster Operator Dashboard - Multi-cluster federation visibility and workload cluster operations",
+              "description": "Cluster Operator Dashboard - Multi-cluster federation visibility and workload cluster operations. ConfigMap suffix: -dashboard-cluster-operator",
               "properties": {
                 "enabled": {
                   "type": "boolean",
-                  "description": "Enable the Cluster Operator dashboard"
+                  "description": "Enable the Cluster Operator dashboard",
+                  "default": true
                 }
               }
+            }
+          }
+        },
+        "giantswarm": {
+          "type": "object",
+          "description": "Giant Swarm specific configuration for dashboard integration. See: https://docs.giantswarm.io/overview/observability/dashboard-management/dashboard-creation/",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable Giant Swarm dashboard integration. When enabled, adds the required label (app.giantswarm.io/kind: dashboard) for automatic detection by Giant Swarm's observability stack.",
+              "default": false
+            },
+            "organization": {
+              "type": "string",
+              "description": "Organization name for Grafana organization targeting. REQUIRED when giantswarm.enabled is true. The dashboard will be provisioned to this Grafana organization. Must match an existing organization's display name in Giant Swarm Grafana. If left empty when giantswarm.enabled is true, the dashboard goes to the default org (likely not intended).",
+              "default": ""
             }
           }
         }

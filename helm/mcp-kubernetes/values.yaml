@@ -742,10 +742,22 @@ capiMode:
 # Enables pre-built Grafana dashboards for mcp-kubernetes observability.
 # Dashboards are provisioned as ConfigMaps that can be picked up by
 # Grafana's sidecar (https://github.com/grafana/helm-charts/tree/main/charts/grafana#sidecar-for-dashboards)
+#
+# Prerequisites:
+#   1. Prometheus must be scraping mcp-kubernetes metrics (ServiceMonitor or manual config)
+#   2. Grafana sidecar must watch for ConfigMaps with 'grafana_dashboard: "1"' label
+#   3. A Prometheus datasource must be configured in Grafana
+#
+# Giant Swarm Integration:
+# When deployed on Giant Swarm, enable giantswarm.enabled to add required labels
+# and annotations for automatic dashboard discovery by Giant Swarm's observability stack.
+# See: https://docs.giantswarm.io/overview/observability/dashboard-management/dashboard-creation/
 grafanaDashboards:
   # Enable Grafana dashboard provisioning
   enabled: false
   # Namespace for the dashboard ConfigMaps (defaults to release namespace)
+  # Override this when your Grafana sidecar watches a specific namespace for dashboards
+  # (common in multi-tenant setups where Grafana runs in a shared monitoring namespace)
   namespace: ""
   # Labels to add to dashboard ConfigMaps
   # The grafana_dashboard label is required for Grafana sidecar discovery
@@ -753,9 +765,27 @@ grafanaDashboards:
     grafana_dashboard: "1"
   # Additional annotations to add to dashboard ConfigMaps
   annotations: {}
-  # Grafana folder name for the dashboards
+  # Grafana folder name where dashboards will appear
+  # The folder is created automatically by the Grafana sidecar if it doesn't exist
   folder: "mcp-kubernetes"
+  # Giant Swarm specific configuration
+  # Enable this when deploying on Giant Swarm managed clusters
+  giantswarm:
+    # Enable Giant Swarm dashboard integration
+    # When enabled, adds the required label (app.giantswarm.io/kind: dashboard)
+    # for automatic detection by Giant Swarm's observability stack
+    enabled: false
+    # Organization name for Grafana organization targeting
+    # The dashboard will be provisioned to this Grafana organization
+    # Must match an existing organization's display name in Giant Swarm Grafana
+    #
+    # WARNING: When giantswarm.enabled is true, you SHOULD set this value.
+    # If left empty, the dashboard will be provisioned to the default Grafana
+    # organization, which may not be your intended target.
+    organization: ""
   # Individual dashboard toggles
+  # Each dashboard creates a ConfigMap with the naming pattern:
+  #   <release>-mcp-kubernetes-dashboard-<name>
   dashboards:
     # Platform Administrator Dashboard
     # Monitor service health, performance, and Kubernetes operations
