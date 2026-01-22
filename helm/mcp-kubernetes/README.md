@@ -262,6 +262,53 @@ This adds the required label (`app.giantswarm.io/kind: dashboard`) and annotatio
 
 See: https://docs.giantswarm.io/overview/observability/dashboard-management/dashboard-creation/
 
+### Prometheus Alert Rules
+
+PrometheusRule resources for mcp-kubernetes-specific alerting.
+
+**Important**: Generic alerts (deployment not satisfied, pod restarts, memory/CPU usage) are already covered by the centralized `prometheus-rules` chart in Giant Swarm clusters. These rules focus ONLY on mcp-kubernetes-specific metrics to avoid duplicates and respect inhibitions.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `prometheusRules.enabled` | Enable PrometheusRule creation | `false` |
+| `prometheusRules.labels` | Additional labels for the PrometheusRule | `{}` |
+| `prometheusRules.annotations` | Additional annotations for the PrometheusRule | `{}` |
+| `prometheusRules.team` | Team responsible for alerts | `"planeteers"` |
+| `prometheusRules.runbookBaseUrl` | Base URL for runbook links | `"https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"` |
+| `prometheusRules.rules.*` | Individual alert rule toggles | See values.yaml |
+
+#### Prerequisites
+
+1. **Prometheus Operator installed**: PrometheusRule CRDs must be available in the cluster
+2. **ServiceMonitor enabled**: Prometheus must be scraping mcp-kubernetes metrics
+3. **Alertmanager configured**: For receiving and routing alerts
+
+#### Available Alert Rules
+
+Only mcp-kubernetes-specific alerts are included. All alerts respect inhibitions (`cancel_if_cluster_control_plane_unhealthy`, `cancel_if_outside_working_hours`):
+
+| Alert Name | Severity | Description | Condition |
+|------------|----------|-------------|-----------|
+| `MCPKubernetesHighErrorRate` | notify | MCP request error rate >10% | Always |
+| `MCPKubernetesK8sOperationFailures` | notify | K8s operations via MCP failing >20% | Always |
+| `MCPKubernetesOAuthFailures` | notify | OAuth auth failure rate >30% | OAuth enabled |
+| `MCPKubernetesWorkloadClusterAuthFailures` | notify | WC auth failure rate >30% | CAPI mode |
+| `MCPKubernetesClusterOperationFailures` | notify | Cluster operation failure rate >30% | CAPI mode |
+
+#### Giant Swarm Integration
+
+When deploying on Giant Swarm clusters:
+
+```yaml
+prometheusRules:
+  enabled: true
+  labels:
+    observability.giantswarm.io/tenant: "giantswarm"
+  team: "planeteers"
+```
+
+See: https://docs.giantswarm.io/overview/observability/alert-management/alert-rules/
+
 ### Cilium Network Policy
 
 | Parameter | Description | Default |
@@ -611,6 +658,26 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
 helm install mcp-kubernetes ./helm/mcp-kubernetes \
   -f ./helm/mcp-kubernetes/values-grafana-dashboards-giantswarm.yaml \
   --set grafanaDashboards.giantswarm.organization=my-organization
+```
+
+### Installation with Prometheus Alert Rules
+
+**Giant Swarm Platform:**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-prometheus-rules-giantswarm.yaml
+```
+
+**Full observability stack (dashboards + alerts):**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set mcpKubernetes.instrumentation.enabled=true \
+  --set mcpKubernetes.instrumentation.serviceMonitor.enabled=true \
+  --set grafanaDashboards.enabled=true \
+  --set prometheusRules.enabled=true \
+  --set prometheusRules.labels."observability\.giantswarm\.io/tenant"="giantswarm"
 ```
 
 ### Installation with OAuth 2.1 Authentication

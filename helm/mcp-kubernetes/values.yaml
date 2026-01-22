@@ -800,6 +800,63 @@ grafanaDashboards:
     clusterOperator:
       enabled: true
 
+# Prometheus Alert Rules
+# Enables PrometheusRule resources for mcp-kubernetes-specific alerting.
+# Requires Prometheus Operator to be installed in the cluster.
+#
+# NOTE: Generic alerts (deployment not satisfied, pod restarts, memory/CPU usage)
+# are already covered by centralized prometheus-rules in Giant Swarm clusters.
+# These rules focus ONLY on mcp-kubernetes-specific metrics.
+#
+# Prerequisites:
+#   1. Prometheus Operator CRDs must be installed
+#   2. Prometheus must be scraping mcp-kubernetes metrics (ServiceMonitor)
+#   3. Alertmanager should be configured for receiving alerts
+#
+# Giant Swarm Integration:
+# Set the observability.giantswarm.io/tenant label for tenant routing.
+# See: https://docs.giantswarm.io/overview/observability/alert-management/alert-rules/
+prometheusRules:
+  # Enable PrometheusRule creation
+  enabled: false
+  # Additional labels for the PrometheusRule resource
+  # Example for Giant Swarm tenant routing:
+  #   observability.giantswarm.io/tenant: "giantswarm"
+  labels: {}
+  # Additional annotations for the PrometheusRule resource
+  annotations: {}
+  # Team responsible for these alerts (used in alert labels)
+  team: "planeteers"
+  # Base URL for runbook links
+  runbookBaseUrl: "https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"
+
+  # Individual alert rule toggles
+  # Only mcp-kubernetes-specific alerts are included here.
+  # Generic infrastructure alerts are handled by centralized prometheus-rules.
+  rules:
+    # MCP-specific error rate (not generic HTTP errors)
+    mcpKubernetesHighErrorRate:
+      # Alert when MCP request error rate exceeds 10%
+      enabled: true
+
+    # Kubernetes operations performed via MCP
+    mcpKubernetesK8sOperationFailures:
+      # Alert when K8s API operations via MCP are failing at >20% rate
+      enabled: true
+
+    # OAuth authentication (only evaluated when OAuth is enabled)
+    mcpKubernetesOAuthFailures:
+      # Alert when OAuth authentication failure rate exceeds 30%
+      enabled: true
+
+    # CAPI federation alerts (only evaluated when capiMode is enabled)
+    mcpKubernetesWorkloadClusterAuthFailures:
+      # Alert when workload cluster auth failure rate exceeds 30%
+      enabled: true
+    mcpKubernetesClusterOperationFailures:
+      # Alert when cluster operation failure rate exceeds 30%
+      enabled: true
+
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:
   # Specifies whether a CiliumNetworkPolicy should be created

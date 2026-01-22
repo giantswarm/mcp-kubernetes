@@ -1,0 +1,157 @@
+suite: PrometheusRule template tests
+templates:
+  - prometheusrule.yaml
+tests:
+  - it: should not render PrometheusRule when disabled (default)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render PrometheusRule when enabled
+    set:
+      prometheusRules:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PrometheusRule
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-mcp-kubernetes
+
+  - it: should include standard labels
+    set:
+      prometheusRules:
+        enabled: true
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: mcp-kubernetes
+            app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: should include custom labels when specified
+    set:
+      prometheusRules:
+        enabled: true
+        labels:
+          observability.giantswarm.io/tenant: giantswarm
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            observability.giantswarm.io/tenant: giantswarm
+
+  - it: should include annotations when specified
+    set:
+      prometheusRules:
+        enabled: true
+        annotations:
+          description: Test alerts
+    asserts:
+      - equal:
+          path: metadata.annotations.description
+          value: Test alerts
+
+  - it: should contain mcp-kubernetes alert group
+    set:
+      prometheusRules:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.groups
+          content:
+            name: mcp-kubernetes
+          any: true
+
+  - it: should include team label in alerts
+    set:
+      prometheusRules:
+        enabled: true
+        team: planeteers
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].labels.team
+          pattern: planeteers
+
+  - it: should include inhibition labels in alerts
+    set:
+      prometheusRules:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].labels.cancel_if_cluster_control_plane_unhealthy
+          value: "true"
+      - equal:
+          path: spec.groups[0].rules[0].labels.cancel_if_outside_working_hours
+          value: "true"
+
+  - it: should NOT contain oauth alert group when OAuth is disabled
+    set:
+      prometheusRules:
+        enabled: true
+      mcpKubernetes:
+        oauth:
+          enabled: false
+    asserts:
+      - notContains:
+          path: spec.groups
+          content:
+            name: mcp-kubernetes.oauth
+          any: true
+
+  - it: should contain oauth alert group when OAuth is enabled
+    set:
+      prometheusRules:
+        enabled: true
+      mcpKubernetes:
+        oauth:
+          enabled: true
+          baseURL: https://test.example.com
+          dex:
+            issuerURL: https://dex.example.com
+            clientID: test-client
+          existingSecret: test-secret
+    asserts:
+      - contains:
+          path: spec.groups
+          content:
+            name: mcp-kubernetes.oauth
+          any: true
+
+  - it: should NOT contain federation alert group when CAPI mode is disabled
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: false
+    asserts:
+      - notContains:
+          path: spec.groups
+          content:
+            name: mcp-kubernetes.federation
+          any: true
+
+  - it: should contain federation alert group when CAPI mode is enabled
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.groups
+          content:
+            name: mcp-kubernetes.federation
+          any: true
+
+  - it: should include custom runbook base URL in alert annotations
+    set:
+      prometheusRules:
+        enabled: true
+        runbookBaseUrl: https://runbooks.example.com
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].annotations.runbook_url
+          pattern: https://runbooks.example.com/mcp-kubernetes-high-error-rate

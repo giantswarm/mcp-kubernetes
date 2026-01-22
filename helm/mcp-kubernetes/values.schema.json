@@ -822,6 +822,93 @@
         }
       }
     },
+    "prometheusRules": {
+      "type": "object",
+      "description": "Prometheus alert rules for mcp-kubernetes-specific metrics. Generic alerts (deployment, restarts, resources) are handled by centralized prometheus-rules.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable PrometheusRule creation",
+          "default": false
+        },
+        "labels": {
+          "type": "object",
+          "description": "Additional labels for the PrometheusRule resource (e.g., observability.giantswarm.io/tenant for tenant routing)",
+          "default": {}
+        },
+        "annotations": {
+          "type": "object",
+          "description": "Additional annotations for the PrometheusRule resource",
+          "default": {}
+        },
+        "team": {
+          "type": "string",
+          "description": "Team responsible for alerts (used in alert labels)",
+          "default": "planeteers"
+        },
+        "runbookBaseUrl": {
+          "type": "string",
+          "description": "Base URL for runbook links in alert annotations",
+          "default": "https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"
+        },
+        "rules": {
+          "type": "object",
+          "description": "Individual alert rule toggles for mcp-kubernetes-specific alerts",
+          "properties": {
+            "mcpKubernetesHighErrorRate": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Alert when MCP request error rate exceeds 10%",
+                  "default": true
+                }
+              }
+            },
+            "mcpKubernetesK8sOperationFailures": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Alert when K8s operations via MCP are failing at >20% rate",
+                  "default": true
+                }
+              }
+            },
+            "mcpKubernetesOAuthFailures": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Alert when OAuth authentication failure rate exceeds 30%",
+                  "default": true
+                }
+              }
+            },
+            "mcpKubernetesWorkloadClusterAuthFailures": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Alert when workload cluster auth failure rate exceeds 30%",
+                  "default": true
+                }
+              }
+            },
+            "mcpKubernetesClusterOperationFailures": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Alert when cluster operation failure rate exceeds 30%",
+                  "default": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "ciliumNetworkPolicy": {
       "type": "object",
       "properties": {
