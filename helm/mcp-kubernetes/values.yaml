@@ -664,24 +664,26 @@ capiMode:
   # Workload cluster authentication configuration
   #
   # This controls how mcp-kubernetes authenticates to workload clusters.
-  # Two modes are supported:
+  # Choose ONE mode per deployment - there is NO automatic fallback between modes.
   #
   # 1. "impersonation" (default):
   #    - Uses admin credentials from kubeconfig secrets
   #    - Applies user impersonation headers to all WC API requests
-  #    - Requires ServiceAccount to have secret read access
+  #    - Requires ServiceAccount to have kubeconfig secret read access
   #    - WC RBAC enforced via impersonation headers
   #
   # 2. "sso-passthrough":
   #    - Forwards user's SSO/OAuth ID token directly to WC API servers
-  #    - Only requires CA certificate (no admin credentials)
+  #    - Only requires CA certificate and cluster endpoint (NO admin credentials)
+  #    - ServiceAccount does NOT need access to kubeconfig secrets
   #    - WC API servers must be configured with OIDC authentication
   #    - Same Identity Provider must be trusted by all clusters
   #    - User's own RBAC permissions apply (no impersonation)
   #    - Better audit trail (shows direct OIDC auth)
-  #    - Reduced privilege requirements for ServiceAccount
+  #    - SECURITY: If SSO token is rejected by WC, the request FAILS
+  #      (no fallback to impersonation - this is by design)
   #
-  # See issue #240 for detailed security analysis and trade-offs.
+  # See docs/sso-passthrough-wc.md for detailed configuration and requirements.
   workloadClusterAuth:
     # Authentication mode: "impersonation" or "sso-passthrough"
     mode: "impersonation"

@@ -13,12 +13,28 @@ mcp-kubernetes supports two authentication modes for connecting to workload clus
 
 | Aspect | Impersonation (default) | SSO Passthrough |
 |--------|------------------------|-----------------|
-| ServiceAccount privileges | High (secret read, impersonate) | Low (CA secret read only) |
-| Credential exposure | Admin creds in kubeconfig secrets | No admin credentials needed |
+| ServiceAccount privileges | High (kubeconfig secrets + impersonate) | **Low (CA secrets only)** |
+| Credential exposure | Admin creds in kubeconfig secrets | **No admin credentials needed** |
+| Kubeconfig secret access | Required | **Not required** |
 | WC audit logs | Shows impersonated user | Shows direct OIDC user |
 | RBAC enforcement | Via impersonation headers | Via WC OIDC validation |
-| Requirements | Kubeconfig secrets | WC OIDC configuration |
+| Requirements | Kubeconfig secrets | WC OIDC configuration + CA secrets |
 | Trust boundary | mcp-kubernetes impersonation | IdP + WC OIDC config |
+| Fallback behavior | N/A | **None (fails if token rejected)** |
+
+### ServiceAccount Permission Differences
+
+**Impersonation mode** requires the ServiceAccount to:
+- Read kubeconfig secrets (contain admin credentials)
+- These secrets grant full admin access to workload clusters
+- The ServiceAccount effectively has "impersonate any user" capability
+
+**SSO Passthrough mode** requires the ServiceAccount to:
+- Read CA-only secrets (contain only the cluster's CA certificate)
+- Read CAPI Cluster resources (to get the API endpoint)
+- **No access to kubeconfig secrets or admin credentials**
+
+This is a significant security improvement for organizations that want to minimize privileged access.
 
 ## When to Use SSO Passthrough
 
@@ -82,6 +98,21 @@ capiMode:
 | `WC_DISABLE_CACHING` | Disable client caching in SSO passthrough mode | `false` |
 
 ## Requirements
+
+### What the ServiceAccount Still Needs
+
+Even though SSO passthrough eliminates the need for kubeconfig secrets (admin credentials), the ServiceAccount still requires access to:
+
+1. **CA Certificates** - To establish TLS connections to workload cluster API servers
+   - Stored in CA-only secrets (e.g., `my-cluster-ca`)
+   - Contains only the cluster's public CA certificate
+   - No admin credentials or sensitive data
+
+2. **Cluster Endpoints** - To know where to connect
+   - Read from CAPI Cluster resources (`spec.controlPlaneEndpoint`)
+   - Requires read access to `clusters.cluster.x-k8s.io`
+
+The RBAC configuration automatically adjusts based on the auth mode - see the annotations on the generated Role resources.
 
 ### Workload Cluster API Server Configuration
 
@@ -235,11 +266,12 @@ User ─── authenticates ───> Aggregator (muster)
 
 ### Benefits
 
-1. **Reduced privilege requirements**: ServiceAccount only needs access to CA secrets, not full kubeconfig secrets containing admin credentials
-2. **Simpler trust model**: mcp-kubernetes only needs the WC endpoint and CA certificate, not admin credentials
-3. **Direct authentication**: User identity is verified by the WC API server itself, not via impersonation
-4. **Better audit trail**: Kubernetes audit logs show direct OIDC authentication, not impersonated requests
-5. **Aligns with enterprise requirements**: Organizations that manage RBAC via groups prefer direct token authentication
+1. **No admin credential access**: ServiceAccount only reads CA certificates, not kubeconfig secrets with admin credentials
+2. **Eliminated privilege escalation risk**: Cannot extract admin kubeconfig even with ServiceAccount compromise
+3. **Simpler trust model**: mcp-kubernetes only needs the WC endpoint and CA certificate
+4. **Direct authentication**: User identity is verified by the WC API server itself, not via impersonation
+5. **Better audit trail**: Kubernetes audit logs show direct OIDC authentication, not impersonated requests
+6. **Aligns with enterprise requirements**: Organizations that manage RBAC via groups prefer direct token authentication
 
 ### Limitations
 
@@ -247,6 +279,28 @@ User ─── authenticates ───> Aggregator (muster)
 2. All clusters must trust the same Identity Provider (or compatible chain)
 3. API servers must accept tokens with the upstream aggregator's audience
 4. More complex initial setup compared to impersonation mode
+
+### No Graceful Fallback (By Design)
+
+**Important:** There is no automatic fallback from SSO passthrough to impersonation mode. This is an intentional security design decision.
+
+If SSO passthrough authentication fails (e.g., token rejected by the WC API server, OIDC misconfiguration), the operation will fail. The user cannot access the workload cluster until the issue is resolved.
+
+**Why no fallback?**
+
+- Automatic fallback would require the ServiceAccount to maintain access to kubeconfig secrets with admin credentials
+- This would defeat the purpose of SSO passthrough (reduced privilege requirements)
+- Mixing auth modes per-request creates unpredictable security behavior
+- Clear failure modes are easier to debug than silent fallback
+
+**Operators must choose one mode per deployment:**
+
+| Mode | ServiceAccount Needs | Failure Behavior |
+|------|---------------------|------------------|
+| `impersonation` | Kubeconfig secrets (admin creds) | Falls back to user RBAC via impersonation |
+| `sso-passthrough` | CA secrets only | Fails if SSO token not accepted |
+
+If you're unsure which mode works for your environment, test SSO passthrough in a non-production cluster first.
 
 ### Audience Configuration
 

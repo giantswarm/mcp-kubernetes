@@ -135,9 +135,13 @@ capiMode:
 
 | Aspect | Impersonation (default) | SSO Passthrough |
 |--------|------------------------|-----------------|
-| ServiceAccount privileges | High (secret read, impersonate) | Low (CA secret read only) |
+| ServiceAccount privileges | High (kubeconfig secrets) | **Low (CA secrets only)** |
+| Kubeconfig secret access | Required | **Not required** |
 | WC API server requirements | None | OIDC configuration required |
 | Audit trail | Shows impersonated user | Shows direct OIDC user |
+| Fallback behavior | N/A | **None (by design)** |
+
+**Important:** There is no automatic fallback between modes. If SSO passthrough fails (e.g., WC API server rejects the token), the operation fails. This is intentional - mixing modes would require maintaining access to admin credentials, defeating the security benefit.
 
 **See [docs/sso-passthrough-wc.md](docs/sso-passthrough-wc.md) for detailed configuration and requirements.**
 
