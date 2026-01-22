@@ -1947,7 +1947,7 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["owner:team-shield", "topic:mcp", "component:mcp-kubernetes", "mcp-kubernetes", "security"],
+  "tags": ["owner:team-planeteers", "topic:mcp", "component:mcp-kubernetes", "mcp-kubernetes", "security"],
   "templating": {
     "list": [
       {
