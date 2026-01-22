@@ -120,14 +120,6 @@ type WorkloadClusterAuthConfig struct {
 	DisableCaching bool
 }
 
-// WorkloadClusterAuthMode constants matching federation package values.
-const (
-	// WorkloadClusterAuthModeImpersonation uses admin credentials with impersonation.
-	WorkloadClusterAuthModeImpersonation = "impersonation"
-	// WorkloadClusterAuthModeSSOPassthrough forwards user's SSO token directly.
-	WorkloadClusterAuthModeSSOPassthrough = "sso-passthrough"
-)
-
 // OAuthServeConfig holds OAuth-specific configuration.
 type OAuthServeConfig struct {
 	Enabled                            bool

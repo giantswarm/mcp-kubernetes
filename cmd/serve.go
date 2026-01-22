@@ -578,16 +578,16 @@ func runServe(config ServeConfig) error {
 		// Configure workload cluster authentication mode
 		wcAuthMode := config.CAPIMode.WorkloadClusterAuth.Mode
 		if wcAuthMode == "" {
-			wcAuthMode = WorkloadClusterAuthModeImpersonation // default
+			wcAuthMode = string(federation.WorkloadClusterAuthModeImpersonation) // default
 		}
 
 		switch wcAuthMode {
-		case WorkloadClusterAuthModeImpersonation:
+		case string(federation.WorkloadClusterAuthModeImpersonation):
 			managerOpts = append(managerOpts, federation.WithWorkloadClusterAuthMode(federation.WorkloadClusterAuthModeImpersonation))
 			slog.Info("Workload cluster auth mode: impersonation",
 				"description", "using admin credentials with user impersonation headers")
 
-		case WorkloadClusterAuthModeSSOPassthrough:
+		case string(federation.WorkloadClusterAuthModeSSOPassthrough):
 			// SSO passthrough requires OAuth downstream to be enabled
 			// because the TokenExtractor needs the user's OAuth token from context
 			if !config.DownstreamOAuth {
@@ -624,7 +624,7 @@ func runServe(config ServeConfig) error {
 		}
 
 		// Configure cache (skip if SSO passthrough with caching disabled)
-		ssoPassthroughNoCaching := wcAuthMode == WorkloadClusterAuthModeSSOPassthrough &&
+		ssoPassthroughNoCaching := wcAuthMode == string(federation.WorkloadClusterAuthModeSSOPassthrough) &&
 			config.CAPIMode.WorkloadClusterAuth.DisableCaching
 
 		if ssoPassthroughNoCaching {
@@ -656,7 +656,7 @@ func runServe(config ServeConfig) error {
 			// could lead to using expired tokens for cached clients.
 			if ttl > tokenLifetime {
 				// Provide more specific guidance for SSO passthrough mode
-				if wcAuthMode == WorkloadClusterAuthModeSSOPassthrough {
+				if wcAuthMode == string(federation.WorkloadClusterAuthModeSSOPassthrough) {
 					slog.Warn("SECURITY: cache TTL exceeds OAuth token lifetime in SSO passthrough mode",
 						"cache_ttl", ttl,
 						"token_lifetime", tokenLifetime,

@@ -16,8 +16,11 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-// Test kubeconfig data for use in tests.
+// Test constants for use across federation package tests.
 const (
+	// testToken is a mock OAuth/SSO token for testing purposes.
+	testToken = "test-token"
+
 	// testValidKubeconfig is a minimal valid kubeconfig for testing.
 	// Uses insecure-skip-tls-verify to avoid certificate validation issues in tests.
 	testValidKubeconfig = `

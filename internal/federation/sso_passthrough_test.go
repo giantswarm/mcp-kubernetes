@@ -40,89 +40,6 @@ func TestWorkloadClusterAuthMode_Constants(t *testing.T) {
 	}
 }
 
-func TestUnstructuredHelpers(t *testing.T) {
-	t.Run("unstructuredNestedMap", func(t *testing.T) {
-		obj := map[string]interface{}{
-			"spec": map[string]interface{}{
-				"controlPlaneEndpoint": map[string]interface{}{
-					"host": "api.example.com",
-					"port": float64(6443),
-				},
-			},
-		}
-
-		// Test successful extraction
-		spec, found, err := unstructuredNestedMap(obj, "spec")
-		if err != nil || !found {
-			t.Errorf("expected to find spec, got found=%v, err=%v", found, err)
-		}
-		if spec == nil {
-			t.Error("expected spec to be non-nil")
-		}
-
-		// Test nested extraction
-		cpEndpoint, found, err := unstructuredNestedMap(spec, "controlPlaneEndpoint")
-		if err != nil || !found {
-			t.Errorf("expected to find controlPlaneEndpoint, got found=%v, err=%v", found, err)
-		}
-		if cpEndpoint == nil {
-			t.Error("expected controlPlaneEndpoint to be non-nil")
-		}
-
-		// Test non-existent key
-		_, found, err = unstructuredNestedMap(obj, "nonexistent")
-		if found || err != nil {
-			t.Errorf("expected not found for nonexistent key, got found=%v, err=%v", found, err)
-		}
-	})
-
-	t.Run("unstructuredNestedString", func(t *testing.T) {
-		obj := map[string]interface{}{
-			"host": "api.example.com",
-		}
-
-		// Test successful extraction
-		host, found, err := unstructuredNestedString(obj, "host")
-		if err != nil || !found {
-			t.Errorf("expected to find host, got found=%v, err=%v", found, err)
-		}
-		if host != "api.example.com" {
-			t.Errorf("expected host 'api.example.com', got %q", host)
-		}
-
-		// Test non-existent key
-		_, found, err = unstructuredNestedString(obj, "nonexistent")
-		if found || err != nil {
-			t.Errorf("expected not found for nonexistent key, got found=%v, err=%v", found, err)
-		}
-	})
-
-	t.Run("unstructuredNestedInt64", func(t *testing.T) {
-		obj := map[string]interface{}{
-			"port": float64(6443), // JSON numbers are parsed as float64
-		}
-
-		// Test successful extraction
-		port, found, err := unstructuredNestedInt64(obj, "port")
-		if err != nil || !found {
-			t.Errorf("expected to find port, got found=%v, err=%v", found, err)
-		}
-		if port != 6443 {
-			t.Errorf("expected port 6443, got %d", port)
-		}
-
-		// Test with int type
-		obj["portInt"] = 8080
-		port, found, err = unstructuredNestedInt64(obj, "portInt")
-		if err != nil || !found {
-			t.Errorf("expected to find portInt, got found=%v, err=%v", found, err)
-		}
-		if port != 8080 {
-			t.Errorf("expected portInt 8080, got %d", port)
-		}
-	})
-}
-
 func TestManager_GetClusterEndpoint(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -467,13 +384,12 @@ func TestCAConfigMapKey(t *testing.T) {
 	}
 }
 
-// TestDeprecatedConstants tests backward compatibility aliases.
-func TestDeprecatedConstants(t *testing.T) {
-	// These deprecated constants should still work for backward compatibility
-	if DefaultCASecretSuffix != DefaultCAConfigMapSuffix {
-		t.Errorf("expected deprecated DefaultCASecretSuffix to equal DefaultCAConfigMapSuffix")
+func TestSSOPassthroughDefaults(t *testing.T) {
+	// Verify default QPS and Burst values are reasonable
+	if DefaultSSOPassthroughQPS != 50 {
+		t.Errorf("expected DefaultSSOPassthroughQPS to be 50, got %v", DefaultSSOPassthroughQPS)
 	}
-	if CASecretKey != CAConfigMapKey {
-		t.Errorf("expected deprecated CASecretKey to equal CAConfigMapKey")
+	if DefaultSSOPassthroughBurst != 100 {
+		t.Errorf("expected DefaultSSOPassthroughBurst to be 100, got %d", DefaultSSOPassthroughBurst)
 	}
 }

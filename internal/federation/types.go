@@ -187,11 +187,14 @@ const DefaultCAConfigMapSuffix = "-ca-public"
 // CAConfigMapKey is the key within the CA ConfigMap that contains the CA certificate data.
 const CAConfigMapKey = "ca.crt"
 
-// Deprecated: Use DefaultCAConfigMapSuffix instead. This is kept for backward compatibility.
-const DefaultCASecretSuffix = DefaultCAConfigMapSuffix
-
-// Deprecated: Use CAConfigMapKey instead. This is kept for backward compatibility.
-const CASecretKey = CAConfigMapKey
+// Default client configuration for SSO passthrough mode.
+// These values are used when no connectivity config is provided.
+const (
+	// DefaultSSOPassthroughQPS is the default QPS limit for SSO passthrough clients.
+	DefaultSSOPassthroughQPS float32 = 50
+	// DefaultSSOPassthroughBurst is the default burst limit for SSO passthrough clients.
+	DefaultSSOPassthroughBurst int = 100
+)
 
 // WorkloadClusterAuthMode defines how mcp-kubernetes authenticates to workload clusters.
 type WorkloadClusterAuthMode string

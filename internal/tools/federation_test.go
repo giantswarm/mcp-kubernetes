@@ -116,7 +116,7 @@ func TestFormatClusterError(t *testing.T) {
 			name: "KubeconfigError not found",
 			err: &federation.KubeconfigError{
 				ClusterName: "my-cluster",
-				SecretName:  "my-cluster-kubeconfig",
+				ResourceName:  "my-cluster-kubeconfig",
 				Namespace:   "default",
 				Reason:      "secret not found",
 				NotFound:    true,
@@ -128,7 +128,7 @@ func TestFormatClusterError(t *testing.T) {
 			name: "KubeconfigError invalid",
 			err: &federation.KubeconfigError{
 				ClusterName: "my-cluster",
-				SecretName:  "my-cluster-kubeconfig",
+				ResourceName:  "my-cluster-kubeconfig",
 				Namespace:   "default",
 				Reason:      "invalid kubeconfig",
 				NotFound:    false,

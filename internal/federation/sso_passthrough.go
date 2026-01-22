@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -112,19 +113,9 @@ func (m *Manager) getClusterEndpoint(ctx context.Context, clusterName string, dy
 
 	for _, cluster := range list.Items {
 		if cluster.GetName() == clusterName {
-			// Try to get endpoint from spec.controlPlaneEndpoint
-			spec, found, err := unstructuredNestedMap(cluster.Object, "spec")
-			if err != nil || !found {
-				continue
-			}
-
-			cpEndpoint, found, err := unstructuredNestedMap(spec, "controlPlaneEndpoint")
-			if err != nil || !found {
-				continue
-			}
-
-			host, _, _ := unstructuredNestedString(cpEndpoint, "host")
-			port, _, _ := unstructuredNestedInt64(cpEndpoint, "port")
+			// Try to get endpoint from spec.controlPlaneEndpoint using standard k8s unstructured helpers
+			host, _, _ := unstructured.NestedString(cluster.Object, "spec", "controlPlaneEndpoint", "host")
+			port, _, _ := unstructured.NestedInt64(cluster.Object, "spec", "controlPlaneEndpoint", "port")
 
 			if host != "" {
 				if port > 0 {
@@ -139,74 +130,6 @@ func (m *Manager) getClusterEndpoint(ctx context.Context, clusterName string, dy
 		ClusterName: clusterName,
 		Reason:      "could not determine cluster API endpoint from CAPI Cluster resource",
 	}
-}
-
-// unstructuredNestedMap is a helper for extracting nested maps from unstructured objects.
-func unstructuredNestedMap(obj map[string]interface{}, fields ...string) (map[string]interface{}, bool, error) {
-	current := obj
-	for _, field := range fields {
-		val, ok := current[field]
-		if !ok {
-			return nil, false, nil
-		}
-		nested, ok := val.(map[string]interface{})
-		if !ok {
-			return nil, false, fmt.Errorf("field %s is not a map", field)
-		}
-		current = nested
-	}
-	return current, true, nil
-}
-
-// unstructuredNestedString is a helper for extracting nested strings from unstructured objects.
-func unstructuredNestedString(obj map[string]interface{}, fields ...string) (string, bool, error) {
-	current := obj
-	for i, field := range fields {
-		val, ok := current[field]
-		if !ok {
-			return "", false, nil
-		}
-		if i == len(fields)-1 {
-			str, ok := val.(string)
-			return str, ok, nil
-		}
-		nested, ok := val.(map[string]interface{})
-		if !ok {
-			return "", false, fmt.Errorf("field %s is not a map", field)
-		}
-		current = nested
-	}
-	return "", false, nil
-}
-
-// unstructuredNestedInt64 is a helper for extracting nested int64 from unstructured objects.
-func unstructuredNestedInt64(obj map[string]interface{}, fields ...string) (int64, bool, error) {
-	current := obj
-	for i, field := range fields {
-		val, ok := current[field]
-		if !ok {
-			return 0, false, nil
-		}
-		if i == len(fields)-1 {
-			// Handle both int64 and float64 (JSON numbers are parsed as float64)
-			switch v := val.(type) {
-			case int64:
-				return v, true, nil
-			case float64:
-				return int64(v), true, nil
-			case int:
-				return int64(v), true, nil
-			default:
-				return 0, false, nil
-			}
-		}
-		nested, ok := val.(map[string]interface{})
-		if !ok {
-			return 0, false, fmt.Errorf("field %s is not a map", field)
-		}
-		current = nested
-	}
-	return 0, false, nil
 }
 
 // getCAFromConfigMap retrieves the CA certificate from a CA ConfigMap.
@@ -231,12 +154,12 @@ func (m *Manager) getCAFromConfigMap(ctx context.Context, info *ClusterInfo, cli
 			"error", err)
 
 		return nil, &KubeconfigError{
-			ClusterName: info.Name,
-			SecretName:  configMapName, // Reusing SecretName field for ConfigMap name
-			Namespace:   info.Namespace,
-			Reason:      "failed to fetch CA ConfigMap",
-			Err:         err,
-			NotFound:    isNotFoundError(err),
+			ClusterName:  info.Name,
+			ResourceName: configMapName,
+			Namespace:    info.Namespace,
+			Reason:       "failed to fetch CA ConfigMap",
+			Err:          err,
+			NotFound:     isNotFoundError(err),
 		}
 	}
 
@@ -251,11 +174,11 @@ func (m *Manager) getCAFromConfigMap(ctx context.Context, info *ClusterInfo, cli
 			"available_keys", getConfigMapKeys(configMap.Data))
 
 		return nil, &KubeconfigError{
-			ClusterName: info.Name,
-			SecretName:  configMapName,
-			Namespace:   info.Namespace,
-			Reason:      fmt.Sprintf("ConfigMap missing '%s' key", CAConfigMapKey),
-			NotFound:    false,
+			ClusterName:  info.Name,
+			ResourceName: configMapName,
+			Namespace:    info.Namespace,
+			Reason:       fmt.Sprintf("ConfigMap missing '%s' key", CAConfigMapKey),
+			NotFound:     false,
 		}
 	}
 
@@ -323,9 +246,9 @@ func (m *Manager) CreateSSOPassthroughClient(ctx context.Context, clusterName st
 		TLSClientConfig: rest.TLSClientConfig{
 			CAData: caData,
 		},
-		// Apply connectivity settings if configured
-		QPS:   50,
-		Burst: 100,
+		// Default rate limiting - will be overridden by connectivity config if provided
+		QPS:   DefaultSSOPassthroughQPS,
+		Burst: DefaultSSOPassthroughBurst,
 	}
 
 	// Apply connectivity configuration if available

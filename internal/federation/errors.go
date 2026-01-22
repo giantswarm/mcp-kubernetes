@@ -109,7 +109,7 @@ func (e *ClusterNotFoundError) UserFacingError() string {
 	return userFacingClusterError
 }
 
-// KubeconfigError provides detailed context about kubeconfig retrieval failures.
+// KubeconfigError provides detailed context about kubeconfig or CA certificate retrieval failures.
 //
 // # Error Matching Semantics
 //
@@ -117,7 +117,7 @@ func (e *ClusterNotFoundError) UserFacingError() string {
 //
 //   - Is() matches against sentinel errors (ErrKubeconfigSecretNotFound, ErrKubeconfigInvalid)
 //     based on the NotFound field. This allows callers to use errors.Is() to distinguish
-//     between "secret not found" and "secret found but invalid" scenarios.
+//     between "resource not found" and "resource found but invalid" scenarios.
 //
 //   - Unwrap() returns the underlying cause (Err field), allowing errors.Is() to also match
 //     against the root cause (e.g., a Kubernetes API error).
@@ -125,17 +125,20 @@ func (e *ClusterNotFoundError) UserFacingError() string {
 // Example usage:
 //
 //	if errors.Is(err, federation.ErrKubeconfigSecretNotFound) {
-//	    // Handle missing secret
+//	    // Handle missing secret/configmap
 //	} else if errors.Is(err, federation.ErrKubeconfigInvalid) {
-//	    // Handle malformed kubeconfig
+//	    // Handle malformed kubeconfig/certificate
 //	}
 type KubeconfigError struct {
 	ClusterName string
-	SecretName  string
-	Namespace   string
-	Reason      string
-	Err         error
-	// NotFound indicates the kubeconfig secret was not found (vs other errors like invalid data).
+	// ResourceName is the name of the Secret or ConfigMap that failed.
+	// For kubeconfig secrets: ${CLUSTER_NAME}-kubeconfig
+	// For CA ConfigMaps: ${CLUSTER_NAME}-ca-public
+	ResourceName string
+	Namespace    string
+	Reason       string
+	Err          error
+	// NotFound indicates the resource was not found (vs other errors like invalid data).
 	// When true, Is() matches ErrKubeconfigSecretNotFound; otherwise it matches ErrKubeconfigInvalid.
 	NotFound bool
 }
@@ -143,11 +146,11 @@ type KubeconfigError struct {
 // Error implements the error interface.
 func (e *KubeconfigError) Error() string {
 	if e.Err != nil {
-		return fmt.Sprintf("kubeconfig error for cluster %q (secret %s/%s): %s: %v",
-			e.ClusterName, e.Namespace, e.SecretName, e.Reason, e.Err)
+		return fmt.Sprintf("kubeconfig error for cluster %q (resource %s/%s): %s: %v",
+			e.ClusterName, e.Namespace, e.ResourceName, e.Reason, e.Err)
 	}
-	return fmt.Sprintf("kubeconfig error for cluster %q (secret %s/%s): %s",
-		e.ClusterName, e.Namespace, e.SecretName, e.Reason)
+	return fmt.Sprintf("kubeconfig error for cluster %q (resource %s/%s): %s",
+		e.ClusterName, e.Namespace, e.ResourceName, e.Reason)
 }
 
 // Unwrap returns the underlying error for use with errors.Is() and errors.As().

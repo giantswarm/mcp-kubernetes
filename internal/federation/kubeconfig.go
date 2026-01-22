@@ -285,12 +285,12 @@ func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo
 
 		// Determine if this is a "not found" or "forbidden" error
 		return nil, &KubeconfigError{
-			ClusterName: info.Name,
-			SecretName:  secretName,
-			Namespace:   info.Namespace,
-			Reason:      "failed to fetch secret",
-			Err:         err,
-			NotFound:    isNotFoundError(err),
+			ClusterName:  info.Name,
+			ResourceName: secretName,
+			Namespace:    info.Namespace,
+			Reason:       "failed to fetch secret",
+			Err:          err,
+			NotFound:     isNotFoundError(err),
 		}
 	}
 
@@ -309,12 +309,12 @@ func (m *Manager) getKubeconfigFromSecret(ctx context.Context, info *ClusterInfo
 			UserHashAttr(user.Email),
 			"error", err)
 		return nil, &KubeconfigError{
-			ClusterName: info.Name,
-			SecretName:  secretName,
-			Namespace:   info.Namespace,
-			Reason:      "invalid kubeconfig data",
-			Err:         err,
-			NotFound:    false,
+			ClusterName:  info.Name,
+			ResourceName: secretName,
+			Namespace:    info.Namespace,
+			Reason:       "invalid kubeconfig data",
+			Err:          err,
+			NotFound:     false,
 		}
 	}
 
@@ -353,11 +353,11 @@ func (m *Manager) extractKubeconfigData(data map[string][]byte, info *ClusterInf
 		"namespace", info.Namespace,
 		"available_keys", getSecretKeys(data))
 	return nil, &KubeconfigError{
-		ClusterName: info.Name,
-		SecretName:  secretName,
-		Namespace:   info.Namespace,
-		Reason:      fmt.Sprintf("secret missing '%s' or '%s' key", CAPISecretKey, CAPISecretKeyAlternate),
-		NotFound:    false,
+		ClusterName:  info.Name,
+		ResourceName: secretName,
+		Namespace:    info.Namespace,
+		Reason:       fmt.Sprintf("secret missing '%s' or '%s' key", CAPISecretKey, CAPISecretKeyAlternate),
+		NotFound:     false,
 	}
 }
 
