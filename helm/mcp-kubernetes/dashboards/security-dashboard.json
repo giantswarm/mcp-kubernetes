@@ -1409,7 +1409,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (client_type) (rate(oauth_client_registered{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (client_type) (rate(oauth_client_registered_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{client_type}}",
           "refId": "A"
         }
