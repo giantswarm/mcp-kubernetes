@@ -286,9 +286,9 @@ spec:
             {{- if .Values.capiMode.workloadClusterAuth }}
             - name: WC_AUTH_MODE
               value: {{ .Values.capiMode.workloadClusterAuth.mode | default "impersonation" | quote }}
-            {{- if .Values.capiMode.workloadClusterAuth.caSecretSuffix }}
-            - name: WC_CA_SECRET_SUFFIX
-              value: {{ .Values.capiMode.workloadClusterAuth.caSecretSuffix | quote }}
+            {{- if .Values.capiMode.workloadClusterAuth.caConfigMapSuffix }}
+            - name: WC_CA_CONFIGMAP_SUFFIX
+              value: {{ .Values.capiMode.workloadClusterAuth.caConfigMapSuffix | quote }}
             {{- end }}
             {{- if .Values.capiMode.workloadClusterAuth.disableCaching }}
             - name: WC_DISABLE_CACHING

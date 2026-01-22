@@ -279,7 +279,7 @@ func WithWorkloadClusterAuthMode(mode WorkloadClusterAuthMode) ManagerOption {
 // This must be set when using WorkloadClusterAuthModeSSOPassthrough.
 //
 // The config includes:
-//   - CASecretSuffix: suffix for CA-only secrets (default: "-ca")
+//   - CAConfigMapSuffix: suffix for CA ConfigMaps (default: "-ca-public")
 //   - TokenExtractor: function to extract SSO token from context
 //
 // Example:
@@ -287,7 +287,7 @@ func WithWorkloadClusterAuthMode(mode WorkloadClusterAuthMode) ManagerOption {
 //	manager, err := federation.NewManager(provider,
 //	    federation.WithWorkloadClusterAuthMode(federation.WorkloadClusterAuthModeSSOPassthrough),
 //	    federation.WithSSOPassthroughConfig(&federation.SSOPassthroughConfig{
-//	        CASecretSuffix: "-ca",
+//	        CAConfigMapSuffix: "-ca-public",
 //	        TokenExtractor: oauth.GetAccessTokenFromContext,
 //	    }),
 //	)

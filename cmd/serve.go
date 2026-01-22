@@ -600,9 +600,9 @@ func runServe(config ServeConfig) error {
 			ssoConfig := federation.DefaultSSOPassthroughConfig()
 			ssoConfig.TokenExtractor = oauth.GetAccessTokenFromContext
 
-			// Use custom CA secret suffix if configured
-			if config.CAPIMode.WorkloadClusterAuth.CASecretSuffix != "" {
-				ssoConfig.CASecretSuffix = config.CAPIMode.WorkloadClusterAuth.CASecretSuffix
+			// Use custom CA ConfigMap suffix if configured
+			if config.CAPIMode.WorkloadClusterAuth.CAConfigMapSuffix != "" {
+				ssoConfig.CAConfigMapSuffix = config.CAPIMode.WorkloadClusterAuth.CAConfigMapSuffix
 			}
 
 			managerOpts = append(managerOpts, federation.WithSSOPassthroughConfig(ssoConfig))
@@ -610,7 +610,7 @@ func runServe(config ServeConfig) error {
 			// Log configuration including security-relevant options
 			slog.Info("Workload cluster auth mode: sso-passthrough",
 				"description", "forwarding user SSO token directly to WC API servers",
-				"ca_secret_suffix", ssoConfig.CASecretSuffix,
+				"ca_configmap_suffix", ssoConfig.CAConfigMapSuffix,
 				"disable_caching", config.CAPIMode.WorkloadClusterAuth.DisableCaching)
 
 			if config.CAPIMode.WorkloadClusterAuth.DisableCaching {
@@ -1028,8 +1028,8 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	if mode := os.Getenv("WC_AUTH_MODE"); mode != "" {
 		config.WorkloadClusterAuth.Mode = mode
 	}
-	if suffix := os.Getenv("WC_CA_SECRET_SUFFIX"); suffix != "" {
-		config.WorkloadClusterAuth.CASecretSuffix = suffix
+	if suffix := os.Getenv("WC_CA_CONFIGMAP_SUFFIX"); suffix != "" {
+		config.WorkloadClusterAuth.CAConfigMapSuffix = suffix
 	}
 	if os.Getenv("WC_DISABLE_CACHING") == envValueTrue {
 		config.WorkloadClusterAuth.DisableCaching = true

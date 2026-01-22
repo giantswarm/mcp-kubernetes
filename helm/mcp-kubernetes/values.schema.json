@@ -723,9 +723,9 @@
               "enum": ["impersonation", "sso-passthrough"],
               "description": "Authentication mode: 'impersonation' (default) uses admin credentials with user impersonation headers; 'sso-passthrough' forwards user's SSO token directly to WC API servers"
             },
-            "caSecretSuffix": {
+            "caConfigMapSuffix": {
               "type": "string",
-              "description": "Secret suffix for CA-only secrets in sso-passthrough mode (e.g., '-ca')",
+              "description": "ConfigMap suffix for CA certificates in sso-passthrough mode (e.g., '-ca-public'). These ConfigMaps contain the cluster's public CA certificate.",
               "pattern": "^-[a-z0-9-]+$"
             },
             "disableCaching": {

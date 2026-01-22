@@ -20,8 +20,8 @@ func TestSSOPassthroughConfig_Default(t *testing.T) {
 		t.Fatal("DefaultSSOPassthroughConfig returned nil")
 	}
 
-	if config.CASecretSuffix != DefaultCASecretSuffix {
-		t.Errorf("expected CA secret suffix %q, got %q", DefaultCASecretSuffix, config.CASecretSuffix)
+	if config.CAConfigMapSuffix != DefaultCAConfigMapSuffix {
+		t.Errorf("expected CA ConfigMap suffix %q, got %q", DefaultCAConfigMapSuffix, config.CAConfigMapSuffix)
 	}
 
 	if config.TokenExtractor != nil {
@@ -244,49 +244,49 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 	}
 }
 
-func TestManager_GetCAFromSecret(t *testing.T) {
+func TestManager_GetCAFromConfigMap(t *testing.T) {
 	tests := []struct {
 		name       string
-		secret     *corev1.Secret
+		configMap  *corev1.ConfigMap
 		wantErr    bool
 		wantCAData []byte
 	}{
 		{
-			name: "valid CA secret",
-			secret: &corev1.Secret{
+			name: "valid CA ConfigMap",
+			configMap: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster-ca",
+					Name:      "test-cluster-ca-public",
 					Namespace: "org-test",
 				},
-				Data: map[string][]byte{
-					"ca.crt": []byte("-----BEGIN CERTIFICATE-----\ntest-ca-data\n-----END CERTIFICATE-----"),
+				Data: map[string]string{
+					"ca.crt": "-----BEGIN CERTIFICATE-----\ntest-ca-data\n-----END CERTIFICATE-----",
 				},
 			},
 			wantErr:    false,
 			wantCAData: []byte("-----BEGIN CERTIFICATE-----\ntest-ca-data\n-----END CERTIFICATE-----"),
 		},
 		{
-			name: "secret missing ca.crt key",
-			secret: &corev1.Secret{
+			name: "ConfigMap missing ca.crt key",
+			configMap: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster-ca",
+					Name:      "test-cluster-ca-public",
 					Namespace: "org-test",
 				},
-				Data: map[string][]byte{
-					"other-key": []byte("some-data"),
+				Data: map[string]string{
+					"other-key": "some-data",
 				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "secret with empty ca.crt",
-			secret: &corev1.Secret{
+			name: "ConfigMap with empty ca.crt",
+			configMap: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster-ca",
+					Name:      "test-cluster-ca-public",
 					Namespace: "org-test",
 				},
-				Data: map[string][]byte{
-					"ca.crt": []byte{},
+				Data: map[string]string{
+					"ca.crt": "",
 				},
 			},
 			wantErr: true,
@@ -295,7 +295,7 @@ func TestManager_GetCAFromSecret(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clientset := fake.NewClientset(tt.secret)
+			clientset := fake.NewClientset(tt.configMap)
 
 			manager, err := NewManager(&StaticClientProvider{
 				Clientset: clientset,
@@ -311,7 +311,7 @@ func TestManager_GetCAFromSecret(t *testing.T) {
 
 			user := &UserInfo{Email: "test@example.com"}
 
-			caData, err := manager.getCAFromSecret(context.Background(), info, clientset, user)
+			caData, err := manager.getCAFromConfigMap(context.Background(), info, clientset, user)
 
 			if tt.wantErr {
 				if err == nil {
@@ -370,8 +370,8 @@ func TestManager_WithSSOPassthroughConfig(t *testing.T) {
 	}
 
 	config := &SSOPassthroughConfig{
-		CASecretSuffix: "-custom-ca",
-		TokenExtractor: tokenExtractor,
+		CAConfigMapSuffix: "-custom-ca-public",
+		TokenExtractor:    tokenExtractor,
 	}
 
 	manager, err := NewManager(
@@ -386,8 +386,8 @@ func TestManager_WithSSOPassthroughConfig(t *testing.T) {
 		t.Fatal("expected ssoPassthroughConfig to be set")
 	}
 
-	if manager.ssoPassthroughConfig.CASecretSuffix != "-custom-ca" {
-		t.Errorf("expected CA secret suffix '-custom-ca', got %q", manager.ssoPassthroughConfig.CASecretSuffix)
+	if manager.ssoPassthroughConfig.CAConfigMapSuffix != "-custom-ca-public" {
+		t.Errorf("expected CA ConfigMap suffix '-custom-ca-public', got %q", manager.ssoPassthroughConfig.CAConfigMapSuffix)
 	}
 
 	if manager.ssoPassthroughConfig.TokenExtractor == nil {
@@ -420,8 +420,8 @@ func TestManager_CreateSSOPassthroughClient_Errors(t *testing.T) {
 		manager, err := NewManager(
 			&StaticClientProvider{},
 			WithSSOPassthroughConfig(&SSOPassthroughConfig{
-				CASecretSuffix: "-ca",
-				TokenExtractor: nil, // No token extractor
+				CAConfigMapSuffix: "-ca-public",
+				TokenExtractor:    nil, // No token extractor
 			}),
 		)
 		if err != nil {
@@ -438,7 +438,7 @@ func TestManager_CreateSSOPassthroughClient_Errors(t *testing.T) {
 		manager, err := NewManager(
 			&StaticClientProvider{},
 			WithSSOPassthroughConfig(&SSOPassthroughConfig{
-				CASecretSuffix: "-ca",
+				CAConfigMapSuffix: "-ca-public",
 				TokenExtractor: func(ctx context.Context) (string, bool) {
 					return "", false // No token available
 				},
@@ -455,14 +455,25 @@ func TestManager_CreateSSOPassthroughClient_Errors(t *testing.T) {
 	})
 }
 
-func TestDefaultCASecretSuffix(t *testing.T) {
-	if DefaultCASecretSuffix != "-ca" {
-		t.Errorf("expected DefaultCASecretSuffix to be '-ca', got %q", DefaultCASecretSuffix)
+func TestDefaultCAConfigMapSuffix(t *testing.T) {
+	if DefaultCAConfigMapSuffix != "-ca-public" {
+		t.Errorf("expected DefaultCAConfigMapSuffix to be '-ca-public', got %q", DefaultCAConfigMapSuffix)
 	}
 }
 
-func TestCASecretKey(t *testing.T) {
-	if CASecretKey != "ca.crt" {
-		t.Errorf("expected CASecretKey to be 'ca.crt', got %q", CASecretKey)
+func TestCAConfigMapKey(t *testing.T) {
+	if CAConfigMapKey != "ca.crt" {
+		t.Errorf("expected CAConfigMapKey to be 'ca.crt', got %q", CAConfigMapKey)
+	}
+}
+
+// TestDeprecatedConstants tests backward compatibility aliases.
+func TestDeprecatedConstants(t *testing.T) {
+	// These deprecated constants should still work for backward compatibility
+	if DefaultCASecretSuffix != DefaultCAConfigMapSuffix {
+		t.Errorf("expected deprecated DefaultCASecretSuffix to equal DefaultCAConfigMapSuffix")
+	}
+	if CASecretKey != CAConfigMapKey {
+		t.Errorf("expected deprecated CASecretKey to equal CAConfigMapKey")
 	}
 }

@@ -177,13 +177,21 @@ var (
 // nolint:gosec // G101: This is not a hardcoded credential, it's a suffix for secret naming convention
 const CAPISecretSuffix = "-kubeconfig"
 
-// DefaultCASecretSuffix is the default suffix for CA-only secrets used in SSO passthrough mode.
-// The full secret name is: ${CLUSTER_NAME}-ca
-// This secret contains only the cluster's CA certificate, not admin credentials.
-const DefaultCASecretSuffix = "-ca"
+// DefaultCAConfigMapSuffix is the default suffix for CA ConfigMaps used in SSO passthrough mode.
+// The full ConfigMap name is: ${CLUSTER_NAME}-ca-public
+// This ConfigMap contains only the cluster's CA certificate (public key), not any credentials.
+// An operator should create these ConfigMaps by extracting tls.crt from the CAPI-generated
+// ${CLUSTER_NAME}-ca secret (which also contains the private key).
+const DefaultCAConfigMapSuffix = "-ca-public"
 
-// CASecretKey is the key within the CA secret that contains the CA certificate data.
-const CASecretKey = "ca.crt"
+// CAConfigMapKey is the key within the CA ConfigMap that contains the CA certificate data.
+const CAConfigMapKey = "ca.crt"
+
+// Deprecated: Use DefaultCAConfigMapSuffix instead. This is kept for backward compatibility.
+const DefaultCASecretSuffix = DefaultCAConfigMapSuffix
+
+// Deprecated: Use CAConfigMapKey instead. This is kept for backward compatibility.
+const CASecretKey = CAConfigMapKey
 
 // WorkloadClusterAuthMode defines how mcp-kubernetes authenticates to workload clusters.
 type WorkloadClusterAuthMode string

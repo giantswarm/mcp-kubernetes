@@ -102,10 +102,11 @@ type WorkloadClusterAuthConfig struct {
 	//     with OIDC authentication.
 	Mode string
 
-	// CASecretSuffix is the suffix for CA-only secrets used in sso-passthrough mode.
-	// The full secret name is: ${CLUSTER_NAME}${CASecretSuffix}
-	// Default: "-ca"
-	CASecretSuffix string
+	// CAConfigMapSuffix is the suffix for CA ConfigMaps used in sso-passthrough mode.
+	// The full ConfigMap name is: ${CLUSTER_NAME}${CAConfigMapSuffix}
+	// These ConfigMaps contain the cluster's CA certificate (public key) for TLS verification.
+	// Default: "-ca-public"
+	CAConfigMapSuffix string
 
 	// DisableCaching disables client caching in sso-passthrough mode.
 	// When enabled, each request creates a fresh client with the current SSO token.

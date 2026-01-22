@@ -13,12 +13,12 @@ mcp-kubernetes supports two authentication modes for connecting to workload clus
 
 | Aspect | Impersonation (default) | SSO Passthrough |
 |--------|------------------------|-----------------|
-| ServiceAccount privileges | High (kubeconfig secrets + impersonate) | **Low (CA secrets only)** |
-| Credential exposure | Admin creds in kubeconfig secrets | **No admin credentials needed** |
-| Kubeconfig secret access | Required | **Not required** |
+| ServiceAccount privileges | High (kubeconfig secrets + impersonate) | **Low (CA ConfigMaps only)** |
+| Credential exposure | Admin creds in kubeconfig secrets | **No credentials needed** |
+| Secret access | Required (kubeconfig secrets) | **Not required** |
 | WC audit logs | Shows impersonated user | Shows direct OIDC user |
 | RBAC enforcement | Via impersonation headers | Via WC OIDC validation |
-| Requirements | Kubeconfig secrets | WC OIDC configuration + CA secrets |
+| Requirements | Kubeconfig secrets | WC OIDC configuration + CA ConfigMaps |
 | Trust boundary | mcp-kubernetes impersonation | IdP + WC OIDC config |
 | Fallback behavior | N/A | **None (fails if token rejected)** |
 
@@ -30,11 +30,11 @@ mcp-kubernetes supports two authentication modes for connecting to workload clus
 - The ServiceAccount effectively has "impersonate any user" capability
 
 **SSO Passthrough mode** requires the ServiceAccount to:
-- Read CA-only secrets (contain only the cluster's CA certificate)
+- Read CA ConfigMaps (contain only the cluster's CA certificate - public key)
 - Read CAPI Cluster resources (to get the API endpoint)
-- **No access to kubeconfig secrets or admin credentials**
+- **No access to secrets at all**
 
-This is a significant security improvement for organizations that want to minimize privileged access.
+This is a significant security improvement for organizations that want to minimize privileged access. Since CA certificates are public keys (used for TLS verification), they are stored in ConfigMaps rather than Secrets.
 
 ## When to Use SSO Passthrough
 
@@ -63,9 +63,9 @@ capiMode:
   workloadClusterAuth:
     # Authentication mode: "impersonation" (default) or "sso-passthrough"
     mode: "sso-passthrough"
-    # Secret suffix for CA-only secrets (used in sso-passthrough mode)
-    # The full secret name is: ${CLUSTER_NAME}${caSecretSuffix}
-    caSecretSuffix: "-ca"
+    # ConfigMap suffix for CA certificates (used in sso-passthrough mode)
+    # The full ConfigMap name is: ${CLUSTER_NAME}${caConfigMapSuffix}
+    caConfigMapSuffix: "-ca-public"
     # Disable client caching for high-security deployments (optional)
     disableCaching: false
 ```
@@ -82,7 +82,7 @@ capiMode:
   enabled: true
   workloadClusterAuth:
     mode: "sso-passthrough"
-    caSecretSuffix: "-ca"
+    caConfigMapSuffix: "-ca-public"
     # Enable for high-security deployments
     disableCaching: true
 ```
@@ -94,7 +94,7 @@ capiMode:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WC_AUTH_MODE` | Authentication mode: `impersonation` or `sso-passthrough` | `impersonation` |
-| `WC_CA_SECRET_SUFFIX` | Suffix for CA-only secrets | `-ca` |
+| `WC_CA_CONFIGMAP_SUFFIX` | Suffix for CA ConfigMaps | `-ca-public` |
 | `WC_DISABLE_CACHING` | Disable client caching in SSO passthrough mode | `false` |
 
 ## Requirements
@@ -104,15 +104,17 @@ capiMode:
 Even though SSO passthrough eliminates the need for kubeconfig secrets (admin credentials), the ServiceAccount still requires access to:
 
 1. **CA Certificates** - To establish TLS connections to workload cluster API servers
-   - Stored in CA-only secrets (e.g., `my-cluster-ca`)
+   - Stored in ConfigMaps (e.g., `my-cluster-ca-public`)
    - Contains only the cluster's public CA certificate
-   - No admin credentials or sensitive data
+   - No sensitive data (CA certificates are public keys)
 
 2. **Cluster Endpoints** - To know where to connect
    - Read from CAPI Cluster resources (`spec.controlPlaneEndpoint`)
    - Requires read access to `clusters.cluster.x-k8s.io`
 
-The RBAC configuration automatically adjusts based on the auth mode - see the annotations on the generated Role resources.
+The RBAC configuration automatically adjusts based on the auth mode:
+- **Impersonation mode**: Creates Roles for secret access
+- **SSO Passthrough mode**: Creates Roles for ConfigMap access (no secret access)
 
 ### Workload Cluster API Server Configuration
 
@@ -138,108 +140,85 @@ For Kubernetes 1.29+, you can accept multiple audiences:
 --api-audiences=kubernetes,muster-client,mcp-kubernetes-client
 ```
 
-### CA-Only Secrets
+### CA ConfigMaps
 
-In SSO passthrough mode, mcp-kubernetes only needs the cluster's CA certificate, not admin credentials. Create CA-only secrets using a policy engine like Kyverno.
+In SSO passthrough mode, mcp-kubernetes only needs the cluster's CA certificate, not admin credentials. Since CA certificates are public keys (used for TLS verification), they are stored in ConfigMaps rather than Secrets.
 
-**Important:** Extracting the CA from a kubeconfig YAML within Kyverno requires custom logic because:
-1. The kubeconfig is stored as base64-encoded YAML in the secret
-2. The CA is nested within the kubeconfig structure
+**ConfigMap Structure:**
 
-**Recommended Approach:** Use the [fine-grained-certs-poc](https://github.com/giantswarm/fine-grained-certs-poc) repository which provides a complete, tested implementation including:
-- Kyverno policy with proper YAML parsing
-- Helper functions for CA extraction
-- Example manifests and test cases
-
-**Alternative: Manual Secret Creation**
-
-If you prefer to create CA secrets manually or via automation:
+An operator should create ConfigMaps with the following structure:
 
 ```yaml
-# Example CA-only secret structure
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
-  name: my-cluster-ca
+  name: my-cluster-ca-public
   namespace: org-giantswarm
   labels:
     cluster.x-k8s.io/cluster-name: my-cluster
-type: Opaque
+    giantswarm.io/cluster: my-cluster
 data:
-  # Base64-encoded CA certificate (same as certificate-authority-data from kubeconfig)
-  ca.crt: LS0tLS1CRUdJTi...
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIICxjCCAa6gAwIBAgIBADANBg...
+    -----END CERTIFICATE-----
 ```
 
-**Extracting CA from existing kubeconfig secret:**
+**Operator Requirements:**
+
+An operator is needed to:
+1. Watch for CAPI Cluster resources or the `${CLUSTER_NAME}-ca` secrets
+2. Extract the CA certificate (`tls.crt`) from the CAPI-generated `${CLUSTER_NAME}-ca` secret
+3. Create a ConfigMap named `${CLUSTER_NAME}-ca-public` with the CA certificate
+
+**Note:** The CAPI-generated `${CLUSTER_NAME}-ca` secret contains both:
+- `tls.crt` - The CA certificate (public key) - this is what we need
+- `tls.key` - The CA private key (extremely sensitive) - we do NOT need this
+
+**Manual ConfigMap Creation (for testing):**
 
 ```bash
-# Extract CA from a kubeconfig secret
-kubectl get secret my-cluster-kubeconfig -n org-giantswarm -o jsonpath='{.data.value}' | \
-  base64 -d | yq '.clusters[0].cluster.certificate-authority-data' | \
+# Extract CA certificate from the CAPI-generated secret
+kubectl get secret my-cluster-ca -n org-giantswarm -o jsonpath='{.data.tls\.crt}' | \
   base64 -d > ca.crt
 
-# Create the CA-only secret
-kubectl create secret generic my-cluster-ca \
+# Create the CA ConfigMap
+kubectl create configmap my-cluster-ca-public \
   --from-file=ca.crt=ca.crt \
+  -n org-giantswarm
+
+# Add the cluster label
+kubectl label configmap my-cluster-ca-public \
+  cluster.x-k8s.io/cluster-name=my-cluster \
   -n org-giantswarm
 ```
 
-**Kyverno Policy Skeleton:**
+### ConfigMap Naming Convention
 
-```yaml
-# NOTE: This is a simplified example. See fine-grained-certs-poc for production use.
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: generate-ca-secrets
-  annotations:
-    policies.kyverno.io/description: |
-      Generates CA-only secrets from kubeconfig secrets for SSO passthrough mode.
-      See: https://github.com/giantswarm/fine-grained-certs-poc
-spec:
-  rules:
-    - name: copy-ca-from-kubeconfig
-      match:
-        resources:
-          kinds:
-            - Secret
-          names:
-            - "*-kubeconfig"
-      generate:
-        apiVersion: v1
-        kind: Secret
-        name: "{{request.object.metadata.name | replace('-kubeconfig', '-ca')}}"
-        namespace: "{{request.object.metadata.namespace}}"
-        synchronize: true
-        data:
-          kind: Secret
-          type: Opaque
-          # The CA extraction requires custom JMESPath - see fine-grained-certs-poc
-          # for a complete implementation with proper YAML parsing
+The CA ConfigMap name follows this convention:
+```
+${CLUSTER_NAME}${caConfigMapSuffix}
 ```
 
-### Secret Naming Convention
-
-The CA secret name follows this convention:
-```
-${CLUSTER_NAME}${caSecretSuffix}
-```
-
-For example, with the default suffix `-ca`:
+For example, with the default suffix `-ca-public`:
 - Cluster name: `my-cluster`
-- CA secret name: `my-cluster-ca`
+- CA ConfigMap name: `my-cluster-ca-public`
 
-The secret should contain the CA certificate in the `ca.crt` key:
+The ConfigMap should contain the CA certificate in the `ca.crt` key:
 
 ```yaml
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
-  name: my-cluster-ca
+  name: my-cluster-ca-public
   namespace: org-giantswarm
-type: Opaque
+  labels:
+    cluster.x-k8s.io/cluster-name: my-cluster
 data:
-  ca.crt: <base64-encoded-ca-certificate>
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
 ```
 
 ## Security Model
@@ -266,7 +245,7 @@ User ─── authenticates ───> Aggregator (muster)
 
 ### Benefits
 
-1. **No admin credential access**: ServiceAccount only reads CA certificates, not kubeconfig secrets with admin credentials
+1. **No secret access required**: ServiceAccount only reads CA ConfigMaps (public keys), not any secrets
 2. **Eliminated privilege escalation risk**: Cannot extract admin kubeconfig even with ServiceAccount compromise
 3. **Simpler trust model**: mcp-kubernetes only needs the WC endpoint and CA certificate
 4. **Direct authentication**: User identity is verified by the WC API server itself, not via impersonation
@@ -298,7 +277,7 @@ If SSO passthrough authentication fails (e.g., token rejected by the WC API serv
 | Mode | ServiceAccount Needs | Failure Behavior |
 |------|---------------------|------------------|
 | `impersonation` | Kubeconfig secrets (admin creds) | Falls back to user RBAC via impersonation |
-| `sso-passthrough` | CA secrets only | Fails if SSO token not accepted |
+| `sso-passthrough` | CA ConfigMaps only (no secrets) | Fails if SSO token not accepted |
 
 If you're unsure which mode works for your environment, test SSO passthrough in a non-production cluster first.
 
@@ -401,11 +380,12 @@ For production deployments, choose one of these approaches:
 2. **Check issuer**: Ensure the WC API server's `--oidc-issuer-url` matches the token's `iss` claim
 3. **Verify OIDC configuration**: Confirm the WC API server can reach the IdP's JWKS endpoint
 
-### CA Secret Not Found
+### CA ConfigMap Not Found
 
-1. **Check secret exists**: `kubectl get secret ${CLUSTER_NAME}-ca -n ${NAMESPACE}`
-2. **Check secret key**: The secret must contain a `ca.crt` key
-3. **Check RBAC**: The mcp-kubernetes ServiceAccount must have permission to read CA secrets
+1. **Check ConfigMap exists**: `kubectl get configmap ${CLUSTER_NAME}-ca-public -n ${NAMESPACE}`
+2. **Check ConfigMap key**: The ConfigMap must contain a `ca.crt` key
+3. **Check RBAC**: The mcp-kubernetes ServiceAccount must have permission to read ConfigMaps
+4. **Check operator**: Ensure the CA ConfigMap operator is running and creating ConfigMaps
 
 ### Connection Timeout
 
