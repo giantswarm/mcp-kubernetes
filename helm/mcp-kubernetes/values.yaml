@@ -738,6 +738,38 @@ capiMode:
       # Default: 20
       burst: 20
 
+# Grafana Dashboard provisioning
+# Enables pre-built Grafana dashboards for mcp-kubernetes observability.
+# Dashboards are provisioned as ConfigMaps that can be picked up by
+# Grafana's sidecar (https://github.com/grafana/helm-charts/tree/main/charts/grafana#sidecar-for-dashboards)
+grafanaDashboards:
+  # Enable Grafana dashboard provisioning
+  enabled: false
+  # Namespace for the dashboard ConfigMaps (defaults to release namespace)
+  namespace: ""
+  # Labels to add to dashboard ConfigMaps
+  # The grafana_dashboard label is required for Grafana sidecar discovery
+  labels:
+    grafana_dashboard: "1"
+  # Additional annotations to add to dashboard ConfigMaps
+  annotations: {}
+  # Grafana folder name for the dashboards
+  folder: "mcp-kubernetes"
+  # Individual dashboard toggles
+  dashboards:
+    # Platform Administrator Dashboard
+    # Monitor service health, performance, and Kubernetes operations
+    administrator:
+      enabled: true
+    # Security Operations Dashboard
+    # Incident investigation, audit trails, and anomaly detection
+    security:
+      enabled: true
+    # Cluster Operator Dashboard
+    # Multi-cluster federation visibility and workload cluster operations
+    clusterOperator:
+      enabled: true
+
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:
   # Specifies whether a CiliumNetworkPolicy should be created
