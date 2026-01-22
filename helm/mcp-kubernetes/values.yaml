@@ -738,6 +738,125 @@ capiMode:
       # Default: 20
       burst: 20
 
+# Grafana Dashboard provisioning
+# Enables pre-built Grafana dashboards for mcp-kubernetes observability.
+# Dashboards are provisioned as ConfigMaps that can be picked up by
+# Grafana's sidecar (https://github.com/grafana/helm-charts/tree/main/charts/grafana#sidecar-for-dashboards)
+#
+# Prerequisites:
+#   1. Prometheus must be scraping mcp-kubernetes metrics (ServiceMonitor or manual config)
+#   2. Grafana sidecar must watch for ConfigMaps with 'grafana_dashboard: "1"' label
+#   3. A Prometheus datasource must be configured in Grafana
+#
+# Giant Swarm Integration:
+# When deployed on Giant Swarm, enable giantswarm.enabled to add required labels
+# and annotations for automatic dashboard discovery by Giant Swarm's observability stack.
+# See: https://docs.giantswarm.io/overview/observability/dashboard-management/dashboard-creation/
+grafanaDashboards:
+  # Enable Grafana dashboard provisioning
+  enabled: false
+  # Namespace for the dashboard ConfigMaps (defaults to release namespace)
+  # Override this when your Grafana sidecar watches a specific namespace for dashboards
+  # (common in multi-tenant setups where Grafana runs in a shared monitoring namespace)
+  namespace: ""
+  # Labels to add to dashboard ConfigMaps
+  # The grafana_dashboard label is required for Grafana sidecar discovery
+  labels:
+    grafana_dashboard: "1"
+  # Additional annotations to add to dashboard ConfigMaps
+  annotations: {}
+  # Grafana folder name where dashboards will appear
+  # The folder is created automatically by the Grafana sidecar if it doesn't exist
+  folder: "mcp-kubernetes"
+  # Giant Swarm specific configuration
+  # Enable this when deploying on Giant Swarm managed clusters
+  giantswarm:
+    # Enable Giant Swarm dashboard integration
+    # When enabled, adds the required label (app.giantswarm.io/kind: dashboard)
+    # for automatic detection by Giant Swarm's observability stack
+    enabled: false
+    # Organization name for Grafana organization targeting
+    # The dashboard will be provisioned to this Grafana organization
+    # Must match an existing organization's display name in Giant Swarm Grafana
+    #
+    # WARNING: When giantswarm.enabled is true, you SHOULD set this value.
+    # If left empty, the dashboard will be provisioned to the default Grafana
+    # organization, which may not be your intended target.
+    organization: ""
+  # Individual dashboard toggles
+  # Each dashboard creates a ConfigMap with the naming pattern:
+  #   <release>-mcp-kubernetes-dashboard-<name>
+  dashboards:
+    # Platform Administrator Dashboard
+    # Monitor service health, performance, and Kubernetes operations
+    administrator:
+      enabled: true
+    # Security Operations Dashboard
+    # Incident investigation, audit trails, and anomaly detection
+    security:
+      enabled: true
+    # Cluster Operator Dashboard
+    # Multi-cluster federation visibility and workload cluster operations
+    clusterOperator:
+      enabled: true
+
+# Prometheus Alert Rules
+# Enables PrometheusRule resources for mcp-kubernetes-specific alerting.
+# Requires Prometheus Operator to be installed in the cluster.
+#
+# NOTE: Generic alerts (deployment not satisfied, pod restarts, memory/CPU usage)
+# are already covered by centralized prometheus-rules in Giant Swarm clusters.
+# These rules focus ONLY on mcp-kubernetes-specific metrics.
+#
+# Prerequisites:
+#   1. Prometheus Operator CRDs must be installed
+#   2. Prometheus must be scraping mcp-kubernetes metrics (ServiceMonitor)
+#   3. Alertmanager should be configured for receiving alerts
+#
+# Giant Swarm Integration:
+# Set the observability.giantswarm.io/tenant label for tenant routing.
+# See: https://docs.giantswarm.io/overview/observability/alert-management/alert-rules/
+prometheusRules:
+  # Enable PrometheusRule creation
+  enabled: false
+  # Additional labels for the PrometheusRule resource
+  # Example for Giant Swarm tenant routing:
+  #   observability.giantswarm.io/tenant: "giantswarm"
+  labels: {}
+  # Additional annotations for the PrometheusRule resource
+  annotations: {}
+  # Team responsible for these alerts (used in alert labels)
+  team: "planeteers"
+  # Base URL for runbook links
+  runbookBaseUrl: "https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"
+
+  # Individual alert rule toggles
+  # Only mcp-kubernetes-specific alerts are included here.
+  # Generic infrastructure alerts are handled by centralized prometheus-rules.
+  rules:
+    # MCP-specific error rate (not generic HTTP errors)
+    mcpKubernetesHighErrorRate:
+      # Alert when MCP request error rate exceeds 10%
+      enabled: true
+
+    # Kubernetes operations performed via MCP
+    mcpKubernetesK8sOperationFailures:
+      # Alert when K8s API operations via MCP are failing at >20% rate
+      enabled: true
+
+    # OAuth authentication (only evaluated when OAuth is enabled)
+    mcpKubernetesOAuthFailures:
+      # Alert when OAuth authentication failure rate exceeds 30%
+      enabled: true
+
+    # CAPI federation alerts (only evaluated when capiMode is enabled)
+    mcpKubernetesWorkloadClusterAuthFailures:
+      # Alert when workload cluster auth failure rate exceeds 30%
+      enabled: true
+    mcpKubernetesClusterOperationFailures:
+      # Alert when cluster operation failure rate exceeds 30%
+      enabled: true
+
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:
   # Specifies whether a CiliumNetworkPolicy should be created

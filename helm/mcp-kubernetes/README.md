@@ -172,6 +172,143 @@ CAPI Mode enables multi-cluster federation via Cluster API. When enabled, the MC
 | `capiMode.rbac.allowedNamespaces` | Namespaces for kubeconfig secret access | `[]` |
 | `capiMode.rbac.clusterWideSecrets` | Grant cluster-wide secret access (NOT recommended) | `false` |
 
+### Grafana Dashboards
+
+Pre-built Grafana dashboards for monitoring mcp-kubernetes operations.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `grafanaDashboards.enabled` | Enable Grafana dashboard provisioning | `false` |
+| `grafanaDashboards.namespace` | Namespace for dashboard ConfigMaps (see note below) | `""` (release namespace) |
+| `grafanaDashboards.labels` | Labels for dashboard ConfigMaps | `{grafana_dashboard: "1"}` |
+| `grafanaDashboards.annotations` | Additional annotations | `{}` |
+| `grafanaDashboards.folder` | Grafana folder where dashboards appear (created automatically by sidecar) | `"mcp-kubernetes"` |
+| `grafanaDashboards.dashboards.administrator.enabled` | Enable Platform Administrator Dashboard | `true` |
+| `grafanaDashboards.dashboards.security.enabled` | Enable Security Operations Dashboard | `true` |
+| `grafanaDashboards.dashboards.clusterOperator.enabled` | Enable Cluster Operator Dashboard | `true` |
+| `grafanaDashboards.giantswarm.enabled` | Enable Giant Swarm integration | `false` |
+| `grafanaDashboards.giantswarm.organization` | Target Grafana organization (required when giantswarm.enabled is true) | `""` |
+
+#### Prerequisites
+
+Before enabling Grafana dashboards, ensure the following are in place:
+
+1. **Prometheus scraping mcp-kubernetes metrics**: Either enable the ServiceMonitor (`mcpKubernetes.instrumentation.serviceMonitor.enabled: true`) or configure a manual scrape target for the metrics port (default: 9090).
+
+2. **Grafana sidecar configured**: The Grafana sidecar must be configured to watch for ConfigMaps with the `grafana_dashboard: "1"` label. This is the default configuration in the [Grafana Helm chart](https://github.com/grafana/helm-charts/tree/main/charts/grafana#sidecar-for-dashboards).
+
+3. **Prometheus datasource available**: Dashboards expect a Prometheus datasource. The datasource is selectable via the `datasource` variable in each dashboard.
+
+#### Namespace Configuration
+
+The `namespace` parameter controls where dashboard ConfigMaps are created:
+
+- **Default (empty)**: ConfigMaps are created in the Helm release namespace
+- **Custom namespace**: Use when your Grafana sidecar watches a specific namespace for dashboards (common in multi-tenant setups where Grafana runs in a shared monitoring namespace like `monitoring` or `observability`)
+
+Example for multi-tenant setup:
+```yaml
+grafanaDashboards:
+  enabled: true
+  namespace: "monitoring"  # Grafana sidecar watches this namespace
+```
+
+#### Available Dashboards
+
+The following dashboards are included. Each dashboard file maps to a ConfigMap:
+
+| Dashboard | Values Key | ConfigMap Suffix | Description |
+|-----------|-----------|------------------|-------------|
+| Platform Administrator | `dashboards.administrator` | `-dashboard-administrator` | Service health, performance, K8s operations |
+| Security Operations | `dashboards.security` | `-dashboard-security` | Audit trails, impersonation, OAuth events |
+| Cluster Operator | `dashboards.clusterOperator` | `-dashboard-cluster-operator` | Multi-cluster federation, WC operations |
+
+**1. Platform Administrator Dashboard**
+   - Service health overview (request rate, error rate, P95 latency)
+   - Request performance metrics
+   - Kubernetes operations health
+   - OAuth/Authentication health
+   - Pod operations monitoring
+
+**2. Security Operations Dashboard**
+   - Security overview (24h stats)
+   - Impersonation monitoring
+   - Privileged access tracking
+   - OAuth security events
+   - Client registration security
+   - Authentication events
+
+**3. Cluster Operator Dashboard**
+   - Federation overview
+   - Workload cluster operations
+   - Client cache performance
+   - Workload cluster authentication
+
+#### Giant Swarm Integration
+
+When deploying on Giant Swarm managed clusters, enable the Giant Swarm integration to use the platform's dashboard management:
+
+```yaml
+grafanaDashboards:
+  enabled: true
+  giantswarm:
+    enabled: true
+    organization: "my-organization"  # Required: Your Giant Swarm organization name
+```
+
+**Important**: When `giantswarm.enabled` is `true`, you must set `giantswarm.organization` to your organization's display name. If omitted, the dashboard will be provisioned to the default Grafana organization, which may not be your intended target.
+
+This adds the required label (`app.giantswarm.io/kind: dashboard`) and annotation (`observability.giantswarm.io/organization`) for automatic dashboard provisioning by Giant Swarm's observability stack.
+
+See: https://docs.giantswarm.io/overview/observability/dashboard-management/dashboard-creation/
+
+### Prometheus Alert Rules
+
+PrometheusRule resources for mcp-kubernetes-specific alerting.
+
+**Important**: Generic alerts (deployment not satisfied, pod restarts, memory/CPU usage) are already covered by the centralized `prometheus-rules` chart in Giant Swarm clusters. These rules focus ONLY on mcp-kubernetes-specific metrics to avoid duplicates and respect inhibitions.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `prometheusRules.enabled` | Enable PrometheusRule creation | `false` |
+| `prometheusRules.labels` | Additional labels for the PrometheusRule | `{}` |
+| `prometheusRules.annotations` | Additional annotations for the PrometheusRule | `{}` |
+| `prometheusRules.team` | Team responsible for alerts | `"planeteers"` |
+| `prometheusRules.runbookBaseUrl` | Base URL for runbook links | `"https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"` |
+| `prometheusRules.rules.*` | Individual alert rule toggles | See values.yaml |
+
+#### Prerequisites
+
+1. **Prometheus Operator installed**: PrometheusRule CRDs must be available in the cluster
+2. **ServiceMonitor enabled**: Prometheus must be scraping mcp-kubernetes metrics
+3. **Alertmanager configured**: For receiving and routing alerts
+
+#### Available Alert Rules
+
+Only mcp-kubernetes-specific alerts are included. All alerts respect inhibitions (`cancel_if_cluster_control_plane_unhealthy`, `cancel_if_outside_working_hours`):
+
+| Alert Name | Severity | Description | Condition |
+|------------|----------|-------------|-----------|
+| `MCPKubernetesHighErrorRate` | notify | MCP request error rate >10% | Always |
+| `MCPKubernetesK8sOperationFailures` | notify | K8s operations via MCP failing >20% | Always |
+| `MCPKubernetesOAuthFailures` | notify | OAuth auth failure rate >30% | OAuth enabled |
+| `MCPKubernetesWorkloadClusterAuthFailures` | notify | WC auth failure rate >30% | CAPI mode |
+| `MCPKubernetesClusterOperationFailures` | notify | Cluster operation failure rate >30% | CAPI mode |
+
+#### Giant Swarm Integration
+
+When deploying on Giant Swarm clusters:
+
+```yaml
+prometheusRules:
+  enabled: true
+  labels:
+    observability.giantswarm.io/tenant: "giantswarm"
+  team: "planeteers"
+```
+
+See: https://docs.giantswarm.io/overview/observability/alert-management/alert-rules/
+
 ### Cilium Network Policy
 
 | Parameter | Description | Default |
@@ -504,6 +641,43 @@ helm install mcp-kubernetes ./helm/mcp-kubernetes \
 ```bash
 helm install mcp-kubernetes ./helm/mcp-kubernetes \
   --set ciliumNetworkPolicy.enabled=false
+```
+
+### Installation with Grafana Dashboards
+
+**Standard Grafana Sidecar:**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set grafanaDashboards.enabled=true
+```
+
+**Giant Swarm Platform:**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-grafana-dashboards-giantswarm.yaml \
+  --set grafanaDashboards.giantswarm.organization=my-organization
+```
+
+### Installation with Prometheus Alert Rules
+
+**Giant Swarm Platform:**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  -f ./helm/mcp-kubernetes/values-prometheus-rules-giantswarm.yaml
+```
+
+**Full observability stack (dashboards + alerts):**
+
+```bash
+helm install mcp-kubernetes ./helm/mcp-kubernetes \
+  --set mcpKubernetes.instrumentation.enabled=true \
+  --set mcpKubernetes.instrumentation.serviceMonitor.enabled=true \
+  --set grafanaDashboards.enabled=true \
+  --set prometheusRules.enabled=true \
+  --set prometheusRules.labels."observability\.giantswarm\.io/tenant"="giantswarm"
 ```
 
 ### Installation with OAuth 2.1 Authentication

@@ -523,7 +523,90 @@ groups:
 
 ## Grafana Dashboards
 
-### Key Panels
+`mcp-kubernetes` includes three pre-built Grafana dashboards that can be provisioned via Helm. These dashboards provide comprehensive observability for different personas.
+
+### Enabling Dashboards
+
+Dashboards are provisioned as ConfigMaps that can be discovered by [Grafana's sidecar](https://github.com/grafana/helm-charts/tree/main/charts/grafana#sidecar-for-dashboards):
+
+```yaml
+# values.yaml
+grafanaDashboards:
+  enabled: true
+  namespace: monitoring  # Optional: defaults to release namespace
+  labels:
+    grafana_dashboard: "1"  # Required for sidecar discovery
+  folder: "mcp-kubernetes"
+  dashboards:
+    administrator:
+      enabled: true
+    security:
+      enabled: true
+    clusterOperator:
+      enabled: true
+```
+
+### Available Dashboards
+
+#### 1. Platform Administrator Dashboard
+
+**UID:** `mcp-k8s-administrator`
+
+Monitor service health, performance, and Kubernetes operations. Ideal for platform teams responsible for running mcp-kubernetes.
+
+**Rows:**
+- **Service Health Overview** - Request rate, error rate, P95 latency, active sessions
+- **Request Performance** - Latency percentiles, request rate by status
+- **Kubernetes Operations Health** - Operations by type, error rates, durations
+- **OAuth/Authentication Health** - Success rate, SSO token injection, client registrations
+- **Pod Operations** - Logs, exec operations
+- **Kubernetes Resources** - Pod CPU/memory (requires kube-state-metrics)
+
+**Data Source Requirements:** Prometheus (required)
+
+#### 2. Security Operations Dashboard
+
+**UID:** `mcp-k8s-security`
+
+Incident investigation, audit trails, and anomaly detection. Designed for security teams and compliance auditing.
+
+**Rows:**
+- **Security Overview (24h)** - Total operations, failures, rate limit violations, impersonation denials
+- **Impersonation Monitoring** - By user domain, denied requests, by cluster type
+- **Privileged Access Tracking** - Secret access by domain, rate-limited attempts
+- **OAuth Security Events** - Rate limits, redirect URI rejections, code/token reuse, PKCE failures
+- **Client Registration Security** - New registrations by type, client count, CIMD operations
+- **Authentication Events** - Auth mode distribution, token issues, errors by cluster
+- **Audit Logs** - Real-time log viewer (requires Loki)
+
+**Data Source Requirements:** Prometheus (required), Loki (required for audit logs)
+
+#### 3. Cluster Operator Dashboard
+
+**UID:** `mcp-k8s-cluster-operator`
+
+Multi-cluster federation visibility and workload cluster operations. For teams managing fleet-scale Kubernetes deployments with CAPI mode.
+
+**Rows:**
+- **Federation Overview** - Cluster operations rate, cached clients, cache hit ratio
+- **Workload Cluster Operations** - By cluster type, error rates, durations
+- **Client Cache Performance** - Cache entries, hit/miss ratio, evictions by reason
+- **Workload Cluster Authentication** - Auth mode usage, SSO success rate, results by cluster
+- **Federation Client Lifecycle** - Cached vs new clients, creation by cluster type
+
+**Data Source Requirements:** Prometheus (required)
+
+### Dashboard Variables
+
+All dashboards support these template variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `$datasource` | Prometheus data source | Auto-detected |
+| `$loki_datasource` | Loki data source (Security dashboard only) | Auto-detected |
+| `$namespace` | Filter by Kubernetes namespace | All namespaces |
+
+### Key Panels Reference
 
 1. **Request Rate**: `rate(http_requests_total[1m])`
 2. **Error Rate**: `rate(http_requests_total{status=~"5.."}[1m])`
@@ -537,6 +620,16 @@ groups:
 5. **Kubernetes Operations by Type**: 
    ```promql
    sum by (operation) (rate(kubernetes_operations_total[1m]))
+   ```
+6. **Cache Hit Ratio**:
+   ```promql
+   100 * sum(rate(mcp_client_cache_hits_total[$__rate_interval])) 
+   / (sum(rate(mcp_client_cache_hits_total[$__rate_interval])) 
+      + sum(rate(mcp_client_cache_misses_total[$__rate_interval])))
+   ```
+7. **Impersonation Denials**:
+   ```promql
+   sum by (user_domain) (rate(mcp_impersonation_total{result="denied"}[$__rate_interval]))
    ```
 
 ## Tracing

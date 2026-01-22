@@ -1,0 +1,52 @@
+# Example values for enabling PrometheusRules on Giant Swarm clusters.
+#
+# NOTE: Generic alerts (deployment not satisfied, pod restarts, memory/CPU usage)
+# are already covered by the centralized prometheus-rules chart.
+# These rules focus ONLY on mcp-kubernetes-specific metrics.
+#
+# Prerequisites:
+#   1. Prometheus Operator CRDs installed (monitoring.coreos.com/v1)
+#   2. ServiceMonitor enabled (for metrics collection)
+#   3. Tenant configured in Giant Swarm Grafana Organization
+#
+# Usage:
+#   helm upgrade --install mcp-kubernetes giantswarm/mcp-kubernetes \
+#     -f values-prometheus-rules-giantswarm.yaml
+#
+# See: https://docs.giantswarm.io/overview/observability/alert-management/alert-rules/
+
+# Enable metrics and ServiceMonitor (required for alert rules to work)
+mcpKubernetes:
+  instrumentation:
+    enabled: true
+    metricsExporter: "prometheus"
+    serviceMonitor:
+      enabled: true
+  metrics:
+    enabled: true
+    port: 9090
+
+# Enable PrometheusRule with Giant Swarm labels
+prometheusRules:
+  enabled: true
+  # Required: Set the tenant label for your Grafana Organization
+  labels:
+    observability.giantswarm.io/tenant: "giantswarm"
+  # Team responsible for these alerts
+  team: "planeteers"
+  # All mcp-kubernetes-specific rules enabled by default
+  rules:
+    # MCP-specific error rate
+    mcpKubernetesHighErrorRate:
+      enabled: true
+    # Kubernetes operations via MCP
+    mcpKubernetesK8sOperationFailures:
+      enabled: true
+    # OAuth authentication (only fires if OAuth is enabled)
+    mcpKubernetesOAuthFailures:
+      enabled: true
+    # CAPI federation (only fires if capiMode is enabled)
+    mcpKubernetesWorkloadClusterAuthFailures:
+      enabled: true
+    mcpKubernetesClusterOperationFailures:
+      enabled: true

@@ -1,0 +1,88 @@
+{{- if .Values.grafanaDashboards.enabled }}
+{{- $namespace := .Values.grafanaDashboards.namespace | default .Release.Namespace }}
+{{- $folder := .Values.grafanaDashboards.folder | default "mcp-kubernetes" }}
+{{- $labels := .Values.grafanaDashboards.labels | default dict }}
+{{- $annotations := .Values.grafanaDashboards.annotations | default dict }}
+{{- $giantswarmEnabled := .Values.grafanaDashboards.giantswarm.enabled | default false }}
+{{- $giantswarmOrg := .Values.grafanaDashboards.giantswarm.organization | default "" }}
+{{- if .Values.grafanaDashboards.dashboards.administrator.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-dashboard-administrator
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+    {{- if $giantswarmEnabled }}
+    app.giantswarm.io/kind: dashboard
+    {{- end }}
+    {{- range $key, $value := $labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  annotations:
+    grafana_folder: {{ $folder | quote }}
+    {{- if and $giantswarmEnabled $giantswarmOrg }}
+    observability.giantswarm.io/organization: {{ $giantswarmOrg | quote }}
+    {{- end }}
+    {{- range $key, $value := $annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+  mcp-kubernetes-administrator.json: |-
+{{ .Files.Get "dashboards/administrator-dashboard.json" | indent 4 }}
+{{- end }}
+{{- if .Values.grafanaDashboards.dashboards.security.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-dashboard-security
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+    {{- if $giantswarmEnabled }}
+    app.giantswarm.io/kind: dashboard
+    {{- end }}
+    {{- range $key, $value := $labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  annotations:
+    grafana_folder: {{ $folder | quote }}
+    {{- if and $giantswarmEnabled $giantswarmOrg }}
+    observability.giantswarm.io/organization: {{ $giantswarmOrg | quote }}
+    {{- end }}
+    {{- range $key, $value := $annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+  mcp-kubernetes-security.json: |-
+{{ .Files.Get "dashboards/security-dashboard.json" | indent 4 }}
+{{- end }}
+{{- if .Values.grafanaDashboards.dashboards.clusterOperator.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-dashboard-cluster-operator
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+    {{- if $giantswarmEnabled }}
+    app.giantswarm.io/kind: dashboard
+    {{- end }}
+    {{- range $key, $value := $labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  annotations:
+    grafana_folder: {{ $folder | quote }}
+    {{- if and $giantswarmEnabled $giantswarmOrg }}
+    observability.giantswarm.io/organization: {{ $giantswarmOrg | quote }}
+    {{- end }}
+    {{- range $key, $value := $annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+  mcp-kubernetes-cluster-operator.json: |-
+{{ .Files.Get "dashboards/cluster-operator-dashboard.json" | indent 4 }}
+{{- end }}
+{{- end }}

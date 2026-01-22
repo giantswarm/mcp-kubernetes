@@ -1,0 +1,166 @@
+{{- if .Values.prometheusRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRules.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.prometheusRules.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  groups:
+    # Note: Generic alerts like "deployment not satisfied", "pod restarts", "high memory/CPU"
+    # are already covered by centralized prometheus-rules in Giant Swarm clusters.
+    # These alerts focus only on mcp-kubernetes-specific metrics.
+    - name: mcp-kubernetes
+      rules:
+        {{- if .Values.prometheusRules.rules.mcpKubernetesHighErrorRate.enabled }}
+        # Alert when MCP request error rate is high
+        # This is specific to MCP protocol errors, not covered by generic HTTP monitoring
+        - alert: MCPKubernetesHighErrorRate
+          annotations:
+            description: MCP Kubernetes is returning errors at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate for the last 15 minutes.
+            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-high-error-rate
+          expr: |
+            (
+              sum(rate(http_requests_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}",
+                status=~"5.."
+              }[10m]))
+              /
+              sum(rate(http_requests_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}"
+              }[10m]))
+            ) > 0.1
+          for: 15m
+          labels:
+            area: platform
+            cancel_if_cluster_control_plane_unhealthy: "true"
+            cancel_if_outside_working_hours: "true"
+            severity: notify
+            team: {{ .Values.prometheusRules.team }}
+            topic: mcp
+        {{- end }}
+
+        {{- if .Values.prometheusRules.rules.mcpKubernetesK8sOperationFailures.enabled }}
+        # Alert when Kubernetes operations performed by MCP are failing
+        - alert: MCPKubernetesK8sOperationFailures
+          annotations:
+            description: MCP Kubernetes {{ "{{" }} $labels.operation {{ "}}" }} operations are failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
+            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-k8s-operation-failures
+          expr: |
+            (
+              sum by (operation) (rate(kubernetes_operations_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}",
+                status="error"
+              }[15m]))
+              /
+              sum by (operation) (rate(kubernetes_operations_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}"
+              }[15m]))
+            ) > 0.2
+          for: 15m
+          labels:
+            area: platform
+            cancel_if_cluster_control_plane_unhealthy: "true"
+            cancel_if_outside_working_hours: "true"
+            severity: notify
+            team: {{ .Values.prometheusRules.team }}
+            topic: mcp
+        {{- end }}
+
+    {{- if .Values.mcpKubernetes.oauth.enabled }}
+    - name: mcp-kubernetes.oauth
+      rules:
+        {{- if .Values.prometheusRules.rules.mcpKubernetesOAuthFailures.enabled }}
+        # Alert when OAuth authentication is consistently failing
+        - alert: MCPKubernetesOAuthFailures
+          annotations:
+            description: MCP Kubernetes OAuth authentication is failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
+            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-oauth-failures
+          expr: |
+            (
+              sum(rate(oauth_downstream_auth_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}",
+                result="failure"
+              }[15m]))
+              /
+              sum(rate(oauth_downstream_auth_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}"
+              }[15m]))
+            ) > 0.3
+          for: 15m
+          labels:
+            area: platform
+            cancel_if_cluster_control_plane_unhealthy: "true"
+            cancel_if_outside_working_hours: "true"
+            severity: notify
+            team: {{ .Values.prometheusRules.team }}
+            topic: mcp
+        {{- end }}
+    {{- end }}
+
+    {{- if .Values.capiMode.enabled }}
+    - name: mcp-kubernetes.federation
+      rules:
+        {{- if .Values.prometheusRules.rules.mcpKubernetesWorkloadClusterAuthFailures.enabled }}
+        # Alert when workload cluster authentication is consistently failing
+        - alert: MCPKubernetesWorkloadClusterAuthFailures
+          annotations:
+            description: MCP Kubernetes workload cluster authentication ({{ "{{" }} $labels.auth_mode {{ "}}" }}) is failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
+            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-workload-cluster-auth-failures
+          expr: |
+            (
+              sum by (auth_mode) (rate(mcp_wc_auth_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}",
+                result="error"
+              }[15m]))
+              /
+              sum by (auth_mode) (rate(mcp_wc_auth_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}"
+              }[15m]))
+            ) > 0.3
+          for: 15m
+          labels:
+            area: platform
+            cancel_if_cluster_control_plane_unhealthy: "true"
+            cancel_if_outside_working_hours: "true"
+            severity: notify
+            team: {{ .Values.prometheusRules.team }}
+            topic: mcp
+        {{- end }}
+
+        {{- if .Values.prometheusRules.rules.mcpKubernetesClusterOperationFailures.enabled }}
+        # Alert when cluster operations are consistently failing
+        - alert: MCPKubernetesClusterOperationFailures
+          annotations:
+            description: MCP Kubernetes cluster {{ "{{" }} $labels.operation {{ "}}" }} operations are failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
+            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-cluster-operation-failures
+          expr: |
+            (
+              sum by (operation) (rate(mcp_cluster_operations_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}",
+                status="error"
+              }[15m]))
+              /
+              sum by (operation) (rate(mcp_cluster_operations_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}"
+              }[15m]))
+            ) > 0.3
+          for: 15m
+          labels:
+            area: platform
+            cancel_if_cluster_control_plane_unhealthy: "true"
+            cancel_if_outside_working_hours: "true"
+            severity: notify
+            team: {{ .Values.prometheusRules.team }}
+            topic: mcp
+        {{- end }}
+    {{- end }}
+{{- end }}

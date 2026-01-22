@@ -1,0 +1,67 @@
+# Example values for Giant Swarm Grafana Dashboard integration
+#
+# This configuration enables the mcp-kubernetes Grafana dashboards with
+# Giant Swarm's observability stack integration.
+#
+# Giant Swarm's dashboard management automatically discovers ConfigMaps with
+# the label 'app.giantswarm.io/kind: dashboard' and provisions them to the
+# configured Grafana organization.
+#
+# See: https://docs.giantswarm.io/overview/observability/dashboard-management/dashboard-creation/
+#
+# Prerequisites:
+#   1. Prometheus must be scraping mcp-kubernetes metrics
+#   2. Giant Swarm's observability stack must be deployed
+#
+# Usage:
+#   helm upgrade --install mcp-kubernetes ./helm/mcp-kubernetes \
+#     -f values-grafana-dashboards-giantswarm.yaml \
+#     --set grafanaDashboards.giantswarm.organization=my-organization
+#
+# WARNING: You MUST set grafanaDashboards.giantswarm.organization to your
+# organization name, otherwise dashboards will be provisioned to the default
+# Grafana organization.
+
+grafanaDashboards:
+  # Enable Grafana dashboard provisioning
+  enabled: true
+
+  # Giant Swarm specific configuration
+  giantswarm:
+    # Enable Giant Swarm dashboard integration
+    # This adds the required label: app.giantswarm.io/kind: dashboard
+    enabled: true
+
+    # Organization name for Grafana organization targeting
+    # The dashboard will be provisioned to this Grafana organization.
+    # Must match an existing organization's display name in Giant Swarm Grafana.
+    #
+    # !!! REQUIRED: Set this to your organization name !!!
+    # Example: organization: "my-team" or organization: "giantswarm"
+    # If left empty, dashboards go to the default org (likely not what you want)
+    organization: ""
+
+  # Labels for dashboard ConfigMaps
+  # The grafana_dashboard label is kept for compatibility with standard Grafana sidecar
+  labels:
+    grafana_dashboard: "1"
+
+  # Grafana folder name for organizing dashboards
+  folder: "mcp-kubernetes"
+
+  # Individual dashboard toggles
+  dashboards:
+    # Platform Administrator Dashboard
+    # Monitor service health, performance, and Kubernetes operations
+    administrator:
+      enabled: true
+
+    # Security Operations Dashboard
+    # Incident investigation, audit trails, and anomaly detection
+    security:
+      enabled: true
+
+    # Cluster Operator Dashboard
+    # Multi-cluster federation visibility and workload cluster operations
+    clusterOperator:
+      enabled: true
