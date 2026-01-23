@@ -752,8 +752,14 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 		s.healthChecker.RegisterHealthEndpoints(mux)
 	}
 
-	// Create HTTP server with security and CORS middleware
-	handler := middleware.SecurityHeaders(config.EnableHSTS)(middleware.CORS(allowedOrigins)(mux))
+	// Create HTTP server with security, CORS, and metrics middleware
+	// Order: Metrics (outermost) -> Security Headers -> CORS -> Handler
+	// Metrics middleware wraps everything to capture all request metrics
+	handler := middleware.HTTPMetrics(s.instrumentationProvider)(
+		middleware.SecurityHeaders(config.EnableHSTS)(
+			middleware.CORS(allowedOrigins)(mux),
+		),
+	)
 
 	s.httpServer = &http.Server{
 		Addr:              addr,

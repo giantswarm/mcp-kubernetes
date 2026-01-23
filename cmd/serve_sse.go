@@ -11,6 +11,7 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
 
 // runSSEServer runs the server with SSE transport
@@ -46,6 +47,10 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	fmt.Printf("  SSE endpoint: %s\n", sseEndpoint)
 	fmt.Printf("  Message endpoint: %s\n", messageEndpoint)
 
+	// Apply HTTP metrics middleware to record request metrics
+	var handler http.Handler = mux
+	handler = middleware.HTTPMetrics(provider)(handler)
+
 	// Start metrics server if enabled
 	var metricsServer *server.MetricsServer
 	if metricsConfig.Enabled && provider != nil && provider.Enabled() {
@@ -59,7 +64,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	// Create HTTP server with security timeouts
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,

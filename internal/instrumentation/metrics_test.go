@@ -622,3 +622,226 @@ func TestMetrics_CacheMetrics_NilMetrics(t *testing.T) {
 	metrics.RecordCacheEviction(ctx, "expired")
 	metrics.SetCacheSize(ctx, 42)
 }
+
+// SSO Token Injection metrics tests
+
+func TestMetrics_RecordSSOTokenInjection(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, false)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Test all result values
+	metrics.RecordSSOTokenInjection(ctx, "success")
+	metrics.RecordSSOTokenInjection(ctx, "oauth_success")
+	metrics.RecordSSOTokenInjection(ctx, "no_token")
+	metrics.RecordSSOTokenInjection(ctx, "no_user")
+	metrics.RecordSSOTokenInjection(ctx, "no_store")
+	metrics.RecordSSOTokenInjection(ctx, "lookup_failed")
+}
+
+func TestMetrics_RecordSSOTokenInjection_NilMetrics(t *testing.T) {
+	metrics := &Metrics{}
+	ctx := context.Background()
+
+	// Should not panic with nil metrics
+	metrics.RecordSSOTokenInjection(ctx, "success")
+}
+
+func TestMetrics_ConcurrentSSOTokenInjectionRecording(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, false)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+	results := []string{"success", "oauth_success", "no_token", "no_user", "no_store", "lookup_failed"}
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			result := results[id%len(results)]
+			metrics.RecordSSOTokenInjection(ctx, result)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// Privileged Secret Access metrics tests
+
+func TestMetrics_RecordPrivilegedSecretAccess(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, false)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Test all result values
+	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "success")
+	metrics.RecordPrivilegedSecretAccess(ctx, "example.com", "error")
+	metrics.RecordPrivilegedSecretAccess(ctx, "other.org", "rate_limited")
+	metrics.RecordPrivilegedSecretAccess(ctx, "internal.io", "fallback")
+}
+
+func TestMetrics_RecordPrivilegedSecretAccess_NilMetrics(t *testing.T) {
+	metrics := &Metrics{}
+	ctx := context.Background()
+
+	// Should not panic with nil metrics
+	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "success")
+}
+
+func TestMetrics_ConcurrentPrivilegedSecretAccessRecording(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, false)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+	domains := []string{"giantswarm.io", "example.com", "other.org"}
+	results := []string{"success", "error", "rate_limited", "fallback"}
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			domain := domains[id%len(domains)]
+			result := results[id%len(results)]
+			metrics.RecordPrivilegedSecretAccess(ctx, domain, result)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// Workload Cluster Auth metrics tests
+
+func TestMetrics_RecordWorkloadClusterAuth(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, false)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Test impersonation auth mode
+	metrics.RecordWorkloadClusterAuth(ctx, "impersonation", "prod-wc-01", "success")
+	metrics.RecordWorkloadClusterAuth(ctx, "impersonation", "staging-cluster", "error")
+	metrics.RecordWorkloadClusterAuth(ctx, "impersonation", "dev-cluster", "token_missing")
+
+	// Test SSO passthrough auth mode
+	metrics.RecordWorkloadClusterAuth(ctx, "sso-passthrough", "prod-wc-01", "success")
+	metrics.RecordWorkloadClusterAuth(ctx, "sso-passthrough", "staging-cluster", "error")
+	metrics.RecordWorkloadClusterAuth(ctx, "sso-passthrough", "new-cluster", "token_missing")
+
+	// Test with management cluster (empty name)
+	metrics.RecordWorkloadClusterAuth(ctx, "impersonation", "", "success")
+}
+
+func TestMetrics_RecordWorkloadClusterAuth_NilMetrics(t *testing.T) {
+	metrics := &Metrics{}
+	ctx := context.Background()
+
+	// Should not panic with nil metrics
+	metrics.RecordWorkloadClusterAuth(ctx, "impersonation", "prod-wc-01", "success")
+}
+
+func TestMetrics_ConcurrentWorkloadClusterAuthRecording(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, false)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	ctx := context.Background()
+	const numGoroutines = 100
+	authModes := []string{"impersonation", "sso-passthrough"}
+	clusters := []string{"prod-wc-01", "staging-cluster", "dev-cluster", ""}
+	results := []string{"success", "error", "token_missing"}
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			authMode := authModes[id%len(authModes)]
+			cluster := clusters[id%len(clusters)]
+			result := results[id%len(results)]
+			metrics.RecordWorkloadClusterAuth(ctx, authMode, cluster, result)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// Test that all CAPI/Federation metrics are initialized
+
+func TestNewMetrics_AllMetricsInitialized(t *testing.T) {
+	meter := mockMeterProvider()
+	metrics, err := NewMetrics(meter, false)
+	if err != nil {
+		t.Fatalf("expected no error creating metrics, got %v", err)
+	}
+
+	// Verify ALL metrics are initialized (comprehensive check)
+	checks := []struct {
+		name string
+		ptr  interface{}
+	}{
+		// HTTP metrics
+		{"httpRequestsTotal", metrics.httpRequestsTotal},
+		{"httpRequestDuration", metrics.httpRequestDuration},
+		{"activeSessions", metrics.activeSessions},
+
+		// Kubernetes operation metrics
+		{"k8sOperationsTotal", metrics.k8sOperationsTotal},
+		{"k8sOperationDuration", metrics.k8sOperationDuration},
+		{"k8sPodOperationsTotal", metrics.k8sPodOperationsTotal},
+		{"k8sPodOperationDuration", metrics.k8sPodOperationDuration},
+
+		// OAuth metrics
+		{"oauthDownstreamAuthTotal", metrics.oauthDownstreamAuthTotal},
+		{"oauthSSOTokenInjectionTotal", metrics.oauthSSOTokenInjectionTotal},
+
+		// Cache metrics
+		{"clientCacheHitsTotal", metrics.clientCacheHitsTotal},
+		{"clientCacheMissesTotal", metrics.clientCacheMissesTotal},
+		{"clientCacheEvictionsTotal", metrics.clientCacheEvictionsTotal},
+		{"clientCacheSize", metrics.clientCacheSize},
+
+		// CAPI/Federation metrics
+		{"clusterOperationsTotal", metrics.clusterOperationsTotal},
+		{"clusterOperationDuration", metrics.clusterOperationDuration},
+		{"impersonationTotal", metrics.impersonationTotal},
+		{"federationClientCreations", metrics.federationClientCreations},
+
+		// Privileged access metrics
+		{"privilegedSecretAccessTotal", metrics.privilegedSecretAccessTotal},
+
+		// Workload cluster auth metrics
+		{"wcAuthTotal", metrics.wcAuthTotal},
+	}
+
+	for _, check := range checks {
+		if check.ptr == nil {
+			t.Errorf("expected %s to be initialized, got nil", check.name)
+		}
+	}
+}
