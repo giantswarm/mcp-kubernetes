@@ -65,7 +65,11 @@ func TestAllMetricsExposedViaPrometheus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metrics: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("Failed to close response body: %v", err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -306,7 +310,11 @@ func TestMetricLabelsAreRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metrics: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("Failed to close response body: %v", err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -394,7 +402,11 @@ func TestMetricsAreThreadSafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metrics after concurrent recording: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected 200 OK, got %d", resp.StatusCode)

@@ -83,7 +83,11 @@ func TestOAuthServerMetricsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metrics: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("Failed to close response body: %v", err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

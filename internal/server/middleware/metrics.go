@@ -57,8 +57,9 @@ func (rw *responseWriter) Flush() {
 // method/path/status combination.
 //
 // The middleware normalizes paths to prevent high cardinality:
-// - /mcp/{session_id} -> /mcp/:id (for session-based endpoints)
-// - UUID patterns are replaced with :id
+// - /mcp/{session_id} -> /mcp/:session (for session-based endpoints)
+// - UUID patterns are replaced with :uuid
+// - Numeric IDs are replaced with :id
 //
 // The provider parameter can be nil, in which case the middleware is a no-op
 // that just passes through to the next handler.

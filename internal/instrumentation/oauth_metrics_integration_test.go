@@ -73,7 +73,11 @@ func TestMCPOAuthMetricsExposedViaPrometheus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metrics: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("Failed to close response body: %v", err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -279,22 +283,8 @@ func recordMCPKubernetesMetrics(ctx context.Context, m *Metrics) {
 	m.RecordSSOTokenInjection(ctx, "no_token")
 }
 
-// containsMetricName checks if the Prometheus output contains a metric with the given name.
+// containsMetricName is an alias for containsMetric for clarity in OAuth-focused tests.
+// Both functions check if the Prometheus output contains a metric with the given name.
 func containsMetricName(metricsOutput, metricName string) bool {
-	lines := strings.Split(metricsOutput, "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		// Check for TYPE or HELP declarations
-		if strings.HasPrefix(line, "# TYPE "+metricName+" ") ||
-			strings.HasPrefix(line, "# HELP "+metricName+" ") {
-			return true
-		}
-		// Check for metric data lines (with or without labels)
-		if strings.HasPrefix(line, metricName+"{") || strings.HasPrefix(line, metricName+" ") {
-			return true
-		}
-	}
-	return false
+	return containsMetric(metricsOutput, metricName)
 }
