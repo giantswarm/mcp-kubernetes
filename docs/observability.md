@@ -96,48 +96,65 @@ rate(http_request_duration_seconds_sum{path="/mcp"}[5m])
 
 ### Kubernetes Operation Metrics
 
-#### `kubernetes_operations_total`
-Counter of Kubernetes operations.
+#### `mcp_kubernetes_operations_total`
+Counter of Kubernetes operations for both management and workload clusters.
 
 **Labels:**
+- `cluster_scope`: `management` or `workload`
+- `discovery_mode`: `single` or `capi`
+- `cluster_type`: Classified type (production, staging, other, management)
 - `operation`: Operation type (get, list, create, apply, delete, patch)
-- `resource_type`: Kubernetes resource type (pods, deployments, etc.)
-- `namespace`: Kubernetes namespace
 - `status`: Operation result (success, error)
+- `resource_type`: Kubernetes resource type (pods, deployments, etc.) **when detailed labels are enabled**
+- `namespace`: Kubernetes namespace **when detailed labels are enabled**
 
 **Example:**
 ```promql
-# Total pod operations in default namespace
-kubernetes_operations_total{resource_type="pods",namespace="default"}
+# Management cluster operations
+sum(rate(mcp_kubernetes_operations_total{
+  cluster_scope="management",
+  discovery_mode="single"
+}[5m]))
 
-# Error rate for deployments
-rate(kubernetes_operations_total{
+# Error rate for deployments (management cluster, detailed labels enabled)
+rate(mcp_kubernetes_operations_total{
+  cluster_scope="management",
+  discovery_mode="single",
   resource_type="deployments",
   status="error"
 }[5m])
 ```
 
-#### `kubernetes_operation_duration_seconds`
+#### `mcp_kubernetes_operation_duration_seconds`
 Histogram of Kubernetes operation durations.
 
 **Labels:**
+- `cluster_scope`: `management` or `workload`
+- `discovery_mode`: `single` or `capi`
+- `cluster_type`: Classified type (production, staging, other, management)
 - `operation`: Operation type
-- `resource_type`: Kubernetes resource type
+- `status`: Operation result (success, error)
+- `resource_type`: Kubernetes resource type **when detailed labels are enabled**
+- `namespace`: Kubernetes namespace **when detailed labels are enabled**
 
 **Buckets:** 0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0 seconds
 
 **Example:**
 ```promql
-# 99th percentile operation duration for pods
-histogram_quantile(0.99, 
-  rate(kubernetes_operation_duration_seconds_bucket{
-    resource_type="pods"
-  }[5m])
+# 99th percentile operation duration (workload clusters)
+histogram_quantile(0.99,
+  sum by (le) (rate(mcp_kubernetes_operation_duration_seconds_bucket{
+    cluster_scope="workload",
+    discovery_mode="capi"
+  }[5m]))
 )
 
 # Slow operations (>1s)
-histogram_quantile(0.5, 
-  rate(kubernetes_operation_duration_seconds_bucket[5m])
+histogram_quantile(0.5,
+  sum by (le) (rate(mcp_kubernetes_operation_duration_seconds_bucket{
+    cluster_scope="management",
+    discovery_mode="single"
+  }[5m]))
 ) > 1
 ```
 
@@ -209,11 +226,13 @@ avg_over_time(active_port_forward_sessions[1h])
 
 These metrics are specific to multi-cluster federation mode and use cardinality controls to prevent metric explosion.
 
-#### `mcp_cluster_operations_total`
+#### `mcp_kubernetes_operations_total` (workload scope)
 Counter of operations performed on remote clusters.
 
 **Labels:**
-- `cluster`: Classified cluster type (production, staging, development, management, other)
+- `cluster_scope`: `workload`
+- `discovery_mode`: `capi`
+- `cluster_type`: Classified cluster type (production, staging, other)
 - `operation`: Operation type (get, list, create, delete, etc.)
 - `status`: Operation result (success, error)
 
@@ -222,27 +241,44 @@ Counter of operations performed on remote clusters.
 **Example:**
 ```promql
 # Total operations on production clusters
-mcp_cluster_operations_total{cluster="production"}
+mcp_kubernetes_operations_total{
+  cluster_scope="workload",
+  discovery_mode="capi",
+  cluster_type="production"
+}
 
 # Error rate on remote clusters
-rate(mcp_cluster_operations_total{status="error"}[5m])
-/ rate(mcp_cluster_operations_total[5m])
+rate(mcp_kubernetes_operations_total{
+  cluster_scope="workload",
+  discovery_mode="capi",
+  status="error"
+}[5m])
+/ rate(mcp_kubernetes_operations_total{
+  cluster_scope="workload",
+  discovery_mode="capi"
+}[5m])
 ```
 
-#### `mcp_cluster_operation_duration_seconds`
+#### `mcp_kubernetes_operation_duration_seconds` (workload scope)
 Histogram of remote cluster operation durations.
 
 **Labels:**
-- `cluster`: Classified cluster type
+- `cluster_scope`: `workload`
+- `discovery_mode`: `capi`
+- `cluster_type`: Classified cluster type
 - `operation`: Operation type
 
-**Buckets:** 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0 seconds
+**Buckets:** 0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0 seconds
 
 **Example:**
 ```promql
 # P95 duration for production cluster operations
 histogram_quantile(0.95,
-  rate(mcp_cluster_operation_duration_seconds_bucket{cluster="production"}[5m])
+  rate(mcp_kubernetes_operation_duration_seconds_bucket{
+    cluster_scope="workload",
+    discovery_mode="capi",
+    cluster_type="production"
+  }[5m])
 )
 ```
 
@@ -352,9 +388,16 @@ mcp_client_cache_entries / 1000
 sum(rate(http_requests_total{status!~"5.."}[5m]))
 / sum(rate(http_requests_total[5m]))
 
-# Kubernetes API error rate
-sum(rate(kubernetes_operations_total{status="error"}[5m]))
-/ sum(rate(kubernetes_operations_total[5m]))
+# Kubernetes API error rate (management cluster)
+sum(rate(mcp_kubernetes_operations_total{
+  cluster_scope="management",
+  discovery_mode="single",
+  status="error"
+}[5m]))
+/ sum(rate(mcp_kubernetes_operations_total{
+  cluster_scope="management",
+  discovery_mode="single"
+}[5m]))
 ```
 
 ### Performance Monitoring
@@ -365,10 +408,13 @@ histogram_quantile(0.95,
   sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
 )
 
-# P95 Kubernetes operation duration
-histogram_quantile(0.95, 
+# P95 Kubernetes operation duration (management cluster)
+histogram_quantile(0.95,
   sum by (le, operation) (
-    rate(kubernetes_operation_duration_seconds_bucket[5m])
+    rate(mcp_kubernetes_operation_duration_seconds_bucket{
+      cluster_scope="management",
+      discovery_mode="single"
+    }[5m])
   )
 )
 ```
@@ -379,8 +425,11 @@ histogram_quantile(0.95,
 # Requests per second
 rate(http_requests_total[1m])
 
-# Kubernetes operations per second by type
-sum by (operation) (rate(kubernetes_operations_total[1m]))
+# Kubernetes operations per second by type (management cluster)
+sum by (operation) (rate(mcp_kubernetes_operations_total{
+  cluster_scope="management",
+  discovery_mode="single"
+}[1m]))
 ```
 
 ## Prometheus Scraping Configuration
@@ -443,9 +492,12 @@ groups:
 ```yaml
       - alert: SlowKubernetesOperations
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum by (le, operation) (
-              rate(kubernetes_operation_duration_seconds_bucket[5m])
+              rate(mcp_kubernetes_operation_duration_seconds_bucket{
+                cluster_scope="management",
+                discovery_mode="single"
+              }[5m])
             )
           ) > 2
         for: 10m
@@ -476,8 +528,15 @@ groups:
       - alert: HighClusterOperationErrorRate
         expr: |
           (
-            sum(rate(mcp_cluster_operations_total{status="error"}[5m]))
-            / sum(rate(mcp_cluster_operations_total[5m]))
+            sum(rate(mcp_kubernetes_operations_total{
+              cluster_scope="workload",
+              discovery_mode="capi",
+              status="error"
+            }[5m]))
+            / sum(rate(mcp_kubernetes_operations_total{
+              cluster_scope="workload",
+              discovery_mode="capi"
+            }[5m]))
           ) > 0.1
         for: 5m
         labels:
@@ -509,8 +568,11 @@ groups:
       - alert: SlowRemoteClusterOperations
         expr: |
           histogram_quantile(0.95,
-            sum by (le, cluster) (
-              rate(mcp_cluster_operation_duration_seconds_bucket[5m])
+            sum by (le, cluster_type) (
+              rate(mcp_kubernetes_operation_duration_seconds_bucket{
+                cluster_scope="workload",
+                discovery_mode="capi"
+              }[5m])
             )
           ) > 5
         for: 10m
@@ -619,7 +681,10 @@ All dashboards support these template variables:
 4. **Active Sessions**: `active_port_forward_sessions`
 5. **Kubernetes Operations by Type**: 
    ```promql
-   sum by (operation) (rate(kubernetes_operations_total[1m]))
+   sum by (operation) (rate(mcp_kubernetes_operations_total{
+     cluster_scope="management",
+     discovery_mode="single"
+   }[1m]))
    ```
 6. **Cache Hit Ratio**:
    ```promql

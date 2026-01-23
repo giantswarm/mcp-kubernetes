@@ -98,7 +98,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(kubernetes_operations_total{namespace=~\"$namespace\"}[24h]))",
+          "expr": "sum(increase(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"management\", discovery_mode=\"single\"}[24h]))",
           "legendFormat": "Operations",
           "refId": "A"
         }
@@ -165,7 +165,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(kubernetes_operations_total{namespace=~\"$namespace\", status=\"error\"}[24h]))",
+          "expr": "sum(increase(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"management\", discovery_mode=\"single\", status=\"error\"}[24h]))",
           "legendFormat": "Failures",
           "refId": "A"
         }

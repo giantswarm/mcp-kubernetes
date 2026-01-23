@@ -650,7 +650,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (operation) (rate(kubernetes_operations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (operation) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"management\", discovery_mode=\"single\"}[$__rate_interval]))",
           "legendFormat": "{{operation}}",
           "refId": "A"
         }
@@ -739,7 +739,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (operation) (rate(kubernetes_operations_total{namespace=~\"$namespace\", status=\"error\"}[$__rate_interval]))",
+          "expr": "sum by (operation) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"management\", discovery_mode=\"single\", status=\"error\"}[$__rate_interval]))",
           "legendFormat": "{{operation}} errors",
           "refId": "A"
         }
@@ -828,7 +828,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(kubernetes_operation_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(mcp_kubernetes_operation_duration_seconds_bucket{namespace=~\"$namespace\", cluster_scope=\"management\", discovery_mode=\"single\"}[$__rate_interval])))",
           "legendFormat": "{{operation}}",
           "refId": "A"
         }

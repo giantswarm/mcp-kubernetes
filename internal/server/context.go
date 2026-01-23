@@ -247,13 +247,13 @@ func (sc *ServerContext) OutputConfig() *OutputConfig {
 
 // RecordK8sOperation records a Kubernetes operation metric if instrumentation is enabled.
 // This is a convenience method that handles nil checks internally.
-func (sc *ServerContext) RecordK8sOperation(ctx context.Context, operation, resourceType, namespace, status string, duration time.Duration) {
+func (sc *ServerContext) RecordK8sOperation(ctx context.Context, clusterName, operation, resourceType, namespace, status string, duration time.Duration) {
 	sc.mu.RLock()
 	provider := sc.instrumentationProvider
 	sc.mu.RUnlock()
 
 	if provider != nil && provider.Enabled() {
-		provider.Metrics().RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
+		provider.Metrics().RecordK8sOperation(ctx, clusterName, operation, resourceType, namespace, status, duration)
 	}
 }
 

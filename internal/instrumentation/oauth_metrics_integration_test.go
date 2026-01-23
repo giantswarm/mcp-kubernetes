@@ -89,7 +89,7 @@ func TestMCPOAuthMetricsExposedViaPrometheus(t *testing.T) {
 	// These should always be present since we record them above
 	mcpK8sMetrics := []string{
 		"http_requests_total",
-		"kubernetes_operations_total",
+		"mcp_kubernetes_operations_total",
 		"oauth_downstream_auth_total",
 		"oauth_sso_token_injection_total",
 	}
@@ -278,8 +278,8 @@ func recordMCPKubernetesMetrics(ctx context.Context, m *Metrics) {
 	m.RecordHTTPRequest(ctx, "POST", "/mcp", 200, 100*time.Millisecond)
 
 	// Kubernetes operation metrics
-	m.RecordK8sOperation(ctx, OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
-	m.RecordK8sOperation(ctx, OperationList, "namespaces", "", StatusSuccess, 100*time.Millisecond)
+	m.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
+	m.RecordK8sOperation(ctx, "", OperationList, "namespaces", "", StatusSuccess, 100*time.Millisecond)
 
 	// OAuth downstream auth metrics (mcp-kubernetes, not mcp-oauth library)
 	m.RecordOAuthDownstreamAuth(ctx, OAuthResultSuccess)
