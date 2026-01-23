@@ -121,12 +121,12 @@ spec:
             runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-workload-cluster-auth-failures
           expr: |
             (
-              sum by (auth_mode) (rate(mcp_wc_auth_total{
+              sum by (auth_mode) (rate(mcp_kubernetes_wc_auth_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 result="error"
               }[15m]))
               /
-              sum by (auth_mode) (rate(mcp_wc_auth_total{
+              sum by (auth_mode) (rate(mcp_kubernetes_wc_auth_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}"
               }[15m]))
             ) > 0.3

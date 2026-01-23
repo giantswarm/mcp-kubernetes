@@ -299,7 +299,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(mcp_impersonation_total{namespace=~\"$namespace\", result=\"denied\"}[24h])) or vector(0)",
+          "expr": "sum(increase(mcp_kubernetes_impersonation_total{namespace=~\"$namespace\", result=\"denied\"}[24h])) or vector(0)",
           "legendFormat": "Denials",
           "refId": "A"
         }
@@ -358,7 +358,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(mcp_privileged_secret_access_total{namespace=~\"$namespace\"}[24h])) or vector(0)",
+          "expr": "sum(increase(mcp_kubernetes_privileged_secret_access_total{namespace=~\"$namespace\"}[24h])) or vector(0)",
           "legendFormat": "Secret Access",
           "refId": "A"
         }
@@ -527,7 +527,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (user_domain) (rate(mcp_impersonation_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (user_domain) (rate(mcp_kubernetes_impersonation_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{user_domain}}",
           "refId": "A"
         }
@@ -617,7 +617,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (user_domain) (rate(mcp_impersonation_total{namespace=~\"$namespace\", result=\"denied\"}[$__rate_interval]))",
+          "expr": "sum by (user_domain) (rate(mcp_kubernetes_impersonation_total{namespace=~\"$namespace\", result=\"denied\"}[$__rate_interval]))",
           "legendFormat": "{{user_domain}}",
           "refId": "A"
         }
@@ -706,7 +706,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster) (rate(mcp_impersonation_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (cluster) (rate(mcp_kubernetes_impersonation_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{cluster}}",
           "refId": "A"
         }
@@ -808,7 +808,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (user_domain) (rate(mcp_privileged_secret_access_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (user_domain) (rate(mcp_kubernetes_privileged_secret_access_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{user_domain}}",
           "refId": "A"
         }
@@ -898,7 +898,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (user_domain) (rate(mcp_privileged_secret_access_total{namespace=~\"$namespace\", result=\"rate_limited\"}[$__rate_interval]))",
+          "expr": "sum by (user_domain) (rate(mcp_kubernetes_privileged_secret_access_total{namespace=~\"$namespace\", result=\"rate_limited\"}[$__rate_interval]))",
           "legendFormat": "{{user_domain}}",
           "refId": "A"
         }
@@ -1689,7 +1689,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (auth_mode) (rate(mcp_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (auth_mode) (rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{auth_mode}}",
           "refId": "A"
         }
@@ -1794,7 +1794,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (result) (rate(mcp_wc_auth_total{namespace=~\"$namespace\", result=~\"token_.*\"}[$__rate_interval]))",
+          "expr": "sum by (result) (rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", result=~\"token_.*\"}[$__rate_interval]))",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -1883,7 +1883,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster_type) (rate(mcp_wc_auth_total{namespace=~\"$namespace\", result=\"error\"}[$__rate_interval]))",
+          "expr": "sum by (cluster_type) (rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", result=\"error\"}[$__rate_interval]))",
           "legendFormat": "{{cluster_type}}",
           "refId": "A"
         }

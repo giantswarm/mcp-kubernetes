@@ -21,6 +21,17 @@ type AuthMetricsRecorder interface {
 	// clusterName: Target cluster name
 	// result: "success", "error", "token_missing"
 	RecordWorkloadClusterAuth(ctx context.Context, authMode, clusterName, result string)
+
+	// RecordImpersonation records an impersonation request with cardinality controls.
+	// userEmail: User's email (will be reduced to domain by implementation)
+	// clusterName: Target cluster name (will be classified by implementation)
+	// result: "success", "error", "denied"
+	RecordImpersonation(ctx context.Context, userEmail, clusterName, result string)
+
+	// RecordFederationClientCreation records a federation client creation attempt.
+	// clusterName: Target cluster name (will be classified by implementation)
+	// result: "success", "error"
+	RecordFederationClientCreation(ctx context.Context, clusterName, result string)
 }
 
 // noopAuthMetricsRecorder is a no-op implementation of AuthMetricsRecorder.
@@ -28,6 +39,12 @@ type AuthMetricsRecorder interface {
 type noopAuthMetricsRecorder struct{}
 
 func (n *noopAuthMetricsRecorder) RecordWorkloadClusterAuth(context.Context, string, string, string) {
+}
+
+func (n *noopAuthMetricsRecorder) RecordImpersonation(context.Context, string, string, string) {
+}
+
+func (n *noopAuthMetricsRecorder) RecordFederationClientCreation(context.Context, string, string) {
 }
 
 // ClusterClientManager manages Kubernetes clients for multi-cluster operations.
@@ -684,6 +701,7 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	baseConfig, err := m.GetKubeconfigForCluster(ctx, clusterName, user)
 	if err != nil {
 		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
+		m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 		return nil, nil, nil, err
 	}
 
@@ -696,6 +714,7 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	if m.validateConnectivity {
 		if err := m.checkClusterConnectivity(ctx, clusterName, baseConfig); err != nil {
 			m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
+			m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 			return nil, nil, nil, err
 		}
 	}
@@ -704,10 +723,14 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	// The kubeconfig contains admin credentials; we impersonate the user
 	impersonatedConfig := ConfigWithImpersonation(baseConfig, user)
 
+	// Record impersonation metric - this tracks successful impersonation configuration
+	m.authMetrics.RecordImpersonation(ctx, user.Email, clusterName, "success")
+
 	// Create the clientset
 	clientset, err := kubernetes.NewForConfig(impersonatedConfig)
 	if err != nil {
 		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
+		m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("failed to create clientset for cluster %s: %w", clusterName, err)
 	}
 
@@ -715,6 +738,7 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	dynClient, err := dynamic.NewForConfig(impersonatedConfig)
 	if err != nil {
 		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "error")
+		m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("failed to create dynamic client for cluster %s: %w", clusterName, err)
 	}
 
@@ -723,8 +747,9 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 		"endpoint_type", GetEndpointType(baseConfig.Host),
 		UserHashAttr(user.Email))
 
-	// Record successful auth metric
+	// Record successful auth and client creation metrics
 	m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeImpersonation), clusterName, "success")
+	m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "success")
 
 	return clientset, dynClient, impersonatedConfig, nil
 }
@@ -735,10 +760,12 @@ func (m *Manager) createSSOPassthroughClient(ctx context.Context, clusterName st
 	// Validate SSO passthrough is properly configured
 	if m.ssoPassthroughConfig == nil {
 		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
+		m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("SSO passthrough mode enabled but no configuration provided")
 	}
 	if m.ssoPassthroughConfig.TokenExtractor == nil {
 		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
+		m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 		return nil, nil, nil, fmt.Errorf("SSO passthrough mode enabled but no token extractor configured")
 	}
 
@@ -751,6 +778,7 @@ func (m *Manager) createSSOPassthroughClient(ctx context.Context, clusterName st
 			result = "token_missing"
 		}
 		m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, result)
+		m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 		return nil, nil, nil, err
 	}
 
@@ -758,6 +786,7 @@ func (m *Manager) createSSOPassthroughClient(ctx context.Context, clusterName st
 	if m.validateConnectivity {
 		if err := m.checkClusterConnectivity(ctx, clusterName, restConfig); err != nil {
 			m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "error")
+			m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "error")
 			return nil, nil, nil, err
 		}
 	}
@@ -767,8 +796,9 @@ func (m *Manager) createSSOPassthroughClient(ctx context.Context, clusterName st
 		"endpoint_type", GetEndpointType(restConfig.Host),
 		UserHashAttr(user.Email))
 
-	// Record successful auth metric
+	// Record successful auth and client creation metrics
 	m.authMetrics.RecordWorkloadClusterAuth(ctx, string(WorkloadClusterAuthModeSSOPassthrough), clusterName, "success")
+	m.authMetrics.RecordFederationClientCreation(ctx, clusterName, "success")
 
 	return clientset, dynClient, restConfig, nil
 }

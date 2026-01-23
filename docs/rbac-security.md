@@ -605,20 +605,20 @@ Rate limiting protects against:
 Privileged secret access is instrumented with Prometheus metrics:
 
 ```
-# Metric: mcp_privileged_secret_access_total
+# Metric: mcp_kubernetes_privileged_secret_access_total
 # Labels: user_domain, result
 # Result values: success, error, rate_limited, fallback
 
 # Example queries:
 
 # Rate of privileged access attempts
-rate(mcp_privileged_secret_access_total[5m])
+rate(mcp_kubernetes_privileged_secret_access_total[5m])
 
 # Rate-limited requests (potential abuse)
-rate(mcp_privileged_secret_access_total{result="rate_limited"}[5m])
+rate(mcp_kubernetes_privileged_secret_access_total{result="rate_limited"}[5m])
 
 # Fallback to user credentials (weaker security, should be 0 in strict mode)
-rate(mcp_privileged_secret_access_total{result="fallback"}[5m])
+rate(mcp_kubernetes_privileged_secret_access_total{result="fallback"}[5m])
 ```
 
 ## References
