@@ -28,6 +28,12 @@ const (
 	// ClusterTypeDevelopment represents development clusters.
 	ClusterTypeDevelopment ClusterType = "development"
 
+	// ClusterTypeCICD represents CI/CD clusters (e.g., cicdprod, cicddev).
+	ClusterTypeCICD ClusterType = "cicd"
+
+	// ClusterTypeOperations represents operations/infrastructure clusters.
+	ClusterTypeOperations ClusterType = "operations"
+
 	// ClusterTypeManagement represents management clusters (empty cluster name).
 	ClusterTypeManagement ClusterType = "management"
 
@@ -46,6 +52,8 @@ const (
 //	| Pattern                          | Classification |
 //	|----------------------------------|----------------|
 //	| Empty string                     | management     |
+//	| Contains: cicd                   | cicd           |
+//	| Contains: operations, ops        | operations     |
 //	| Prefix: prod-, prod_             | production     |
 //	| Contains: production, -prod-     | production     |
 //	| Suffix: -prod                    | production     |
@@ -55,6 +63,11 @@ const (
 //	| Prefix: dev-, dev_               | development    |
 //	| Contains: development, -dev-     | development    |
 //	| Suffix: -dev                     | development    |
+//	| Prefix: demo (demo-, demotech)   | development    |
+//	| Contains: -demo-                 | development    |
+//	| Prefix: test-, test_             | development    |
+//	| Contains: -test-                 | development    |
+//	| Suffix: -test                    | development    |
 //	| Everything else                  | other          |
 //
 // # Customization
@@ -74,6 +87,12 @@ const (
 //	ClassifyClusterName("staging-test")       // "staging"
 //	ClassifyClusterName("stg-wc-01")          // "staging"
 //	ClassifyClusterName("dev-cluster")        // "development"
+//	ClassifyClusterName("cicdprod")           // "cicd"
+//	ClassifyClusterName("cicddev")            // "cicd"
+//	ClassifyClusterName("operations")         // "operations"
+//	ClassifyClusterName("infra-ops")          // "operations"
+//	ClassifyClusterName("demo-cluster")       // "development"
+//	ClassifyClusterName("test-wc-01")         // "development"
 //	ClassifyClusterName("my-cluster")         // "other"
 //	ClassifyClusterName("us-east-1-cluster")  // "other"
 func ClassifyClusterName(name string) string {
@@ -82,6 +101,20 @@ func ClassifyClusterName(name string) string {
 	}
 
 	nameLower := strings.ToLower(name)
+
+	// CI/CD patterns (check first as they often contain "prod" or "dev" in the name)
+	if strings.Contains(nameLower, "cicd") {
+		return string(ClusterTypeCICD)
+	}
+
+	// Operations patterns
+	if strings.Contains(nameLower, "operations") ||
+		strings.HasPrefix(nameLower, "ops-") ||
+		strings.HasPrefix(nameLower, "ops_") ||
+		strings.Contains(nameLower, "-ops-") ||
+		strings.HasSuffix(nameLower, "-ops") {
+		return string(ClusterTypeOperations)
+	}
 
 	// Production patterns
 	if strings.HasPrefix(nameLower, "prod-") ||
@@ -102,12 +135,18 @@ func ClassifyClusterName(name string) string {
 		return string(ClusterTypeStaging)
 	}
 
-	// Development patterns
+	// Development patterns (including demo and test clusters)
 	if strings.HasPrefix(nameLower, "dev-") ||
 		strings.HasPrefix(nameLower, "dev_") ||
 		strings.Contains(nameLower, "development") ||
 		strings.Contains(nameLower, "-dev-") ||
-		strings.HasSuffix(nameLower, "-dev") {
+		strings.HasSuffix(nameLower, "-dev") ||
+		strings.HasPrefix(nameLower, "demo") || // matches demo-, demo_, demotech, etc.
+		strings.Contains(nameLower, "-demo-") ||
+		strings.HasPrefix(nameLower, "test-") ||
+		strings.HasPrefix(nameLower, "test_") ||
+		strings.Contains(nameLower, "-test-") ||
+		strings.HasSuffix(nameLower, "-test") {
 		return string(ClusterTypeDevelopment)
 	}
 
