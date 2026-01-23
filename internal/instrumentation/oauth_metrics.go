@@ -63,6 +63,6 @@ func ExpectedMCPOAuthMetrics() []string {
 
 		// Storage metrics
 		"storage_clients_count",
-	"storage_tokens_count",
+		"storage_tokens_count",
 	}
 }
