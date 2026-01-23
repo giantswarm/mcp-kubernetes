@@ -89,6 +89,9 @@ type CAPIModeConfig struct {
 
 	// Workload cluster authentication configuration
 	WorkloadClusterAuth WorkloadClusterAuthConfig
+
+	// Privileged secret access configuration (split-credential model)
+	PrivilegedSecretAccess PrivilegedSecretAccessConfig
 }
 
 // WorkloadClusterAuthConfig configures how mcp-kubernetes authenticates to workload clusters.
@@ -118,6 +121,32 @@ type WorkloadClusterAuthConfig struct {
 	// Trade-off: Higher latency per request (no connection reuse).
 	// Default: false (caching enabled for better performance)
 	DisableCaching bool
+}
+
+// PrivilegedSecretAccessConfig configures the split-credential model for kubeconfig secret access.
+// When enabled, the ServiceAccount token is used for kubeconfig secret access instead of user OAuth tokens.
+// This prevents users from bypassing impersonation by extracting admin credentials via kubectl.
+type PrivilegedSecretAccessConfig struct {
+	// Strict mode: When enabled, fails instead of falling back to user credentials
+	// when ServiceAccount access is unavailable.
+	//
+	// SECURITY RECOMMENDATION:
+	// Enable this in production to enforce the split-credential security model.
+	// When disabled (default), the system falls back to user credentials,
+	// which may require users to have secret read permissions (weaker security).
+	//
+	// Default: false (fallback enabled for backward compatibility)
+	Strict bool
+
+	// RateLimitPerSecond is the rate limit for privileged access per user (requests/second).
+	// Prevents abuse by limiting how often a user can trigger ServiceAccount-based secret access.
+	// Default: 10.0
+	RateLimitPerSecond float64
+
+	// RateLimitBurst is the burst size for privileged access per user.
+	// Allows short bursts of requests above the rate limit.
+	// Default: 20
+	RateLimitBurst int
 }
 
 // OAuthServeConfig holds OAuth-specific configuration.

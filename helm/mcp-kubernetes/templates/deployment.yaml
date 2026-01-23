@@ -295,6 +295,23 @@ spec:
               value: "true"
             {{- end }}
             {{- end }}
+            # Privileged Secret Access Configuration (split-credential model)
+            {{- if .Values.capiMode.privilegedSecretAccess }}
+            {{- if .Values.capiMode.privilegedSecretAccess.strict }}
+            - name: PRIVILEGED_SECRET_ACCESS_STRICT
+              value: "true"
+            {{- end }}
+            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit }}
+            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit.perSecond }}
+            - name: PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND
+              value: {{ .Values.capiMode.privilegedSecretAccess.rateLimit.perSecond | quote }}
+            {{- end }}
+            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit.burst }}
+            - name: PRIVILEGED_SECRET_ACCESS_RATE_BURST
+              value: {{ .Values.capiMode.privilegedSecretAccess.rateLimit.burst | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             # Cache Configuration
             - name: CLIENT_CACHE_TTL
               value: {{ .Values.capiMode.cache.ttl | quote }}

@@ -562,3 +562,167 @@ func TestOAuthTrustedAudiencesEnvVar(t *testing.T) {
 		})
 	}
 }
+
+// TestParseFloatEnv tests float parsing from environment variable values
+func TestParseFloatEnv(t *testing.T) {
+	tests := []struct {
+		name          string
+		value         string
+		envName       string
+		expectedValue float64
+		expectedOk    bool
+	}{
+		{
+			name:          "valid positive float",
+			value:         "10.5",
+			envName:       "TEST_FLOAT",
+			expectedValue: 10.5,
+			expectedOk:    true,
+		},
+		{
+			name:          "valid integer as float",
+			value:         "42",
+			envName:       "TEST_FLOAT",
+			expectedValue: 42.0,
+			expectedOk:    true,
+		},
+		{
+			name:          "valid zero",
+			value:         "0",
+			envName:       "TEST_FLOAT",
+			expectedValue: 0.0,
+			expectedOk:    true,
+		},
+		{
+			name:          "valid negative float",
+			value:         "-5.5",
+			envName:       "TEST_FLOAT",
+			expectedValue: -5.5,
+			expectedOk:    true,
+		},
+		{
+			name:          "empty string",
+			value:         "",
+			envName:       "TEST_FLOAT",
+			expectedValue: 0,
+			expectedOk:    false,
+		},
+		{
+			name:          "invalid string",
+			value:         "not-a-number",
+			envName:       "TEST_FLOAT",
+			expectedValue: 0,
+			expectedOk:    false,
+		},
+		{
+			name:          "whitespace only",
+			value:         "   ",
+			envName:       "TEST_FLOAT",
+			expectedValue: 0,
+			expectedOk:    false,
+		},
+		{
+			name:          "valid scientific notation",
+			value:         "1.5e2",
+			envName:       "TEST_FLOAT",
+			expectedValue: 150.0,
+			expectedOk:    true,
+		},
+		{
+			name:          "valid small float",
+			value:         "0.001",
+			envName:       "TEST_FLOAT",
+			expectedValue: 0.001,
+			expectedOk:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test parseFloat64Env
+			result64, ok64 := parseFloat64Env(tt.value, tt.envName)
+			assert.Equal(t, tt.expectedOk, ok64, "parseFloat64Env ok mismatch")
+			if tt.expectedOk {
+				assert.InDelta(t, tt.expectedValue, result64, 0.0001, "parseFloat64Env value mismatch")
+			}
+
+			// Test parseFloat32Env (same behavior, different precision)
+			result32, ok32 := parseFloat32Env(tt.value, tt.envName)
+			assert.Equal(t, tt.expectedOk, ok32, "parseFloat32Env ok mismatch")
+			if tt.expectedOk {
+				assert.InDelta(t, float32(tt.expectedValue), result32, 0.0001, "parseFloat32Env value mismatch")
+			}
+		})
+	}
+}
+
+// TestParseIntEnv tests integer parsing from environment variable values
+func TestParseIntEnv(t *testing.T) {
+	tests := []struct {
+		name          string
+		value         string
+		envName       string
+		expectedValue int
+		expectedOk    bool
+	}{
+		{
+			name:          "valid positive integer",
+			value:         "42",
+			envName:       "TEST_INT",
+			expectedValue: 42,
+			expectedOk:    true,
+		},
+		{
+			name:          "valid zero",
+			value:         "0",
+			envName:       "TEST_INT",
+			expectedValue: 0,
+			expectedOk:    true,
+		},
+		{
+			name:          "valid negative integer",
+			value:         "-10",
+			envName:       "TEST_INT",
+			expectedValue: -10,
+			expectedOk:    true,
+		},
+		{
+			name:          "empty string",
+			value:         "",
+			envName:       "TEST_INT",
+			expectedValue: 0,
+			expectedOk:    false,
+		},
+		{
+			name:          "invalid string",
+			value:         "not-a-number",
+			envName:       "TEST_INT",
+			expectedValue: 0,
+			expectedOk:    false,
+		},
+		{
+			name:          "float value (invalid for int)",
+			value:         "10.5",
+			envName:       "TEST_INT",
+			expectedValue: 0,
+			expectedOk:    false,
+		},
+		{
+			name:          "whitespace only",
+			value:         "   ",
+			envName:       "TEST_INT",
+			expectedValue: 0,
+			expectedOk:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, ok := parseIntEnv(tt.value, tt.envName)
+			assert.Equal(t, tt.expectedOk, ok, "parseIntEnv ok mismatch")
+			if tt.expectedOk {
+				assert.Equal(t, tt.expectedValue, result, "parseIntEnv value mismatch")
+			}
+		})
+	}
+}

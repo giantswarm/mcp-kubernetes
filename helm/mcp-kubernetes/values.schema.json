@@ -733,6 +733,37 @@
               "description": "Disable client caching in sso-passthrough mode. Each request creates a fresh client with current SSO token. Recommended for high-security deployments to ensure token revocation takes effect immediately."
             }
           }
+        },
+        "privilegedSecretAccess": {
+          "type": "object",
+          "description": "Privileged secret access configuration for split-credential model. When enabled, ServiceAccount token is used for kubeconfig secret access instead of user OAuth tokens, preventing users from bypassing impersonation by extracting admin credentials via kubectl.",
+          "properties": {
+            "strict": {
+              "type": "boolean",
+              "description": "When enabled, fails instead of falling back to user credentials when ServiceAccount access is unavailable. SECURITY RECOMMENDATION: Enable in production to enforce split-credential model.",
+              "default": false
+            },
+            "rateLimit": {
+              "type": "object",
+              "description": "Rate limiting for privileged secret access to prevent abuse",
+              "properties": {
+                "perSecond": {
+                  "type": "number",
+                  "description": "Rate limit per user (requests per second)",
+                  "default": 10.0,
+                  "minimum": 0.1,
+                  "maximum": 1000
+                },
+                "burst": {
+                  "type": "integer",
+                  "description": "Burst size per user (allows short bursts above rate limit)",
+                  "default": 20,
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
         }
       }
     },

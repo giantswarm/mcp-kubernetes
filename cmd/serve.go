@@ -80,14 +80,14 @@ func parseIntEnv(value, envName string) (int, bool) {
 	return n, true
 }
 
-// parseFloat32Env parses a float32 from an environment variable value.
+// parseFloat64Env parses a float64 from an environment variable value.
 // Returns the parsed float and true if successful, or zero and false if parsing fails.
 // Logs a warning if the value is present but invalid.
-func parseFloat32Env(value, envName string) (float32, bool) {
+func parseFloat64Env(value, envName string) (float64, bool) {
 	if value == "" {
 		return 0, false
 	}
-	f, err := strconv.ParseFloat(value, 32)
+	f, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		slog.Warn("invalid float for environment variable",
 			"env", envName,
@@ -95,7 +95,14 @@ func parseFloat32Env(value, envName string) (float32, bool) {
 			"error", err)
 		return 0, false
 	}
-	return float32(f), true
+	return f, true
+}
+
+// parseFloat32Env parses a float32 from an environment variable value.
+// Delegates to parseFloat64Env and casts the result.
+func parseFloat32Env(value, envName string) (float32, bool) {
+	f, ok := parseFloat64Env(value, envName)
+	return float32(f), ok
 }
 
 // splitAndTrimAudiences splits a comma-separated string into a slice of trimmed audiences.
@@ -549,6 +556,7 @@ func runServe(config ServeConfig) error {
 
 	// Create federation manager if CAPI mode is enabled
 	var fedManager federation.ClusterClientManager
+	var hybridProvider *federation.HybridOAuthClientProvider // Track for cleanup
 	if config.CAPIMode.Enabled {
 		// CAPI mode requires downstream OAuth and in-cluster mode
 		if !config.DownstreamOAuth {
@@ -571,6 +579,31 @@ func runServe(config ServeConfig) error {
 		if instrumentationProvider.Enabled() {
 			oauthProvider.SetMetrics(instrumentationProvider.Metrics())
 		}
+
+		// Create HybridOAuthClientProvider for split-credential model
+		// This wraps the OAuth provider with ServiceAccount-based secret access
+		hybridConfig := &federation.HybridOAuthClientProviderConfig{
+			UserProvider:           oauthProvider,
+			StrictPrivilegedAccess: config.CAPIMode.PrivilegedSecretAccess.Strict,
+			RateLimitPerSecond:     config.CAPIMode.PrivilegedSecretAccess.RateLimitPerSecond,
+			RateLimitBurst:         config.CAPIMode.PrivilegedSecretAccess.RateLimitBurst,
+		}
+
+		hybridProvider, err = federation.NewHybridOAuthClientProvider(hybridConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create hybrid OAuth client provider: %w", err)
+		}
+
+		// Set privileged access metrics if instrumentation is enabled
+		if instrumentationProvider.Enabled() {
+			hybridProvider.SetPrivilegedAccessMetrics(instrumentationProvider.Metrics())
+		}
+
+		// Log the privileged access configuration (using provider's actual values after defaults applied)
+		slog.Info("privileged secret access enabled (split-credential model)",
+			"strict_mode", hybridProvider.StrictPrivilegedAccess(),
+			"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
+			"rate_limit_burst", hybridProvider.RateLimitBurst())
 
 		// Build federation manager options
 		var managerOpts []federation.ManagerOption
@@ -714,8 +747,8 @@ func runServe(config ServeConfig) error {
 			managerOpts = append(managerOpts, federation.WithAuthMetrics(instrumentationProvider.Metrics()))
 		}
 
-		// Create federation manager
-		fedManager, err = federation.NewManager(oauthProvider, managerOpts...)
+		// Create federation manager with the hybrid provider for split-credential model
+		fedManager, err = federation.NewManager(hybridProvider, managerOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to create federation manager: %w", err)
 		}
@@ -743,6 +776,10 @@ func runServe(config ServeConfig) error {
 					slog.Error("error during federation manager shutdown", "error", err)
 				}
 			}
+		}
+		// Close hybrid provider (stops background goroutine)
+		if hybridProvider != nil {
+			hybridProvider.Close()
 		}
 	}()
 
@@ -1033,6 +1070,17 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	}
 	if os.Getenv("WC_DISABLE_CACHING") == envValueTrue {
 		config.WorkloadClusterAuth.DisableCaching = true
+	}
+
+	// Privileged secret access configuration (split-credential model)
+	if os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
+		config.PrivilegedSecretAccess.Strict = true
+	}
+	if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"); ok {
+		config.PrivilegedSecretAccess.RateLimitPerSecond = f
+	}
+	if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_BURST"), "PRIVILEGED_SECRET_ACCESS_RATE_BURST"); ok {
+		config.PrivilegedSecretAccess.RateLimitBurst = n
 	}
 
 	// Cache configuration - store as strings for later validation
