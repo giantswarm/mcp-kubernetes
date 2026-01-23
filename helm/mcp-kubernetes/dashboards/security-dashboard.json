@@ -232,7 +232,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(oauth_rate_limit_exceeded{namespace=~\"$namespace\"}[24h])) or vector(0)",
+          "expr": "sum(increase(oauth_rate_limit_exceeded_total{namespace=~\"$namespace\"}[24h])) or vector(0)",
           "legendFormat": "Rate Limit Violations",
           "refId": "A"
         }
@@ -1000,7 +1000,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (limiter_type) (rate(oauth_rate_limit_exceeded{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (limiter_type) (rate(oauth_rate_limit_exceeded_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{limiter_type}}",
           "refId": "A"
         }
@@ -1089,7 +1089,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (category) (rate(oauth_redirect_uri_security_rejected{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (category) (rate(oauth_redirect_uri_security_rejected_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{category}}",
           "refId": "A"
         }
@@ -1209,7 +1209,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(oauth_code_reuse_detected{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum(rate(oauth_code_reuse_detected_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "Code Reuse",
           "refId": "A"
         },
@@ -1218,7 +1218,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(oauth_token_reuse_detected{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum(rate(oauth_token_reuse_detected_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "Token Reuse",
           "refId": "B"
         }
@@ -1307,7 +1307,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (method) (rate(oauth_pkce_validation_failed{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (method) (rate(oauth_pkce_validation_failed_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{method}}",
           "refId": "A"
         }
@@ -1409,7 +1409,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (client_type) (rate(oauth_client_registered{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (client_type) (rate(oauth_client_registered_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{client_type}}",
           "refId": "A"
         }

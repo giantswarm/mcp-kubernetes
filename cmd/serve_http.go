@@ -11,6 +11,7 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
 
 // runStreamableHTTPServer runs the server with Streamable HTTP transport
@@ -37,6 +38,10 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	fmt.Printf("Streamable HTTP server starting on %s\n", addr)
 	fmt.Printf("  HTTP endpoint: %s\n", endpoint)
 
+	// Apply HTTP metrics middleware to record request metrics
+	var handler http.Handler = mux
+	handler = middleware.HTTPMetrics(provider)(handler)
+
 	// Start metrics server if enabled
 	var metricsServer *server.MetricsServer
 	if metricsConfig.Enabled && provider != nil && provider.Enabled() {
@@ -50,7 +55,7 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	// Create HTTP server with security timeouts
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,
