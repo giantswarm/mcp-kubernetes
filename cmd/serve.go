@@ -80,24 +80,6 @@ func parseIntEnv(value, envName string) (int, bool) {
 	return n, true
 }
 
-// parseFloat32Env parses a float32 from an environment variable value.
-// Returns the parsed float and true if successful, or zero and false if parsing fails.
-// Logs a warning if the value is present but invalid.
-func parseFloat32Env(value, envName string) (float32, bool) {
-	if value == "" {
-		return 0, false
-	}
-	f, err := strconv.ParseFloat(value, 32)
-	if err != nil {
-		slog.Warn("invalid float for environment variable",
-			"env", envName,
-			"value", value,
-			"error", err)
-		return 0, false
-	}
-	return float32(f), true
-}
-
 // parseFloat64Env parses a float64 from an environment variable value.
 // Returns the parsed float and true if successful, or zero and false if parsing fails.
 // Logs a warning if the value is present but invalid.
@@ -114,6 +96,13 @@ func parseFloat64Env(value, envName string) (float64, bool) {
 		return 0, false
 	}
 	return f, true
+}
+
+// parseFloat32Env parses a float32 from an environment variable value.
+// Delegates to parseFloat64Env and casts the result.
+func parseFloat32Env(value, envName string) (float32, bool) {
+	f, ok := parseFloat64Env(value, envName)
+	return float32(f), ok
 }
 
 // splitAndTrimAudiences splits a comma-separated string into a slice of trimmed audiences.
@@ -610,11 +599,11 @@ func runServe(config ServeConfig) error {
 			hybridProvider.SetPrivilegedAccessMetrics(instrumentationProvider.Metrics())
 		}
 
-		// Log the privileged access configuration
-		slog.Info("Privileged secret access enabled (split-credential model)",
-			"strict_mode", config.CAPIMode.PrivilegedSecretAccess.Strict,
-			"rate_limit_per_second", hybridConfig.RateLimitPerSecond,
-			"rate_limit_burst", hybridConfig.RateLimitBurst)
+		// Log the privileged access configuration (using provider's actual values after defaults applied)
+		slog.Info("privileged secret access enabled (split-credential model)",
+			"strict_mode", hybridProvider.StrictPrivilegedAccess(),
+			"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
+			"rate_limit_burst", hybridProvider.RateLimitBurst())
 
 		// Build federation manager options
 		var managerOpts []federation.ManagerOption

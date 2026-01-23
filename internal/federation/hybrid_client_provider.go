@@ -263,6 +263,21 @@ func (p *HybridOAuthClientProvider) Close() {
 	})
 }
 
+// RateLimitPerSecond returns the configured rate limit per second (after applying defaults).
+func (p *HybridOAuthClientProvider) RateLimitPerSecond() float64 {
+	return p.rateLimitPerSecond
+}
+
+// RateLimitBurst returns the configured burst size (after applying defaults).
+func (p *HybridOAuthClientProvider) RateLimitBurst() int {
+	return p.rateLimitBurst
+}
+
+// StrictPrivilegedAccess returns whether strict mode is enabled.
+func (p *HybridOAuthClientProvider) StrictPrivilegedAccess() bool {
+	return p.strictPrivilegedAccess
+}
+
 // rateLimiterCleanupLoop periodically removes expired rate limiters.
 func (p *HybridOAuthClientProvider) rateLimiterCleanupLoop() {
 	ticker := time.NewTicker(p.cleanupInterval)
