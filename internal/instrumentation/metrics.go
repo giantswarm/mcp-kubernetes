@@ -27,6 +27,18 @@ const (
 	attrUserDomain  = "user_domain"
 	attrClusterType = "cluster_type"
 	attrAuthMode    = "auth_mode"
+
+	// Kubernetes operation scope labels
+	attrClusterScope  = "cluster_scope"
+	attrDiscoveryMode = "discovery_mode"
+)
+
+const (
+	clusterScopeManagement = "management"
+	clusterScopeWorkload   = "workload"
+
+	discoveryModeSingle = "single"
+	discoveryModeCAPI   = "capi"
 )
 
 // Metrics provides methods for recording observability metrics.
@@ -36,7 +48,7 @@ type Metrics struct {
 	httpRequestDuration metric.Float64Histogram
 	activeSessions      metric.Int64UpDownCounter
 
-	// Kubernetes operation metrics
+	// Kubernetes operation metrics (management + workload)
 	k8sOperationsTotal      metric.Int64Counter
 	k8sOperationDuration    metric.Float64Histogram
 	k8sPodOperationsTotal   metric.Int64Counter
@@ -53,8 +65,6 @@ type Metrics struct {
 	clientCacheSize           metric.Int64Gauge
 
 	// CAPI/Federation metrics
-	clusterOperationsTotal    metric.Int64Counter
-	clusterOperationDuration  metric.Float64Histogram
 	impersonationTotal        metric.Int64Counter
 	federationClientCreations metric.Int64Counter
 
@@ -108,24 +118,24 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 		return nil, fmt.Errorf("failed to create active_port_forward_sessions gauge: %w", err)
 	}
 
-	// Kubernetes Operation Metrics
+	// Kubernetes Operation Metrics (management + workload)
 	m.k8sOperationsTotal, err = meter.Int64Counter(
-		"kubernetes_operations_total",
-		metric.WithDescription("Total number of Kubernetes operations"),
+		"mcp_kubernetes_operations_total",
+		metric.WithDescription("Total number of Kubernetes operations. Labels: cluster_scope, discovery_mode, cluster_type, operation, status"),
 		metric.WithUnit("{operation}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create kubernetes_operations_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_operations_total counter: %w", err)
 	}
 
 	m.k8sOperationDuration, err = meter.Float64Histogram(
-		"kubernetes_operation_duration_seconds",
-		metric.WithDescription("Kubernetes operation duration in seconds"),
+		"mcp_kubernetes_operation_duration_seconds",
+		metric.WithDescription("Kubernetes operation duration in seconds. Labels: cluster_scope, discovery_mode, cluster_type, operation, status"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create kubernetes_operation_duration_seconds histogram: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_operation_duration_seconds histogram: %w", err)
 	}
 
 	// Pod Operation Metrics
@@ -213,25 +223,6 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// Note on cardinality: These metrics use cardinality controls:
 	// - cluster_type instead of cluster_name (production/staging/other)
 	// - user_domain instead of full email (e.g., "giantswarm.io")
-	m.clusterOperationsTotal, err = meter.Int64Counter(
-		"mcp_cluster_operations_total",
-		metric.WithDescription("Total operations performed on remote clusters. Labels: cluster_type, operation, status"),
-		metric.WithUnit("{operation}"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_cluster_operations_total counter: %w", err)
-	}
-
-	m.clusterOperationDuration, err = meter.Float64Histogram(
-		"mcp_cluster_operation_duration_seconds",
-		metric.WithDescription("Duration of operations on remote clusters. Labels: cluster_type, operation"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_cluster_operation_duration_seconds histogram: %w", err)
-	}
-
 	m.impersonationTotal, err = meter.Int64Counter(
 		"mcp_impersonation_total",
 		metric.WithDescription("Total impersonation requests. Labels: user_domain, cluster_type, result"),
@@ -303,16 +294,12 @@ func (m *Metrics) RecordHTTPRequest(ctx context.Context, method, path string, st
 // When detailedLabels is true, namespace and resource_type are also included.
 // For large clusters with >1000 namespaces, keep detailedLabels disabled and use
 // traces for per-namespace/resource debugging instead.
-func (m *Metrics) RecordK8sOperation(ctx context.Context, operation, resourceType, namespace, status string, duration time.Duration) {
+func (m *Metrics) RecordK8sOperation(ctx context.Context, clusterName, operation, resourceType, namespace, status string, duration time.Duration) {
 	if m.k8sOperationsTotal == nil || m.k8sOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
-	// Always include operation and status (low cardinality)
-	attrs := []attribute.KeyValue{
-		attribute.String(attrOperation, operation),
-		attribute.String(attrStatus, status),
-	}
+	attrs := m.kubernetesOperationAttributes(clusterName, operation, status, resourceType, namespace)
 
 	// Only add high-cardinality labels if explicitly enabled
 	if m.detailedLabels {
@@ -465,9 +452,8 @@ func (m *Metrics) SetCacheSize(ctx context.Context, size int) {
 	m.clientCacheSize.Record(ctx, int64(size))
 }
 
-// RecordClusterOperation records a remote cluster operation with cardinality controls.
-// The clusterName is automatically classified into cluster types (production/staging/other)
-// to prevent cardinality explosion.
+// RecordClusterOperation records a workload cluster operation using the unified
+// mcp_kubernetes_* metrics with cluster_scope=workload and discovery_mode=capi.
 //
 // Parameters:
 //   - clusterName: Original cluster name (will be classified)
@@ -475,26 +461,33 @@ func (m *Metrics) SetCacheSize(ctx context.Context, size int) {
 //   - status: Result status ("success" or "error")
 //   - duration: Time taken for the operation
 func (m *Metrics) RecordClusterOperation(ctx context.Context, clusterName, operation, status string, duration time.Duration) {
-	if m.clusterOperationsTotal == nil || m.clusterOperationDuration == nil {
+	if m.k8sOperationsTotal == nil || m.k8sOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
-	clusterType := ClassifyClusterName(clusterName)
+	attrs := m.kubernetesOperationAttributes(clusterName, operation, status, "", "")
 
-	attrs := []attribute.KeyValue{
-		attribute.String(attrCluster, clusterType),
+	m.k8sOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+	m.k8sOperationDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+}
+
+func (m *Metrics) kubernetesOperationAttributes(clusterName, operation, status, resourceType, namespace string) []attribute.KeyValue {
+	clusterScope := clusterScopeManagement
+	discoveryMode := discoveryModeSingle
+	clusterType := clusterScopeManagement
+	if clusterName != "" {
+		clusterScope = clusterScopeWorkload
+		discoveryMode = discoveryModeCAPI
+		clusterType = ClassifyClusterName(clusterName)
+	}
+
+	return []attribute.KeyValue{
+		attribute.String(attrClusterScope, clusterScope),
+		attribute.String(attrDiscoveryMode, discoveryMode),
+		attribute.String(attrClusterType, clusterType),
 		attribute.String(attrOperation, operation),
 		attribute.String(attrStatus, status),
 	}
-
-	m.clusterOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
-
-	// Duration metrics don't need status label
-	durationAttrs := []attribute.KeyValue{
-		attribute.String(attrCluster, clusterType),
-		attribute.String(attrOperation, operation),
-	}
-	m.clusterOperationDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(durationAttrs...))
 }
 
 // RecordImpersonation records an impersonation request with cardinality controls.

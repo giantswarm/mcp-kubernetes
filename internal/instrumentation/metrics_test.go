@@ -106,9 +106,9 @@ func TestMetrics_RecordK8sOperation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	metrics.RecordK8sOperation(ctx, OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
-	metrics.RecordK8sOperation(ctx, OperationList, "deployments", "kube-system", StatusSuccess, 100*time.Millisecond)
-	metrics.RecordK8sOperation(ctx, OperationDelete, "pods", "default", StatusError, 75*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationList, "deployments", "kube-system", StatusSuccess, 100*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationDelete, "pods", "default", StatusError, 75*time.Millisecond)
 }
 
 func TestMetrics_RecordK8sOperation_NilMetrics(t *testing.T) {
@@ -116,7 +116,7 @@ func TestMetrics_RecordK8sOperation_NilMetrics(t *testing.T) {
 	ctx := context.Background()
 
 	// Should not panic
-	metrics.RecordK8sOperation(ctx, OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
 }
 
 func TestMetrics_RecordPodOperation(t *testing.T) {
@@ -288,7 +288,7 @@ func TestMetrics_ConcurrentK8sOperationRecording(t *testing.T) {
 			if id%3 == 0 {
 				namespace = "kube-system"
 			}
-			metrics.RecordK8sOperation(ctx, operation, "pods", namespace, StatusSuccess, 50*time.Millisecond)
+			metrics.RecordK8sOperation(ctx, "", operation, "pods", namespace, StatusSuccess, 50*time.Millisecond)
 		}(i)
 	}
 
@@ -394,12 +394,6 @@ func TestNewMetrics_CAPIMetricsInitialized(t *testing.T) {
 	}
 
 	// Verify CAPI-specific metrics are initialized
-	if metrics.clusterOperationsTotal == nil {
-		t.Error("expected clusterOperationsTotal to be initialized")
-	}
-	if metrics.clusterOperationDuration == nil {
-		t.Error("expected clusterOperationDuration to be initialized")
-	}
 	if metrics.impersonationTotal == nil {
 		t.Error("expected impersonationTotal to be initialized")
 	}
@@ -827,8 +821,6 @@ func TestNewMetrics_AllMetricsInitialized(t *testing.T) {
 		{"clientCacheSize", metrics.clientCacheSize},
 
 		// CAPI/Federation metrics
-		{"clusterOperationsTotal", metrics.clusterOperationsTotal},
-		{"clusterOperationDuration", metrics.clusterOperationDuration},
 		{"impersonationTotal", metrics.impersonationTotal},
 		{"federationClientCreations", metrics.federationClientCreations},
 

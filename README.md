@@ -171,8 +171,8 @@ OTEL_TRACES_SAMPLER_ARG=0.1
 **Available Metrics:**
 - `http_requests_total` - HTTP request counter
 - `http_request_duration_seconds` - HTTP request duration histogram
-- `kubernetes_operations_total` - Kubernetes operation counter
-- `kubernetes_operation_duration_seconds` - K8s operation duration histogram
+- `mcp_kubernetes_operations_total` - Kubernetes operation counter (management + workload scopes)
+- `mcp_kubernetes_operation_duration_seconds` - K8s operation duration histogram
 - `kubernetes_pod_operations_total` - Pod operation counter
 - `oauth_downstream_auth_total` - OAuth authentication counter
 - `active_port_forward_sessions` - Active port-forward sessions gauge

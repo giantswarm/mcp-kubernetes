@@ -56,13 +56,17 @@ spec:
             runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-k8s-operation-failures
           expr: |
             (
-              sum by (operation) (rate(kubernetes_operations_total{
+              sum by (operation) (rate(mcp_kubernetes_operations_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
+                cluster_scope="management",
+                discovery_mode="single",
                 status="error"
               }[15m]))
               /
-              sum by (operation) (rate(kubernetes_operations_total{
-                job="{{ include "mcp-kubernetes.fullname" . }}"
+              sum by (operation) (rate(mcp_kubernetes_operations_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}",
+                cluster_scope="management",
+                discovery_mode="single"
               }[15m]))
             ) > 0.2
           for: 15m
@@ -144,13 +148,17 @@ spec:
             runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-cluster-operation-failures
           expr: |
             (
-              sum by (operation) (rate(mcp_cluster_operations_total{
+              sum by (operation) (rate(mcp_kubernetes_operations_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
+                cluster_scope="workload",
+                discovery_mode="capi",
                 status="error"
               }[15m]))
               /
-              sum by (operation) (rate(mcp_cluster_operations_total{
-                job="{{ include "mcp-kubernetes.fullname" . }}"
+              sum by (operation) (rate(mcp_kubernetes_operations_total{
+                job="{{ include "mcp-kubernetes.fullname" . }}",
+                cluster_scope="workload",
+                discovery_mode="capi"
               }[15m]))
             ) > 0.3
           for: 15m

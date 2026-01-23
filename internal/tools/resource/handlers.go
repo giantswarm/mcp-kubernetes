@@ -21,8 +21,8 @@ import (
 
 // recordK8sOperation records metrics for a Kubernetes operation.
 // Delegates to ServerContext which handles nil checks internally.
-func recordK8sOperation(ctx context.Context, sc *server.ServerContext, operation, resourceType, namespace, status string, duration time.Duration) {
-	sc.RecordK8sOperation(ctx, operation, resourceType, namespace, status, duration)
+func recordK8sOperation(ctx context.Context, sc *server.ServerContext, clusterName, operation, resourceType, namespace, status string, duration time.Duration) {
+	sc.RecordK8sOperation(ctx, clusterName, operation, resourceType, namespace, status, duration)
 }
 
 // checkMutatingOperation is a convenience wrapper around tools.CheckMutatingOperation.
@@ -70,11 +70,11 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	duration := time.Since(start)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
 	processor := getOutputProcessor(sc)
@@ -203,7 +203,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	k8sDuration := time.Since(k8sStart)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusError, k8sDuration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusError, k8sDuration)
 		slog.Debug("K8s list failed",
 			slog.String("resourceType", resourceType),
 			slog.Duration("duration", k8sDuration),
@@ -232,7 +232,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 				slog.Int("filter_count", len(filterCriteria)))
 		}
 	}
-	recordK8sOperation(ctx, sc, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, k8sDuration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, k8sDuration)
 
 	// Get output processor for slim output and secret masking
 	processor := getOutputProcessor(sc)
@@ -330,11 +330,11 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	duration := time.Since(start)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to describe resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
 	processor := getOutputProcessor(sc)
@@ -415,11 +415,11 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 	}
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to create resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the created resource to JSON for output
 	jsonData, err := json.MarshalIndent(createdObj, "", "  ")
@@ -481,11 +481,11 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to apply resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the applied resource to JSON for output
 	jsonData, err := json.MarshalIndent(appliedObj, "", "  ")
@@ -536,11 +536,11 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 	duration := time.Since(start)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to delete resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the response to JSON for output (includes _meta)
 	jsonData, err := json.MarshalIndent(deleteResponse, "", "  ")
@@ -620,11 +620,11 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	duration := time.Since(start)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to patch resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
 	processor := getOutputProcessor(sc)
@@ -691,11 +691,11 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	duration := time.Since(start)
 
 	if err != nil {
-		recordK8sOperation(ctx, sc, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusError, duration)
+		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusError, duration)
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to scale resource: %v", err)), nil
 	}
 
-	recordK8sOperation(ctx, sc, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusSuccess, duration)
+	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Convert the scale response to JSON for output (includes _meta)
 	jsonData, err := json.MarshalIndent(scaleResponse, "", "  ")

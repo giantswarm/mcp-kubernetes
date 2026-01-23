@@ -16,11 +16,11 @@
 // Server/HTTP Metrics:
 //   - http_requests_total: Counter of HTTP requests by method, path, and status
 //   - http_request_duration_seconds: Histogram of HTTP request durations
-//   - active_sessions: Gauge of active port-forward sessions
+//   - active_port_forward_sessions: Gauge of active port-forward sessions
 //
 // Kubernetes Operation Metrics:
-//   - kubernetes_operations_total: Counter of K8s operations by operation, resource_type, namespace, status
-//   - kubernetes_operation_duration_seconds: Histogram of K8s operation durations
+//   - mcp_kubernetes_operations_total: Counter of K8s operations by cluster_scope, discovery_mode, cluster_type, operation, status
+//   - mcp_kubernetes_operation_duration_seconds: Histogram of K8s operation durations by cluster_scope, discovery_mode, cluster_type, operation, status
 //
 // Pod Operation Metrics:
 //   - kubernetes_pod_operations_total: Counter of pod operations
@@ -36,8 +36,8 @@
 // oauth.cimd.fetch.duration, oauth.cimd.cache.total
 //
 // CAPI/Federation Metrics (with cardinality controls):
-//   - mcp_cluster_operations_total: Counter of remote cluster operations (by cluster_type, operation, status)
-//   - mcp_cluster_operation_duration_seconds: Histogram of remote cluster operation durations
+//   - mcp_kubernetes_operations_total: Covers remote cluster operations with cluster_scope=workload and discovery_mode=capi
+//   - mcp_kubernetes_operation_duration_seconds: Histogram of operation durations for management/workload scopes
 //   - mcp_impersonation_total: Counter of impersonation requests (by user_domain, cluster_type, result)
 //   - mcp_federation_client_creations_total: Counter of federation client creation attempts
 //   - mcp_client_cache_hits_total: Counter of client cache hits
@@ -137,7 +137,7 @@
 //	recorder.RecordHTTPRequest(ctx, "POST", "/mcp", 200, time.Since(start))
 //
 //	// Record a Kubernetes operation
-//	recorder.RecordK8sOperation(ctx, "get", "pods", "default", "success", time.Since(start))
+//	recorder.RecordK8sOperation(ctx, "", "get", "pods", "default", "success", time.Since(start))
 //
 //	// Record a CAPI cluster operation with cardinality control
 //	recorder.RecordClusterOperation(ctx, "prod-wc-01", "list", "success", time.Since(start))
