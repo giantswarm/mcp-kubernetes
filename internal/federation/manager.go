@@ -451,7 +451,7 @@ func (m *Manager) GetRestConfig(ctx context.Context, clusterName string, user *U
 // The results are filtered based on the user's RBAC permissions - only clusters
 // in namespaces the user can access will be returned.
 //
-// This method queries CAPI Cluster resources (cluster.x-k8s.io/v1beta1) on the
+// This method queries CAPI Cluster resources (cluster.x-k8s.io/v1beta2) on the
 // Management Cluster and extracts metadata including:
 //   - Provider (AWS, Azure, vSphere, etc.)
 //   - Giant Swarm release version

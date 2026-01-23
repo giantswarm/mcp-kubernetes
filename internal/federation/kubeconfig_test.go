@@ -706,7 +706,7 @@ func TestRemoteClientWithKubeconfig(t *testing.T) {
 
 func TestCAPIClusterGVR(t *testing.T) {
 	assert.Equal(t, "cluster.x-k8s.io", CAPIClusterGVR.Group)
-	assert.Equal(t, "v1beta1", CAPIClusterGVR.Version)
+	assert.Equal(t, "v1beta2", CAPIClusterGVR.Version)
 	assert.Equal(t, "clusters", CAPIClusterGVR.Resource)
 }
 

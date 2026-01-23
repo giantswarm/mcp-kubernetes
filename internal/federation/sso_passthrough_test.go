@@ -53,7 +53,7 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 			clusterName: "test-cluster",
 			cluster: &unstructured.Unstructured{
 				Object: map[string]interface{}{
-					"apiVersion": "cluster.x-k8s.io/v1beta1",
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
 					"kind":       "Cluster",
 					"metadata": map[string]interface{}{
 						"name":      "test-cluster",
@@ -75,7 +75,7 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 			clusterName: "test-cluster",
 			cluster: &unstructured.Unstructured{
 				Object: map[string]interface{}{
-					"apiVersion": "cluster.x-k8s.io/v1beta1",
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
 					"kind":       "Cluster",
 					"metadata": map[string]interface{}{
 						"name":      "test-cluster",
@@ -96,7 +96,7 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 			clusterName: "nonexistent",
 			cluster: &unstructured.Unstructured{
 				Object: map[string]interface{}{
-					"apiVersion": "cluster.x-k8s.io/v1beta1",
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
 					"kind":       "Cluster",
 					"metadata": map[string]interface{}{
 						"name":      "other-cluster",
@@ -111,7 +111,7 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 			clusterName: "test-cluster",
 			cluster: &unstructured.Unstructured{
 				Object: map[string]interface{}{
-					"apiVersion": "cluster.x-k8s.io/v1beta1",
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
 					"kind":       "Cluster",
 					"metadata": map[string]interface{}{
 						"name":      "test-cluster",
