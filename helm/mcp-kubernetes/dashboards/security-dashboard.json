@@ -52,7 +52,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Total Kubernetes operations in the last 24 hours",
+      "description": "Total Kubernetes operations across all scopes (management + workload clusters) in the last 24 hours",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -98,7 +98,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"management\", discovery_mode=\"single\"}[24h]))",
+          "expr": "sum(increase(mcp_kubernetes_operations_total{namespace=~\"$namespace\"}[24h]))",
           "legendFormat": "Operations",
           "refId": "A"
         }
@@ -111,7 +111,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Failed operations in the last 24 hours",
+      "description": "Failed operations across all scopes (management + workload clusters) in the last 24 hours",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -165,7 +165,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"management\", discovery_mode=\"single\", status=\"error\"}[24h]))",
+          "expr": "sum(increase(mcp_kubernetes_operations_total{namespace=~\"$namespace\", status=\"error\"}[24h]))",
           "legendFormat": "Failures",
           "refId": "A"
         }
@@ -630,7 +630,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Impersonation requests by cluster type",
+      "description": "Impersonation requests by cluster classification",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -711,7 +711,7 @@
           "refId": "A"
         }
       ],
-      "title": "Impersonation by Cluster Type",
+      "title": "Impersonation by Cluster Classification",
       "type": "timeseries"
     },
     {
@@ -1807,7 +1807,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Auth errors by cluster type",
+      "description": "Auth errors by cluster classification",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1888,7 +1888,7 @@
           "refId": "A"
         }
       ],
-      "title": "Auth Errors by Cluster Type",
+      "title": "Auth Errors by Cluster Classification",
       "type": "timeseries"
     },
     {

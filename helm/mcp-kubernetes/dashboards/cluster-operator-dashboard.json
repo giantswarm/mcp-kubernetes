@@ -321,7 +321,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Operations rate by cluster type",
+      "description": "Operations rate by cluster classification (production, staging, development, cicd, operations, other)",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -402,7 +402,7 @@
           "refId": "A"
         }
       ],
-      "title": "Operations by Cluster Type",
+      "title": "Operations by Cluster Classification",
       "type": "timeseries"
     },
     {
@@ -410,7 +410,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Error rates by cluster type",
+      "description": "Error rates by cluster classification",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -491,7 +491,7 @@
           "refId": "A"
         }
       ],
-      "title": "Errors by Cluster Type",
+      "title": "Errors by Cluster Classification",
       "type": "timeseries"
     },
     {
@@ -499,7 +499,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "P95 operation duration by cluster type",
+      "description": "P95 operation duration by cluster classification",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -580,7 +580,7 @@
           "refId": "A"
         }
       ],
-      "title": "Operation Duration (P95) by Cluster",
+      "title": "Operation Duration (P95) by Cluster Classification",
       "type": "timeseries"
     },
     {
@@ -1257,7 +1257,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Auth result breakdown by cluster type",
+      "description": "Auth result breakdown by cluster classification",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1338,7 +1338,7 @@
           "refId": "A"
         }
       ],
-      "title": "Auth Results by Cluster Type",
+      "title": "Auth Results by Cluster Classification",
       "type": "timeseries"
     },
     {
@@ -1494,7 +1494,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Client creation by cluster type",
+      "description": "Client creation by cluster classification",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1575,7 +1575,7 @@
           "refId": "A"
         }
       ],
-      "title": "Client Creation by Cluster Type",
+      "title": "Client Creation by Cluster Classification",
       "type": "timeseries"
     }
   ],

@@ -97,6 +97,100 @@ func TestClassifyClusterName(t *testing.T) {
 			input:    "cluster-dev",
 			expected: ClusterTypeDevelopment,
 		},
+		// Demo patterns (development)
+		{
+			name:     "demo- prefix",
+			input:    "demo-cluster",
+			expected: ClusterTypeDevelopment,
+		},
+		{
+			name:     "demo_ prefix",
+			input:    "demo_test",
+			expected: ClusterTypeDevelopment,
+		},
+		{
+			name:     "contains -demo-",
+			input:    "us-east-demo-01",
+			expected: ClusterTypeDevelopment,
+		},
+		{
+			name:     "demo prefix without separator",
+			input:    "demotech-rds",
+			expected: ClusterTypeDevelopment,
+		},
+		// Test patterns (development)
+		{
+			name:     "test- prefix",
+			input:    "test-cluster",
+			expected: ClusterTypeDevelopment,
+		},
+		{
+			name:     "test_ prefix",
+			input:    "test_env",
+			expected: ClusterTypeDevelopment,
+		},
+		{
+			name:     "contains -test-",
+			input:    "us-west-test-01",
+			expected: ClusterTypeDevelopment,
+		},
+		{
+			name:     "ends with -test",
+			input:    "cluster-test",
+			expected: ClusterTypeDevelopment,
+		},
+		// CI/CD patterns
+		{
+			name:     "cicd prefix",
+			input:    "cicdprod",
+			expected: ClusterTypeCICD,
+		},
+		{
+			name:     "cicd prefix with dev",
+			input:    "cicddev",
+			expected: ClusterTypeCICD,
+		},
+		{
+			name:     "cicd- prefix",
+			input:    "cicd-cluster",
+			expected: ClusterTypeCICD,
+		},
+		{
+			name:     "contains cicd",
+			input:    "my-cicd-env",
+			expected: ClusterTypeCICD,
+		},
+		// Operations patterns
+		{
+			name:     "operations exact",
+			input:    "operations",
+			expected: ClusterTypeOperations,
+		},
+		{
+			name:     "contains operations",
+			input:    "my-operations-cluster",
+			expected: ClusterTypeOperations,
+		},
+		{
+			name:     "ops- prefix",
+			input:    "ops-cluster",
+			expected: ClusterTypeOperations,
+		},
+		{
+			name:     "ops_ prefix",
+			input:    "ops_infra",
+			expected: ClusterTypeOperations,
+		},
+		{
+			name:     "contains -ops-",
+			input:    "infra-ops-01",
+			expected: ClusterTypeOperations,
+		},
+		{
+			name:     "ends with -ops",
+			input:    "infra-ops",
+			expected: ClusterTypeOperations,
+		},
 		// Other (no pattern match)
 		{
 			name:     "random cluster name",
@@ -195,6 +289,8 @@ func TestClusterTypeConstants(t *testing.T) {
 		ClusterTypeProduction,
 		ClusterTypeStaging,
 		ClusterTypeDevelopment,
+		ClusterTypeCICD,
+		ClusterTypeOperations,
 		ClusterTypeManagement,
 		ClusterTypeOther,
 	}
@@ -205,7 +301,7 @@ func TestClusterTypeConstants(t *testing.T) {
 		}
 	}
 
-	// Verify we have 5 distinct constant values
+	// Verify we have 7 distinct constant values
 	seen := make(map[ClusterType]bool)
 	for _, c := range constants {
 		if seen[c] {
@@ -213,8 +309,8 @@ func TestClusterTypeConstants(t *testing.T) {
 		}
 		seen[c] = true
 	}
-	if len(seen) != 5 {
-		t.Errorf("Expected 5 unique ClusterType constants, got %d", len(seen))
+	if len(seen) != 7 {
+		t.Errorf("Expected 7 unique ClusterType constants, got %d", len(seen))
 	}
 }
 
