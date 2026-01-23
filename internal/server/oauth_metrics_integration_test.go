@@ -151,6 +151,7 @@ func TestOAuthMetricNamesConsistency(t *testing.T) {
 		"oauth_client_registered_total":              "Client registrations panel",
 		"oauth_cimd_fetch_total":                     "CIMD fetch operations panel",
 		"storage_clients_count":                      "Registered client count panel",
+		"storage_tokens_count":                       "Active tokens panel",
 	}
 
 	// Verify against the exported expected metrics list

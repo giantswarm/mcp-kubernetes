@@ -125,6 +125,7 @@ func TestMCPOAuthMetricsExposedViaPrometheus(t *testing.T) {
 		{"oauth_client_registered_total", "Client registrations by type"},
 		{"oauth_cimd_fetch_total", "CIMD (Client ID Metadata Document) fetch operations by result"},
 		{"storage_clients_count", "Current count of registered OAuth clients"},
+		{"storage_tokens_count", "Current count of active OAuth tokens"},
 	}
 
 	// Log which mcp-oauth metrics would be expected in production
@@ -208,6 +209,12 @@ func TestMCPOAuthMetricNamesMatchDashboard(t *testing.T) {
 		{
 			metricName:       "storage_clients_count",
 			dashboardPanel:   "Registered Client Count",
+			expectedLabels:   []string{},
+			isOAuthLibMetric: true,
+		},
+		{
+			metricName:       "storage_tokens_count",
+			dashboardPanel:   "Active Tokens (administrator-dashboard)",
 			expectedLabels:   []string{},
 			isOAuthLibMetric: true,
 		},
