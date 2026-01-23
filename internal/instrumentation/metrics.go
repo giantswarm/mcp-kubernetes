@@ -183,39 +183,39 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// high cardinality in environments with many clusters. Monitor your metrics
 	// backend capacity and consider aggregating by cluster if needed.
 	m.clientCacheHitsTotal, err = meter.Int64Counter(
-		"mcp_client_cache_hits_total",
+		"mcp_kubernetes_client_cache_hits_total",
 		metric.WithDescription("Total number of client cache hits. Label: cluster (may be high cardinality)"),
 		metric.WithUnit("{hit}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_client_cache_hits_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_client_cache_hits_total counter: %w", err)
 	}
 
 	m.clientCacheMissesTotal, err = meter.Int64Counter(
-		"mcp_client_cache_misses_total",
+		"mcp_kubernetes_client_cache_misses_total",
 		metric.WithDescription("Total number of client cache misses. Label: cluster (may be high cardinality)"),
 		metric.WithUnit("{miss}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_client_cache_misses_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_client_cache_misses_total counter: %w", err)
 	}
 
 	m.clientCacheEvictionsTotal, err = meter.Int64Counter(
-		"mcp_client_cache_evictions_total",
+		"mcp_kubernetes_client_cache_evictions_total",
 		metric.WithDescription("Total number of client cache evictions. Label: reason (expired, lru, manual)"),
 		metric.WithUnit("{eviction}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_client_cache_evictions_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_client_cache_evictions_total counter: %w", err)
 	}
 
 	m.clientCacheSize, err = meter.Int64Gauge(
-		"mcp_client_cache_entries",
+		"mcp_kubernetes_client_cache_entries",
 		metric.WithDescription("Current number of entries in the client cache"),
 		metric.WithUnit("{entry}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_client_cache_entries gauge: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_client_cache_entries gauge: %w", err)
 	}
 
 	// CAPI/Federation Metrics
@@ -224,21 +224,21 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// - cluster_type instead of cluster_name (production/staging/other)
 	// - user_domain instead of full email (e.g., "giantswarm.io")
 	m.impersonationTotal, err = meter.Int64Counter(
-		"mcp_impersonation_total",
+		"mcp_kubernetes_impersonation_total",
 		metric.WithDescription("Total impersonation requests. Labels: user_domain, cluster_type, result"),
 		metric.WithUnit("{request}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_impersonation_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_impersonation_total counter: %w", err)
 	}
 
 	m.federationClientCreations, err = meter.Int64Counter(
-		"mcp_federation_client_creations_total",
+		"mcp_kubernetes_federation_client_creations_total",
 		metric.WithDescription("Total federation client creation attempts. Labels: cluster_type, result"),
 		metric.WithUnit("{creation}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_federation_client_creations_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_federation_client_creations_total counter: %w", err)
 	}
 
 	// Privileged Secret Access Metrics
@@ -246,12 +246,12 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// Note on cardinality: Uses user_domain instead of full email to control cardinality.
 	// Result values: "success", "error", "rate_limited", "fallback"
 	m.privilegedSecretAccessTotal, err = meter.Int64Counter(
-		"mcp_privileged_secret_access_total",
+		"mcp_kubernetes_privileged_secret_access_total",
 		metric.WithDescription("Total privileged secret access attempts. Labels: user_domain, result"),
 		metric.WithUnit("{access}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_privileged_secret_access_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_privileged_secret_access_total counter: %w", err)
 	}
 
 	// Workload Cluster Authentication Metrics
@@ -259,12 +259,12 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// Note on cardinality: Uses auth_mode (impersonation, sso-passthrough) and result.
 	// cluster_type is used instead of cluster_name for cardinality control.
 	m.wcAuthTotal, err = meter.Int64Counter(
-		"mcp_wc_auth_total",
+		"mcp_kubernetes_wc_auth_total",
 		metric.WithDescription("Total workload cluster authentication attempts. Labels: auth_mode (impersonation, sso-passthrough), cluster_type, result"),
 		metric.WithUnit("{auth}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_wc_auth_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_wc_auth_total counter: %w", err)
 	}
 
 	return m, nil

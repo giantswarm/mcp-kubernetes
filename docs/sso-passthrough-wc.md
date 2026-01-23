@@ -369,7 +369,7 @@ For production deployments, choose one of these approaches:
    - Trade-off: Higher latency per request
 
 3. **Monitor and alert:**
-   - Monitor `mcp_wc_auth_total{result="token_expired"}` metric (if enabled)
+   - Monitor `mcp_kubernetes_wc_auth_total{result="token_expired"}` metric (if enabled)
    - Implement retry logic in calling applications
 
 ## Troubleshooting

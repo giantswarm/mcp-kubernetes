@@ -157,7 +157,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(mcp_client_cache_entries{namespace=~\"$namespace\"}) or vector(0)",
+          "expr": "sum(mcp_kubernetes_client_cache_entries{namespace=~\"$namespace\"}) or vector(0)",
           "legendFormat": "Cached Clients",
           "refId": "A"
         }
@@ -226,7 +226,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "100 * sum(rate(mcp_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) / (sum(rate(mcp_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) + sum(rate(mcp_client_cache_misses_total{namespace=~\"$namespace\"}[$__rate_interval])))",
+          "expr": "100 * sum(rate(mcp_kubernetes_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) / (sum(rate(mcp_kubernetes_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) + sum(rate(mcp_kubernetes_client_cache_misses_total{namespace=~\"$namespace\"}[$__rate_interval])))",
           "legendFormat": "Cache Hit Ratio",
           "refId": "A"
         }
@@ -855,7 +855,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(mcp_client_cache_entries{namespace=~\"$namespace\"}) or vector(0)",
+          "expr": "sum(mcp_kubernetes_client_cache_entries{namespace=~\"$namespace\"}) or vector(0)",
           "legendFormat": "Cache Entries",
           "refId": "A"
         }
@@ -975,7 +975,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(mcp_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum(rate(mcp_kubernetes_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "Hits",
           "refId": "A"
         },
@@ -984,7 +984,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(mcp_client_cache_misses_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum(rate(mcp_kubernetes_client_cache_misses_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "Misses",
           "refId": "B"
         }
@@ -1073,7 +1073,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (reason) (rate(mcp_client_cache_evictions_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (reason) (rate(mcp_kubernetes_client_cache_evictions_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{reason}}",
           "refId": "A"
         }
@@ -1175,7 +1175,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (auth_mode) (rate(mcp_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (auth_mode) (rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{auth_mode}}",
           "refId": "A"
         }
@@ -1244,7 +1244,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "100 * sum(rate(mcp_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\", result=\"success\"}[$__rate_interval])) / sum(rate(mcp_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\"}[$__rate_interval]))",
+          "expr": "100 * sum(rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\", result=\"success\"}[$__rate_interval])) / sum(rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\"}[$__rate_interval]))",
           "legendFormat": "SSO Success Rate",
           "refId": "A"
         }
@@ -1333,7 +1333,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster_type, result) (rate(mcp_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (cluster_type, result) (rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{cluster_type}} - {{result}}",
           "refId": "A"
         }
@@ -1481,7 +1481,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (result) (rate(mcp_federation_client_creations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (result) (rate(mcp_kubernetes_federation_client_creations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -1570,7 +1570,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster) (rate(mcp_federation_client_creations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (cluster) (rate(mcp_kubernetes_federation_client_creations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{cluster}}",
           "refId": "A"
         }

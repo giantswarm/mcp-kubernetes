@@ -100,20 +100,20 @@ func TestAllMetricsExposedViaPrometheus(t *testing.T) {
 		{"oauth_sso_token_injection_total", "SSO token injection events", false},
 
 		// Client cache metrics
-		{"mcp_client_cache_hits_total", "Cache hits", false},
-		{"mcp_client_cache_misses_total", "Cache misses", false},
-		{"mcp_client_cache_evictions_total", "Cache evictions", false},
-		{"mcp_client_cache_entries", "Current cache size", false},
+		{"mcp_kubernetes_client_cache_hits_total", "Cache hits", false},
+		{"mcp_kubernetes_client_cache_misses_total", "Cache misses", false},
+		{"mcp_kubernetes_client_cache_evictions_total", "Cache evictions", false},
+		{"mcp_kubernetes_client_cache_entries", "Current cache size", false},
 
 		// CAPI/Federation metrics
-		{"mcp_impersonation_total", "Impersonation requests", false},
-		{"mcp_federation_client_creations_total", "Federation client creations", false},
+		{"mcp_kubernetes_impersonation_total", "Impersonation requests", false},
+		{"mcp_kubernetes_federation_client_creations_total", "Federation client creations", false},
 
 		// Privileged access metrics
-		{"mcp_privileged_secret_access_total", "Privileged secret access", false},
+		{"mcp_kubernetes_privileged_secret_access_total", "Privileged secret access", false},
 
 		// Workload cluster auth metrics
-		{"mcp_wc_auth_total", "Workload cluster auth attempts", false},
+		{"mcp_kubernetes_wc_auth_total", "Workload cluster auth attempts", false},
 	}
 
 	// Check each metric

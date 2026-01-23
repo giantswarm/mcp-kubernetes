@@ -282,7 +282,7 @@ histogram_quantile(0.95,
 )
 ```
 
-#### `mcp_impersonation_total`
+#### `mcp_kubernetes_impersonation_total`
 Counter of impersonation requests.
 
 **Labels:**
@@ -295,14 +295,14 @@ Counter of impersonation requests.
 **Example:**
 ```promql
 # Total impersonation by domain
-sum by (user_domain) (mcp_impersonation_total)
+sum by (user_domain) (mcp_kubernetes_impersonation_total)
 
 # Impersonation denial rate
-rate(mcp_impersonation_total{result="denied"}[5m])
-/ rate(mcp_impersonation_total[5m])
+rate(mcp_kubernetes_impersonation_total{result="denied"}[5m])
+/ rate(mcp_kubernetes_impersonation_total[5m])
 ```
 
-#### `mcp_federation_client_creations_total`
+#### `mcp_kubernetes_federation_client_creations_total`
 Counter of federation client creation attempts.
 
 **Labels:**
@@ -312,11 +312,11 @@ Counter of federation client creation attempts.
 **Example:**
 ```promql
 # Cache hit ratio
-mcp_federation_client_creations_total{result="cached"}
-/ sum(mcp_federation_client_creations_total)
+mcp_kubernetes_federation_client_creations_total{result="cached"}
+/ sum(mcp_kubernetes_federation_client_creations_total)
 ```
 
-#### `mcp_wc_auth_total`
+#### `mcp_kubernetes_wc_auth_total`
 Counter of workload cluster authentication attempts. Distinguishes between authentication modes.
 
 **Labels:**
@@ -333,29 +333,29 @@ Counter of workload cluster authentication attempts. Distinguishes between authe
 **Example:**
 ```promql
 # Total auth by mode
-sum by (auth_mode) (mcp_wc_auth_total)
+sum by (auth_mode) (mcp_kubernetes_wc_auth_total)
 
 # SSO passthrough success rate
-sum(rate(mcp_wc_auth_total{auth_mode="sso-passthrough", result="success"}[5m]))
-/ sum(rate(mcp_wc_auth_total{auth_mode="sso-passthrough"}[5m]))
+sum(rate(mcp_kubernetes_wc_auth_total{auth_mode="sso-passthrough", result="success"}[5m]))
+/ sum(rate(mcp_kubernetes_wc_auth_total{auth_mode="sso-passthrough"}[5m]))
 
 # Token-related failures in SSO passthrough mode
-rate(mcp_wc_auth_total{auth_mode="sso-passthrough", result=~"token.*"}[5m])
+rate(mcp_kubernetes_wc_auth_total{auth_mode="sso-passthrough", result=~"token.*"}[5m])
 ```
 
-#### `mcp_client_cache_hits_total`
+#### `mcp_kubernetes_client_cache_hits_total`
 Counter of client cache hits.
 
 **Labels:**
 - `cluster`: Cluster name (may have high cardinality)
 
-#### `mcp_client_cache_misses_total`
+#### `mcp_kubernetes_client_cache_misses_total`
 Counter of client cache misses.
 
 **Labels:**
 - `cluster`: Cluster name (may have high cardinality)
 
-#### `mcp_client_cache_evictions_total`
+#### `mcp_kubernetes_client_cache_evictions_total`
 Counter of client cache evictions.
 
 **Labels:**
@@ -364,19 +364,19 @@ Counter of client cache evictions.
 **Example:**
 ```promql
 # Cache eviction rate by reason
-sum by (reason) (rate(mcp_client_cache_evictions_total[5m]))
+sum by (reason) (rate(mcp_kubernetes_client_cache_evictions_total[5m]))
 ```
 
-#### `mcp_client_cache_entries`
+#### `mcp_kubernetes_client_cache_entries`
 Gauge of current entries in the client cache.
 
 **Example:**
 ```promql
 # Current cache size
-mcp_client_cache_entries
+mcp_kubernetes_client_cache_entries
 
 # Cache capacity utilization (if max entries is 1000)
-mcp_client_cache_entries / 1000
+mcp_kubernetes_client_cache_entries / 1000
 ```
 
 ## Example Prometheus Queries
@@ -547,7 +547,7 @@ groups:
 
       - alert: ImpersonationDenials
         expr: |
-          rate(mcp_impersonation_total{result="denied"}[5m]) > 0.1
+          rate(mcp_kubernetes_impersonation_total{result="denied"}[5m]) > 0.1
         for: 5m
         labels:
           severity: warning
@@ -557,7 +557,7 @@ groups:
 
       - alert: HighClientCacheEvictions
         expr: |
-          rate(mcp_client_cache_evictions_total{reason="lru"}[5m]) > 1
+          rate(mcp_kubernetes_client_cache_evictions_total{reason="lru"}[5m]) > 1
         for: 10m
         labels:
           severity: info
@@ -688,13 +688,13 @@ All dashboards support these template variables:
    ```
 6. **Cache Hit Ratio**:
    ```promql
-   100 * sum(rate(mcp_client_cache_hits_total[$__rate_interval])) 
-   / (sum(rate(mcp_client_cache_hits_total[$__rate_interval])) 
-      + sum(rate(mcp_client_cache_misses_total[$__rate_interval])))
+   100 * sum(rate(mcp_kubernetes_client_cache_hits_total[$__rate_interval])) 
+   / (sum(rate(mcp_kubernetes_client_cache_hits_total[$__rate_interval])) 
+      + sum(rate(mcp_kubernetes_client_cache_misses_total[$__rate_interval])))
    ```
 7. **Impersonation Denials**:
    ```promql
-   sum by (user_domain) (rate(mcp_impersonation_total{result="denied"}[$__rate_interval]))
+   sum by (user_domain) (rate(mcp_kubernetes_impersonation_total{result="denied"}[$__rate_interval]))
    ```
 
 ## Tracing
