@@ -13,34 +13,71 @@ import (
 // TestSecurityHeaders tests that security headers are properly set
 func TestSecurityHeaders(t *testing.T) {
 	tests := []struct {
-		name        string
-		hstsEnabled bool
-		hasTLS      bool
-		wantHSTS    bool
+		name                     string
+		config                   SecurityHeadersConfig
+		hasTLS                   bool
+		wantHSTS                 bool
+		wantCrossOriginIsolation bool
 	}{
 		{
-			name:        "HSTS enabled with TLS",
-			hstsEnabled: true,
-			hasTLS:      true,
-			wantHSTS:    true,
+			name: "HSTS enabled with TLS",
+			config: SecurityHeadersConfig{
+				EnableHSTS:                 true,
+				EnableCrossOriginIsolation: false,
+			},
+			hasTLS:                   true,
+			wantHSTS:                 true,
+			wantCrossOriginIsolation: false,
 		},
 		{
-			name:        "HSTS enabled without TLS",
-			hstsEnabled: true,
-			hasTLS:      false,
-			wantHSTS:    true,
+			name: "HSTS enabled without TLS",
+			config: SecurityHeadersConfig{
+				EnableHSTS:                 true,
+				EnableCrossOriginIsolation: false,
+			},
+			hasTLS:                   false,
+			wantHSTS:                 true,
+			wantCrossOriginIsolation: false,
 		},
 		{
-			name:        "HSTS disabled with TLS",
-			hstsEnabled: false,
-			hasTLS:      true,
-			wantHSTS:    true,
+			name: "HSTS disabled with TLS",
+			config: SecurityHeadersConfig{
+				EnableHSTS:                 false,
+				EnableCrossOriginIsolation: false,
+			},
+			hasTLS:                   true,
+			wantHSTS:                 true,
+			wantCrossOriginIsolation: false,
 		},
 		{
-			name:        "HSTS disabled without TLS",
-			hstsEnabled: false,
-			hasTLS:      false,
-			wantHSTS:    false,
+			name: "HSTS disabled without TLS",
+			config: SecurityHeadersConfig{
+				EnableHSTS:                 false,
+				EnableCrossOriginIsolation: false,
+			},
+			hasTLS:                   false,
+			wantHSTS:                 false,
+			wantCrossOriginIsolation: false,
+		},
+		{
+			name: "Cross-origin isolation enabled",
+			config: SecurityHeadersConfig{
+				EnableHSTS:                 false,
+				EnableCrossOriginIsolation: true,
+			},
+			hasTLS:                   false,
+			wantHSTS:                 false,
+			wantCrossOriginIsolation: true,
+		},
+		{
+			name: "Cross-origin isolation disabled (OAuth compatible)",
+			config: SecurityHeadersConfig{
+				EnableHSTS:                 false,
+				EnableCrossOriginIsolation: false,
+			},
+			hasTLS:                   false,
+			wantHSTS:                 false,
+			wantCrossOriginIsolation: false,
 		},
 	}
 
@@ -50,7 +87,7 @@ func TestSecurityHeaders(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			})
 
-			middleware := SecurityHeaders(tt.hstsEnabled)(handler)
+			middleware := SecurityHeaders(tt.config)(handler)
 
 			req := httptest.NewRequest("GET", "/", nil)
 			if tt.hasTLS {
@@ -67,9 +104,18 @@ func TestSecurityHeaders(t *testing.T) {
 			assert.Equal(t, "strict-origin-when-cross-origin", rec.Header().Get("Referrer-Policy"))
 			assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "default-src 'self'")
 			assert.Contains(t, rec.Header().Get("Permissions-Policy"), "geolocation=()")
-			assert.Equal(t, "same-origin", rec.Header().Get("Cross-Origin-Opener-Policy"))
-			assert.Equal(t, "require-corp", rec.Header().Get("Cross-Origin-Embedder-Policy"))
-			assert.Equal(t, "same-origin", rec.Header().Get("Cross-Origin-Resource-Policy"))
+
+			// Check cross-origin isolation headers
+			if tt.wantCrossOriginIsolation {
+				assert.Equal(t, "same-origin", rec.Header().Get("Cross-Origin-Opener-Policy"))
+				assert.Equal(t, "require-corp", rec.Header().Get("Cross-Origin-Embedder-Policy"))
+				assert.Equal(t, "same-origin", rec.Header().Get("Cross-Origin-Resource-Policy"))
+			} else {
+				// OAuth-compatible: no cross-origin headers set (browser defaults)
+				assert.Empty(t, rec.Header().Get("Cross-Origin-Opener-Policy"))
+				assert.Empty(t, rec.Header().Get("Cross-Origin-Embedder-Policy"))
+				assert.Empty(t, rec.Header().Get("Cross-Origin-Resource-Policy"))
+			}
 
 			// Check HSTS header
 			if tt.wantHSTS {

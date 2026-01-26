@@ -949,6 +949,7 @@ func runServe(config ServeConfig) error {
 				MaxClientsPerIP:                    config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                      encryptionKey,
 				EnableHSTS:                         os.Getenv("ENABLE_HSTS") == envValueTrue,
+				EnableCrossOriginIsolation:         os.Getenv("ENABLE_CROSS_ORIGIN_ISOLATION") == envValueTrue,
 				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
 				TLSCertFile:                        config.OAuth.TLSCertFile,
 				TLSKeyFile:                         config.OAuth.TLSKeyFile,
