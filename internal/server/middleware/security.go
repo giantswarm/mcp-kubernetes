@@ -7,8 +7,19 @@ import (
 	"strings"
 )
 
+// SecurityHeadersConfig holds configuration for security headers middleware
+type SecurityHeadersConfig struct {
+	// EnableHSTS enables HSTS header (for reverse proxy scenarios)
+	EnableHSTS bool
+
+	// EnableCrossOriginIsolation enables strict COOP/COEP headers
+	// When true: COOP=same-origin, COEP=require-corp, CORP=same-origin
+	// When false (default): no cross-origin headers set for OAuth popup compatibility
+	EnableCrossOriginIsolation bool
+}
+
 // SecurityHeaders adds comprehensive security headers to all HTTP responses
-func SecurityHeaders(hstsEnabled bool) func(http.Handler) http.Handler {
+func SecurityHeaders(config SecurityHeadersConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Prevent MIME sniffing
@@ -18,7 +29,7 @@ func SecurityHeaders(hstsEnabled bool) func(http.Handler) http.Handler {
 			w.Header().Set("X-Frame-Options", "DENY")
 
 			// Force HTTPS (configurable for reverse proxy scenarios)
-			if r.TLS != nil || hstsEnabled {
+			if r.TLS != nil || config.EnableHSTS {
 				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 			}
 
@@ -34,10 +45,16 @@ func SecurityHeaders(hstsEnabled bool) func(http.Handler) http.Handler {
 			// Permissions Policy - restrict dangerous features
 			w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=()")
 
-			// Cross-Origin policies for additional isolation
-			w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-			w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
-			w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+			// Cross-Origin policies
+			// Only set COOP/COEP/CORP when explicitly enabled for features like
+			// SharedArrayBuffer. When disabled (default), no cross-origin headers
+			// are set to ensure maximum compatibility with OAuth popup flows.
+			if config.EnableCrossOriginIsolation {
+				w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+				w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+				w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+			}
+			// When disabled: no COOP/COEP headers - browser defaults apply
 
 			next.ServeHTTP(w, r)
 		})

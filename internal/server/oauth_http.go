@@ -217,6 +217,11 @@ type OAuthConfig struct {
 	// EnableHSTS enables HSTS header (for reverse proxy scenarios)
 	EnableHSTS bool
 
+	// EnableCrossOriginIsolation enables strict COOP/COEP headers
+	// When true: COOP=same-origin, COEP=require-corp, CORP=same-origin
+	// When false (default): no cross-origin headers set for OAuth popup compatibility
+	EnableCrossOriginIsolation bool
+
 	// AllowedOrigins is a comma-separated list of allowed CORS origins
 	AllowedOrigins string
 
@@ -756,7 +761,10 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 	// Order: Metrics (outermost) -> Security Headers -> CORS -> Handler
 	// Metrics middleware wraps everything to capture all request metrics
 	handler := middleware.HTTPMetrics(s.instrumentationProvider)(
-		middleware.SecurityHeaders(config.EnableHSTS)(
+		middleware.SecurityHeaders(middleware.SecurityHeadersConfig{
+			EnableHSTS:                 config.EnableHSTS,
+			EnableCrossOriginIsolation: config.EnableCrossOriginIsolation,
+		})(
 			middleware.CORS(allowedOrigins)(mux),
 		),
 	)
