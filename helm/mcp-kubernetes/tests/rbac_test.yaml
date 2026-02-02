@@ -207,7 +207,7 @@ tests:
         documentIndex: 0
 
   # ==========================================
-  # OAuth Downstream Mode Annotations Tests
+  # OAuth Downstream Mode Tests
   # ==========================================
 
   - it: should add oauth-downstream annotation when enabled
@@ -223,7 +223,7 @@ tests:
           value: "oauth-downstream"
         documentIndex: 0
 
-  - it: should add security warning when non-minimal profile with downstream OAuth
+  - it: should enforce minimal profile when downstream OAuth is enabled
     set:
       serviceAccount.create: true
       rbac.create: true
@@ -231,11 +231,26 @@ tests:
       mcpKubernetes.oauth.enableDownstreamOAuth: true
       capiMode.enabled: false
     asserts:
-      - isNotEmpty:
-          path: metadata.annotations["mcp-kubernetes.giantswarm.io/security-warning"]
+      # Profile should be enforced to minimal
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "minimal"
+        documentIndex: 0
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/enforced-profile"]
+          value: "minimal"
+        documentIndex: 0
+      # Should indicate the requested profile was overridden
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/requested-profile"]
+          value: "standard"
+        documentIndex: 0
+      # Rules should be empty (minimal profile)
+      - isNull:
+          path: rules
         documentIndex: 0
 
-  - it: should not add security warning when minimal profile with downstream OAuth
+  - it: should not show override note when minimal profile explicitly requested with downstream OAuth
     set:
       serviceAccount.create: true
       rbac.create: true
@@ -243,9 +258,29 @@ tests:
       mcpKubernetes.oauth.enableDownstreamOAuth: true
       capiMode.enabled: false
     asserts:
-      - isNull:
-          path: metadata.annotations["mcp-kubernetes.giantswarm.io/security-warning"]
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "minimal"
         documentIndex: 0
+      - isNull:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/requested-profile"]
+        documentIndex: 0
+
+  - it: should fail when custom RBAC is enabled with downstream OAuth
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.custom.enabled: true
+      rbac.custom.rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "delete"]
+      mcpKubernetes.oauth.enableDownstreamOAuth: true
+      capiMode.enabled: false
+    asserts:
+      # Should fail with configuration error
+      - failedTemplate:
+          errorPattern: "CONFIGURATION ERROR: rbac.custom.enabled cannot be used with enableDownstreamOAuth"
 
   # ==========================================
   # CAPI Mode RBAC Tests
@@ -256,7 +291,6 @@ tests:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
       capiMode.rbac.clusterWideSecrets: false
     asserts:
@@ -284,7 +318,6 @@ tests:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces:
         - org-acme
         - org-beta
@@ -326,7 +359,6 @@ tests:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
       capiMode.rbac.clusterWideSecrets: true
     asserts:
@@ -359,29 +391,35 @@ tests:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.clusterWideSecrets: true
     asserts:
       - isNotEmpty:
           path: metadata.annotations["security.kubernetes.io/warning"]
         documentIndex: 4
 
-  - it: should not create CAPI RBAC when capiMode.rbac.create is false
+  - it: should always create CAPI RBAC when capiMode is enabled (rbac.create is deprecated)
     set:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: false
+      capiMode.rbac.create: false  # This setting is now deprecated and ignored
     asserts:
+      # CAPI RBAC is always created when capiMode.enabled is true
       - hasDocuments:
-          count: 2
+          count: 4
+      - isKind:
+          of: ClusterRole
+        documentIndex: 2
+      - matchRegex:
+          path: metadata.name
+          pattern: -capi$
+        documentIndex: 2
 
   - it: should grant CAPI resource discovery permissions
     set:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
     asserts:
       - contains:
           path: rules
@@ -404,7 +442,6 @@ tests:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
     asserts:
       - contains:
           path: rules
@@ -426,7 +463,6 @@ tests:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces:
         - org-test
     release:
@@ -452,7 +488,6 @@ tests:
       rbac.create: true
       rbac.profile: "minimal"
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
     asserts:
       - hasDocuments:
@@ -484,7 +519,6 @@ tests:
       rbac.create: true
       rbac.profile: "readonly"
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
     asserts:
       - hasDocuments:
@@ -524,7 +558,6 @@ tests:
       rbac.create: true
       rbac.profile: "standard"
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
     asserts:
       - hasDocuments:
@@ -565,7 +598,6 @@ tests:
       rbac.profile: "admin"
       rbac.adminConfirmation: true
       capiMode.enabled: true
-      capiMode.rbac.create: true
       capiMode.rbac.allowedNamespaces: []
     asserts:
       - hasDocuments:
@@ -595,3 +627,119 @@ tests:
               - machines/status
             verbs: ["get", "list", "watch"]
         documentIndex: 2
+
+  # ==========================================
+  # OAuth Downstream + CAPI Mode Tests
+  # ==========================================
+
+  - it: should enforce minimal base RBAC but still create CAPI RBAC with downstream OAuth
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "standard"  # Will be overridden to minimal
+      mcpKubernetes.oauth.enableDownstreamOAuth: true
+      capiMode.enabled: true
+      capiMode.rbac.allowedNamespaces:
+        - org-giantswarm
+    asserts:
+      # Should have 6 documents: base ClusterRole, base ClusterRoleBinding,
+      # CAPI ClusterRole, CAPI ClusterRoleBinding, namespace Role, namespace RoleBinding
+      - hasDocuments:
+          count: 6
+      # Base ClusterRole should be minimal (no rules)
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/rbac-profile"]
+          value: "minimal"
+        documentIndex: 0
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/enforced-profile"]
+          value: "minimal"
+        documentIndex: 0
+      - isNull:
+          path: rules
+        documentIndex: 0
+      # CAPI ClusterRole should still have full CAPI permissions
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["cluster.x-k8s.io"]
+            resources:
+              - clusters
+              - clusters/status
+              - machinepools
+              - machinepools/status
+              - machinedeployments
+              - machinedeployments/status
+              - machines
+              - machines/status
+            verbs: ["get", "list", "watch"]
+        documentIndex: 2
+      # Namespace Role for secret access should be created
+      - isKind:
+          of: Role
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: org-giantswarm
+        documentIndex: 4
+
+  # ==========================================
+  # SSO Passthrough Mode Tests
+  # ==========================================
+
+  - it: should create ConfigMap access instead of Secret access in SSO passthrough mode
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      capiMode.enabled: true
+      capiMode.workloadClusterAuth.mode: "sso-passthrough"
+      capiMode.rbac.allowedNamespaces:
+        - org-giantswarm
+    asserts:
+      # Should have namespace Role for ConfigMap access
+      - isKind:
+          of: Role
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: org-giantswarm
+        documentIndex: 4
+      # Role should have ConfigMap access, not Secret access
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["configmaps"]
+            verbs: ["get"]
+        documentIndex: 4
+      # Check annotation indicates sso-passthrough mode
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/wc-auth-mode"]
+          value: "sso-passthrough"
+        documentIndex: 4
+
+  - it: should create Secret access in impersonation mode
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      capiMode.enabled: true
+      capiMode.workloadClusterAuth.mode: "impersonation"
+      capiMode.rbac.allowedNamespaces:
+        - org-giantswarm
+    asserts:
+      # Should have namespace Role for Secret access
+      - isKind:
+          of: Role
+        documentIndex: 4
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["get"]
+        documentIndex: 4
+      # Check annotation indicates impersonation mode
+      - equal:
+          path: metadata.annotations["mcp-kubernetes.giantswarm.io/wc-auth-mode"]
+          value: "impersonation"
+        documentIndex: 4

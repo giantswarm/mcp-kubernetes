@@ -208,7 +208,17 @@ rules:
 {{- end }}
 
 {{- if and .Values.serviceAccount.create .Values.rbac.create -}}
-{{- $profile := .Values.rbac.profile | default "standard" -}}
+{{/*
+SECURITY: When OAuth Downstream is enabled, users authenticate with their own tokens.
+The ServiceAccount should have NO Kubernetes API permissions (minimal profile enforced).
+This prevents the ServiceAccount from being used to bypass user RBAC.
+*/}}
+{{- $downstreamOAuth := .Values.mcpKubernetes.oauth.enableDownstreamOAuth -}}
+{{- $requestedProfile := .Values.rbac.profile | default "standard" -}}
+{{- $profile := ternary "minimal" $requestedProfile $downstreamOAuth -}}
+{{- if and .Values.rbac.custom.enabled $downstreamOAuth -}}
+{{- fail "CONFIGURATION ERROR: rbac.custom.enabled cannot be used with enableDownstreamOAuth. Custom RBAC rules are ignored when OAuth Downstream is enabled because user tokens are used for all API operations. The ServiceAccount requires no Kubernetes API permissions in this mode." -}}
+{{- end -}}
 {{- if and (eq $profile "admin") (not .Values.rbac.adminConfirmation) -}}
 {{- fail "SECURITY: The 'admin' RBAC profile grants dangerous permissions including RBAC management (privilege escalation), pod exec (container escape), and webhook configuration (API interception). To use this profile, you must explicitly set 'rbac.adminConfirmation: true' to confirm you understand these risks." -}}
 {{- end -}}
@@ -220,23 +230,24 @@ metadata:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
   annotations:
     mcp-kubernetes.giantswarm.io/rbac-profile: {{ $profile | quote }}
-    {{- if not .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
+    {{- if not $downstreamOAuth }}
     # This ClusterRole is actively used for Kubernetes API operations
     mcp-kubernetes.giantswarm.io/rbac-mode: "service-account"
     {{- else }}
-    # OAuth Downstream is enabled - this RBAC is NOT used for API operations
-    # Users must have their own RBAC permissions
+    # OAuth Downstream is enabled - minimal profile enforced
+    # User tokens are used for all Kubernetes API operations
     mcp-kubernetes.giantswarm.io/rbac-mode: "oauth-downstream"
-    mcp-kubernetes.giantswarm.io/note: "ServiceAccount RBAC not used when enableDownstreamOAuth is true"
-    {{- if ne $profile "minimal" }}
-    mcp-kubernetes.giantswarm.io/security-warning: "Consider using rbac.profile: minimal when enableDownstreamOAuth is true"
+    mcp-kubernetes.giantswarm.io/enforced-profile: "minimal"
+    {{- if ne $requestedProfile "minimal" }}
+    mcp-kubernetes.giantswarm.io/requested-profile: {{ $requestedProfile | quote }}
+    mcp-kubernetes.giantswarm.io/note: "Requested profile overridden to 'minimal' because enableDownstreamOAuth is true"
     {{- end }}
     {{- end }}
     {{- if eq $profile "admin" }}
     security.kubernetes.io/warning: "Admin profile grants extensive permissions. Use with caution."
     {{- end }}
-{{- if .Values.rbac.custom.enabled }}
-# Custom RBAC rules
+{{- if and .Values.rbac.custom.enabled (not $downstreamOAuth) }}
+# Custom RBAC rules (only when downstream OAuth is disabled)
 rules:
 {{ toYaml .Values.rbac.custom.rules | indent 2 }}
 {{- else if eq $profile "minimal" }}
@@ -269,13 +280,24 @@ subjects:
 {{- end }}
 
 {{/*
-CAPI Mode RBAC - Only created when CAPI mode is enabled
+CAPI Mode RBAC - Always created when CAPI mode is enabled
 
-NOTE: Like the base RBAC above, this is for Service Account Mode.
-When enableDownstreamOAuth is true, users need equivalent permissions
-in their own RoleBindings/ClusterRoleBindings.
+This RBAC is REQUIRED for CAPI mode to function, regardless of OAuth mode:
+
+When enableDownstreamOAuth: false (Service Account Mode):
+  - ServiceAccount uses these permissions for all CAPI operations
+  - Users share the ServiceAccount's permissions
+
+When enableDownstreamOAuth: true (OAuth Downstream Mode):
+  - Users authenticate via OAuth for CAPI cluster discovery
+  - ServiceAccount STILL needs secret/configmap access for kubeconfig/CA retrieval
+  - This is the "split credential" security model (see docs/rbac-security.md)
+
+The workloadClusterAuth.mode determines what resources are accessed:
+  - "impersonation": Secrets (kubeconfig with admin credentials)
+  - "sso-passthrough": ConfigMaps (CA certificates only - public keys)
 */}}
-{{- if and .Values.serviceAccount.create .Values.capiMode.enabled .Values.capiMode.rbac.create }}
+{{- if and .Values.serviceAccount.create .Values.capiMode.enabled }}
 ---
 # ClusterRole for CAPI resource discovery and authentication
 # NOTE: Used by ServiceAccount when enableDownstreamOAuth: false

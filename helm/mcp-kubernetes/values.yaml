@@ -29,22 +29,29 @@ serviceAccount:
 # RBAC Configuration
 # Controls the ClusterRole permissions granted to the ServiceAccount
 #
-# IMPORTANT: When enableDownstreamOAuth is true, this RBAC is NOT used for
-# Kubernetes API operations. Users authenticate with their own OAuth tokens.
-# In that case, use the "minimal" profile to follow least-privilege principles.
+# SECURITY: When enableDownstreamOAuth is true, the profile is AUTOMATICALLY
+# enforced to "minimal" (no permissions). This is because users authenticate
+# with their own OAuth tokens, and the ServiceAccount should NOT have any
+# Kubernetes API permissions that could bypass user RBAC.
+#
+# The profile setting below only applies when enableDownstreamOAuth is false
+# (Service Account Mode).
 rbac:
   # Create RBAC resources (ClusterRole and ClusterRoleBinding)
   create: true
 
   # RBAC profile controls the permission level
   # Options:
-  #   - "minimal":  Only pod lifecycle permissions (for downstream OAuth mode)
+  #   - "minimal":  No base Kubernetes API permissions (CAPI-specific permissions still
+  #                 apply when capiMode.enabled is true). Enforced when downstream OAuth enabled.
   #   - "readonly": Read-only access to common resources (no secrets)
   #   - "standard": Read + limited write (includes CLUSTER-WIDE SECRET ACCESS)
   #   - "admin":    Full access (requires explicit confirmation)
   #
-  # Security recommendations:
-  #   - Use "minimal" when enableDownstreamOAuth: true
+  # NOTE: When enableDownstreamOAuth is true, this setting is IGNORED and
+  # "minimal" is enforced automatically for security.
+  #
+  # For Service Account Mode (enableDownstreamOAuth: false):
   #   - Use "readonly" for monitoring/audit scenarios
   #   - Use "standard" only when you need write operations
   #
@@ -634,14 +641,21 @@ capiMode:
 
   # RBAC configuration for CAPI mode
   #
+  # IMPORTANT: CAPI RBAC is ALWAYS created when capiMode.enabled is true.
+  # This is required for CAPI mode to function correctly.
+  #
   # SECURITY MODEL:
-  # The ServiceAccount ALWAYS needs secret access in CAPI mode, regardless of
-  # whether OAuth Downstream is enabled. This is a security feature.
+  # The ServiceAccount needs access to retrieve cluster credentials, regardless
+  # of whether OAuth Downstream is enabled. The type of access depends on the
+  # workloadClusterAuth.mode setting:
+  #
+  #   - "impersonation" mode: ServiceAccount reads kubeconfig Secrets
+  #   - "sso-passthrough" mode: ServiceAccount reads CA ConfigMaps (no secrets)
   #
   # When enableDownstreamOAuth is TRUE (recommended for production):
   #   - Users authenticate via OAuth (Dex, Google, etc.)
   #   - Users can discover clusters they have RBAC to list
-  #   - ServiceAccount reads kubeconfig secrets (users cannot access directly)
+  #   - ServiceAccount reads kubeconfig secrets/CA configmaps
   #   - This prevents users from bypassing impersonation via kubectl
   #   - All workload cluster operations enforce user impersonation
   #
@@ -650,15 +664,17 @@ capiMode:
   #   - Users share the ServiceAccount's RBAC permissions
   #
   rbac:
-    # Create CAPI-specific RBAC resources
-    # This grants the ServiceAccount permission to read kubeconfig secrets
+    # DEPRECATED: This setting is ignored. CAPI RBAC is always created when
+    # capiMode.enabled is true. Kept for backward compatibility only.
     create: true
-    # Namespaces to grant kubeconfig secret access
-    # Use [] for cluster-wide access (not recommended)
-    # Giant Swarm convention: org-* namespaces
+    # Namespaces to grant kubeconfig secret / CA configmap access
+    # REQUIRED: You must list namespaces where your CAPI clusters are defined
+    # Giant Swarm convention: org-* namespaces (e.g., org-giantswarm)
+    # Use [] only if clusterWideSecrets is true (not recommended)
     allowedNamespaces: []
     # When allowedNamespaces is empty and clusterWideSecrets is true,
     # grants cluster-wide secret access (use with caution)
+    # NOTE: In sso-passthrough mode, this grants ConfigMap access instead
     clusterWideSecrets: false
 
   # Workload cluster authentication configuration
