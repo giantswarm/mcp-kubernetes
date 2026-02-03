@@ -4,10 +4,10 @@ This document describes the RBAC (Role-Based Access Control) configuration and s
 
 ## TL;DR - Which RBAC Do I Need?
 
-| Deployment Mode | Who Needs RBAC | ServiceAccount RBAC? | Recommended Profile |
-|-----------------|----------------|---------------------|---------------------|
-| **Service Account Mode** (`enableDownstreamOAuth: false`) | ServiceAccount | **Yes** - SA permissions apply to all users | `standard` or `readonly` |
-| **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User + ServiceAccount for secrets | **Yes for secrets only** - SA reads kubeconfigs | `minimal` |
+| Deployment Mode | Who Needs RBAC | ServiceAccount RBAC? | Profile Behavior |
+|-----------------|----------------|---------------------|------------------|
+| **Service Account Mode** (`enableDownstreamOAuth: false`) | ServiceAccount | **Yes** - SA permissions apply to all users | Uses configured profile |
+| **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User + ServiceAccount for secrets | **Minimal enforced** - SA has no API access | **Automatically set to `minimal`** |
 
 **Key Insight**: In OAuth Downstream Mode with CAPI, the security model uses split credentials:
 - **Users authenticate via OAuth** and need RBAC for CAPI cluster discovery
@@ -23,11 +23,11 @@ This document describes the RBAC (Role-Based Access Control) configuration and s
 - Use: `rbac.profile: "standard"` or `rbac.profile: "readonly"`
 
 **OAuth Downstream Mode** (recommended for production):
-- Helm chart RBAC = **required for kubeconfig secret access only**
+- **Base RBAC profile is automatically enforced to `minimal`** (no Kubernetes API permissions)
+- CAPI RBAC is created when both `rbac.create: true` and `capiMode.rbac.create: true`
 - Each user has individual permissions via their OAuth identity
-- ServiceAccount reads secrets; users cannot extract admin kubeconfigs
+- ServiceAccount only reads secrets/configmaps for workload cluster access
 - Good for: production, multi-tenant, compliance requirements
-- Use: `rbac.profile: "minimal"` + `capiMode.rbac.create: true`
 
 ---
 
@@ -61,6 +61,8 @@ rbac:
 ```
 
 **Security benefit:** Even if the ServiceAccount token is compromised, it cannot access any Kubernetes resources.
+
+> **Note:** When `enableDownstreamOAuth: true`, the profile is **automatically enforced to `minimal`** regardless of the configured value. This is a security feature to ensure the ServiceAccount cannot bypass user RBAC.
 
 ### Profile: `readonly`
 
@@ -219,6 +221,67 @@ This mode provides:
 
 The Helm chart includes RBAC resources that are used **only in Service Account Mode**. When OAuth Downstream Mode is enabled, these permissions are not utilized for API operations.
 
+### RBAC Control Hierarchy
+
+The chart provides fine-grained control over RBAC resource creation:
+
+| `rbac.create` | `capiMode.rbac.create` | Result |
+|---------------|------------------------|--------|
+| `false` | (ignored) | No RBAC resources at all |
+| `true` | `false` | Only base profile RBAC (ClusterRole/ClusterRoleBinding) |
+| `true` | `true` | Base RBAC + CAPI mode RBAC (including namespace-scoped Roles) |
+
+- **`rbac.create`**: Master switch for ALL RBAC resources
+- **`capiMode.rbac.create`**: Controls CAPI-specific RBAC (subordinate to master switch)
+
+Use `rbac.create: false` when you manage all RBAC externally. Use `capiMode.rbac.create: false` when you only want base profile RBAC without CAPI-specific resources.
+
+### Operator-Managed Namespace RBAC
+
+For dynamic environments where organization namespaces are created/deleted frequently, you can configure the chart to create only the base CAPI ClusterRole while an external operator manages namespace-scoped Roles:
+
+```yaml
+capiMode:
+  enabled: true
+  rbac:
+    create: true
+    allowedNamespaces: []      # No static namespace Roles
+    clusterWideSecrets: false  # No cluster-wide secret access
+```
+
+This configuration:
+- Creates the CAPI ClusterRole for cluster discovery (clusters, machines, etc.)
+- Does NOT create namespace-scoped Roles/RoleBindings
+- Allows an operator to dynamically create Roles in `org-*` namespaces as they are created
+
+The operator would create Roles matching this pattern per namespace:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-kubernetes-secrets
+  namespace: org-<name>
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]  # or "configmaps" for sso-passthrough mode
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-kubernetes-secrets
+  namespace: org-<name>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-kubernetes-secrets
+subjects:
+  - kind: ServiceAccount
+    name: mcp-kubernetes
+    namespace: <mcp-kubernetes-namespace>
+```
+
 ### Base ClusterRole (Service Account Mode Only)
 
 The base ClusterRole grants broad permissions for Kubernetes operations:
@@ -238,13 +301,20 @@ rules:
 
 This RBAC is necessary for non-OAuth deployments where all users share the ServiceAccount's permissions.
 
-### CAPI Mode RBAC (Service Account Mode Only)
+### CAPI Mode RBAC
 
-When CAPI mode is enabled without OAuth downstream, additional RBAC is created for:
-- CAPI cluster discovery
-- Kubeconfig secret access
+When `capiMode.enabled: true` and `capiMode.rbac.create: true`, CAPI-specific RBAC is created. This includes:
 
-In OAuth Downstream Mode, users need these permissions in their own RBAC configuration.
+1. **CAPI ClusterRole** (`mcp-kubernetes-capi`): Permissions to list CAPI clusters, machines, etc.
+2. **Namespace-scoped Roles**: Access to kubeconfig secrets (impersonation mode) or CA configmaps (SSO passthrough mode)
+
+**Why CAPI RBAC is always needed:**
+- In **Service Account Mode**: The ServiceAccount uses these permissions directly
+- In **OAuth Downstream Mode**: The ServiceAccount still needs to read kubeconfig secrets/CA configmaps (split credential model - see below)
+
+The type of namespace-scoped access depends on `capiMode.workloadClusterAuth.mode`:
+- `impersonation` (default): Creates Roles for **Secret** access (kubeconfig credentials)
+- `sso-passthrough`: Creates Roles for **ConfigMap** access (CA certificates only - no secrets needed)
 
 ## CAPI Federation Mode with OAuth Downstream
 
@@ -497,8 +567,9 @@ This provides defense in depth even in OAuth Downstream Mode.
 
 | Symptom | Possible Cause | Solution |
 |---------|----------------|----------|
-| "clusters.cluster.x-k8s.io is forbidden" | CAPI ClusterRole not bound | Set `capiMode.rbac.create: true` |
+| "clusters.cluster.x-k8s.io is forbidden" | CAPI ClusterRole not bound | Ensure `rbac.create: true` and `capiMode.rbac.create: true` |
 | "secrets is forbidden" | Namespace not in allowedNamespaces | Add namespace to the list |
+| No RBAC resources created | Master switch disabled | Set `rbac.create: true` |
 
 ### Check Effective Permissions
 
