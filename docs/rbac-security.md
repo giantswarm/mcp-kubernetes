@@ -236,6 +236,52 @@ The chart provides fine-grained control over RBAC resource creation:
 
 Use `rbac.create: false` when you manage all RBAC externally. Use `capiMode.rbac.create: false` when you only want base profile RBAC without CAPI-specific resources.
 
+### Operator-Managed Namespace RBAC
+
+For dynamic environments where organization namespaces are created/deleted frequently, you can configure the chart to create only the base CAPI ClusterRole while an external operator manages namespace-scoped Roles:
+
+```yaml
+capiMode:
+  enabled: true
+  rbac:
+    create: true
+    allowedNamespaces: []      # No static namespace Roles
+    clusterWideSecrets: false  # No cluster-wide secret access
+```
+
+This configuration:
+- Creates the CAPI ClusterRole for cluster discovery (clusters, machines, etc.)
+- Does NOT create namespace-scoped Roles/RoleBindings
+- Allows an operator to dynamically create Roles in `org-*` namespaces as they are created
+
+The operator would create Roles matching this pattern per namespace:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-kubernetes-secrets
+  namespace: org-<name>
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]  # or "configmaps" for sso-passthrough mode
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-kubernetes-secrets
+  namespace: org-<name>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-kubernetes-secrets
+subjects:
+  - kind: ServiceAccount
+    name: mcp-kubernetes
+    namespace: <mcp-kubernetes-namespace>
+```
+
 ### Base ClusterRole (Service Account Mode Only)
 
 The base ClusterRole grants broad permissions for Kubernetes operations:
