@@ -684,9 +684,14 @@ capiMode:
     # your own ClusterRoles for CAPI resource access.
     create: true
     # Namespaces to grant kubeconfig secret / CA configmap access
-    # REQUIRED: You must list namespaces where your CAPI clusters are defined
     # Giant Swarm convention: org-* namespaces (e.g., org-giantswarm)
-    # Use [] only if clusterWideSecrets is true (not recommended)
+    #
+    # Options:
+    #   - List specific namespaces: Creates namespace-scoped Roles/RoleBindings
+    #   - Empty [] with clusterWideSecrets: true: Grants cluster-wide access (not recommended)
+    #   - Empty [] with clusterWideSecrets: false: Only base CAPI ClusterRole is created,
+    #     useful when an external operator dynamically manages namespace-scoped RBAC
+    #     based on org namespaces in the cluster
     allowedNamespaces: []
     # When allowedNamespaces is empty and clusterWideSecrets is true,
     # grants cluster-wide secret access (use with caution)
