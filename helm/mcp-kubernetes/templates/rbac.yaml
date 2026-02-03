@@ -297,7 +297,7 @@ The workloadClusterAuth.mode determines what resources are accessed:
   - "impersonation": Secrets (kubeconfig with admin credentials)
   - "sso-passthrough": ConfigMaps (CA certificates only - public keys)
 */}}
-{{- if and .Values.serviceAccount.create .Values.capiMode.enabled }}
+{{- if and .Values.serviceAccount.create .Values.rbac.create .Values.capiMode.enabled .Values.capiMode.rbac.create }}
 ---
 # ClusterRole for CAPI resource discovery and authentication
 # NOTE: Used by ServiceAccount when enableDownstreamOAuth: false

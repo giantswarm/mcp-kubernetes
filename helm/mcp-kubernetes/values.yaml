@@ -38,6 +38,11 @@ serviceAccount:
 # (Service Account Mode).
 rbac:
   # Create RBAC resources (ClusterRole and ClusterRoleBinding)
+  # This is the master switch for ALL RBAC resources, including:
+  #   - Base ClusterRole/ClusterRoleBinding (based on profile setting)
+  #   - CAPI mode ClusterRole/ClusterRoleBinding (when capiMode.enabled)
+  #   - Namespace-scoped Roles/RoleBindings (when capiMode.rbac.allowedNamespaces set)
+  # Set to false to disable all RBAC resource creation (e.g., when using external RBAC)
   create: true
 
   # RBAC profile controls the permission level
@@ -664,8 +669,19 @@ capiMode:
   #   - Users share the ServiceAccount's RBAC permissions
   #
   rbac:
-    # DEPRECATED: This setting is ignored. CAPI RBAC is always created when
-    # capiMode.enabled is true. Kept for backward compatibility only.
+    # Create CAPI-specific RBAC resources
+    # When enabled, creates:
+    #   - ClusterRole/ClusterRoleBinding for CAPI cluster discovery
+    #   - Namespace-scoped Roles/RoleBindings for secret/configmap access
+    #     (based on allowedNamespaces and workloadClusterAuth.mode)
+    #
+    # This setting is subordinate to the top-level rbac.create:
+    #   - rbac.create: false → no RBAC at all (master switch)
+    #   - rbac.create: true + capiMode.rbac.create: false → only base profile RBAC
+    #   - rbac.create: true + capiMode.rbac.create: true → base + CAPI mode RBAC
+    #
+    # Set to false when you manage CAPI RBAC externally or want to use
+    # your own ClusterRoles for CAPI resource access.
     create: true
     # Namespaces to grant kubeconfig secret / CA configmap access
     # REQUIRED: You must list namespaces where your CAPI clusters are defined

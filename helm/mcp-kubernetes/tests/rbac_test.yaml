@@ -48,6 +48,18 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: should not create any RBAC when rbac.create is false even with capiMode enabled
+    set:
+      serviceAccount.create: true
+      rbac.create: false
+      capiMode.enabled: true
+      capiMode.rbac.allowedNamespaces:
+        - org-giantswarm
+    asserts:
+      # rbac.create: false should disable ALL RBAC resources including CAPI mode RBAC
+      - hasDocuments:
+          count: 0
+
   # ==========================================
   # RBAC Profile Tests
   # ==========================================
@@ -397,16 +409,58 @@ tests:
           path: metadata.annotations["security.kubernetes.io/warning"]
         documentIndex: 4
 
-  - it: should always create CAPI RBAC when capiMode is enabled (rbac.create is deprecated)
+  - it: should not create CAPI RBAC when capiMode.rbac.create is false
     set:
       serviceAccount.create: true
       rbac.create: true
       capiMode.enabled: true
-      capiMode.rbac.create: false  # This setting is now deprecated and ignored
+      capiMode.rbac.create: false
     asserts:
-      # CAPI RBAC is always created when capiMode.enabled is true
+      # Only base RBAC should be created (2 documents), no CAPI RBAC
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+      # Verify the base ClusterRole does NOT have -capi suffix
+      - notMatchRegex:
+          path: metadata.name
+          pattern: -capi$
+        documentIndex: 0
+
+  - it: should not create namespace-scoped Roles when capiMode.rbac.create is false
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: false
+      capiMode.rbac.allowedNamespaces:
+        - org-giantswarm
+        - org-acme
+    asserts:
+      # Only base RBAC (2 docs), no CAPI RBAC or namespace-scoped Roles
+      - hasDocuments:
+          count: 2
+
+  - it: should create both base and CAPI RBAC when both create flags are true
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      capiMode.enabled: true
+      capiMode.rbac.create: true
+    asserts:
+      # Both base RBAC (2) and CAPI RBAC (2) should be created
       - hasDocuments:
           count: 4
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
       - isKind:
           of: ClusterRole
         documentIndex: 2
@@ -414,6 +468,9 @@ tests:
           path: metadata.name
           pattern: -capi$
         documentIndex: 2
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 3
 
   - it: should grant CAPI resource discovery permissions
     set:
