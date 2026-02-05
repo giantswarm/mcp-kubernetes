@@ -583,10 +583,11 @@ func runServe(config ServeConfig) error {
 		// Create HybridOAuthClientProvider for split-credential model
 		// This wraps the OAuth provider with ServiceAccount-based secret access
 		hybridConfig := &federation.HybridOAuthClientProviderConfig{
-			UserProvider:           oauthProvider,
-			StrictPrivilegedAccess: config.CAPIMode.PrivilegedSecretAccess.Strict,
-			RateLimitPerSecond:     config.CAPIMode.PrivilegedSecretAccess.RateLimitPerSecond,
-			RateLimitBurst:         config.CAPIMode.PrivilegedSecretAccess.RateLimitBurst,
+			UserProvider:            oauthProvider,
+			StrictPrivilegedAccess:  config.CAPIMode.PrivilegedSecretAccess.Strict,
+			PrivilegedCAPIDiscovery: config.CAPIMode.PrivilegedSecretAccess.PrivilegedCAPIDiscovery,
+			RateLimitPerSecond:      config.CAPIMode.PrivilegedSecretAccess.RateLimitPerSecond,
+			RateLimitBurst:          config.CAPIMode.PrivilegedSecretAccess.RateLimitBurst,
 		}
 
 		hybridProvider, err = federation.NewHybridOAuthClientProvider(hybridConfig)
@@ -600,8 +601,9 @@ func runServe(config ServeConfig) error {
 		}
 
 		// Log the privileged access configuration (using provider's actual values after defaults applied)
-		slog.Info("privileged secret access enabled (split-credential model)",
+		slog.Info("privileged access enabled (split-credential model)",
 			"strict_mode", hybridProvider.StrictPrivilegedAccess(),
+			"privileged_capi_discovery", hybridProvider.PrivilegedCAPIDiscovery(),
 			"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
 			"rate_limit_burst", hybridProvider.RateLimitBurst())
 
@@ -1075,6 +1077,11 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	// Privileged secret access configuration (split-credential model)
 	if os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
 		config.PrivilegedSecretAccess.Strict = true
+	}
+	// Privileged CAPI discovery (default: true)
+	if v := os.Getenv("PRIVILEGED_CAPI_DISCOVERY"); v != "" {
+		val := v == envValueTrue
+		config.PrivilegedSecretAccess.PrivilegedCAPIDiscovery = &val
 	}
 	if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"); ok {
 		config.PrivilegedSecretAccess.RateLimitPerSecond = f

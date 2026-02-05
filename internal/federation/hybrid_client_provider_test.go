@@ -354,6 +354,52 @@ func TestHybridOAuthClientProvider_GetPrivilegedDynamicClient(t *testing.T) {
 		assert.Equal(t, 1, callCount, "config should be cached, not created again")
 	})
 
+	t.Run("returns error when privileged CAPI discovery is disabled", func(t *testing.T) {
+		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		require.NoError(t, err)
+
+		mockConfig := &rest.Config{
+			Host: "https://kubernetes.default.svc",
+		}
+
+		disabled := false
+		config := &HybridOAuthClientProviderConfig{
+			UserProvider:            userProvider,
+			Logger:                  newTestLogger(),
+			ConfigProvider:          mockInClusterConfig(mockConfig, nil),
+			PrivilegedCAPIDiscovery: &disabled,
+		}
+
+		provider, err := NewHybridOAuthClientProvider(config)
+		require.NoError(t, err)
+		defer provider.Close()
+
+		user := &UserInfo{Email: "user@example.com"}
+
+		client, err := provider.GetPrivilegedDynamicClient(context.Background(), user)
+
+		assert.ErrorIs(t, err, ErrPrivilegedCAPIDiscoveryDisabled)
+		assert.Nil(t, client)
+		assert.False(t, provider.PrivilegedCAPIDiscovery())
+	})
+
+	t.Run("defaults to enabled when not configured", func(t *testing.T) {
+		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		require.NoError(t, err)
+
+		config := &HybridOAuthClientProviderConfig{
+			UserProvider:   userProvider,
+			Logger:         newTestLogger(),
+			ConfigProvider: mockInClusterConfig(&rest.Config{Host: "https://kubernetes.default.svc"}, nil),
+		}
+
+		provider, err := NewHybridOAuthClientProvider(config)
+		require.NoError(t, err)
+		defer provider.Close()
+
+		assert.True(t, provider.PrivilegedCAPIDiscovery())
+	})
+
 	t.Run("dynamic client is cached across calls", func(t *testing.T) {
 		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
 		require.NoError(t, err)
@@ -572,15 +618,17 @@ func TestDefaultInClusterConfigProvider(t *testing.T) {
 type mockPrivilegedAccessMetrics struct {
 	recordings []struct {
 		userDomain string
+		operation  string
 		result     string
 	}
 }
 
-func (m *mockPrivilegedAccessMetrics) RecordPrivilegedSecretAccess(_ context.Context, userDomain, result string) {
+func (m *mockPrivilegedAccessMetrics) RecordPrivilegedSecretAccess(_ context.Context, userDomain, operation, result string) {
 	m.recordings = append(m.recordings, struct {
 		userDomain string
+		operation  string
 		result     string
-	}{userDomain, result})
+	}{userDomain, operation, result})
 }
 
 func TestHybridOAuthClientProvider_RateLimiting(t *testing.T) {

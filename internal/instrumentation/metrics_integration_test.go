@@ -230,11 +230,11 @@ func recordAllMetrics(ctx context.Context, m *Metrics) {
 	m.RecordFederationClientCreation(ctx, "staging-cluster", FederationClientResultCached)
 	m.RecordFederationClientCreation(ctx, "dev-cluster", FederationClientResultError)
 
-	// Privileged secret access metrics
-	m.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "success")
-	m.RecordPrivilegedSecretAccess(ctx, "example.com", "error")
-	m.RecordPrivilegedSecretAccess(ctx, "other.org", "rate_limited")
-	m.RecordPrivilegedSecretAccess(ctx, "internal.io", "fallback")
+	// Privileged access metrics (secret access + CAPI discovery)
+	m.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
+	m.RecordPrivilegedSecretAccess(ctx, "example.com", "secret_access", "error")
+	m.RecordPrivilegedSecretAccess(ctx, "other.org", "capi_discovery", "rate_limited")
+	m.RecordPrivilegedSecretAccess(ctx, "internal.io", "capi_discovery", "fallback")
 
 	// Workload cluster authentication metrics
 	m.RecordWorkloadClusterAuth(ctx, "impersonation", "prod-wc-01", "success")
@@ -298,7 +298,7 @@ func TestMetricLabelsAreRecorded(t *testing.T) {
 	metrics.RecordHTTPRequest(ctx, "POST", "/mcp", 201, 50*time.Millisecond)
 	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "production", StatusSuccess, 100*time.Millisecond)
 	metrics.RecordImpersonation(ctx, "jane@giantswarm.io", "prod-wc-01", ImpersonationResultSuccess)
-	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "success")
+	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
 
 	// Fetch metrics
 	server := httptest.NewServer(promhttp.Handler())
