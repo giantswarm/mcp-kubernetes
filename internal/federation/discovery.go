@@ -403,7 +403,7 @@ func (m *Manager) ResolveCluster(ctx context.Context, namePattern string, user *
 	// Get dynamic client for CAPI discovery (privileged or user credentials)
 	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cluster resolution failed: %w", err)
 	}
 
 	// Discover all clusters
@@ -496,7 +496,7 @@ func (m *Manager) listClustersWithOptions(ctx context.Context, user *UserInfo, o
 	// Get dynamic client for CAPI discovery (privileged or user credentials)
 	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cluster listing failed: %w", err)
 	}
 
 	// Build list options
@@ -557,19 +557,35 @@ func (m *Manager) listClustersWithOptions(ctx context.Context, user *UserInfo, o
 //  1. Try ServiceAccount credentials via PrivilegedSecretAccessProvider (preferred)
 //  2. Fall back to user credentials if privileged access is unavailable
 //
+// When strict mode is enabled, the fallback is disabled and an error is returned
+// instead, enforcing the split-credential security model.
+//
 // This ensures CAPI discovery works in all deployment scenarios while preferring
 // the more secure split-credential model when available.
 func (m *Manager) getDynamicClientForCAPIDiscovery(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
 	dynamicClient, err := m.getPrivilegedDynamicClientForCAPI(ctx, user)
 	if err != nil {
+		// Check if strict mode prevents fallback
+		if hybridProvider, ok := m.clientProvider.(*HybridOAuthClientProvider); ok && hybridProvider.IsStrictMode() {
+			m.logger.Error("Privileged CAPI discovery failed in strict mode",
+				UserHashAttr(user.Email),
+				"error", err)
+			return nil, fmt.Errorf("CAPI discovery failed (strict mode): %w", ErrStrictPrivilegedAccessRequired)
+		}
+
 		m.logger.Debug("Privileged CAPI access not available, using user credentials",
 			UserHashAttr(user.Email),
 			"error", err)
 
+		// Record fallback metric if the provider supports it
+		if hybridProvider, ok := m.clientProvider.(*HybridOAuthClientProvider); ok {
+			hybridProvider.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "fallback")
+		}
+
 		// Fall back to user credentials
 		dynamicClient, err = m.GetDynamicClient(ctx, "", user)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get dynamic client: %w", err)
+			return nil, fmt.Errorf("failed to get dynamic client for CAPI discovery: %w", err)
 		}
 	}
 	return dynamicClient, nil

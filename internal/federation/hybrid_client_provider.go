@@ -328,11 +328,6 @@ func (p *HybridOAuthClientProvider) RateLimitBurst() int {
 	return p.rateLimitBurst
 }
 
-// StrictPrivilegedAccess returns whether strict mode is enabled.
-func (p *HybridOAuthClientProvider) StrictPrivilegedAccess() bool {
-	return p.strictPrivilegedAccess
-}
-
 // PrivilegedCAPIDiscovery returns whether privileged CAPI discovery is enabled.
 func (p *HybridOAuthClientProvider) PrivilegedCAPIDiscovery() bool {
 	return p.privilegedCAPIDiscovery
@@ -470,7 +465,7 @@ func (p *HybridOAuthClientProvider) GetPrivilegedClientForSecrets(ctx context.Co
 	if !limiter.Allow() {
 		p.logger.Warn("Privileged secret access rate limited",
 			UserHashAttr(user.Email),
-			"operation", "kubeconfig_secret_access")
+			"operation", PrivilegedOperationSecretAccess)
 		p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "rate_limited")
 		return nil, ErrRateLimited
 	}
@@ -481,10 +476,12 @@ func (p *HybridOAuthClientProvider) GetPrivilegedClientForSecrets(ctx context.Co
 		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
 	}
 
-	// Log the privileged access for audit trail
-	p.logger.Info("Privileged secret access initiated",
+	// Log the privileged access for audit trail.
+	// Use Debug level because secret access is high-frequency in CAPI mode
+	// (triggered on every workload cluster operation that needs a kubeconfig).
+	p.logger.Debug("Privileged secret access initiated",
 		UserHashAttr(user.Email),
-		"operation", "kubeconfig_secret_access")
+		"operation", PrivilegedOperationSecretAccess)
 
 	p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "success")
 	return p.saClientset, nil
@@ -518,7 +515,7 @@ func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Conte
 	if !limiter.Allow() {
 		p.logger.Warn("Privileged CAPI access rate limited",
 			UserHashAttr(user.Email),
-			"operation", "capi_cluster_discovery")
+			"operation", PrivilegedOperationCAPIDiscovery)
 		p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "rate_limited")
 		return nil, ErrRateLimited
 	}
@@ -529,11 +526,11 @@ func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Conte
 		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
 	}
 
-	// Log the privileged access for audit trail
-	// Use Debug level because CAPI discovery is high-frequency (every ListClusters/ResolveCluster call)
+	// Log the privileged access for audit trail.
+	// Use Debug level because CAPI discovery is high-frequency (every ListClusters/ResolveCluster call).
 	p.logger.Debug("Privileged CAPI access initiated",
 		UserHashAttr(user.Email),
-		"operation", "capi_cluster_discovery")
+		"operation", PrivilegedOperationCAPIDiscovery)
 
 	p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "success")
 	return p.saDynamicClient, nil
@@ -578,7 +575,9 @@ func (p *HybridOAuthClientProvider) initServiceAccountClient() error {
 		// Create dynamic client for CAPI discovery
 		dynamicClient, err := dynamic.NewForConfig(config)
 		if err != nil {
-			// Rollback clientset to maintain all-or-nothing initialization
+			// Clear clientset to avoid partial initialization state.
+			// sync.Once ensures this function only runs once, so a failure here
+			// is permanent -- subsequent calls return initErr without retrying.
 			p.saClientset = nil
 			p.initErr = fmt.Errorf("failed to create dynamic client: %w", err)
 			p.logger.Error("Failed to create ServiceAccount dynamic client",

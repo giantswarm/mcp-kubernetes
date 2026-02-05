@@ -512,6 +512,7 @@ func TestGetSecretAccessClient_Integration(t *testing.T) {
 
 		hybridProvider, err := NewHybridOAuthClientProvider(hybridConfig)
 		require.NoError(t, err)
+		defer hybridProvider.Close()
 
 		// Create manager with hybrid provider
 		manager, err := NewManager(hybridProvider, WithManagerLogger(newTestLogger()))
@@ -574,6 +575,7 @@ func TestGetSecretAccessClient_Integration(t *testing.T) {
 
 		hybridProvider, err := NewHybridOAuthClientProvider(hybridConfig)
 		require.NoError(t, err)
+		defer hybridProvider.Close()
 
 		// Create manager with hybrid provider
 		manager, err := NewManager(hybridProvider, WithManagerLogger(newTestLogger()))

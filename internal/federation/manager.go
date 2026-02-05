@@ -507,7 +507,7 @@ func (m *Manager) GetClusterSummary(ctx context.Context, clusterName string, use
 	// Get dynamic client for CAPI discovery (privileged or user credentials)
 	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cluster summary failed: %w", err)
 	}
 
 	// Query cluster by name using field selector for efficiency

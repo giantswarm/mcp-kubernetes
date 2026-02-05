@@ -602,7 +602,7 @@ func runServe(config ServeConfig) error {
 
 		// Log the privileged access configuration (using provider's actual values after defaults applied)
 		slog.Info("privileged access enabled (split-credential model)",
-			"strict_mode", hybridProvider.StrictPrivilegedAccess(),
+			"strict_mode", hybridProvider.IsStrictMode(),
 			"privileged_capi_discovery", hybridProvider.PrivilegedCAPIDiscovery(),
 			"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
 			"rate_limit_burst", hybridProvider.RateLimitBurst())
