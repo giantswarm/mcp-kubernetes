@@ -10,8 +10,8 @@ This document describes the RBAC (Role-Based Access Control) configuration and s
 | **OAuth Downstream Mode** (`enableDownstreamOAuth: true`) | Each User + ServiceAccount for secrets | **Minimal enforced** - SA has no API access | **Automatically set to `minimal`** |
 
 **Key Insight**: In OAuth Downstream Mode with CAPI, the security model uses split credentials:
-- **Users authenticate via OAuth** and need RBAC for CAPI cluster discovery
-- **ServiceAccount reads kubeconfig secrets** - users do NOT need secret access
+- **ServiceAccount handles CAPI cluster discovery and kubeconfig secret access** - users do NOT need cluster-scoped CAPI permissions or secret access
+- **Users authenticate via OAuth** for workload cluster operations (with impersonation)
 - This prevents users from extracting admin credentials and bypassing impersonation
 
 ### Quick Reference
@@ -334,9 +334,9 @@ The architecture uses split credentials to prevent credential leakage:
 │  │  ┌─────────────────────────┐   ┌──────────────────────────────────┐ │   │
 │  │  │   User OAuth Client     │   │   ServiceAccount Client          │ │   │
 │  │  │                         │   │                                  │ │   │
-│  │  │  • List CAPI Clusters   │   │  • Read kubeconfig secrets      │ │   │
-│  │  │  • Perform WC operations│   │  • (Only secret access)          │ │   │
-│  │  │    (with impersonation) │   │                                  │ │   │
+│  │  │  • Perform WC operations│   │  • Discover CAPI clusters       │ │   │
+│  │  │    (with impersonation) │   │  • Read kubeconfig secrets      │ │   │
+│  │  │                         │   │                                  │ │   │
 │  │  └─────────────────────────┘   └──────────────────────────────────┘ │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -345,9 +345,9 @@ The architecture uses split credentials to prevent credential leakage:
 ### How It Works: Management Cluster vs Workload Clusters
 
 **Management Cluster (MC)**: Split credential model
-- User's OAuth token is used for CAPI cluster discovery (RBAC enforced)
+- ServiceAccount discovers CAPI clusters (privileged access, configurable)
 - ServiceAccount reads kubeconfig secrets (privileged access)
-- **Users do NOT need secret read permissions** - prevents credential leakage
+- **Users do NOT need cluster-scoped CAPI permissions or secret read permissions**
 - This ensures users cannot extract admin kubeconfigs via kubectl
 
 **Workload Clusters (WC)**: User identity is propagated via impersonation
@@ -358,14 +358,11 @@ The architecture uses split credentials to prevent credential leakage:
 
 **Security Guarantee**: Users can only access workload clusters where their impersonated identity has RBAC permissions. They cannot bypass impersonation by reading kubeconfig secrets directly.
 
-This means: **Users can only do what their own RBAC allows, on both MC and WCs.**
+This means: **Users can only do what their own RBAC allows on workload clusters.**
 
 ### User-Centric RBAC
 
-All Kubernetes API operations use the user's OAuth token:
-
-1. **Management Cluster Operations**: User's OAuth token authenticates directly
-2. **Workload Cluster Operations**: User identity is impersonated via headers
+Workload cluster operations use the user's OAuth identity via impersonation:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -377,8 +374,9 @@ All Kubernetes API operations use the user's OAuth token:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     mcp-kubernetes Server                           │
 │                                                                     │
-│  Management Cluster: Uses user's OAuth token directly               │
-│  Workload Clusters:  Impersonates user via headers                  │
+│  CAPI Discovery:   ServiceAccount credentials (privileged)          │
+│  Secret Access:    ServiceAccount credentials (privileged)          │
+│  Workload Clusters: Impersonates user via headers                   │
 └─────────────────────────────────┬───────────────────────────────────┘
                                   │
                     ┌─────────────┴─────────────┐
@@ -386,8 +384,8 @@ All Kubernetes API operations use the user's OAuth token:
 ┌────────────────────────────┐   ┌────────────────────────────┐
 │   Management Cluster API   │   │    Workload Cluster API    │
 │                            │   │                            │
-│  User's OAuth Token        │   │  Impersonate-User: user@   │
-│  → User's RBAC applies     │   │  → User's RBAC applies     │
+│  ServiceAccount Token      │   │  Impersonate-User: user@   │
+│  → SA RBAC for CAPI/secrets│   │  → User's RBAC applies     │
 └────────────────────────────┘   └────────────────────────────┘
 ```
 
@@ -397,20 +395,34 @@ When OAuth Downstream is enabled in CAPI mode, the permission requirements are s
 
 **Users need RBAC permissions for:**
 
-1. **Discover CAPI clusters** (on Management Cluster):
-   ```yaml
-   apiGroups: ["cluster.x-k8s.io"]
-   resources: ["clusters", "clusters/status", ...]
-   verbs: ["get", "list"]
-   ```
-
-2. **Perform operations on workload clusters**:
+1. **Perform operations on workload clusters**:
    - Users need appropriate RBAC on each workload cluster
    - Impersonation headers carry user identity
 
+**Users do NOT need RBAC for:**
+
+1. **CAPI cluster discovery** - ServiceAccount handles this (when `privilegedCAPIDiscovery: true`, the default)
+2. **Kubeconfig secret access** - ServiceAccount handles this
+
+> **Note**: When `privilegedCAPIDiscovery: true` (default), all authenticated users can see
+> all CAPI clusters (names, namespaces, providers, status). This is intentional -- granting
+> every user cluster-scoped CAPI permissions is impractical in multi-tenant environments.
+> Access to workload cluster **operations** is still governed by the user's own RBAC via impersonation.
+>
+> To restrict cluster visibility to what each user's RBAC allows, set
+> `capiMode.privilegedSecretAccess.privilegedCAPIDiscovery: false`. Users will then need
+> their own ClusterRoleBinding for `clusters.cluster.x-k8s.io` to discover clusters.
+
 **ServiceAccount needs RBAC permissions for:**
 
-1. **Read kubeconfig secrets** (on Management Cluster):
+1. **Discover CAPI clusters** (on Management Cluster, when `privilegedCAPIDiscovery: true`):
+   ```yaml
+   apiGroups: ["cluster.x-k8s.io"]
+   resources: ["clusters", "clusters/status"]
+   verbs: ["get", "list"]
+   ```
+
+2. **Read kubeconfig secrets** (on Management Cluster):
    ```yaml
    apiGroups: [""]
    resources: ["secrets"]
@@ -420,7 +432,7 @@ When OAuth Downstream is enabled in CAPI mode, the permission requirements are s
 
    This is configured via `capiMode.rbac.allowedNamespaces` in the Helm chart.
 
-**Security Note**: Users do NOT need secret read permissions. This is intentional - it prevents users from extracting admin kubeconfig credentials via kubectl and bypassing impersonation enforcement.
+**Security Note**: Users do NOT need secret read permissions or CAPI cluster-scoped permissions. This is intentional - it prevents users from extracting admin kubeconfig credentials via kubectl and bypassing impersonation enforcement.
 
 ## Service Account Requirements by Mode
 
@@ -429,9 +441,9 @@ When OAuth Downstream is enabled in CAPI mode, the permission requirements are s
 | Single-cluster, no OAuth | Yes | SA RBAC defines all user permissions |
 | Single-cluster, OAuth downstream | No | User's OIDC token used directly |
 | CAPI mode, no OAuth | Yes | SA needs CAPI + secret access |
-| CAPI mode, OAuth downstream | **Yes for secrets** | SA reads kubeconfigs; users don't need secret access |
+| CAPI mode, OAuth downstream | **Yes for CAPI discovery + secrets** | SA discovers clusters and reads kubeconfigs; users need neither |
 
-**Key Security Change**: In CAPI mode with OAuth downstream, the ServiceAccount requires secret access even though user tokens are used for other operations. This is a security feature that prevents users from extracting admin kubeconfig credentials directly.
+**Key Security Change**: In CAPI mode with OAuth downstream, the ServiceAccount handles both CAPI cluster discovery and kubeconfig secret access. Users do not need cluster-scoped CAPI permissions or secret access. This is a security feature that simplifies user RBAC while preventing credential leakage.
 
 ## Security Best Practices
 
@@ -601,34 +613,54 @@ User (via kubectl) → MC API → Secret (admin kubeconfig) → WC API (as admin
                          No impersonation here!
 ```
 
-### The Solution: ServiceAccount for Secret Access
+### The Solution: ServiceAccount for Privileged Access
 
-By having the ServiceAccount read secrets instead of users:
+By having the ServiceAccount handle CAPI discovery and secret access:
 
-1. Users can discover clusters (RBAC enforced)
+1. Users can discover clusters without needing cluster-scoped CAPI permissions
 2. Users cannot read kubeconfig secrets via kubectl
-3. mcp-kubernetes reads secrets using ServiceAccount credentials
+3. mcp-kubernetes discovers clusters and reads secrets using ServiceAccount credentials
 4. mcp-kubernetes always applies impersonation when accessing workload clusters
 5. Users can only perform actions allowed by their RBAC on each workload cluster
 
 ```
 Secure Flow:
-User → mcp-kubernetes → SA reads secret → WC API (with impersonation!)
-                                               ↑
-                                User's identity enforced
+User → mcp-kubernetes → SA discovers clusters → SA reads secret → WC API (with impersonation!)
+                                                                        ↑
+                                                            User's identity enforced
 ```
 
 ### Security Properties
 
 | Property | Guarantee |
 |----------|-----------|
-| Cluster discovery | User RBAC enforced (can only see clusters they're allowed to list) |
+| Cluster discovery | ServiceAccount discovers all clusters (configurable via `privilegedCAPIDiscovery`) |
+| Cluster visibility | All authenticated users see all clusters (names, namespaces, status) |
 | Secret access | ServiceAccount only (users cannot extract admin credentials) |
 | Workload cluster access | Impersonation always enforced (user's identity) |
 | Audit trail | Logs show user identity on all operations |
 | Credential leakage | Prevented (users cannot access raw kubeconfigs) |
 
 ## Advanced Security Configuration
+
+### Privileged CAPI Discovery
+
+By default, CAPI cluster discovery uses ServiceAccount credentials so that users do not need cluster-scoped CAPI permissions. This means all authenticated users can see all CAPI clusters.
+
+To restrict cluster visibility to what each user's RBAC allows, disable privileged CAPI discovery:
+
+```yaml
+capiMode:
+  privilegedSecretAccess:
+    privilegedCAPIDiscovery: false  # Users need their own CAPI RBAC
+```
+
+When disabled, users must have a `ClusterRoleBinding` granting `get` and `list` on `clusters.cluster.x-k8s.io`. This provides tenant-level isolation of cluster discovery at the cost of additional RBAC management.
+
+| Setting | Cluster Visibility | User RBAC Required | Use Case |
+|---------|-------------------|-------------------|----------|
+| `true` (default) | All clusters visible to all users | None for discovery | Most deployments |
+| `false` | Only clusters user can list | `clusters.cluster.x-k8s.io` get/list | Strict multi-tenant isolation |
 
 ### Strict Mode
 
@@ -673,17 +705,22 @@ Rate limiting protects against:
 
 ### Metrics
 
-Privileged secret access is instrumented with Prometheus metrics:
+Privileged access is instrumented with Prometheus metrics:
 
 ```
 # Metric: mcp_kubernetes_privileged_secret_access_total
-# Labels: user_domain, result
+# Labels: user_domain, operation, result
+# Operation values: secret_access, capi_discovery
 # Result values: success, error, rate_limited, fallback
 
 # Example queries:
 
-# Rate of privileged access attempts
+# Rate of all privileged access attempts
 rate(mcp_kubernetes_privileged_secret_access_total[5m])
+
+# Rate of CAPI discovery vs secret access
+rate(mcp_kubernetes_privileged_secret_access_total{operation="capi_discovery"}[5m])
+rate(mcp_kubernetes_privileged_secret_access_total{operation="secret_access"}[5m])
 
 # Rate-limited requests (potential abuse)
 rate(mcp_kubernetes_privileged_secret_access_total{result="rate_limited"}[5m])

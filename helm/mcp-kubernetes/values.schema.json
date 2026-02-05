@@ -736,16 +736,21 @@
         },
         "privilegedSecretAccess": {
           "type": "object",
-          "description": "Privileged secret access configuration for split-credential model. When enabled, ServiceAccount token is used for kubeconfig secret access instead of user OAuth tokens, preventing users from bypassing impersonation by extracting admin credentials via kubectl.",
+          "description": "Privileged access configuration for split-credential model. ServiceAccount token is used for kubeconfig secret access and optionally CAPI discovery instead of user OAuth tokens.",
           "properties": {
             "strict": {
               "type": "boolean",
               "description": "When enabled, fails instead of falling back to user credentials when ServiceAccount access is unavailable. SECURITY RECOMMENDATION: Enable in production to enforce split-credential model.",
               "default": false
             },
+            "privilegedCAPIDiscovery": {
+              "type": "boolean",
+              "description": "When enabled, CAPI cluster discovery uses ServiceAccount credentials. All users can see all clusters but workload cluster access is still governed by user RBAC. When disabled, users need their own CAPI RBAC for cluster discovery.",
+              "default": true
+            },
             "rateLimit": {
               "type": "object",
-              "description": "Rate limiting for privileged secret access to prevent abuse",
+              "description": "Rate limiting for privileged access to prevent abuse",
               "properties": {
                 "perSecond": {
                   "type": "number",

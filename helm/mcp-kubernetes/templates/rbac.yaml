@@ -300,21 +300,21 @@ The workloadClusterAuth.mode determines what resources are accessed:
 {{- if and .Values.serviceAccount.create .Values.rbac.create .Values.capiMode.enabled .Values.capiMode.rbac.create }}
 ---
 # ClusterRole for CAPI resource discovery and authentication
-# NOTE: Used by ServiceAccount when enableDownstreamOAuth: false
-#       Users need equivalent RBAC when enableDownstreamOAuth: true
+# The ServiceAccount uses this role for CAPI cluster discovery (split-credential model).
+# Users do NOT need these permissions - discovery uses ServiceAccount credentials.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "mcp-kubernetes.fullname" . }}-capi
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
-  {{- if .Values.mcpKubernetes.oauth.enableDownstreamOAuth }}
   annotations:
-    mcp-kubernetes.giantswarm.io/note: "Users need these permissions in their own RBAC when OAuth Downstream is enabled"
-  {{- end }}
+    mcp-kubernetes.giantswarm.io/security-model: "privileged-capi-access"
+    mcp-kubernetes.giantswarm.io/note: "ServiceAccount uses this for CAPI discovery; users do NOT need CAPI permissions"
 rules:
   # CAPI cluster discovery (read-only)
-  # In OAuth Downstream mode, users need this permission in their own ClusterRoleBinding
+  # ServiceAccount uses this for CAPI discovery in the split-credential model
+  # Users do NOT need these permissions - discovery is performed with ServiceAccount credentials
   - apiGroups: ["cluster.x-k8s.io"]
     resources:
       - clusters

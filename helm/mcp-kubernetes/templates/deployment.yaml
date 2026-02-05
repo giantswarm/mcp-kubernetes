@@ -295,11 +295,15 @@ spec:
               value: "true"
             {{- end }}
             {{- end }}
-            # Privileged Secret Access Configuration (split-credential model)
+            # Privileged Access Configuration (split-credential model)
             {{- if .Values.capiMode.privilegedSecretAccess }}
             {{- if .Values.capiMode.privilegedSecretAccess.strict }}
             - name: PRIVILEGED_SECRET_ACCESS_STRICT
               value: "true"
+            {{- end }}
+            {{- if hasKey .Values.capiMode.privilegedSecretAccess "privilegedCAPIDiscovery" }}
+            - name: PRIVILEGED_CAPI_DISCOVERY
+              value: {{ .Values.capiMode.privilegedSecretAccess.privilegedCAPIDiscovery | quote }}
             {{- end }}
             {{- if .Values.capiMode.privilegedSecretAccess.rateLimit }}
             {{- if .Values.capiMode.privilegedSecretAccess.rateLimit.perSecond }}

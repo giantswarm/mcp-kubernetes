@@ -765,7 +765,21 @@ capiMode:
     # Default: false (fallback enabled for backward compatibility)
     strict: false
 
-    # Rate limiting for privileged secret access
+    # Privileged CAPI discovery: When enabled, CAPI cluster discovery uses
+    # ServiceAccount credentials instead of user credentials.
+    #
+    # When enabled (default), all users can discover all CAPI clusters without
+    # needing cluster-scoped CAPI RBAC. Access to workload cluster operations
+    # is still governed by the user's own RBAC via impersonation.
+    #
+    # When disabled, users must have their own RBAC permissions to list
+    # clusters.cluster.x-k8s.io resources. This provides tenant-level
+    # isolation of cluster discovery at the cost of additional RBAC management.
+    #
+    # Default: true (recommended for most deployments)
+    privilegedCAPIDiscovery: true
+
+    # Rate limiting for privileged access
     # Prevents abuse by limiting requests per user
     rateLimit:
       # Rate limit per user (requests per second)

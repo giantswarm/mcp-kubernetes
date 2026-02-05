@@ -153,7 +153,7 @@ func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string,
 
 			// Record fallback metric if the provider supports it
 			if hybridProvider, isHybrid := privilegedProvider.(*HybridOAuthClientProvider); isHybrid {
-				hybridProvider.recordMetric(ctx, user.Email, "fallback")
+				hybridProvider.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "fallback")
 			}
 			// Fall through to user credentials
 		} else {

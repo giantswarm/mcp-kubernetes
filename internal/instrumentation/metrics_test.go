@@ -681,11 +681,11 @@ func TestMetrics_RecordPrivilegedSecretAccess(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Test all result values
-	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "success")
-	metrics.RecordPrivilegedSecretAccess(ctx, "example.com", "error")
-	metrics.RecordPrivilegedSecretAccess(ctx, "other.org", "rate_limited")
-	metrics.RecordPrivilegedSecretAccess(ctx, "internal.io", "fallback")
+	// Test all result values with operation labels
+	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
+	metrics.RecordPrivilegedSecretAccess(ctx, "example.com", "secret_access", "error")
+	metrics.RecordPrivilegedSecretAccess(ctx, "other.org", "capi_discovery", "rate_limited")
+	metrics.RecordPrivilegedSecretAccess(ctx, "internal.io", "capi_discovery", "fallback")
 }
 
 func TestMetrics_RecordPrivilegedSecretAccess_NilMetrics(t *testing.T) {
@@ -693,7 +693,7 @@ func TestMetrics_RecordPrivilegedSecretAccess_NilMetrics(t *testing.T) {
 	ctx := context.Background()
 
 	// Should not panic with nil metrics
-	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "success")
+	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
 }
 
 func TestMetrics_ConcurrentPrivilegedSecretAccessRecording(t *testing.T) {
@@ -706,6 +706,7 @@ func TestMetrics_ConcurrentPrivilegedSecretAccessRecording(t *testing.T) {
 	ctx := context.Background()
 	const numGoroutines = 100
 	domains := []string{"giantswarm.io", "example.com", "other.org"}
+	operations := []string{"secret_access", "capi_discovery"}
 	results := []string{"success", "error", "rate_limited", "fallback"}
 
 	var wg sync.WaitGroup
@@ -715,8 +716,9 @@ func TestMetrics_ConcurrentPrivilegedSecretAccessRecording(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			domain := domains[id%len(domains)]
+			operation := operations[id%len(operations)]
 			result := results[id%len(results)]
-			metrics.RecordPrivilegedSecretAccess(ctx, domain, result)
+			metrics.RecordPrivilegedSecretAccess(ctx, domain, operation, result)
 		}(i)
 	}
 

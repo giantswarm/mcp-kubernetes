@@ -138,6 +138,27 @@ type PrivilegedSecretAccessConfig struct {
 	// Default: false (fallback enabled for backward compatibility)
 	Strict bool
 
+	// PrivilegedCAPIDiscovery controls whether CAPI cluster discovery uses
+	// ServiceAccount credentials instead of user credentials.
+	//
+	// When enabled (default), the ServiceAccount discovers all CAPI clusters,
+	// eliminating the need for users to have cluster-scoped CAPI permissions.
+	// This is the recommended setting because granting every user cluster-scoped
+	// CAPI permissions is impractical in multi-tenant environments.
+	//
+	// When disabled, users must have their own RBAC permissions to list
+	// clusters.cluster.x-k8s.io resources. This limits cluster visibility
+	// to what the user's RBAC allows, providing tenant-level isolation of
+	// cluster discovery.
+	//
+	// VISIBILITY NOTE:
+	// When enabled, all users can see all CAPI clusters (names, namespaces,
+	// status). Access to workload cluster operations is still governed by
+	// the user's own RBAC via impersonation.
+	//
+	// Default: true (privileged CAPI discovery enabled)
+	PrivilegedCAPIDiscovery *bool
+
 	// RateLimitPerSecond is the rate limit for privileged access per user (requests/second).
 	// Prevents abuse by limiting how often a user can trigger ServiceAccount-based secret access.
 	// Default: 10.0
