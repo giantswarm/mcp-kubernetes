@@ -159,7 +159,7 @@ func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string,
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
-		m.privilegedProvider.RecordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "fallback")
+		m.recordPrivilegedMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "fallback")
 
 		return m.getUserSecretClient(ctx, clusterName, user)
 

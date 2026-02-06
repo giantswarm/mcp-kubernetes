@@ -143,10 +143,20 @@ type Manager struct {
 	// ClientProvider configuration. See CredentialMode for the three modes.
 	credentialMode CredentialMode
 
-	// privilegedProvider is the PrivilegedSecretAccessProvider interface, cached
-	// from the ClientProvider at construction time. Nil when credentialMode is
+	// privilegedProvider is the PrivilegedSecretAccessProvider interface, set
+	// via WithPrivilegedAccess at construction time. Nil when credentialMode is
 	// CredentialModeUser (i.e., the provider does not support privileged access).
 	privilegedProvider PrivilegedSecretAccessProvider
+
+	// privilegedAccessConfigured is true when WithPrivilegedAccess was called,
+	// even if the provider is nil (which is a configuration error caught in NewManager).
+	privilegedAccessConfigured bool
+
+	// privilegedAccessMetrics records metrics for privileged access fallback events.
+	// This is set via WithPrivilegedAccessMetrics and is separate from the
+	// PrivilegedSecretAccessProvider's internal metric recording (which handles
+	// success/error/rate_limited events). The Manager owns fallback metric recording.
+	privilegedAccessMetrics PrivilegedSecretAccessMetricsRecorder
 
 	// Client cache for remote workload cluster clients (per user)
 	cache *ClientCache
@@ -347,10 +357,19 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 //	)
 func WithPrivilegedAccess(provider PrivilegedSecretAccessProvider) ManagerOption {
 	return func(m *Manager) {
-		if provider == nil {
-			panic("WithPrivilegedAccess: provider must not be nil")
-		}
 		m.privilegedProvider = provider
+		m.privilegedAccessConfigured = true
+	}
+}
+
+// WithPrivilegedAccessMetrics sets the metrics recorder for privileged access
+// fallback events on the Manager. This is separate from the metrics recorded
+// internally by the PrivilegedSecretAccessProvider (which tracks success,
+// error, and rate_limited events). The Manager uses this recorder to track
+// fallback-to-user-credentials events during CAPI discovery and secret access.
+func WithPrivilegedAccessMetrics(metrics PrivilegedSecretAccessMetricsRecorder) ManagerOption {
+	return func(m *Manager) {
+		m.privilegedAccessMetrics = metrics
 	}
 }
 
@@ -399,6 +418,12 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 		opt(m)
 	}
 
+	// Validate: WithPrivilegedAccess was called but the provider was nil.
+	// This is always a programming error -- omit WithPrivilegedAccess for CredentialModeUser.
+	if m.privilegedAccessConfigured && m.privilegedProvider == nil {
+		return nil, fmt.Errorf("WithPrivilegedAccess: provider must not be nil; omit the option to use CredentialModeUser")
+	}
+
 	// Resolve the credential mode from the privileged provider set via
 	// WithPrivilegedAccess. If no privileged provider was configured,
 	// defaults to CredentialModeUser.
@@ -430,6 +455,17 @@ func (m *Manager) checkClosed() error {
 		return ErrManagerClosed
 	}
 	return nil
+}
+
+// recordPrivilegedMetric records a privileged access metric event if a metrics
+// recorder is configured. This is used by the Manager for fallback events;
+// success/error/rate_limited events are recorded internally by the provider.
+func (m *Manager) recordPrivilegedMetric(ctx context.Context, userEmail, operation, result string) {
+	if m.privilegedAccessMetrics == nil {
+		return
+	}
+	userDomain := extractUserDomain(userEmail)
+	m.privilegedAccessMetrics.RecordPrivilegedSecretAccess(ctx, userDomain, operation, result)
 }
 
 // GetClient returns a Kubernetes client for the target cluster.

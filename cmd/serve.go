@@ -747,6 +747,7 @@ func runServe(config ServeConfig) error {
 		if instrumentationProvider.Enabled() {
 			managerOpts = append(managerOpts, federation.WithManagerCacheMetrics(instrumentationProvider.Metrics()))
 			managerOpts = append(managerOpts, federation.WithAuthMetrics(instrumentationProvider.Metrics()))
+			managerOpts = append(managerOpts, federation.WithPrivilegedAccessMetrics(instrumentationProvider.Metrics()))
 		}
 
 		// Explicitly enable privileged access for the split-credential model.

@@ -695,10 +695,6 @@ func (p *mockPrivilegedStaticProvider) IsStrictMode() bool {
 	return p.strictMode
 }
 
-func (p *mockPrivilegedStaticProvider) RecordMetric(_ context.Context, _, _, _ string) {
-	// no-op for tests
-}
-
 // Ensure mockPrivilegedStaticProvider implements PrivilegedSecretAccessProvider.
 var _ PrivilegedSecretAccessProvider = (*mockPrivilegedStaticProvider)(nil)
 

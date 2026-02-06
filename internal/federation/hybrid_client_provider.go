@@ -17,9 +17,7 @@ import (
 
 // PrivilegedSecretAccessMetricsRecorder provides an interface for recording privileged access metrics.
 // This enables monitoring of privileged access patterns for security observability.
-//
-// TODO(#270): Rename to PrivilegedAccessMetricsRecorder to reflect that this now covers
-// CAPI discovery metrics in addition to secret access metrics.
+// Despite the name, this covers both secret access and CAPI discovery metrics.
 type PrivilegedSecretAccessMetricsRecorder interface {
 	// RecordPrivilegedSecretAccess records a privileged access attempt.
 	// Parameters:
@@ -32,9 +30,7 @@ type PrivilegedSecretAccessMetricsRecorder interface {
 
 // PrivilegedSecretAccessProvider extends ClientProvider with the ability to access
 // kubeconfig secrets and CAPI resources using ServiceAccount credentials instead of user credentials.
-//
-// TODO(#270): Rename to PrivilegedAccessProvider to reflect that this interface now covers
-// both secret access and CAPI discovery, not just secrets.
+// Despite the name, this interface covers both secret access and CAPI discovery.
 //
 // # Security Model
 //
@@ -112,17 +108,6 @@ type PrivilegedSecretAccessProvider interface {
 	// credentials if ServiceAccount access fails at runtime. Instead, it
 	// returns an error.
 	IsStrictMode() bool
-
-	// RecordMetric records a privileged access metric event.
-	// This enables the Manager to record fallback metrics without
-	// requiring a concrete type assertion.
-	//
-	// Parameters:
-	//   - ctx: Request context
-	//   - userEmail: User's email (will be domain-extracted for cardinality control)
-	//   - operation: The type of privileged operation (e.g., "secret_access", "capi_discovery")
-	//   - result: One of "success", "error", "rate_limited", "fallback"
-	RecordMetric(ctx context.Context, userEmail, operation, result string)
 }
 
 // Default rate limiting values for privileged secret access

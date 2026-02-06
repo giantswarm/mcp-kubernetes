@@ -580,20 +580,21 @@ func (m *Manager) getDynamicClientForCAPIDiscovery(ctx context.Context, user *Us
 			"credential_mode", m.credentialMode.String(),
 			UserHashAttr(user.Email),
 			"error", err)
-		m.privilegedProvider.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "fallback")
+		m.recordPrivilegedMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "fallback")
 
-		return m.getUserDynamicClient(ctx, user)
+		return m.getUserDynamicClientForDiscovery(ctx, user)
 
 	case CredentialModePrivilegedSecrets, CredentialModeUser:
-		return m.getUserDynamicClient(ctx, user)
+		return m.getUserDynamicClientForDiscovery(ctx, user)
 
 	default:
 		return nil, fmt.Errorf("unknown credential mode: %s", m.credentialMode)
 	}
 }
 
-// getUserDynamicClient returns the user-scoped dynamic client for the local (management) cluster.
-func (m *Manager) getUserDynamicClient(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
+// getUserDynamicClientForDiscovery returns the user-scoped dynamic client for
+// CAPI cluster discovery on the local (management) cluster.
+func (m *Manager) getUserDynamicClientForDiscovery(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
 	client, err := m.GetDynamicClient(ctx, "", user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user dynamic client for CAPI discovery: %w", err)
