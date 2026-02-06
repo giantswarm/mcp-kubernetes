@@ -38,12 +38,12 @@ type ClusterInfo struct {
 // This method implements a split-credential model for enhanced security:
 //
 // When PrivilegedSecretAccessProvider is available:
-//  1. Finds the Cluster resource using user's dynamic client (RBAC enforced)
+//  1. Finds the Cluster resource using SERVICEACCOUNT credentials (privileged CAPI discovery)
 //  2. Fetches the kubeconfig secret using SERVICEACCOUNT credentials (privileged)
 //  3. Parses the kubeconfig into a rest.Config
 //
 // This prevents users from bypassing impersonation:
-//   - Users can discover clusters they have RBAC to list
+//   - Users can discover clusters without needing cluster-scoped CAPI permissions
 //   - But they cannot extract kubeconfig secrets via kubectl
 //   - mcp-kubernetes reads secrets using ServiceAccount credentials
 //   - All workload cluster operations enforce impersonation
@@ -51,11 +51,11 @@ type ClusterInfo struct {
 // When only basic ClientProvider is available (fallback mode):
 //  1. Finds the Cluster resource using user's dynamic client (RBAC enforced)
 //  2. Fetches the kubeconfig secret using user's client (RBAC enforced)
-//  3. User must have RBAC permission to read secrets
+//  3. User must have RBAC permission to read secrets and list CAPI clusters
 //
 // # Audit Trail
 //
-// All privileged secret access is logged with the user identity for accountability.
+// All privileged access is logged with the user identity for accountability.
 //
 // Security notes:
 //   - Never logs kubeconfig contents (sensitive credential data)
@@ -78,20 +78,23 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 		}
 	}
 
-	// Get user-scoped clients for MC operations (cluster discovery)
-	_, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	// Get a dynamic client for CAPI cluster discovery.
+	// This uses the same split-credential strategy as the CAPI tools:
+	// 1. Try ServiceAccount credentials (privileged) - no cluster-scoped RBAC needed for user
+	// 2. Fall back to user credentials if privileged access is unavailable
+	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		m.logger.Debug("Failed to get user clients for kubeconfig retrieval",
+		m.logger.Debug("Failed to get dynamic client for CAPI discovery in kubeconfig retrieval",
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
 		return nil, &ClusterNotFoundError{
 			ClusterName: clusterName,
-			Reason:      "failed to create client for user",
+			Reason:      "failed to create client for CAPI discovery",
 		}
 	}
 
-	// Find the cluster to determine its namespace (using user's RBAC)
+	// Find the cluster to determine its namespace
 	clusterInfo, err := m.findClusterInfo(ctx, clusterName, dynamicClient, user)
 	if err != nil {
 		return nil, err
@@ -205,10 +208,12 @@ func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterN
 //
 // # Security Model
 //
-// This method uses the user's dynamic client, ensuring:
-//   - User must have RBAC permission to list Cluster resources
-//   - Only clusters the user has access to will be found
-//   - Defense in depth: MC RBAC is enforced before any WC access
+// The caller is responsible for providing the appropriate dynamic client:
+//   - When called with a privileged client (from getDynamicClientForCAPIDiscovery),
+//     the ServiceAccount credentials are used for discovery, so users don't need
+//     cluster-scoped CAPI permissions.
+//   - When called with a user-scoped client, the user must have RBAC permission
+//     to list Cluster resources.
 //
 // The cluster name must be validated using ValidateClusterName() before calling
 // this method to prevent path traversal or injection attacks.

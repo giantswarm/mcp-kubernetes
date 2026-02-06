@@ -12,6 +12,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
@@ -636,6 +638,152 @@ func TestKubeconfigErrorWrapping(t *testing.T) {
 		}
 
 		assert.True(t, errors.Is(err, underlyingErr))
+	})
+}
+
+// mockPrivilegedStaticProvider implements both ClientProvider and PrivilegedSecretAccessProvider
+// for testing the split-credential model. The user-scoped clients can be configured to
+// return errors (simulating lack of RBAC), while the privileged clients succeed.
+type mockPrivilegedStaticProvider struct {
+	// userClientset is the user-scoped clientset (for secret access fallback)
+	userClientset kubernetes.Interface
+	// userDynamicClient is the user-scoped dynamic client (may return forbidden errors)
+	userDynamicClient dynamic.Interface
+	// privilegedClientset is the ServiceAccount clientset for secret access
+	privilegedClientset kubernetes.Interface
+	// privilegedDynamicClient is the ServiceAccount dynamic client for CAPI discovery
+	privilegedDynamicClient dynamic.Interface
+	// privilegedCAPIDiscovery controls whether privileged CAPI discovery is enabled
+	privilegedCAPIDiscovery bool
+	// strictMode controls whether fallback to user credentials is allowed
+	strictMode bool
+}
+
+func (p *mockPrivilegedStaticProvider) GetClientsForUser(_ context.Context, _ *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	return p.userClientset, p.userDynamicClient, nil, nil
+}
+
+func (p *mockPrivilegedStaticProvider) GetPrivilegedClientForSecrets(_ context.Context, _ *UserInfo) (kubernetes.Interface, error) {
+	return p.privilegedClientset, nil
+}
+
+func (p *mockPrivilegedStaticProvider) GetPrivilegedDynamicClient(_ context.Context, _ *UserInfo) (dynamic.Interface, error) {
+	if !p.privilegedCAPIDiscovery {
+		return nil, ErrPrivilegedCAPIDiscoveryDisabled
+	}
+	return p.privilegedDynamicClient, nil
+}
+
+func (p *mockPrivilegedStaticProvider) HasPrivilegedAccess() bool {
+	return true
+}
+
+func (p *mockPrivilegedStaticProvider) IsStrictMode() bool {
+	return p.strictMode
+}
+
+// Ensure mockPrivilegedStaticProvider implements PrivilegedSecretAccessProvider.
+var _ PrivilegedSecretAccessProvider = (*mockPrivilegedStaticProvider)(nil)
+
+func TestGetKubeconfigForCluster_PrivilegedCAPIDiscovery(t *testing.T) {
+	t.Run("uses privileged client for CAPI discovery when user lacks cluster-scoped RBAC", func(t *testing.T) {
+		logger := newTestLogger()
+
+		// Create a user-scoped dynamic client that REJECTS CAPI cluster listing
+		// (simulating user without cluster-scoped CAPI permissions)
+		userScheme := runtime.NewScheme()
+		userDynamic := createTestFakeDynamicClient(userScheme)
+		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+			return true, nil, errors.New("clusters.cluster.x-k8s.io is forbidden")
+		})
+
+		// Create a privileged dynamic client that HAS the CAPI clusters
+		privScheme := runtime.NewScheme()
+		cluster := createTestCAPICluster("wc-cluster", "org-acme")
+		privDynamic := createTestFakeDynamicClient(privScheme, cluster)
+
+		// Create a privileged clientset with the kubeconfig secret
+		secret := createTestKubeconfigSecret("wc-cluster", "org-acme", CAPISecretKey, testValidKubeconfig)
+		privClientset := fake.NewClientset(secret)
+
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(),
+			userDynamicClient:       userDynamic,
+			privilegedClientset:     privClientset,
+			privilegedDynamicClient: privDynamic,
+			privilegedCAPIDiscovery: true,
+		}
+
+		manager, err := NewManager(provider, WithManagerLogger(logger))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		user := testUser()
+		config, err := manager.GetKubeconfigForCluster(context.Background(), "wc-cluster", user)
+
+		require.NoError(t, err)
+		require.NotNil(t, config)
+		assert.Equal(t, "https://test-cluster.example.com:6443", config.Host)
+	})
+
+	t.Run("falls back to user credentials when privileged CAPI discovery is disabled", func(t *testing.T) {
+		logger := newTestLogger()
+
+		// Create a user-scoped dynamic client that HAS the clusters
+		userScheme := runtime.NewScheme()
+		cluster := createTestCAPICluster("wc-cluster", "org-acme")
+		userDynamic := createTestFakeDynamicClient(userScheme, cluster)
+
+		// Create a privileged clientset with the kubeconfig secret
+		secret := createTestKubeconfigSecret("wc-cluster", "org-acme", CAPISecretKey, testValidKubeconfig)
+		privClientset := fake.NewClientset(secret)
+
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(),
+			userDynamicClient:       userDynamic,
+			privilegedClientset:     privClientset,
+			privilegedDynamicClient: nil, // Not used
+			privilegedCAPIDiscovery: false,
+		}
+
+		manager, err := NewManager(provider, WithManagerLogger(logger))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		user := testUser()
+		config, err := manager.GetKubeconfigForCluster(context.Background(), "wc-cluster", user)
+
+		require.NoError(t, err)
+		require.NotNil(t, config)
+		assert.Equal(t, "https://test-cluster.example.com:6443", config.Host)
+	})
+
+	t.Run("returns error when user lacks RBAC and privileged access is unavailable", func(t *testing.T) {
+		logger := newTestLogger()
+
+		// Create a user-scoped dynamic client that REJECTS CAPI cluster listing
+		userScheme := runtime.NewScheme()
+		userDynamic := createTestFakeDynamicClient(userScheme)
+		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+			return true, nil, errors.New("clusters.cluster.x-k8s.io is forbidden")
+		})
+
+		// Use StaticClientProvider (no privileged access)
+		clientProvider := &StaticClientProvider{
+			Clientset:     fake.NewClientset(),
+			DynamicClient: userDynamic,
+		}
+
+		manager, err := NewManager(clientProvider, WithManagerLogger(logger))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		user := testUser()
+		config, err := manager.GetKubeconfigForCluster(context.Background(), "wc-cluster", user)
+
+		require.Error(t, err)
+		assert.Nil(t, config)
+		assert.True(t, errors.Is(err, ErrClusterNotFound))
 	})
 }
 
