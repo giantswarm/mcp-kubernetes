@@ -221,7 +221,7 @@ func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterN
 // All user-facing errors are sanitized via UserFacingError() to prevent
 // information leakage through error response differentiation.
 func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynamicClient dynamic.Interface, user *UserInfo) (*ClusterInfo, error) {
-	// List all CAPI Cluster resources across all namespaces (using user's RBAC)
+	// List all CAPI Cluster resources across all namespaces
 	//
 	// Note: We don't use FieldSelector because the fake dynamic client doesn't support it well.
 	// TODO(performance): In production with many clusters, consider using a FieldSelector

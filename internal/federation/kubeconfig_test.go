@@ -644,6 +644,9 @@ func TestKubeconfigErrorWrapping(t *testing.T) {
 // mockPrivilegedStaticProvider implements both ClientProvider and PrivilegedSecretAccessProvider
 // for testing the split-credential model. The user-scoped clients can be configured to
 // return errors (simulating lack of RBAC), while the privileged clients succeed.
+//
+// The callTracker fields record which clients were actually used during a test,
+// enabling assertions about the credential model in action.
 type mockPrivilegedStaticProvider struct {
 	// userClientset is the user-scoped clientset (for secret access fallback)
 	userClientset kubernetes.Interface
@@ -657,17 +660,29 @@ type mockPrivilegedStaticProvider struct {
 	privilegedCAPIDiscovery bool
 	// strictMode controls whether fallback to user credentials is allowed
 	strictMode bool
+
+	// --- Call tracking for test assertions ---
+
+	// userClientsForUserCalled tracks whether GetClientsForUser was invoked.
+	userClientsForUserCalled bool
+	// privilegedSecretsCalled tracks whether GetPrivilegedClientForSecrets was invoked.
+	privilegedSecretsCalled bool
+	// privilegedDynamicCalled tracks whether GetPrivilegedDynamicClient was invoked.
+	privilegedDynamicCalled bool
 }
 
 func (p *mockPrivilegedStaticProvider) GetClientsForUser(_ context.Context, _ *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	p.userClientsForUserCalled = true
 	return p.userClientset, p.userDynamicClient, nil, nil
 }
 
 func (p *mockPrivilegedStaticProvider) GetPrivilegedClientForSecrets(_ context.Context, _ *UserInfo) (kubernetes.Interface, error) {
+	p.privilegedSecretsCalled = true
 	return p.privilegedClientset, nil
 }
 
 func (p *mockPrivilegedStaticProvider) GetPrivilegedDynamicClient(_ context.Context, _ *UserInfo) (dynamic.Interface, error) {
+	p.privilegedDynamicCalled = true
 	if !p.privilegedCAPIDiscovery {
 		return nil, ErrPrivilegedCAPIDiscoveryDisabled
 	}
@@ -685,26 +700,115 @@ func (p *mockPrivilegedStaticProvider) IsStrictMode() bool {
 // Ensure mockPrivilegedStaticProvider implements PrivilegedSecretAccessProvider.
 var _ PrivilegedSecretAccessProvider = (*mockPrivilegedStaticProvider)(nil)
 
-func TestGetKubeconfigForCluster_PrivilegedCAPIDiscovery(t *testing.T) {
-	t.Run("uses privileged client for CAPI discovery when user lacks cluster-scoped RBAC", func(t *testing.T) {
-		logger := newTestLogger()
+// TestGetKubeconfigForCluster_CredentialModels tests the three deployment credential
+// configurations for kubeconfig retrieval:
+//
+//  1. No privileged access (StaticClientProvider) - user RBAC for both discovery and secrets
+//  2. Privileged secret access + privileged CAPI discovery - ServiceAccount for both
+//  3. Privileged secret access + NO privileged CAPI discovery - user RBAC for discovery,
+//     ServiceAccount for secrets
+func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
+	const (
+		clusterName = "wc-cluster"
+		namespace   = "org-acme"
+	)
 
-		// Create a user-scoped dynamic client that REJECTS CAPI cluster listing
-		// (simulating user without cluster-scoped CAPI permissions)
-		userScheme := runtime.NewScheme()
-		userDynamic := createTestFakeDynamicClient(userScheme)
-		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+	// --- Scenario 1: No privileged access at all ---
+	// privilegedSecretAccess: false (implies privilegedCAPIDiscovery: false)
+	// => User RBAC is used for both CAPI discovery AND secret retrieval
+
+	t.Run("no privileged access: user RBAC for discovery and secrets", func(t *testing.T) {
+		cluster := createTestCAPICluster(clusterName, namespace)
+		secret := createTestKubeconfigSecret(clusterName, namespace, CAPISecretKey, testValidKubeconfig)
+
+		// Both discovery and secret data are accessible via the user's client
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+		userClientset := fake.NewClientset(secret)
+
+		clientProvider := &StaticClientProvider{
+			Clientset:     userClientset,
+			DynamicClient: userDynamic,
+		}
+
+		manager, err := NewManager(clientProvider, WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
+
+		require.NoError(t, err)
+		require.NotNil(t, config)
+		assert.Equal(t, "https://test-cluster.example.com:6443", config.Host)
+	})
+
+	t.Run("no privileged access: fails when user lacks CAPI list RBAC", func(t *testing.T) {
+		// User cannot list CAPI clusters and no privileged fallback exists
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme())
+		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, errors.New("clusters.cluster.x-k8s.io is forbidden")
 		})
 
-		// Create a privileged dynamic client that HAS the CAPI clusters
-		privScheme := runtime.NewScheme()
-		cluster := createTestCAPICluster("wc-cluster", "org-acme")
-		privDynamic := createTestFakeDynamicClient(privScheme, cluster)
+		clientProvider := &StaticClientProvider{
+			Clientset:     fake.NewClientset(),
+			DynamicClient: userDynamic,
+		}
 
-		// Create a privileged clientset with the kubeconfig secret
-		secret := createTestKubeconfigSecret("wc-cluster", "org-acme", CAPISecretKey, testValidKubeconfig)
+		manager, err := NewManager(clientProvider, WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
+
+		require.Error(t, err)
+		assert.Nil(t, config)
+		assert.True(t, errors.Is(err, ErrClusterNotFound))
+	})
+
+	t.Run("no privileged access: fails when user lacks secret read RBAC", func(t *testing.T) {
+		cluster := createTestCAPICluster(clusterName, namespace)
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+
+		// User can discover clusters but NOT read secrets
+		userClientset := fake.NewClientset() // no secrets
+		userClientset.PrependReactor("get", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("secrets is forbidden")
+		})
+
+		clientProvider := &StaticClientProvider{
+			Clientset:     userClientset,
+			DynamicClient: userDynamic,
+		}
+
+		manager, err := NewManager(clientProvider, WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
+
+		require.Error(t, err)
+		assert.Nil(t, config)
+		// Should be a KubeconfigError (secret fetch failure), not ClusterNotFoundError
+		var kubeconfigErr *KubeconfigError
+		assert.True(t, errors.As(err, &kubeconfigErr))
+	})
+
+	// --- Scenario 2: Privileged secret access + privileged CAPI discovery ---
+	// privilegedSecretAccess: true, privilegedCAPIDiscovery: true
+	// => ServiceAccount is used for CAPI discovery AND secret retrieval
+
+	t.Run("full privileged: ServiceAccount for discovery and secrets", func(t *testing.T) {
+		cluster := createTestCAPICluster(clusterName, namespace)
+		secret := createTestKubeconfigSecret(clusterName, namespace, CAPISecretKey, testValidKubeconfig)
+
+		// Privileged clients have the data
+		privDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
 		privClientset := fake.NewClientset(secret)
+
+		// User clients have NOTHING (proving privileged path is used)
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme())
+		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("clusters.cluster.x-k8s.io is forbidden")
+		})
 
 		provider := &mockPrivilegedStaticProvider{
 			userClientset:           fake.NewClientset(),
@@ -714,28 +818,38 @@ func TestGetKubeconfigForCluster_PrivilegedCAPIDiscovery(t *testing.T) {
 			privilegedCAPIDiscovery: true,
 		}
 
-		manager, err := NewManager(provider, WithManagerLogger(logger))
+		manager, err := NewManager(provider, WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
 
-		user := testUser()
-		config, err := manager.GetKubeconfigForCluster(context.Background(), "wc-cluster", user)
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
 
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		assert.Equal(t, "https://test-cluster.example.com:6443", config.Host)
+
+		// Verify privileged paths were used
+		assert.True(t, provider.privilegedDynamicCalled,
+			"privileged dynamic client should be used for CAPI discovery")
+		assert.True(t, provider.privilegedSecretsCalled,
+			"privileged clientset should be used for secret retrieval")
+		// User credentials should NOT have been called for discovery or secrets
+		assert.False(t, provider.userClientsForUserCalled,
+			"user clients should not be called when privileged access succeeds")
 	})
 
-	t.Run("falls back to user credentials when privileged CAPI discovery is disabled", func(t *testing.T) {
-		logger := newTestLogger()
+	// --- Scenario 3: Privileged secret access + NO privileged CAPI discovery ---
+	// privilegedSecretAccess: true, privilegedCAPIDiscovery: false
+	// => User RBAC for CAPI discovery, ServiceAccount for secret retrieval
 
-		// Create a user-scoped dynamic client that HAS the clusters
-		userScheme := runtime.NewScheme()
-		cluster := createTestCAPICluster("wc-cluster", "org-acme")
-		userDynamic := createTestFakeDynamicClient(userScheme, cluster)
+	t.Run("privileged secrets only: user RBAC for discovery, ServiceAccount for secrets", func(t *testing.T) {
+		cluster := createTestCAPICluster(clusterName, namespace)
+		secret := createTestKubeconfigSecret(clusterName, namespace, CAPISecretKey, testValidKubeconfig)
 
-		// Create a privileged clientset with the kubeconfig secret
-		secret := createTestKubeconfigSecret("wc-cluster", "org-acme", CAPISecretKey, testValidKubeconfig)
+		// User dynamic client has the CAPI clusters (user has RBAC to list them)
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+
+		// Privileged clientset has the secret (ServiceAccount reads secrets)
 		privClientset := fake.NewClientset(secret)
 
 		provider := &mockPrivilegedStaticProvider{
@@ -746,43 +860,57 @@ func TestGetKubeconfigForCluster_PrivilegedCAPIDiscovery(t *testing.T) {
 			privilegedCAPIDiscovery: false,
 		}
 
-		manager, err := NewManager(provider, WithManagerLogger(logger))
+		manager, err := NewManager(provider, WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
 
-		user := testUser()
-		config, err := manager.GetKubeconfigForCluster(context.Background(), "wc-cluster", user)
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
 
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		assert.Equal(t, "https://test-cluster.example.com:6443", config.Host)
+
+		// Verify correct client selection:
+		// - Privileged dynamic was attempted but returned ErrPrivilegedCAPIDiscoveryDisabled
+		assert.True(t, provider.privilegedDynamicCalled,
+			"privileged dynamic client should be attempted first")
+		// - User credentials were used as fallback for CAPI discovery
+		assert.True(t, provider.userClientsForUserCalled,
+			"user clients should be called as fallback for CAPI discovery")
+		// - Privileged clientset was used for secret access
+		assert.True(t, provider.privilegedSecretsCalled,
+			"privileged clientset should be used for secret retrieval")
 	})
 
-	t.Run("returns error when user lacks RBAC and privileged access is unavailable", func(t *testing.T) {
-		logger := newTestLogger()
+	t.Run("privileged secrets only: fails when user lacks CAPI RBAC for discovery", func(t *testing.T) {
+		secret := createTestKubeconfigSecret(clusterName, namespace, CAPISecretKey, testValidKubeconfig)
 
-		// Create a user-scoped dynamic client that REJECTS CAPI cluster listing
-		userScheme := runtime.NewScheme()
-		userDynamic := createTestFakeDynamicClient(userScheme)
-		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+		// User dynamic client REJECTS CAPI cluster listing
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme())
+		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, errors.New("clusters.cluster.x-k8s.io is forbidden")
 		})
 
-		// Use StaticClientProvider (no privileged access)
-		clientProvider := &StaticClientProvider{
-			Clientset:     fake.NewClientset(),
-			DynamicClient: userDynamic,
+		// Privileged clientset has the secret, but CAPI discovery is disabled
+		privClientset := fake.NewClientset(secret)
+
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(),
+			userDynamicClient:       userDynamic,
+			privilegedClientset:     privClientset,
+			privilegedDynamicClient: nil,
+			privilegedCAPIDiscovery: false,
 		}
 
-		manager, err := NewManager(clientProvider, WithManagerLogger(logger))
+		manager, err := NewManager(provider, WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
 
-		user := testUser()
-		config, err := manager.GetKubeconfigForCluster(context.Background(), "wc-cluster", user)
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
 
 		require.Error(t, err)
 		assert.Nil(t, config)
+		// Discovery fails because user lacks RBAC and privileged CAPI discovery is off
 		assert.True(t, errors.Is(err, ErrClusterNotFound))
 	})
 }
