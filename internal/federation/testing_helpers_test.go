@@ -83,6 +83,44 @@ func createTestCAPICluster(name, namespace string) *unstructured.Unstructured {
 	}
 }
 
+// createTestCAPIClusterWithEndpoint creates an unstructured CAPI Cluster resource with
+// a control plane endpoint for testing SSO passthrough scenarios.
+func createTestCAPIClusterWithEndpoint(name, namespace, host string, port int64) *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cluster.x-k8s.io/v1beta2",
+			"kind":       "Cluster",
+			"metadata": map[string]interface{}{
+				"name":      name,
+				"namespace": namespace,
+			},
+			"spec": map[string]interface{}{
+				"paused": false,
+				"controlPlaneEndpoint": map[string]interface{}{
+					"host": host,
+					"port": port,
+				},
+			},
+			"status": map[string]interface{}{
+				"phase": "Provisioned",
+			},
+		},
+	}
+}
+
+// createTestCAConfigMap creates a ConfigMap with CA certificate data for testing SSO passthrough.
+func createTestCAConfigMap(clusterName, namespace, suffix string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusterName + suffix,
+			Namespace: namespace,
+		},
+		Data: map[string]string{
+			CAConfigMapKey: "-----BEGIN CERTIFICATE-----\ntest-ca-data\n-----END CERTIFICATE-----",
+		},
+	}
+}
+
 // createTestKubeconfigSecret creates a Secret with kubeconfig data for testing.
 func createTestKubeconfigSecret(clusterName, namespace, key, kubeconfigData string) *corev1.Secret {
 	return &corev1.Secret{

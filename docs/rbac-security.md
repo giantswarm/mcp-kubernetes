@@ -410,7 +410,7 @@ When OAuth Downstream is enabled in CAPI mode, the permission requirements are s
 > Access to workload cluster **operations** is still governed by the user's own RBAC via impersonation.
 >
 > To restrict cluster visibility to what each user's RBAC allows, set
-> `capiMode.privilegedSecretAccess.privilegedCAPIDiscovery: false`. Users will then need
+> `capiMode.privilegedAccess.privilegedCAPIDiscovery: false`. Users will then need
 > their own ClusterRoleBinding for `clusters.cluster.x-k8s.io` to discover clusters.
 
 **ServiceAccount needs RBAC permissions for:**
@@ -643,24 +643,41 @@ User → mcp-kubernetes → SA discovers clusters → SA reads secret → WC API
 
 ## Advanced Security Configuration
 
-### Privileged CAPI Discovery
+### Disabling Privileged Access
 
-By default, CAPI cluster discovery uses ServiceAccount credentials so that users do not need cluster-scoped CAPI permissions. This means all authenticated users can see all CAPI clusters.
-
-To restrict cluster visibility to what each user's RBAC allows, disable privileged CAPI discovery:
+By default, privileged access is enabled: the ServiceAccount is used for kubeconfig secret access and CAPI cluster discovery. To disable it entirely and use the user's own RBAC for all operations:
 
 ```yaml
 capiMode:
-  privilegedSecretAccess:
+  privilegedAccess:
+    enabled: false  # All operations use user RBAC (CredentialModeUser)
+```
+
+When disabled, users must have RBAC to:
+- List `clusters.cluster.x-k8s.io` (for cluster discovery)
+- Read kubeconfig Secrets (for workload cluster access via impersonation)
+
+This is the `CredentialModeUser` configuration. It provides the strictest user-level isolation but requires more RBAC management.
+
+### Privileged CAPI Discovery
+
+When privileged access is enabled, CAPI cluster discovery uses ServiceAccount credentials by default so that users do not need cluster-scoped CAPI permissions. This means all authenticated users can see all CAPI clusters.
+
+To restrict cluster visibility to what each user's RBAC allows while still using the ServiceAccount for secret access, disable privileged CAPI discovery:
+
+```yaml
+capiMode:
+  privilegedAccess:
     privilegedCAPIDiscovery: false  # Users need their own CAPI RBAC
 ```
 
-When disabled, users must have a `ClusterRoleBinding` granting `get` and `list` on `clusters.cluster.x-k8s.io`. This provides tenant-level isolation of cluster discovery at the cost of additional RBAC management.
+When disabled, users must have a `ClusterRoleBinding` granting `get` and `list` on `clusters.cluster.x-k8s.io`. This provides tenant-level isolation of cluster discovery at the cost of additional RBAC management. The ServiceAccount is still used for kubeconfig secret access.
 
-| Setting | Cluster Visibility | User RBAC Required | Use Case |
-|---------|-------------------|-------------------|----------|
-| `true` (default) | All clusters visible to all users | None for discovery | Most deployments |
-| `false` | Only clusters user can list | `clusters.cluster.x-k8s.io` get/list | Strict multi-tenant isolation |
+| Setting | Credential Mode | Cluster Visibility | Secret Access | Use Case |
+|---------|----------------|-------------------|---------------|----------|
+| `enabled: true`, `privilegedCAPIDiscovery: true` (default) | FullPrivileged | All clusters visible to all users | ServiceAccount | Most deployments |
+| `enabled: true`, `privilegedCAPIDiscovery: false` | PrivilegedSecrets | Only clusters user can list | ServiceAccount | Strict multi-tenant isolation |
+| `enabled: false` | User | Only clusters user can list | User RBAC | Full user-level isolation |
 
 ### Strict Mode
 
@@ -668,7 +685,7 @@ When strict mode is enabled, mcp-kubernetes will fail instead of falling back to
 
 ```yaml
 capiMode:
-  privilegedSecretAccess:
+  privilegedAccess:
     strict: true  # Fail instead of fallback (recommended for production)
 ```
 
@@ -688,7 +705,7 @@ Privileged secret access is rate-limited per user to prevent abuse:
 
 ```yaml
 capiMode:
-  privilegedSecretAccess:
+  privilegedAccess:
     rateLimit:
       perSecond: 10.0  # Requests per second per user
       burst: 20        # Burst size per user
@@ -708,7 +725,7 @@ Rate limiting protects against:
 Privileged access is instrumented with Prometheus metrics:
 
 ```
-# Metric: mcp_kubernetes_privileged_secret_access_total
+# Metric: mcp_kubernetes_privileged_access_total
 # Labels: user_domain, operation, result
 # Operation values: secret_access, capi_discovery
 # Result values: success, error, rate_limited, fallback
@@ -716,17 +733,17 @@ Privileged access is instrumented with Prometheus metrics:
 # Example queries:
 
 # Rate of all privileged access attempts
-rate(mcp_kubernetes_privileged_secret_access_total[5m])
+rate(mcp_kubernetes_privileged_access_total[5m])
 
 # Rate of CAPI discovery vs secret access
-rate(mcp_kubernetes_privileged_secret_access_total{operation="capi_discovery"}[5m])
-rate(mcp_kubernetes_privileged_secret_access_total{operation="secret_access"}[5m])
+rate(mcp_kubernetes_privileged_access_total{operation="capi_discovery"}[5m])
+rate(mcp_kubernetes_privileged_access_total{operation="secret_access"}[5m])
 
 # Rate-limited requests (potential abuse)
-rate(mcp_kubernetes_privileged_secret_access_total{result="rate_limited"}[5m])
+rate(mcp_kubernetes_privileged_access_total{result="rate_limited"}[5m])
 
 # Fallback to user credentials (weaker security, should be 0 in strict mode)
-rate(mcp_kubernetes_privileged_secret_access_total{result="fallback"}[5m])
+rate(mcp_kubernetes_privileged_access_total{result="fallback"}[5m])
 ```
 
 ## References

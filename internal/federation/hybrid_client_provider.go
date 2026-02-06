@@ -15,26 +15,21 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// PrivilegedSecretAccessMetricsRecorder provides an interface for recording privileged access metrics.
+// PrivilegedAccessMetricsRecorder provides an interface for recording privileged access metrics.
 // This enables monitoring of privileged access patterns for security observability.
-//
-// TODO(#270): Rename to PrivilegedAccessMetricsRecorder to reflect that this now covers
-// CAPI discovery metrics in addition to secret access metrics.
-type PrivilegedSecretAccessMetricsRecorder interface {
-	// RecordPrivilegedSecretAccess records a privileged access attempt.
+// It covers both secret access and CAPI discovery metrics.
+type PrivilegedAccessMetricsRecorder interface {
+	// RecordPrivilegedAccess records a privileged access attempt.
 	// Parameters:
 	//   - ctx: Request context
 	//   - userDomain: User's email domain (e.g., "giantswarm.io") for cardinality control
 	//   - operation: The type of privileged operation ("secret_access" or "capi_discovery")
 	//   - result: One of "success", "error", "rate_limited", "fallback"
-	RecordPrivilegedSecretAccess(ctx context.Context, userDomain, operation, result string)
+	RecordPrivilegedAccess(ctx context.Context, userDomain, operation, result string)
 }
 
-// PrivilegedSecretAccessProvider extends ClientProvider with the ability to access
+// PrivilegedAccessProvider extends ClientProvider with the ability to access
 // kubeconfig secrets and CAPI resources using ServiceAccount credentials instead of user credentials.
-//
-// TODO(#270): Rename to PrivilegedAccessProvider to reflect that this interface now covers
-// both secret access and CAPI discovery, not just secrets.
 //
 // # Security Model
 //
@@ -58,7 +53,7 @@ type PrivilegedSecretAccessMetricsRecorder interface {
 //
 // All privileged access is logged with the user identity that triggered it,
 // ensuring accountability and traceability in audit logs.
-type PrivilegedSecretAccessProvider interface {
+type PrivilegedAccessProvider interface {
 	ClientProvider
 
 	// GetPrivilegedClientForSecrets returns a Kubernetes client using ServiceAccount credentials.
@@ -99,9 +94,23 @@ type PrivilegedSecretAccessProvider interface {
 	//   - error: Any error during client creation
 	GetPrivilegedDynamicClient(ctx context.Context, user *UserInfo) (dynamic.Interface, error)
 
-	// HasPrivilegedAccess returns true if privileged secret access is available.
-	// This allows the Manager to check if it should use privileged access for secrets.
-	HasPrivilegedAccess() bool
+	// PrivilegedCAPIDiscovery returns whether CAPI cluster discovery uses
+	// ServiceAccount credentials instead of user credentials.
+	//
+	// This setting acts as a cluster visibility switch:
+	//   - true (default): All users can discover all CAPI clusters. Access
+	//     control is enforced at the workload cluster level via impersonation
+	//     or SSO passthrough. Maps to CredentialModeFullPrivileged.
+	//   - false: Users can only discover clusters they have RBAC to list.
+	//     This provides per-user cluster filtering at the MC level.
+	//     Maps to CredentialModePrivilegedSecrets.
+	PrivilegedCAPIDiscovery() bool
+
+	// IsStrictMode returns true if strict privileged access mode is enabled.
+	// When strict mode is enabled, the Manager will NOT fall back to user
+	// credentials if ServiceAccount access fails at runtime. Instead, it
+	// returns an error.
+	IsStrictMode() bool
 }
 
 // Default rate limiting values for privileged secret access
@@ -125,7 +134,7 @@ type userRateLimiter struct {
 	lastAccess time.Time
 }
 
-// HybridOAuthClientProvider implements PrivilegedSecretAccessProvider for OAuth downstream
+// HybridOAuthClientProvider implements PrivilegedAccessProvider for OAuth downstream
 // authentication with split credential model.
 //
 // This provider wraps two credential sources: user OAuth tokens for user-scoped operations
@@ -164,7 +173,7 @@ type HybridOAuthClientProvider struct {
 	privilegedCAPIDiscovery bool
 
 	// metrics for recording privileged access events
-	metrics PrivilegedSecretAccessMetricsRecorder
+	metrics PrivilegedAccessMetricsRecorder
 
 	// Rate limiting for privileged access
 	rateLimitPerSecond float64
@@ -212,17 +221,20 @@ type HybridOAuthClientProviderConfig struct {
 	StrictPrivilegedAccess bool
 
 	// PrivilegedCAPIDiscovery controls whether CAPI cluster discovery uses
-	// ServiceAccount credentials instead of user credentials.
+	// ServiceAccount credentials instead of user credentials. This acts as
+	// the cluster visibility switch:
 	//
-	// When enabled (default), the ServiceAccount discovers all CAPI clusters.
-	// When disabled, users must have their own RBAC for CAPI cluster listing.
+	//   - true (default): All users can discover all CAPI clusters.
+	//     Access control is enforced at the workload cluster level.
+	//   - false: Users can only discover clusters they have explicit RBAC
+	//     to list, providing per-user cluster visibility filtering.
 	//
 	// Default: true
 	PrivilegedCAPIDiscovery *bool
 
 	// Metrics recorder for privileged access events (optional)
 	// When configured, records success/failure/rate_limited/fallback events
-	Metrics PrivilegedSecretAccessMetricsRecorder
+	Metrics PrivilegedAccessMetricsRecorder
 
 	// RateLimitPerSecond is the rate limit for privileged access per user (requests/second)
 	// Default: 10.0
@@ -405,10 +417,12 @@ const (
 )
 
 // recordMetric safely records a privileged access metric if metrics are configured.
+// This is used internally for success/error/rate_limited events within the provider.
+// Fallback metrics are recorded separately by the Manager via recordPrivilegedMetric.
 func (p *HybridOAuthClientProvider) recordMetric(ctx context.Context, userEmail, operation, result string) {
 	if p.metrics != nil {
 		userDomain := extractUserDomain(userEmail)
-		p.metrics.RecordPrivilegedSecretAccess(ctx, userDomain, operation, result)
+		p.metrics.RecordPrivilegedAccess(ctx, userDomain, operation, result)
 	}
 }
 
@@ -444,7 +458,7 @@ func (p *HybridOAuthClientProvider) GetClientsForUser(ctx context.Context, user 
 }
 
 // ErrRateLimited is returned when a user exceeds the rate limit for privileged access.
-var ErrRateLimited = fmt.Errorf("rate limit exceeded for privileged secret access")
+var ErrRateLimited = fmt.Errorf("rate limit exceeded for privileged access")
 
 // GetPrivilegedClientForSecrets returns the ServiceAccount client for secret access.
 //
@@ -536,17 +550,6 @@ func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Conte
 	return p.saDynamicClient, nil
 }
 
-// HasPrivilegedAccess returns true if privileged secret access is available.
-// This checks if the ServiceAccount client can be initialized.
-func (p *HybridOAuthClientProvider) HasPrivilegedAccess() bool {
-	if err := p.initServiceAccountClient(); err != nil {
-		p.logger.Debug("Privileged access not available",
-			"error", err)
-		return false
-	}
-	return true
-}
-
 // initServiceAccountClient lazily initializes the ServiceAccount clients.
 // This is called on first use to avoid startup errors when running outside a cluster.
 func (p *HybridOAuthClientProvider) initServiceAccountClient() error {
@@ -600,17 +603,17 @@ func (p *HybridOAuthClientProvider) SetTokenExtractor(extractor TokenExtractor) 
 
 // SetMetrics sets the metrics recorder on the underlying user provider.
 // This method passes through to the wrapped OAuthClientProvider.
-func (p *HybridOAuthClientProvider) SetMetrics(metrics OAuthAuthMetricsRecorder) {
+func (p *HybridOAuthClientProvider) SetMetrics(metrics OAuthMetricsRecorder) {
 	p.userProvider.SetMetrics(metrics)
 }
 
 // SetPrivilegedAccessMetrics sets the metrics recorder for privileged access events.
-func (p *HybridOAuthClientProvider) SetPrivilegedAccessMetrics(metrics PrivilegedSecretAccessMetricsRecorder) {
+func (p *HybridOAuthClientProvider) SetPrivilegedAccessMetrics(metrics PrivilegedAccessMetricsRecorder) {
 	p.metrics = metrics
 }
 
-// Ensure HybridOAuthClientProvider implements PrivilegedSecretAccessProvider.
-var _ PrivilegedSecretAccessProvider = (*HybridOAuthClientProvider)(nil)
+// Ensure HybridOAuthClientProvider implements PrivilegedAccessProvider.
+var _ PrivilegedAccessProvider = (*HybridOAuthClientProvider)(nil)
 
 // Ensure HybridOAuthClientProvider implements ClientProvider.
 var _ ClientProvider = (*HybridOAuthClientProvider)(nil)

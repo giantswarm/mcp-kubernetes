@@ -110,7 +110,7 @@ func TestAllMetricsExposedViaPrometheus(t *testing.T) {
 		{"mcp_kubernetes_federation_client_creations_total", "Federation client creations", false},
 
 		// Privileged access metrics
-		{"mcp_kubernetes_privileged_secret_access_total", "Privileged secret access", false},
+		{"mcp_kubernetes_privileged_access_total", "Privileged access", false},
 
 		// Workload cluster auth metrics
 		{"mcp_kubernetes_wc_auth_total", "Workload cluster auth attempts", false},
@@ -231,10 +231,10 @@ func recordAllMetrics(ctx context.Context, m *Metrics) {
 	m.RecordFederationClientCreation(ctx, "dev-cluster", FederationClientResultError)
 
 	// Privileged access metrics (secret access + CAPI discovery)
-	m.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
-	m.RecordPrivilegedSecretAccess(ctx, "example.com", "secret_access", "error")
-	m.RecordPrivilegedSecretAccess(ctx, "other.org", "capi_discovery", "rate_limited")
-	m.RecordPrivilegedSecretAccess(ctx, "internal.io", "capi_discovery", "fallback")
+	m.RecordPrivilegedAccess(ctx, "giantswarm.io", "secret_access", "success")
+	m.RecordPrivilegedAccess(ctx, "example.com", "secret_access", "error")
+	m.RecordPrivilegedAccess(ctx, "other.org", "capi_discovery", "rate_limited")
+	m.RecordPrivilegedAccess(ctx, "internal.io", "capi_discovery", "fallback")
 
 	// Workload cluster authentication metrics
 	m.RecordWorkloadClusterAuth(ctx, "impersonation", "prod-wc-01", "success")
@@ -298,7 +298,7 @@ func TestMetricLabelsAreRecorded(t *testing.T) {
 	metrics.RecordHTTPRequest(ctx, "POST", "/mcp", 201, 50*time.Millisecond)
 	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "production", StatusSuccess, 100*time.Millisecond)
 	metrics.RecordImpersonation(ctx, "jane@giantswarm.io", "prod-wc-01", ImpersonationResultSuccess)
-	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
+	metrics.RecordPrivilegedAccess(ctx, "giantswarm.io", "secret_access", "success")
 
 	// Fetch metrics
 	server := httptest.NewServer(promhttp.Handler())

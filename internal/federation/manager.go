@@ -138,6 +138,26 @@ type Manager struct {
 	// performed with the user's RBAC permissions, not elevated admin privileges.
 	clientProvider ClientProvider
 
+	// credentialMode determines how the Manager authenticates for CAPI discovery
+	// and kubeconfig secret retrieval. Resolved once at construction from the
+	// ClientProvider configuration. See CredentialMode for the three modes.
+	credentialMode CredentialMode
+
+	// privilegedProvider is the PrivilegedAccessProvider interface, set
+	// via WithPrivilegedAccess at construction time. Nil when credentialMode is
+	// CredentialModeUser (i.e., the provider does not support privileged access).
+	privilegedProvider PrivilegedAccessProvider
+
+	// privilegedAccessConfigured is true when WithPrivilegedAccess was called,
+	// even if the provider is nil (which is a configuration error caught in NewManager).
+	privilegedAccessConfigured bool
+
+	// privilegedAccessMetrics records metrics for privileged access fallback events.
+	// This is set via WithPrivilegedAccessMetrics and is separate from the
+	// PrivilegedAccessProvider's internal metric recording (which handles
+	// success/error/rate_limited events). The Manager owns fallback metric recording.
+	privilegedAccessMetrics PrivilegedAccessMetricsRecorder
+
 	// Client cache for remote workload cluster clients (per user)
 	cache *ClientCache
 
@@ -314,6 +334,45 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 	}
 }
 
+// WithPrivilegedAccess configures the Manager to use a PrivilegedAccessProvider
+// for ServiceAccount-based secret access and optionally CAPI discovery.
+//
+// This explicitly enables the split-credential model where:
+//   - ServiceAccount credentials are used for kubeconfig secret access
+//   - ServiceAccount credentials are optionally used for CAPI cluster discovery
+//     (controlled by provider.PrivilegedCAPIDiscovery())
+//   - User OAuth tokens are used for operations on workload clusters (with impersonation)
+//
+// The credential mode is determined by the provider's PrivilegedCAPIDiscovery() method:
+//   - true  → CredentialModeFullPrivileged (ServiceAccount for both discovery and secrets)
+//   - false → CredentialModePrivilegedSecrets (user RBAC for discovery, ServiceAccount for secrets)
+//
+// Without this option, the Manager uses CredentialModeUser (user RBAC for everything).
+//
+// Example:
+//
+//	manager, err := federation.NewManager(hybridProvider,
+//	    federation.WithPrivilegedAccess(hybridProvider),
+//	    federation.WithManagerLogger(logger),
+//	)
+func WithPrivilegedAccess(provider PrivilegedAccessProvider) ManagerOption {
+	return func(m *Manager) {
+		m.privilegedProvider = provider
+		m.privilegedAccessConfigured = true
+	}
+}
+
+// WithPrivilegedAccessMetrics sets the metrics recorder for privileged access
+// fallback events on the Manager. This is separate from the metrics recorded
+// internally by the PrivilegedAccessProvider (which tracks success,
+// error, and rate_limited events). The Manager uses this recorder to track
+// fallback-to-user-credentials events during CAPI discovery and secret access.
+func WithPrivilegedAccessMetrics(metrics PrivilegedAccessMetricsRecorder) ManagerOption {
+	return func(m *Manager) {
+		m.privilegedAccessMetrics = metrics
+	}
+}
+
 // NewManager creates a new ClusterClientManager with the provided ClientProvider.
 //
 // # Security Model
@@ -327,14 +386,19 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 //   - Users can only access kubeconfig secrets they have RBAC permission to read
 //   - This provides defense in depth: MC RBAC + WC RBAC both enforced
 //
+// # Split-Credential Model
+//
+// Use WithPrivilegedAccess to enable ServiceAccount-based secret access and
+// CAPI discovery. Without it, the Manager defaults to CredentialModeUser.
+//
 // Parameters:
 //   - clientProvider: Creates per-user clients for Management Cluster access
 //   - opts: Functional options for configuration
 //
-// Example with OAuth downstream:
+// Example with OAuth downstream and privileged access:
 //
-//	provider := &OAuthClientProvider{factory: bearerTokenFactory}
-//	manager, err := federation.NewManager(provider,
+//	manager, err := federation.NewManager(hybridProvider,
+//	    federation.WithPrivilegedAccess(hybridProvider),
 //	    federation.WithManagerLogger(logger),
 //	)
 func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager, error) {
@@ -349,10 +413,21 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 		logger:                      slog.Default(),
 	}
 
-	// Apply options
+	// Apply options (including WithPrivilegedAccess which sets privilegedProvider)
 	for _, opt := range opts {
 		opt(m)
 	}
+
+	// Validate: WithPrivilegedAccess was called but the provider was nil.
+	// This is always a programming error -- omit WithPrivilegedAccess for CredentialModeUser.
+	if m.privilegedAccessConfigured && m.privilegedProvider == nil {
+		return nil, fmt.Errorf("WithPrivilegedAccess: provider must not be nil; omit the option to use CredentialModeUser")
+	}
+
+	// Resolve the credential mode from the privileged provider set via
+	// WithPrivilegedAccess. If no privileged provider was configured,
+	// defaults to CredentialModeUser.
+	m.credentialMode = resolveCredentialMode(m.privilegedProvider)
 
 	// Build cache options from configuration set via Manager options
 	cacheOpts := []ClientCacheOption{WithCacheLogger(m.logger)}
@@ -365,6 +440,7 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 	m.cache = NewClientCache(cacheOpts...)
 
 	m.logger.Info("Federation manager initialized",
+		"credential_mode", m.credentialMode.String(),
 		"cache_enabled", m.cache != nil)
 
 	return m, nil
@@ -379,6 +455,17 @@ func (m *Manager) checkClosed() error {
 		return ErrManagerClosed
 	}
 	return nil
+}
+
+// recordPrivilegedMetric records a privileged access metric event if a metrics
+// recorder is configured. This is used by the Manager for fallback events;
+// success/error/rate_limited events are recorded internally by the provider.
+func (m *Manager) recordPrivilegedMetric(ctx context.Context, userEmail, operation, result string) {
+	if m.privilegedAccessMetrics == nil {
+		return
+	}
+	userDomain := extractUserDomain(userEmail)
+	m.privilegedAccessMetrics.RecordPrivilegedAccess(ctx, userDomain, operation, result)
 }
 
 // GetClient returns a Kubernetes client for the target cluster.

@@ -670,9 +670,9 @@ func TestMetrics_ConcurrentSSOTokenInjectionRecording(t *testing.T) {
 	wg.Wait()
 }
 
-// Privileged Secret Access metrics tests
+// Privileged Access metrics tests
 
-func TestMetrics_RecordPrivilegedSecretAccess(t *testing.T) {
+func TestMetrics_RecordPrivilegedAccess(t *testing.T) {
 	meter := mockMeterProvider()
 	metrics, err := NewMetrics(meter, false)
 	if err != nil {
@@ -682,21 +682,21 @@ func TestMetrics_RecordPrivilegedSecretAccess(t *testing.T) {
 	ctx := context.Background()
 
 	// Test all result values with operation labels
-	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
-	metrics.RecordPrivilegedSecretAccess(ctx, "example.com", "secret_access", "error")
-	metrics.RecordPrivilegedSecretAccess(ctx, "other.org", "capi_discovery", "rate_limited")
-	metrics.RecordPrivilegedSecretAccess(ctx, "internal.io", "capi_discovery", "fallback")
+	metrics.RecordPrivilegedAccess(ctx, "giantswarm.io", "secret_access", "success")
+	metrics.RecordPrivilegedAccess(ctx, "example.com", "secret_access", "error")
+	metrics.RecordPrivilegedAccess(ctx, "other.org", "capi_discovery", "rate_limited")
+	metrics.RecordPrivilegedAccess(ctx, "internal.io", "capi_discovery", "fallback")
 }
 
-func TestMetrics_RecordPrivilegedSecretAccess_NilMetrics(t *testing.T) {
+func TestMetrics_RecordPrivilegedAccess_NilMetrics(t *testing.T) {
 	metrics := &Metrics{}
 	ctx := context.Background()
 
 	// Should not panic with nil metrics
-	metrics.RecordPrivilegedSecretAccess(ctx, "giantswarm.io", "secret_access", "success")
+	metrics.RecordPrivilegedAccess(ctx, "giantswarm.io", "secret_access", "success")
 }
 
-func TestMetrics_ConcurrentPrivilegedSecretAccessRecording(t *testing.T) {
+func TestMetrics_ConcurrentPrivilegedAccessRecording(t *testing.T) {
 	meter := mockMeterProvider()
 	metrics, err := NewMetrics(meter, false)
 	if err != nil {
@@ -718,7 +718,7 @@ func TestMetrics_ConcurrentPrivilegedSecretAccessRecording(t *testing.T) {
 			domain := domains[id%len(domains)]
 			operation := operations[id%len(operations)]
 			result := results[id%len(results)]
-			metrics.RecordPrivilegedSecretAccess(ctx, domain, operation, result)
+			metrics.RecordPrivilegedAccess(ctx, domain, operation, result)
 		}(i)
 	}
 
@@ -827,7 +827,7 @@ func TestNewMetrics_AllMetricsInitialized(t *testing.T) {
 		{"federationClientCreations", metrics.federationClientCreations},
 
 		// Privileged access metrics
-		{"privilegedSecretAccessTotal", metrics.privilegedSecretAccessTotal},
+		{"privilegedAccessTotal", metrics.privilegedAccessTotal},
 
 		// Workload cluster auth metrics
 		{"wcAuthTotal", metrics.wcAuthTotal},

@@ -127,7 +127,7 @@ func TestOAuthClientProvider_SetTokenExtractor(t *testing.T) {
 	})
 }
 
-// mockOAuthMetricsRecorder is a test double for OAuthAuthMetricsRecorder.
+// mockOAuthMetricsRecorder is a test double for OAuthMetricsRecorder.
 type mockOAuthMetricsRecorder struct {
 	recordings []string
 }
