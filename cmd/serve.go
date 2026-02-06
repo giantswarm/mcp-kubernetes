@@ -749,6 +749,11 @@ func runServe(config ServeConfig) error {
 			managerOpts = append(managerOpts, federation.WithAuthMetrics(instrumentationProvider.Metrics()))
 		}
 
+		// Explicitly enable privileged access for the split-credential model.
+		// The hybrid provider implements both ClientProvider (user OAuth) and
+		// PrivilegedSecretAccessProvider (ServiceAccount for secrets + CAPI discovery).
+		managerOpts = append(managerOpts, federation.WithPrivilegedAccess(hybridProvider))
+
 		// Create federation manager with the hybrid provider for split-credential model
 		fedManager, err = federation.NewManager(hybridProvider, managerOpts...)
 		if err != nil {

@@ -468,8 +468,8 @@ func TestGetSecretAccessClient_Integration(t *testing.T) {
 		require.NoError(t, err)
 		defer hybridProvider.Close()
 
-		// Create manager with hybrid provider
-		manager, err := NewManager(hybridProvider, WithManagerLogger(newTestLogger()))
+		// Create manager with hybrid provider and explicit privileged access
+		manager, err := NewManager(hybridProvider, WithPrivilegedAccess(hybridProvider), WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		defer func() { _ = manager.Close() }()
 
@@ -531,8 +531,8 @@ func TestGetSecretAccessClient_Integration(t *testing.T) {
 		require.NoError(t, err)
 		defer hybridProvider.Close()
 
-		// Create manager with hybrid provider
-		manager, err := NewManager(hybridProvider, WithManagerLogger(newTestLogger()))
+		// Create manager with hybrid provider and explicit privileged access
+		manager, err := NewManager(hybridProvider, WithPrivilegedAccess(hybridProvider), WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		defer func() { _ = manager.Close() }()
 

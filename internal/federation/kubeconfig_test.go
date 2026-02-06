@@ -825,7 +825,7 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 			privilegedCAPIDiscovery: true,
 		}
 
-		manager, err := NewManager(provider, WithManagerLogger(newTestLogger()))
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
 
@@ -870,7 +870,7 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 			privilegedCAPIDiscovery: false,
 		}
 
-		manager, err := NewManager(provider, WithManagerLogger(newTestLogger()))
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
 
@@ -916,7 +916,7 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 			privilegedCAPIDiscovery: false,
 		}
 
-		manager, err := NewManager(provider, WithManagerLogger(newTestLogger()))
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
 

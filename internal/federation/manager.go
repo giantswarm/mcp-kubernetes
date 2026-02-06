@@ -324,6 +324,33 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 	}
 }
 
+// WithPrivilegedAccess configures the Manager to use a PrivilegedSecretAccessProvider
+// for ServiceAccount-based secret access and optionally CAPI discovery.
+//
+// This explicitly enables the split-credential model where:
+//   - ServiceAccount credentials are used for kubeconfig secret access
+//   - ServiceAccount credentials are optionally used for CAPI cluster discovery
+//     (controlled by provider.PrivilegedCAPIDiscovery())
+//   - User OAuth tokens are used for operations on workload clusters (with impersonation)
+//
+// The credential mode is determined by the provider's PrivilegedCAPIDiscovery() method:
+//   - true  → CredentialModeFullPrivileged (ServiceAccount for both discovery and secrets)
+//   - false → CredentialModePrivilegedSecrets (user RBAC for discovery, ServiceAccount for secrets)
+//
+// Without this option, the Manager uses CredentialModeUser (user RBAC for everything).
+//
+// Example:
+//
+//	manager, err := federation.NewManager(hybridProvider,
+//	    federation.WithPrivilegedAccess(hybridProvider),
+//	    federation.WithManagerLogger(logger),
+//	)
+func WithPrivilegedAccess(provider PrivilegedSecretAccessProvider) ManagerOption {
+	return func(m *Manager) {
+		m.privilegedProvider = provider
+	}
+}
+
 // NewManager creates a new ClusterClientManager with the provided ClientProvider.
 //
 // # Security Model
@@ -337,14 +364,19 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 //   - Users can only access kubeconfig secrets they have RBAC permission to read
 //   - This provides defense in depth: MC RBAC + WC RBAC both enforced
 //
+// # Split-Credential Model
+//
+// Use WithPrivilegedAccess to enable ServiceAccount-based secret access and
+// CAPI discovery. Without it, the Manager defaults to CredentialModeUser.
+//
 // Parameters:
 //   - clientProvider: Creates per-user clients for Management Cluster access
 //   - opts: Functional options for configuration
 //
-// Example with OAuth downstream:
+// Example with OAuth downstream and privileged access:
 //
-//	provider := &OAuthClientProvider{factory: bearerTokenFactory}
-//	manager, err := federation.NewManager(provider,
+//	manager, err := federation.NewManager(hybridProvider,
+//	    federation.WithPrivilegedAccess(hybridProvider),
 //	    federation.WithManagerLogger(logger),
 //	)
 func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager, error) {
@@ -352,24 +384,22 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 		return nil, fmt.Errorf("client provider is required")
 	}
 
-	// Resolve the credential mode from the provider configuration.
-	// This determines how CAPI discovery and secret access are authenticated
-	// for the lifetime of this Manager. See CredentialMode for details.
-	credentialMode, privilegedProvider := resolveCredentialMode(clientProvider)
-
 	m := &Manager{
 		clientProvider:              clientProvider,
-		credentialMode:              credentialMode,
-		privilegedProvider:          privilegedProvider,
 		connectionValidationTimeout: DefaultConnectionValidationTimeout,
 		authMetrics:                 &noopAuthMetricsRecorder{},
 		logger:                      slog.Default(),
 	}
 
-	// Apply options
+	// Apply options (including WithPrivilegedAccess which sets privilegedProvider)
 	for _, opt := range opts {
 		opt(m)
 	}
+
+	// Resolve the credential mode from the privileged provider set via
+	// WithPrivilegedAccess. If no privileged provider was configured,
+	// defaults to CredentialModeUser.
+	m.credentialMode = resolveCredentialMode(m.privilegedProvider)
 
 	// Build cache options from configuration set via Manager options
 	cacheOpts := []ClientCacheOption{WithCacheLogger(m.logger)}
@@ -382,7 +412,7 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 	m.cache = NewClientCache(cacheOpts...)
 
 	m.logger.Info("Federation manager initialized",
-		"credential_mode", credentialMode.String(),
+		"credential_mode", m.credentialMode.String(),
 		"cache_enabled", m.cache != nil)
 
 	return m, nil

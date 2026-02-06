@@ -31,12 +31,12 @@ import "fmt"
 //
 // # Configuration
 //
-// The mode is determined by the ClientProvider passed to NewManager:
+// The mode is determined by the WithPrivilegedAccess option passed to NewManager:
 //
-//   - StaticClientProvider (or any basic ClientProvider): CredentialModeUser
-//   - PrivilegedSecretAccessProvider with PrivilegedCAPIDiscovery() == true:
+//   - No WithPrivilegedAccess option: CredentialModeUser
+//   - WithPrivilegedAccess where PrivilegedCAPIDiscovery() == true:
 //     CredentialModeFullPrivileged
-//   - PrivilegedSecretAccessProvider with PrivilegedCAPIDiscovery() == false:
+//   - WithPrivilegedAccess where PrivilegedCAPIDiscovery() == false:
 //     CredentialModePrivilegedSecrets
 type CredentialMode int
 
@@ -80,22 +80,22 @@ func (m CredentialMode) String() string {
 	}
 }
 
-// resolveCredentialMode determines the credential mode from the ClientProvider
-// configuration. This is called once during Manager construction.
+// resolveCredentialMode determines the credential mode from the explicitly
+// configured PrivilegedSecretAccessProvider. This is called once during
+// Manager construction after options have been applied.
 //
 // The resolution logic:
-//  1. If the provider does not implement PrivilegedSecretAccessProvider → CredentialModeUser
-//  2. If it does and PrivilegedCAPIDiscovery() is true → CredentialModeFullPrivileged
-//  3. If it does and PrivilegedCAPIDiscovery() is false → CredentialModePrivilegedSecrets
-func resolveCredentialMode(provider ClientProvider) (CredentialMode, PrivilegedSecretAccessProvider) {
-	privProvider, ok := provider.(PrivilegedSecretAccessProvider)
-	if !ok {
-		return CredentialModeUser, nil
+//  1. If provider is nil (no WithPrivilegedAccess option) → CredentialModeUser
+//  2. If provider.PrivilegedCAPIDiscovery() is true → CredentialModeFullPrivileged
+//  3. If provider.PrivilegedCAPIDiscovery() is false → CredentialModePrivilegedSecrets
+func resolveCredentialMode(provider PrivilegedSecretAccessProvider) CredentialMode {
+	if provider == nil {
+		return CredentialModeUser
 	}
 
-	if privProvider.PrivilegedCAPIDiscovery() {
-		return CredentialModeFullPrivileged, privProvider
+	if provider.PrivilegedCAPIDiscovery() {
+		return CredentialModeFullPrivileged
 	}
 
-	return CredentialModePrivilegedSecrets, privProvider
+	return CredentialModePrivilegedSecrets
 }
