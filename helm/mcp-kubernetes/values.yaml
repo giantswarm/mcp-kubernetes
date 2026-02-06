@@ -754,6 +754,18 @@ capiMode:
   #
   # See docs/rbac-security.md for detailed security model explanation.
   privilegedAccess:
+    # Enable or disable the split-credential model.
+    #
+    # When true (default), the ServiceAccount is used for kubeconfig secret access
+    # and optionally CAPI cluster discovery (see privilegedCAPIDiscovery).
+    #
+    # When false, all operations use the user's own OAuth token and RBAC.
+    # Users must have RBAC to list CAPI clusters and read kubeconfig secrets.
+    # This is the CredentialModeUser configuration.
+    #
+    # Default: true
+    enabled: true
+
     # Strict mode: When enabled, fails instead of falling back to user credentials
     # when ServiceAccount access is unavailable.
     #

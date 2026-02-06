@@ -566,7 +566,7 @@ func runServe(config ServeConfig) error {
 			return fmt.Errorf("CAPI mode requires in-cluster mode (--in-cluster)")
 		}
 
-		// Create OAuth client provider
+		// Create OAuth client provider (used for user-scoped operations in all modes)
 		oauthProvider, err := federation.NewOAuthClientProviderFromInCluster()
 		if err != nil {
 			return fmt.Errorf("failed to create OAuth client provider: %w", err)
@@ -580,32 +580,52 @@ func runServe(config ServeConfig) error {
 			oauthProvider.SetMetrics(instrumentationProvider.Metrics())
 		}
 
-		// Create HybridOAuthClientProvider for split-credential model
-		// This wraps the OAuth provider with ServiceAccount-based secret access
-		hybridConfig := &federation.HybridOAuthClientProviderConfig{
-			UserProvider:            oauthProvider,
-			StrictPrivilegedAccess:  config.CAPIMode.PrivilegedAccess.Strict,
-			PrivilegedCAPIDiscovery: config.CAPIMode.PrivilegedAccess.PrivilegedCAPIDiscovery,
-			RateLimitPerSecond:      config.CAPIMode.PrivilegedAccess.RateLimitPerSecond,
-			RateLimitBurst:          config.CAPIMode.PrivilegedAccess.RateLimitBurst,
-		}
+		// Determine the client provider and manager options based on privileged
+		// access configuration. When privileged access is enabled (default), a
+		// HybridOAuthClientProvider wraps the user provider with ServiceAccount
+		// credentials. When disabled, the plain OAuth provider is used directly
+		// and the Manager runs in CredentialModeUser.
+		var clientProvider federation.ClientProvider
 
-		hybridProvider, err = federation.NewHybridOAuthClientProvider(hybridConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create hybrid OAuth client provider: %w", err)
-		}
+		// Default: privileged access is enabled unless explicitly disabled
+		privilegedAccessEnabled := config.CAPIMode.PrivilegedAccess.Enabled == nil || *config.CAPIMode.PrivilegedAccess.Enabled
 
-		// Set privileged access metrics if instrumentation is enabled
-		if instrumentationProvider.Enabled() {
-			hybridProvider.SetPrivilegedAccessMetrics(instrumentationProvider.Metrics())
-		}
+		if privilegedAccessEnabled {
+			// Create HybridOAuthClientProvider for split-credential model
+			// This wraps the OAuth provider with ServiceAccount-based secret access
+			hybridConfig := &federation.HybridOAuthClientProviderConfig{
+				UserProvider:            oauthProvider,
+				StrictPrivilegedAccess:  config.CAPIMode.PrivilegedAccess.Strict,
+				PrivilegedCAPIDiscovery: config.CAPIMode.PrivilegedAccess.PrivilegedCAPIDiscovery,
+				RateLimitPerSecond:      config.CAPIMode.PrivilegedAccess.RateLimitPerSecond,
+				RateLimitBurst:          config.CAPIMode.PrivilegedAccess.RateLimitBurst,
+			}
 
-		// Log the privileged access configuration (using provider's actual values after defaults applied)
-		slog.Info("privileged access enabled (split-credential model)",
-			"strict_mode", hybridProvider.IsStrictMode(),
-			"privileged_capi_discovery", hybridProvider.PrivilegedCAPIDiscovery(),
-			"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
-			"rate_limit_burst", hybridProvider.RateLimitBurst())
+			hybridProvider, err = federation.NewHybridOAuthClientProvider(hybridConfig)
+			if err != nil {
+				return fmt.Errorf("failed to create hybrid OAuth client provider: %w", err)
+			}
+
+			// Set privileged access metrics if instrumentation is enabled
+			if instrumentationProvider.Enabled() {
+				hybridProvider.SetPrivilegedAccessMetrics(instrumentationProvider.Metrics())
+			}
+
+			clientProvider = hybridProvider
+
+			// Log the privileged access configuration (using provider's actual values after defaults applied)
+			slog.Info("Privileged access enabled (split-credential model)",
+				"strict_mode", hybridProvider.IsStrictMode(),
+				"privileged_capi_discovery", hybridProvider.PrivilegedCAPIDiscovery(),
+				"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
+				"rate_limit_burst", hybridProvider.RateLimitBurst())
+		} else {
+			// No privileged access: user's own RBAC for all operations
+			clientProvider = oauthProvider
+
+			slog.Info("Privileged access disabled (CredentialModeUser)",
+				"description", "all CAPI discovery and secret access use user RBAC")
+		}
 
 		// Build federation manager options
 		var managerOpts []federation.ManagerOption
@@ -747,19 +767,22 @@ func runServe(config ServeConfig) error {
 		if instrumentationProvider.Enabled() {
 			managerOpts = append(managerOpts, federation.WithManagerCacheMetrics(instrumentationProvider.Metrics()))
 			managerOpts = append(managerOpts, federation.WithAuthMetrics(instrumentationProvider.Metrics()))
-			managerOpts = append(managerOpts, federation.WithPrivilegedAccessMetrics(instrumentationProvider.Metrics()))
 		}
 
-		// IMPORTANT: WithPrivilegedAccess is the critical option that enables the
-		// split-credential model (ServiceAccount for secrets + CAPI discovery,
-		// user OAuth for workload cluster operations). Without it, the Manager
-		// defaults to CredentialModeUser where users need their own RBAC for
-		// everything. The hybrid provider implements both ClientProvider and
-		// PrivilegedAccessProvider.
-		managerOpts = append(managerOpts, federation.WithPrivilegedAccess(hybridProvider))
+		// When privileged access is enabled, pass WithPrivilegedAccess to the
+		// Manager. This enables the split-credential model (ServiceAccount for
+		// secrets + CAPI discovery, user OAuth for workload cluster operations).
+		// Without it, the Manager uses CredentialModeUser where users need their
+		// own RBAC for everything.
+		if privilegedAccessEnabled {
+			managerOpts = append(managerOpts, federation.WithPrivilegedAccess(hybridProvider))
+			if instrumentationProvider.Enabled() {
+				managerOpts = append(managerOpts, federation.WithPrivilegedAccessMetrics(instrumentationProvider.Metrics()))
+			}
+		}
 
-		// Create federation manager with the hybrid provider for split-credential model
-		fedManager, err = federation.NewManager(hybridProvider, managerOpts...)
+		// Create federation manager
+		fedManager, err = federation.NewManager(clientProvider, managerOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to create federation manager: %w", err)
 		}
@@ -1085,6 +1108,10 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 
 	// Privileged access configuration (split-credential model)
 	// Note: Environment variable names are kept for backward compatibility.
+	if v := os.Getenv("PRIVILEGED_ACCESS_ENABLED"); v != "" {
+		val := v == envValueTrue
+		config.PrivilegedAccess.Enabled = &val
+	}
 	if os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
 		config.PrivilegedAccess.Strict = true
 	}

@@ -297,6 +297,10 @@ spec:
             {{- end }}
             # Privileged Access Configuration (split-credential model)
             {{- if .Values.capiMode.privilegedAccess }}
+            {{- if hasKey .Values.capiMode.privilegedAccess "enabled" }}
+            - name: PRIVILEGED_ACCESS_ENABLED
+              value: {{ .Values.capiMode.privilegedAccess.enabled | quote }}
+            {{- end }}
             {{- if .Values.capiMode.privilegedAccess.strict }}
             - name: PRIVILEGED_SECRET_ACCESS_STRICT
               value: "true"

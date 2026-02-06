@@ -128,6 +128,21 @@ type WorkloadClusterAuthConfig struct {
 // CAPI cluster discovery instead of user OAuth tokens. This prevents users from
 // bypassing impersonation by extracting admin credentials via kubectl.
 type PrivilegedAccessConfig struct {
+	// Enabled controls whether the split-credential model is active.
+	//
+	// When true (default), a HybridOAuthClientProvider is created and
+	// WithPrivilegedAccess is passed to the Manager. The resulting
+	// CredentialMode depends on PrivilegedCAPIDiscovery:
+	//   - true  → CredentialModeFullPrivileged
+	//   - false → CredentialModePrivilegedSecrets
+	//
+	// When false, no privileged provider is created and the Manager
+	// uses CredentialModeUser: all operations (CAPI discovery, secret
+	// access) use the user's own OAuth token and RBAC.
+	//
+	// Default: true
+	Enabled *bool
+
 	// Strict mode: When enabled, fails instead of falling back to user credentials
 	// when ServiceAccount access is unavailable.
 	//

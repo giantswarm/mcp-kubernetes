@@ -643,11 +643,27 @@ User → mcp-kubernetes → SA discovers clusters → SA reads secret → WC API
 
 ## Advanced Security Configuration
 
+### Disabling Privileged Access
+
+By default, privileged access is enabled: the ServiceAccount is used for kubeconfig secret access and CAPI cluster discovery. To disable it entirely and use the user's own RBAC for all operations:
+
+```yaml
+capiMode:
+  privilegedAccess:
+    enabled: false  # All operations use user RBAC (CredentialModeUser)
+```
+
+When disabled, users must have RBAC to:
+- List `clusters.cluster.x-k8s.io` (for cluster discovery)
+- Read kubeconfig Secrets (for workload cluster access via impersonation)
+
+This is the `CredentialModeUser` configuration. It provides the strictest user-level isolation but requires more RBAC management.
+
 ### Privileged CAPI Discovery
 
-By default, CAPI cluster discovery uses ServiceAccount credentials so that users do not need cluster-scoped CAPI permissions. This means all authenticated users can see all CAPI clusters.
+When privileged access is enabled, CAPI cluster discovery uses ServiceAccount credentials by default so that users do not need cluster-scoped CAPI permissions. This means all authenticated users can see all CAPI clusters.
 
-To restrict cluster visibility to what each user's RBAC allows, disable privileged CAPI discovery:
+To restrict cluster visibility to what each user's RBAC allows while still using the ServiceAccount for secret access, disable privileged CAPI discovery:
 
 ```yaml
 capiMode:
@@ -655,12 +671,13 @@ capiMode:
     privilegedCAPIDiscovery: false  # Users need their own CAPI RBAC
 ```
 
-When disabled, users must have a `ClusterRoleBinding` granting `get` and `list` on `clusters.cluster.x-k8s.io`. This provides tenant-level isolation of cluster discovery at the cost of additional RBAC management.
+When disabled, users must have a `ClusterRoleBinding` granting `get` and `list` on `clusters.cluster.x-k8s.io`. This provides tenant-level isolation of cluster discovery at the cost of additional RBAC management. The ServiceAccount is still used for kubeconfig secret access.
 
-| Setting | Cluster Visibility | User RBAC Required | Use Case |
-|---------|-------------------|-------------------|----------|
-| `true` (default) | All clusters visible to all users | None for discovery | Most deployments |
-| `false` | Only clusters user can list | `clusters.cluster.x-k8s.io` get/list | Strict multi-tenant isolation |
+| Setting | Credential Mode | Cluster Visibility | Secret Access | Use Case |
+|---------|----------------|-------------------|---------------|----------|
+| `enabled: true`, `privilegedCAPIDiscovery: true` (default) | FullPrivileged | All clusters visible to all users | ServiceAccount | Most deployments |
+| `enabled: true`, `privilegedCAPIDiscovery: false` | PrivilegedSecrets | Only clusters user can list | ServiceAccount | Strict multi-tenant isolation |
+| `enabled: false` | User | Only clusters user can list | User RBAC | Full user-level isolation |
 
 ### Strict Mode
 
