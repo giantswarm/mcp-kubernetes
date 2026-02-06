@@ -120,10 +120,7 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
-		return nil, "", &ClusterNotFoundError{
-			ClusterName: clusterName,
-			Reason:      "failed to create client for ConfigMap access",
-		}
+		return nil, "", fmt.Errorf("failed to create user client for ConfigMap access (cluster %s): %w", clusterName, err)
 	}
 
 	// Retrieve CA certificate from the CA ConfigMap

@@ -98,9 +98,13 @@ type PrivilegedSecretAccessProvider interface {
 	// PrivilegedCAPIDiscovery returns whether CAPI cluster discovery uses
 	// ServiceAccount credentials instead of user credentials.
 	//
-	// When true, the Manager uses ServiceAccount credentials for CAPI discovery
-	// (CredentialModeFullPrivileged). When false, user RBAC is used for discovery
-	// while secrets still use the ServiceAccount (CredentialModePrivilegedSecrets).
+	// This setting acts as a cluster visibility switch:
+	//   - true (default): All users can discover all CAPI clusters. Access
+	//     control is enforced at the workload cluster level via impersonation
+	//     or SSO passthrough. Maps to CredentialModeFullPrivileged.
+	//   - false: Users can only discover clusters they have RBAC to list.
+	//     This provides per-user cluster filtering at the MC level.
+	//     Maps to CredentialModePrivilegedSecrets.
 	PrivilegedCAPIDiscovery() bool
 
 	// IsStrictMode returns true if strict privileged access mode is enabled.
@@ -218,10 +222,13 @@ type HybridOAuthClientProviderConfig struct {
 	StrictPrivilegedAccess bool
 
 	// PrivilegedCAPIDiscovery controls whether CAPI cluster discovery uses
-	// ServiceAccount credentials instead of user credentials.
+	// ServiceAccount credentials instead of user credentials. This acts as
+	// the cluster visibility switch:
 	//
-	// When enabled (default), the ServiceAccount discovers all CAPI clusters.
-	// When disabled, users must have their own RBAC for CAPI cluster listing.
+	//   - true (default): All users can discover all CAPI clusters.
+	//     Access control is enforced at the workload cluster level.
+	//   - false: Users can only discover clusters they have explicit RBAC
+	//     to list, providing per-user cluster visibility filtering.
 	//
 	// Default: true
 	PrivilegedCAPIDiscovery *bool
@@ -410,8 +417,10 @@ const (
 	PrivilegedOperationCAPIDiscovery = "capi_discovery"
 )
 
-// RecordMetric safely records a privileged access metric if metrics are configured.
-func (p *HybridOAuthClientProvider) RecordMetric(ctx context.Context, userEmail, operation, result string) {
+// recordMetric safely records a privileged access metric if metrics are configured.
+// This is used internally for success/error/rate_limited events within the provider.
+// Fallback metrics are recorded separately by the Manager via recordPrivilegedMetric.
+func (p *HybridOAuthClientProvider) recordMetric(ctx context.Context, userEmail, operation, result string) {
 	if p.metrics != nil {
 		userDomain := extractUserDomain(userEmail)
 		p.metrics.RecordPrivilegedSecretAccess(ctx, userDomain, operation, result)
@@ -472,13 +481,13 @@ func (p *HybridOAuthClientProvider) GetPrivilegedClientForSecrets(ctx context.Co
 		p.logger.Warn("Privileged secret access rate limited",
 			UserHashAttr(user.Email),
 			"operation", PrivilegedOperationSecretAccess)
-		p.RecordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "rate_limited")
+		p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "rate_limited")
 		return nil, ErrRateLimited
 	}
 
 	// Ensure ServiceAccount client is initialized
 	if err := p.initServiceAccountClient(); err != nil {
-		p.RecordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "error")
+		p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "error")
 		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
 	}
 
@@ -489,7 +498,7 @@ func (p *HybridOAuthClientProvider) GetPrivilegedClientForSecrets(ctx context.Co
 		UserHashAttr(user.Email),
 		"operation", PrivilegedOperationSecretAccess)
 
-	p.RecordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "success")
+	p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "success")
 	return p.saClientset, nil
 }
 
@@ -522,13 +531,13 @@ func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Conte
 		p.logger.Warn("Privileged CAPI access rate limited",
 			UserHashAttr(user.Email),
 			"operation", PrivilegedOperationCAPIDiscovery)
-		p.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "rate_limited")
+		p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "rate_limited")
 		return nil, ErrRateLimited
 	}
 
 	// Ensure ServiceAccount clients are initialized
 	if err := p.initServiceAccountClient(); err != nil {
-		p.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "error")
+		p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "error")
 		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
 	}
 
@@ -538,7 +547,7 @@ func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Conte
 		UserHashAttr(user.Email),
 		"operation", PrivilegedOperationCAPIDiscovery)
 
-	p.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "success")
+	p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "success")
 	return p.saDynamicClient, nil
 }
 

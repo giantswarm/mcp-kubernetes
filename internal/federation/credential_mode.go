@@ -93,6 +93,18 @@ const (
 	// This is the recommended production configuration. Users do not need any
 	// cluster-scoped CAPI permissions or secret read permissions. All access
 	// to workload clusters is enforced via impersonation.
+	//
+	// # Cluster Visibility
+	//
+	// In this mode, all users can discover all CAPI clusters because the
+	// ServiceAccount has cluster-scoped access. This is intentional: access
+	// control is enforced at the workload cluster level via impersonation or
+	// SSO passthrough, not at the discovery level.
+	//
+	// To restrict cluster visibility to only clusters a user has explicit RBAC
+	// to list, use CredentialModePrivilegedSecrets instead (set
+	// PrivilegedCAPIDiscovery() to false on the provider). This acts as the
+	// cluster visibility switch.
 	CredentialModeFullPrivileged
 
 	// CredentialModePrivilegedSecrets uses ServiceAccount credentials for secret
@@ -102,6 +114,12 @@ const (
 	// do not need secret read permissions. Use this when you want users to only see
 	// clusters they have explicit RBAC to list, while still preventing direct
 	// kubeconfig secret access.
+	//
+	// # Cluster Visibility
+	//
+	// Unlike CredentialModeFullPrivileged, this mode restricts cluster visibility
+	// to clusters the user has RBAC permissions to list. This provides per-user
+	// cluster filtering at the discovery level.
 	CredentialModePrivilegedSecrets
 )
 
