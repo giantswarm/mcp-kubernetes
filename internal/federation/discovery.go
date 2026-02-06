@@ -15,9 +15,6 @@ import (
 
 // Giant Swarm specific label keys for CAPI clusters.
 const (
-	// LabelClusterName is the standard CAPI cluster name label.
-	LabelClusterName = "cluster.x-k8s.io/cluster-name"
-
 	// LabelGiantSwarmCluster is Giant Swarm's cluster label.
 	LabelGiantSwarmCluster = "giantswarm.io/cluster"
 

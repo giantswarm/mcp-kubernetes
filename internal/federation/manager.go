@@ -347,6 +347,9 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 //	)
 func WithPrivilegedAccess(provider PrivilegedSecretAccessProvider) ManagerOption {
 	return func(m *Manager) {
+		if provider == nil {
+			panic("WithPrivilegedAccess: provider must not be nil")
+		}
 		m.privilegedProvider = provider
 	}
 }

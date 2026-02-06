@@ -642,11 +642,8 @@ func TestKubeconfigErrorWrapping(t *testing.T) {
 }
 
 // mockPrivilegedStaticProvider implements both ClientProvider and PrivilegedSecretAccessProvider
-// for testing the split-credential model. The user-scoped clients can be configured to
-// return errors (simulating lack of RBAC), while the privileged clients succeed.
-//
-// The callTracker fields record which clients were actually used during a test,
-// enabling assertions about the credential model in action.
+// for testing the split-credential model. All return values are data-driven via struct fields,
+// so the mock records calls without encoding any business logic.
 type mockPrivilegedStaticProvider struct {
 	// userClientset is the user-scoped clientset (for secret access fallback)
 	userClientset kubernetes.Interface
@@ -654,8 +651,12 @@ type mockPrivilegedStaticProvider struct {
 	userDynamicClient dynamic.Interface
 	// privilegedClientset is the ServiceAccount clientset for secret access
 	privilegedClientset kubernetes.Interface
+	// privilegedClientsetErr is the error returned by GetPrivilegedClientForSecrets
+	privilegedClientsetErr error
 	// privilegedDynamicClient is the ServiceAccount dynamic client for CAPI discovery
 	privilegedDynamicClient dynamic.Interface
+	// privilegedDynamicErr is the error returned by GetPrivilegedDynamicClient
+	privilegedDynamicErr error
 	// privilegedCAPIDiscovery controls whether privileged CAPI discovery is enabled
 	privilegedCAPIDiscovery bool
 	// strictMode controls whether fallback to user credentials is allowed
@@ -678,15 +679,12 @@ func (p *mockPrivilegedStaticProvider) GetClientsForUser(_ context.Context, _ *U
 
 func (p *mockPrivilegedStaticProvider) GetPrivilegedClientForSecrets(_ context.Context, _ *UserInfo) (kubernetes.Interface, error) {
 	p.privilegedSecretsCalled = true
-	return p.privilegedClientset, nil
+	return p.privilegedClientset, p.privilegedClientsetErr
 }
 
 func (p *mockPrivilegedStaticProvider) GetPrivilegedDynamicClient(_ context.Context, _ *UserInfo) (dynamic.Interface, error) {
 	p.privilegedDynamicCalled = true
-	if !p.privilegedCAPIDiscovery {
-		return nil, ErrPrivilegedCAPIDiscoveryDisabled
-	}
-	return p.privilegedDynamicClient, nil
+	return p.privilegedDynamicClient, p.privilegedDynamicErr
 }
 
 func (p *mockPrivilegedStaticProvider) PrivilegedCAPIDiscovery() bool {
@@ -926,6 +924,61 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		assert.Nil(t, config)
 		// Discovery fails because user lacks RBAC and privileged CAPI discovery is off
 		assert.True(t, errors.Is(err, ErrClusterNotFound))
+	})
+
+	// --- Scenario 4: Strict mode rejects fallback on runtime failure ---
+
+	t.Run("strict mode: CAPI discovery failure returns error instead of fallback", func(t *testing.T) {
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(),
+			userDynamicClient:       createTestFakeDynamicClient(runtime.NewScheme()),
+			privilegedDynamicErr:    errors.New("ServiceAccount client init failed"),
+			privilegedCAPIDiscovery: true,
+			strictMode:              true,
+		}
+
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		assert.Equal(t, CredentialModeFullPrivileged, manager.credentialMode)
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
+
+		require.Error(t, err)
+		assert.Nil(t, config)
+		assert.True(t, errors.Is(err, ErrStrictPrivilegedAccessRequired),
+			"strict mode should prevent fallback to user credentials")
+		// User credentials should NOT have been called
+		assert.False(t, provider.userClientsForUserCalled,
+			"user clients must not be called when strict mode rejects fallback")
+	})
+
+	t.Run("strict mode: secret access failure returns error instead of fallback", func(t *testing.T) {
+		cluster := createTestCAPICluster(clusterName, namespace)
+
+		// Privileged dynamic works (CAPI discovery succeeds), but secret access fails
+		privDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(),
+			userDynamicClient:       createTestFakeDynamicClient(runtime.NewScheme()),
+			privilegedDynamicClient: privDynamic,
+			privilegedClientsetErr:  errors.New("ServiceAccount client init failed"),
+			privilegedCAPIDiscovery: true,
+			strictMode:              true,
+		}
+
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
+
+		require.Error(t, err)
+		assert.Nil(t, config)
+		assert.True(t, errors.Is(err, ErrStrictPrivilegedAccessRequired),
+			"strict mode should prevent fallback to user credentials for secret access")
 	})
 }
 

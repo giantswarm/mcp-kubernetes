@@ -2,6 +2,7 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -88,6 +89,13 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
+
+		// Preserve strict-mode sentinel so callers can distinguish policy
+		// rejections from transient failures.
+		if errors.Is(err, ErrStrictPrivilegedAccessRequired) {
+			return nil, err
+		}
+
 		return nil, &ClusterNotFoundError{
 			ClusterName: clusterName,
 			Reason:      "failed to create client for CAPI discovery",
@@ -126,13 +134,12 @@ var ErrStrictPrivilegedAccessRequired = fmt.Errorf("privileged secret access req
 func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
 	switch m.credentialMode {
 	case CredentialModeFullPrivileged, CredentialModePrivilegedSecrets:
-		m.logger.Debug("Using ServiceAccount for privileged secret access",
-			"credential_mode", m.credentialMode.String(),
-			"cluster", clusterName,
-			UserHashAttr(user.Email))
-
 		client, err := m.privilegedProvider.GetPrivilegedClientForSecrets(ctx, user)
 		if err == nil {
+			m.logger.Debug("Using ServiceAccount for privileged secret access",
+				"credential_mode", m.credentialMode.String(),
+				"cluster", clusterName,
+				UserHashAttr(user.Email))
 			return client, nil
 		}
 
@@ -177,10 +184,7 @@ func (m *Manager) getUserSecretClient(ctx context.Context, clusterName string, u
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
-		return nil, &ClusterNotFoundError{
-			ClusterName: clusterName,
-			Reason:      "failed to create client for user",
-		}
+		return nil, fmt.Errorf("failed to create user client for secret access (cluster %s): %w", clusterName, err)
 	}
 
 	return clientset, nil
