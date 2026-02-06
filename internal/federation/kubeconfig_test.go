@@ -641,7 +641,7 @@ func TestKubeconfigErrorWrapping(t *testing.T) {
 	})
 }
 
-// mockPrivilegedStaticProvider implements both ClientProvider and PrivilegedSecretAccessProvider
+// mockPrivilegedStaticProvider implements both ClientProvider and PrivilegedAccessProvider
 // for testing the split-credential model. All return values are data-driven via struct fields,
 // so the mock records calls without encoding any business logic.
 type mockPrivilegedStaticProvider struct {
@@ -695,8 +695,8 @@ func (p *mockPrivilegedStaticProvider) IsStrictMode() bool {
 	return p.strictMode
 }
 
-// Ensure mockPrivilegedStaticProvider implements PrivilegedSecretAccessProvider.
-var _ PrivilegedSecretAccessProvider = (*mockPrivilegedStaticProvider)(nil)
+// Ensure mockPrivilegedStaticProvider implements PrivilegedAccessProvider.
+var _ PrivilegedAccessProvider = (*mockPrivilegedStaticProvider)(nil)
 
 // TestGetKubeconfigForCluster_CredentialModels tests the three deployment credential
 // configurations for kubeconfig retrieval:

@@ -143,10 +143,10 @@ type Manager struct {
 	// ClientProvider configuration. See CredentialMode for the three modes.
 	credentialMode CredentialMode
 
-	// privilegedProvider is the PrivilegedSecretAccessProvider interface, set
+	// privilegedProvider is the PrivilegedAccessProvider interface, set
 	// via WithPrivilegedAccess at construction time. Nil when credentialMode is
 	// CredentialModeUser (i.e., the provider does not support privileged access).
-	privilegedProvider PrivilegedSecretAccessProvider
+	privilegedProvider PrivilegedAccessProvider
 
 	// privilegedAccessConfigured is true when WithPrivilegedAccess was called,
 	// even if the provider is nil (which is a configuration error caught in NewManager).
@@ -154,9 +154,9 @@ type Manager struct {
 
 	// privilegedAccessMetrics records metrics for privileged access fallback events.
 	// This is set via WithPrivilegedAccessMetrics and is separate from the
-	// PrivilegedSecretAccessProvider's internal metric recording (which handles
+	// PrivilegedAccessProvider's internal metric recording (which handles
 	// success/error/rate_limited events). The Manager owns fallback metric recording.
-	privilegedAccessMetrics PrivilegedSecretAccessMetricsRecorder
+	privilegedAccessMetrics PrivilegedAccessMetricsRecorder
 
 	// Client cache for remote workload cluster clients (per user)
 	cache *ClientCache
@@ -334,7 +334,7 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 	}
 }
 
-// WithPrivilegedAccess configures the Manager to use a PrivilegedSecretAccessProvider
+// WithPrivilegedAccess configures the Manager to use a PrivilegedAccessProvider
 // for ServiceAccount-based secret access and optionally CAPI discovery.
 //
 // This explicitly enables the split-credential model where:
@@ -355,7 +355,7 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 //	    federation.WithPrivilegedAccess(hybridProvider),
 //	    federation.WithManagerLogger(logger),
 //	)
-func WithPrivilegedAccess(provider PrivilegedSecretAccessProvider) ManagerOption {
+func WithPrivilegedAccess(provider PrivilegedAccessProvider) ManagerOption {
 	return func(m *Manager) {
 		m.privilegedProvider = provider
 		m.privilegedAccessConfigured = true
@@ -364,10 +364,10 @@ func WithPrivilegedAccess(provider PrivilegedSecretAccessProvider) ManagerOption
 
 // WithPrivilegedAccessMetrics sets the metrics recorder for privileged access
 // fallback events on the Manager. This is separate from the metrics recorded
-// internally by the PrivilegedSecretAccessProvider (which tracks success,
+// internally by the PrivilegedAccessProvider (which tracks success,
 // error, and rate_limited events). The Manager uses this recorder to track
 // fallback-to-user-credentials events during CAPI discovery and secret access.
-func WithPrivilegedAccessMetrics(metrics PrivilegedSecretAccessMetricsRecorder) ManagerOption {
+func WithPrivilegedAccessMetrics(metrics PrivilegedAccessMetricsRecorder) ManagerOption {
 	return func(m *Manager) {
 		m.privilegedAccessMetrics = metrics
 	}
@@ -465,7 +465,7 @@ func (m *Manager) recordPrivilegedMetric(ctx context.Context, userEmail, operati
 		return
 	}
 	userDomain := extractUserDomain(userEmail)
-	m.privilegedAccessMetrics.RecordPrivilegedSecretAccess(ctx, userDomain, operation, result)
+	m.privilegedAccessMetrics.RecordPrivilegedAccess(ctx, userDomain, operation, result)
 }
 
 // GetClient returns a Kubernetes client for the target cluster.

@@ -440,8 +440,8 @@ func TestHybridOAuthClientProvider_ImplementsInterfaces(t *testing.T) {
 		var _ ClientProvider = (*HybridOAuthClientProvider)(nil)
 	})
 
-	t.Run("implements PrivilegedSecretAccessProvider", func(t *testing.T) {
-		var _ PrivilegedSecretAccessProvider = (*HybridOAuthClientProvider)(nil)
+	t.Run("implements PrivilegedAccessProvider", func(t *testing.T) {
+		var _ PrivilegedAccessProvider = (*HybridOAuthClientProvider)(nil)
 	})
 }
 
@@ -570,7 +570,7 @@ func TestDefaultInClusterConfigProvider(t *testing.T) {
 	})
 }
 
-// mockPrivilegedAccessMetrics implements PrivilegedSecretAccessMetricsRecorder for testing
+// mockPrivilegedAccessMetrics implements PrivilegedAccessMetricsRecorder for testing
 type mockPrivilegedAccessMetrics struct {
 	recordings []struct {
 		userDomain string
@@ -579,7 +579,7 @@ type mockPrivilegedAccessMetrics struct {
 	}
 }
 
-func (m *mockPrivilegedAccessMetrics) RecordPrivilegedSecretAccess(_ context.Context, userDomain, operation, result string) {
+func (m *mockPrivilegedAccessMetrics) RecordPrivilegedAccess(_ context.Context, userDomain, operation, result string) {
 	m.recordings = append(m.recordings, struct {
 		userDomain string
 		operation  string

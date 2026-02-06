@@ -584,10 +584,10 @@ func runServe(config ServeConfig) error {
 		// This wraps the OAuth provider with ServiceAccount-based secret access
 		hybridConfig := &federation.HybridOAuthClientProviderConfig{
 			UserProvider:            oauthProvider,
-			StrictPrivilegedAccess:  config.CAPIMode.PrivilegedSecretAccess.Strict,
-			PrivilegedCAPIDiscovery: config.CAPIMode.PrivilegedSecretAccess.PrivilegedCAPIDiscovery,
-			RateLimitPerSecond:      config.CAPIMode.PrivilegedSecretAccess.RateLimitPerSecond,
-			RateLimitBurst:          config.CAPIMode.PrivilegedSecretAccess.RateLimitBurst,
+			StrictPrivilegedAccess:  config.CAPIMode.PrivilegedAccess.Strict,
+			PrivilegedCAPIDiscovery: config.CAPIMode.PrivilegedAccess.PrivilegedCAPIDiscovery,
+			RateLimitPerSecond:      config.CAPIMode.PrivilegedAccess.RateLimitPerSecond,
+			RateLimitBurst:          config.CAPIMode.PrivilegedAccess.RateLimitBurst,
 		}
 
 		hybridProvider, err = federation.NewHybridOAuthClientProvider(hybridConfig)
@@ -750,9 +750,12 @@ func runServe(config ServeConfig) error {
 			managerOpts = append(managerOpts, federation.WithPrivilegedAccessMetrics(instrumentationProvider.Metrics()))
 		}
 
-		// Explicitly enable privileged access for the split-credential model.
-		// The hybrid provider implements both ClientProvider (user OAuth) and
-		// PrivilegedSecretAccessProvider (ServiceAccount for secrets + CAPI discovery).
+		// IMPORTANT: WithPrivilegedAccess is the critical option that enables the
+		// split-credential model (ServiceAccount for secrets + CAPI discovery,
+		// user OAuth for workload cluster operations). Without it, the Manager
+		// defaults to CredentialModeUser where users need their own RBAC for
+		// everything. The hybrid provider implements both ClientProvider and
+		// PrivilegedAccessProvider.
 		managerOpts = append(managerOpts, federation.WithPrivilegedAccess(hybridProvider))
 
 		// Create federation manager with the hybrid provider for split-credential model
@@ -1080,20 +1083,21 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 		config.WorkloadClusterAuth.DisableCaching = true
 	}
 
-	// Privileged secret access configuration (split-credential model)
+	// Privileged access configuration (split-credential model)
+	// Note: Environment variable names are kept for backward compatibility.
 	if os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
-		config.PrivilegedSecretAccess.Strict = true
+		config.PrivilegedAccess.Strict = true
 	}
 	// Privileged CAPI discovery (default: true)
 	if v := os.Getenv("PRIVILEGED_CAPI_DISCOVERY"); v != "" {
 		val := v == envValueTrue
-		config.PrivilegedSecretAccess.PrivilegedCAPIDiscovery = &val
+		config.PrivilegedAccess.PrivilegedCAPIDiscovery = &val
 	}
 	if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"); ok {
-		config.PrivilegedSecretAccess.RateLimitPerSecond = f
+		config.PrivilegedAccess.RateLimitPerSecond = f
 	}
 	if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_BURST"), "PRIVILEGED_SECRET_ACCESS_RATE_BURST"); ok {
-		config.PrivilegedSecretAccess.RateLimitBurst = n
+		config.PrivilegedAccess.RateLimitBurst = n
 	}
 
 	// Cache configuration - store as strings for later validation

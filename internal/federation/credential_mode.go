@@ -81,8 +81,7 @@ type CredentialMode int
 
 const (
 	// CredentialModeUser uses user RBAC for both CAPI discovery and secret access.
-	// This is the default when the ClientProvider does not implement
-	// PrivilegedSecretAccessProvider.
+	// This is the default when no PrivilegedAccessProvider is configured.
 	//
 	// Requirements: Users must have RBAC to list CAPI clusters and read kubeconfig secrets.
 	CredentialModeUser CredentialMode = iota
@@ -138,14 +137,14 @@ func (m CredentialMode) String() string {
 }
 
 // resolveCredentialMode determines the credential mode from the explicitly
-// configured PrivilegedSecretAccessProvider. This is called once during
+// configured PrivilegedAccessProvider. This is called once during
 // Manager construction after options have been applied.
 //
 // The resolution logic:
 //  1. If provider is nil (no WithPrivilegedAccess option) → CredentialModeUser
 //  2. If provider.PrivilegedCAPIDiscovery() is true → CredentialModeFullPrivileged
 //  3. If provider.PrivilegedCAPIDiscovery() is false → CredentialModePrivilegedSecrets
-func resolveCredentialMode(provider PrivilegedSecretAccessProvider) CredentialMode {
+func resolveCredentialMode(provider PrivilegedAccessProvider) CredentialMode {
 	if provider == nil {
 		return CredentialModeUser
 	}

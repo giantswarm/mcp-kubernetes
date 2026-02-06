@@ -473,7 +473,7 @@ type ClusterListOptions struct {
 //
 // # Split-Credential Model
 //
-// When the ClientProvider implements PrivilegedSecretAccessProvider and has privileged
+// When the ClientProvider implements PrivilegedAccessProvider and has privileged
 // access available, this method uses ServiceAccount credentials for CAPI cluster discovery.
 // This is necessary because:
 //   - Users need to discover clusters to use multi-cluster tools

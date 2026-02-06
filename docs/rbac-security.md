@@ -410,7 +410,7 @@ When OAuth Downstream is enabled in CAPI mode, the permission requirements are s
 > Access to workload cluster **operations** is still governed by the user's own RBAC via impersonation.
 >
 > To restrict cluster visibility to what each user's RBAC allows, set
-> `capiMode.privilegedSecretAccess.privilegedCAPIDiscovery: false`. Users will then need
+> `capiMode.privilegedAccess.privilegedCAPIDiscovery: false`. Users will then need
 > their own ClusterRoleBinding for `clusters.cluster.x-k8s.io` to discover clusters.
 
 **ServiceAccount needs RBAC permissions for:**
@@ -651,7 +651,7 @@ To restrict cluster visibility to what each user's RBAC allows, disable privileg
 
 ```yaml
 capiMode:
-  privilegedSecretAccess:
+  privilegedAccess:
     privilegedCAPIDiscovery: false  # Users need their own CAPI RBAC
 ```
 
@@ -668,7 +668,7 @@ When strict mode is enabled, mcp-kubernetes will fail instead of falling back to
 
 ```yaml
 capiMode:
-  privilegedSecretAccess:
+  privilegedAccess:
     strict: true  # Fail instead of fallback (recommended for production)
 ```
 
@@ -688,7 +688,7 @@ Privileged secret access is rate-limited per user to prevent abuse:
 
 ```yaml
 capiMode:
-  privilegedSecretAccess:
+  privilegedAccess:
     rateLimit:
       perSecond: 10.0  # Requests per second per user
       burst: 20        # Burst size per user
@@ -708,7 +708,7 @@ Rate limiting protects against:
 Privileged access is instrumented with Prometheus metrics:
 
 ```
-# Metric: mcp_kubernetes_privileged_secret_access_total
+# Metric: mcp_kubernetes_privileged_access_total
 # Labels: user_domain, operation, result
 # Operation values: secret_access, capi_discovery
 # Result values: success, error, rate_limited, fallback
@@ -716,17 +716,17 @@ Privileged access is instrumented with Prometheus metrics:
 # Example queries:
 
 # Rate of all privileged access attempts
-rate(mcp_kubernetes_privileged_secret_access_total[5m])
+rate(mcp_kubernetes_privileged_access_total[5m])
 
 # Rate of CAPI discovery vs secret access
-rate(mcp_kubernetes_privileged_secret_access_total{operation="capi_discovery"}[5m])
-rate(mcp_kubernetes_privileged_secret_access_total{operation="secret_access"}[5m])
+rate(mcp_kubernetes_privileged_access_total{operation="capi_discovery"}[5m])
+rate(mcp_kubernetes_privileged_access_total{operation="secret_access"}[5m])
 
 # Rate-limited requests (potential abuse)
-rate(mcp_kubernetes_privileged_secret_access_total{result="rate_limited"}[5m])
+rate(mcp_kubernetes_privileged_access_total{result="rate_limited"}[5m])
 
 # Fallback to user credentials (weaker security, should be 0 in strict mode)
-rate(mcp_kubernetes_privileged_secret_access_total{result="fallback"}[5m])
+rate(mcp_kubernetes_privileged_access_total{result="fallback"}[5m])
 ```
 
 ## References

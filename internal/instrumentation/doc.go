@@ -40,7 +40,7 @@
 //   - mcp_kubernetes_operation_duration_seconds: Histogram of operation durations for management/workload scopes
 //   - mcp_kubernetes_impersonation_total: Counter of impersonation requests (by user_domain, cluster_type, result)
 //   - mcp_kubernetes_federation_client_creations_total: Counter of federation client creation attempts
-//   - mcp_kubernetes_privileged_secret_access_total: Counter of privileged secret access attempts
+//   - mcp_kubernetes_privileged_access_total: Counter of privileged access attempts (secret access + CAPI discovery)
 //   - mcp_kubernetes_wc_auth_total: Counter of workload cluster authentication attempts
 //   - mcp_kubernetes_client_cache_hits_total: Counter of client cache hits
 //   - mcp_kubernetes_client_cache_misses_total: Counter of client cache misses

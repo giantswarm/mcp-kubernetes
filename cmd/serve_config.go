@@ -90,8 +90,8 @@ type CAPIModeConfig struct {
 	// Workload cluster authentication configuration
 	WorkloadClusterAuth WorkloadClusterAuthConfig
 
-	// Privileged secret access configuration (split-credential model)
-	PrivilegedSecretAccess PrivilegedSecretAccessConfig
+	// Privileged access configuration (split-credential model)
+	PrivilegedAccess PrivilegedAccessConfig
 }
 
 // WorkloadClusterAuthConfig configures how mcp-kubernetes authenticates to workload clusters.
@@ -123,10 +123,11 @@ type WorkloadClusterAuthConfig struct {
 	DisableCaching bool
 }
 
-// PrivilegedSecretAccessConfig configures the split-credential model for kubeconfig secret access.
-// When enabled, the ServiceAccount token is used for kubeconfig secret access instead of user OAuth tokens.
-// This prevents users from bypassing impersonation by extracting admin credentials via kubectl.
-type PrivilegedSecretAccessConfig struct {
+// PrivilegedAccessConfig configures the split-credential model for privileged access.
+// When enabled, the ServiceAccount token is used for kubeconfig secret access and
+// CAPI cluster discovery instead of user OAuth tokens. This prevents users from
+// bypassing impersonation by extracting admin credentials via kubectl.
+type PrivilegedAccessConfig struct {
 	// Strict mode: When enabled, fails instead of falling back to user credentials
 	// when ServiceAccount access is unavailable.
 	//

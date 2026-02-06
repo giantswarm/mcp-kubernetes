@@ -15,22 +15,21 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// PrivilegedSecretAccessMetricsRecorder provides an interface for recording privileged access metrics.
+// PrivilegedAccessMetricsRecorder provides an interface for recording privileged access metrics.
 // This enables monitoring of privileged access patterns for security observability.
-// Despite the name, this covers both secret access and CAPI discovery metrics.
-type PrivilegedSecretAccessMetricsRecorder interface {
-	// RecordPrivilegedSecretAccess records a privileged access attempt.
+// It covers both secret access and CAPI discovery metrics.
+type PrivilegedAccessMetricsRecorder interface {
+	// RecordPrivilegedAccess records a privileged access attempt.
 	// Parameters:
 	//   - ctx: Request context
 	//   - userDomain: User's email domain (e.g., "giantswarm.io") for cardinality control
 	//   - operation: The type of privileged operation ("secret_access" or "capi_discovery")
 	//   - result: One of "success", "error", "rate_limited", "fallback"
-	RecordPrivilegedSecretAccess(ctx context.Context, userDomain, operation, result string)
+	RecordPrivilegedAccess(ctx context.Context, userDomain, operation, result string)
 }
 
-// PrivilegedSecretAccessProvider extends ClientProvider with the ability to access
+// PrivilegedAccessProvider extends ClientProvider with the ability to access
 // kubeconfig secrets and CAPI resources using ServiceAccount credentials instead of user credentials.
-// Despite the name, this interface covers both secret access and CAPI discovery.
 //
 // # Security Model
 //
@@ -54,7 +53,7 @@ type PrivilegedSecretAccessMetricsRecorder interface {
 //
 // All privileged access is logged with the user identity that triggered it,
 // ensuring accountability and traceability in audit logs.
-type PrivilegedSecretAccessProvider interface {
+type PrivilegedAccessProvider interface {
 	ClientProvider
 
 	// GetPrivilegedClientForSecrets returns a Kubernetes client using ServiceAccount credentials.
@@ -135,7 +134,7 @@ type userRateLimiter struct {
 	lastAccess time.Time
 }
 
-// HybridOAuthClientProvider implements PrivilegedSecretAccessProvider for OAuth downstream
+// HybridOAuthClientProvider implements PrivilegedAccessProvider for OAuth downstream
 // authentication with split credential model.
 //
 // This provider wraps two credential sources: user OAuth tokens for user-scoped operations
@@ -174,7 +173,7 @@ type HybridOAuthClientProvider struct {
 	privilegedCAPIDiscovery bool
 
 	// metrics for recording privileged access events
-	metrics PrivilegedSecretAccessMetricsRecorder
+	metrics PrivilegedAccessMetricsRecorder
 
 	// Rate limiting for privileged access
 	rateLimitPerSecond float64
@@ -235,7 +234,7 @@ type HybridOAuthClientProviderConfig struct {
 
 	// Metrics recorder for privileged access events (optional)
 	// When configured, records success/failure/rate_limited/fallback events
-	Metrics PrivilegedSecretAccessMetricsRecorder
+	Metrics PrivilegedAccessMetricsRecorder
 
 	// RateLimitPerSecond is the rate limit for privileged access per user (requests/second)
 	// Default: 10.0
@@ -423,7 +422,7 @@ const (
 func (p *HybridOAuthClientProvider) recordMetric(ctx context.Context, userEmail, operation, result string) {
 	if p.metrics != nil {
 		userDomain := extractUserDomain(userEmail)
-		p.metrics.RecordPrivilegedSecretAccess(ctx, userDomain, operation, result)
+		p.metrics.RecordPrivilegedAccess(ctx, userDomain, operation, result)
 	}
 }
 
@@ -459,7 +458,7 @@ func (p *HybridOAuthClientProvider) GetClientsForUser(ctx context.Context, user 
 }
 
 // ErrRateLimited is returned when a user exceeds the rate limit for privileged access.
-var ErrRateLimited = fmt.Errorf("rate limit exceeded for privileged secret access")
+var ErrRateLimited = fmt.Errorf("rate limit exceeded for privileged access")
 
 // GetPrivilegedClientForSecrets returns the ServiceAccount client for secret access.
 //
@@ -609,12 +608,12 @@ func (p *HybridOAuthClientProvider) SetMetrics(metrics OAuthAuthMetricsRecorder)
 }
 
 // SetPrivilegedAccessMetrics sets the metrics recorder for privileged access events.
-func (p *HybridOAuthClientProvider) SetPrivilegedAccessMetrics(metrics PrivilegedSecretAccessMetricsRecorder) {
+func (p *HybridOAuthClientProvider) SetPrivilegedAccessMetrics(metrics PrivilegedAccessMetricsRecorder) {
 	p.metrics = metrics
 }
 
-// Ensure HybridOAuthClientProvider implements PrivilegedSecretAccessProvider.
-var _ PrivilegedSecretAccessProvider = (*HybridOAuthClientProvider)(nil)
+// Ensure HybridOAuthClientProvider implements PrivilegedAccessProvider.
+var _ PrivilegedAccessProvider = (*HybridOAuthClientProvider)(nil)
 
 // Ensure HybridOAuthClientProvider implements ClientProvider.
 var _ ClientProvider = (*HybridOAuthClientProvider)(nil)

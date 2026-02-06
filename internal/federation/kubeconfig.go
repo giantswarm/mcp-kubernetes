@@ -38,7 +38,7 @@ type ClusterInfo struct {
 //
 // This method implements a split-credential model for enhanced security:
 //
-// When PrivilegedSecretAccessProvider is available:
+// When PrivilegedAccessProvider is available:
 //  1. Finds the Cluster resource using SERVICEACCOUNT credentials (privileged CAPI discovery)
 //  2. Fetches the kubeconfig secret using SERVICEACCOUNT credentials (privileged)
 //  3. Parses the kubeconfig into a rest.Config
