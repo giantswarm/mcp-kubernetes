@@ -712,7 +712,7 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 	)
 
 	// --- Scenario 1: No privileged access at all ---
-	// privilegedSecretAccess: false (implies privilegedCAPIDiscovery: false)
+	// No WithPrivilegedAccess option → CredentialModeUser
 	// => User RBAC is used for both CAPI discovery AND secret retrieval
 
 	t.Run("no privileged access: user RBAC for discovery and secrets", func(t *testing.T) {
@@ -793,8 +793,8 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		assert.True(t, errors.As(err, &kubeconfigErr))
 	})
 
-	// --- Scenario 2: Privileged secret access + privileged CAPI discovery ---
-	// privilegedSecretAccess: true, privilegedCAPIDiscovery: true
+	// --- Scenario 2: Full privileged access ---
+	// WithPrivilegedAccess + PrivilegedCAPIDiscovery: true → CredentialModeFullPrivileged
 	// => ServiceAccount is used for CAPI discovery AND secret retrieval
 
 	t.Run("full privileged: ServiceAccount for discovery and secrets", func(t *testing.T) {
@@ -842,8 +842,8 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 			"user clients should not be called when privileged access succeeds")
 	})
 
-	// --- Scenario 3: Privileged secret access + NO privileged CAPI discovery ---
-	// privilegedSecretAccess: true, privilegedCAPIDiscovery: false
+	// --- Scenario 3: Privileged secrets only ---
+	// WithPrivilegedAccess + PrivilegedCAPIDiscovery: false → CredentialModePrivilegedSecrets
 	// => User RBAC for CAPI discovery, ServiceAccount for secret retrieval
 
 	t.Run("privileged secrets only: user RBAC for discovery, ServiceAccount for secrets", func(t *testing.T) {

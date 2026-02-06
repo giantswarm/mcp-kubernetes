@@ -742,18 +742,18 @@ capiMode:
     # Default: false (caching enabled for better performance)
     disableCaching: false
 
-  # Privileged secret access configuration (split-credential model)
+  # Privileged access configuration (split-credential model)
   #
   # SECURITY MODEL:
   # When OAuth downstream is enabled, the ServiceAccount reads kubeconfig secrets
-  # on behalf of users. This prevents users from bypassing impersonation by
-  # extracting admin credentials directly via kubectl.
+  # and discovers CAPI clusters on behalf of users. This prevents users from
+  # bypassing impersonation by extracting admin credentials directly via kubectl.
   #
   # NOTE: When using workloadClusterAuth.mode: "sso-passthrough", this configuration
-  # applies to CA-only secret access instead of full kubeconfig secret access.
+  # applies to CA ConfigMap access and CAPI discovery instead of kubeconfig secrets.
   #
   # See docs/rbac-security.md for detailed security model explanation.
-  privilegedSecretAccess:
+  privilegedAccess:
     # Strict mode: When enabled, fails instead of falling back to user credentials
     # when ServiceAccount access is unavailable.
     #

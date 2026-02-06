@@ -296,23 +296,23 @@ spec:
             {{- end }}
             {{- end }}
             # Privileged Access Configuration (split-credential model)
-            {{- if .Values.capiMode.privilegedSecretAccess }}
-            {{- if .Values.capiMode.privilegedSecretAccess.strict }}
+            {{- if .Values.capiMode.privilegedAccess }}
+            {{- if .Values.capiMode.privilegedAccess.strict }}
             - name: PRIVILEGED_SECRET_ACCESS_STRICT
               value: "true"
             {{- end }}
-            {{- if hasKey .Values.capiMode.privilegedSecretAccess "privilegedCAPIDiscovery" }}
+            {{- if hasKey .Values.capiMode.privilegedAccess "privilegedCAPIDiscovery" }}
             - name: PRIVILEGED_CAPI_DISCOVERY
-              value: {{ .Values.capiMode.privilegedSecretAccess.privilegedCAPIDiscovery | quote }}
+              value: {{ .Values.capiMode.privilegedAccess.privilegedCAPIDiscovery | quote }}
             {{- end }}
-            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit }}
-            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit.perSecond }}
+            {{- if .Values.capiMode.privilegedAccess.rateLimit }}
+            {{- if .Values.capiMode.privilegedAccess.rateLimit.perSecond }}
             - name: PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND
-              value: {{ .Values.capiMode.privilegedSecretAccess.rateLimit.perSecond | quote }}
+              value: {{ .Values.capiMode.privilegedAccess.rateLimit.perSecond | quote }}
             {{- end }}
-            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit.burst }}
+            {{- if .Values.capiMode.privilegedAccess.rateLimit.burst }}
             - name: PRIVILEGED_SECRET_ACCESS_RATE_BURST
-              value: {{ .Values.capiMode.privilegedSecretAccess.rateLimit.burst | quote }}
+              value: {{ .Values.capiMode.privilegedAccess.rateLimit.burst | quote }}
             {{- end }}
             {{- end }}
             {{- end }}

@@ -414,7 +414,7 @@ func TestGetCAForCluster_CredentialModels(t *testing.T) {
 	)
 
 	// --- Scenario 1: No privileged access at all ---
-	// privilegedSecretAccess: false (implies privilegedCAPIDiscovery: false)
+	// No WithPrivilegedAccess option → CredentialModeUser
 	// => User RBAC is used for both CAPI discovery AND ConfigMap access
 
 	t.Run("no privileged access: user RBAC for discovery and ConfigMap", func(t *testing.T) {
@@ -467,8 +467,8 @@ func TestGetCAForCluster_CredentialModels(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrClusterNotFound))
 	})
 
-	// --- Scenario 2: Privileged access + privileged CAPI discovery ---
-	// privilegedSecretAccess: true, privilegedCAPIDiscovery: true
+	// --- Scenario 2: Full privileged access ---
+	// WithPrivilegedAccess + PrivilegedCAPIDiscovery: true → CredentialModeFullPrivileged
 	// => ServiceAccount for CAPI discovery, user credentials for ConfigMap access
 
 	t.Run("full privileged: ServiceAccount for discovery, user for ConfigMap", func(t *testing.T) {
@@ -518,8 +518,8 @@ func TestGetCAForCluster_CredentialModels(t *testing.T) {
 			"privileged secret access should not be used for CA ConfigMap retrieval")
 	})
 
-	// --- Scenario 3: Privileged secret access + NO privileged CAPI discovery ---
-	// privilegedSecretAccess: true, privilegedCAPIDiscovery: false
+	// --- Scenario 3: Privileged secrets only ---
+	// WithPrivilegedAccess + PrivilegedCAPIDiscovery: false → CredentialModePrivilegedSecrets
 	// => User RBAC for CAPI discovery, user credentials for ConfigMap access
 
 	t.Run("privileged secrets only: user RBAC for discovery and ConfigMap", func(t *testing.T) {

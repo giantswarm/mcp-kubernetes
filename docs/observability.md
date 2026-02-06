@@ -316,6 +316,36 @@ mcp_kubernetes_federation_client_creations_total{result="cached"}
 / sum(mcp_kubernetes_federation_client_creations_total)
 ```
 
+#### `mcp_kubernetes_privileged_access_total`
+Counter of privileged access attempts (ServiceAccount-based secret access and CAPI discovery).
+
+**Labels:**
+- `user_domain`: Email domain of the user (e.g., "giantswarm.io") for cardinality control
+- `operation`: The type of privileged operation (`secret_access` or `capi_discovery`)
+- `result`: Result (`success`, `error`, `rate_limited`, `fallback`)
+
+**Use Cases:**
+- Monitor ServiceAccount-based privileged access patterns
+- Detect rate limiting or abuse attempts
+- Track fallback to user credentials (should be 0 in strict mode)
+- Compare secret access vs CAPI discovery usage
+
+**Example:**
+```promql
+# Rate of all privileged access attempts
+rate(mcp_kubernetes_privileged_access_total[5m])
+
+# Rate of CAPI discovery vs secret access
+rate(mcp_kubernetes_privileged_access_total{operation="capi_discovery"}[5m])
+rate(mcp_kubernetes_privileged_access_total{operation="secret_access"}[5m])
+
+# Rate-limited requests (potential abuse)
+rate(mcp_kubernetes_privileged_access_total{result="rate_limited"}[5m])
+
+# Fallback to user credentials (should be 0 in strict mode)
+rate(mcp_kubernetes_privileged_access_total{result="fallback"}[5m])
+```
+
 #### `mcp_kubernetes_wc_auth_total`
 Counter of workload cluster authentication attempts. Distinguishes between authentication modes.
 
