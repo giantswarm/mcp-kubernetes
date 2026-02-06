@@ -576,6 +576,9 @@ func (m *Manager) getDynamicClientForCAPIDiscovery(ctx context.Context, user *Us
 			return nil, fmt.Errorf("CAPI discovery failed (strict mode): %w", ErrStrictPrivilegedAccessRequired)
 		}
 
+		// Log at Debug (not Warn) because CAPI discovery fallback is less
+		// security-sensitive than secret access fallback: discovery only
+		// reveals cluster names, not credentials.
 		m.logger.Debug("Privileged CAPI access failed at runtime, falling back to user credentials",
 			"credential_mode", m.credentialMode.String(),
 			UserHashAttr(user.Email),

@@ -603,7 +603,7 @@ func (p *HybridOAuthClientProvider) SetTokenExtractor(extractor TokenExtractor) 
 
 // SetMetrics sets the metrics recorder on the underlying user provider.
 // This method passes through to the wrapped OAuthClientProvider.
-func (p *HybridOAuthClientProvider) SetMetrics(metrics OAuthAuthMetricsRecorder) {
+func (p *HybridOAuthClientProvider) SetMetrics(metrics OAuthMetricsRecorder) {
 	p.userProvider.SetMetrics(metrics)
 }
 

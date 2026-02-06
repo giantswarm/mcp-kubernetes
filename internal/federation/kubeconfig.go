@@ -10,6 +10,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -22,13 +23,19 @@ import (
 // This can be overridden using WithManagerConnectionValidationTimeout.
 const DefaultConnectionValidationTimeout = 10 * time.Second
 
-// ClusterInfo contains information about a CAPI cluster needed for kubeconfig retrieval.
+// ClusterInfo contains information about a CAPI cluster needed for kubeconfig retrieval
+// and SSO passthrough (CA certificate + endpoint).
 type ClusterInfo struct {
 	// Name is the cluster name.
 	Name string
 
 	// Namespace is the namespace where the cluster resource and its kubeconfig secret reside.
 	Namespace string
+
+	// Endpoint is the API server endpoint (e.g., "https://api.cluster.example.com:6443").
+	// Populated from spec.controlPlaneEndpoint when available. Empty if the cluster
+	// resource does not have a control plane endpoint set.
+	Endpoint string
 }
 
 // GetKubeconfigForCluster retrieves the kubeconfig secret for a CAPI cluster
@@ -154,6 +161,9 @@ func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string,
 			return nil, ErrStrictPrivilegedAccessRequired
 		}
 
+		// Warn (not Debug) because secret access fallback means the user's
+		// own credentials are used to read kubeconfig secrets, which is a
+		// weaker security posture than the split-credential model.
 		m.logger.Warn("Privileged secret access failed at runtime, falling back to user credentials",
 			"credential_mode", m.credentialMode.String(),
 			"cluster", clusterName,
@@ -250,6 +260,7 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 	for _, cluster := range list.Items {
 		if cluster.GetName() == clusterName {
 			namespace := cluster.GetNamespace()
+			endpoint := extractClusterEndpoint(&cluster)
 			m.logger.Debug("Found CAPI Cluster",
 				"cluster", clusterName,
 				"namespace", namespace,
@@ -257,6 +268,7 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 			return &ClusterInfo{
 				Name:      clusterName,
 				Namespace: namespace,
+				Endpoint:  endpoint,
 			}, nil
 		}
 	}
@@ -270,14 +282,34 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 	}
 }
 
+// extractClusterEndpoint extracts the API server endpoint from an unstructured
+// CAPI Cluster resource's spec.controlPlaneEndpoint. Returns an empty string
+// if the endpoint is not set (e.g., cluster is still provisioning).
+func extractClusterEndpoint(cluster *unstructured.Unstructured) string {
+	host, _, _ := unstructured.NestedString(cluster.Object, "spec", "controlPlaneEndpoint", "host")
+	if host == "" {
+		return ""
+	}
+	// Try int64 first (API server responses), then float64 (JSON-decoded unstructured data).
+	port, found, _ := unstructured.NestedInt64(cluster.Object, "spec", "controlPlaneEndpoint", "port")
+	if !found {
+		if fport, ok, _ := unstructured.NestedFloat64(cluster.Object, "spec", "controlPlaneEndpoint", "port"); ok {
+			port = int64(fport)
+		}
+	}
+	if port > 0 {
+		return fmt.Sprintf("https://%s:%d", host, port)
+	}
+	return fmt.Sprintf("https://%s:6443", host)
+}
+
 // getKubeconfigFromSecret retrieves the kubeconfig data from the cluster's secret.
 //
 // # Security Model
 //
-// This method uses the user's client, ensuring:
-//   - User must have RBAC permission to get Secrets in the cluster's namespace
-//   - Only secrets the user has access to can be retrieved
-//   - Defense in depth: MC RBAC is enforced for secret access
+// The caller provides the appropriate client based on the Manager's CredentialMode:
+//   - In privileged modes, the client is a ServiceAccount client (no user RBAC needed)
+//   - In user mode, the client is a user-scoped client (user must have secret read RBAC)
 //
 // By CAPI convention, the secret is named ${CLUSTER_NAME}-kubeconfig and contains
 // the kubeconfig data in either the 'value' or 'kubeconfig' key.

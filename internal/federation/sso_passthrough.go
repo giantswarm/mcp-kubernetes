@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -99,16 +98,20 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 		}
 	}
 
-	// Find the cluster to determine its namespace and endpoint
+	// Find the cluster to determine its namespace and endpoint.
+	// findClusterInfo populates ClusterInfo.Endpoint from spec.controlPlaneEndpoint,
+	// so we don't need a separate API call for the endpoint.
 	clusterInfo, err := m.findClusterInfo(ctx, clusterName, dynamicClient, user)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Get cluster endpoint from the CAPI Cluster resource
-	endpoint, err := m.getClusterEndpoint(ctx, clusterName, dynamicClient)
-	if err != nil {
-		return nil, "", err
+	// Verify we have an endpoint (required for SSO passthrough TLS connection)
+	if clusterInfo.Endpoint == "" {
+		return nil, "", &ClusterNotFoundError{
+			ClusterName: clusterName,
+			Reason:      "could not determine cluster API endpoint from CAPI Cluster resource",
+		}
 	}
 
 	// Get user-scoped clientset for ConfigMap access.
@@ -130,39 +133,7 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 		return nil, "", err
 	}
 
-	return caData, endpoint, nil
-}
-
-// getClusterEndpoint extracts the API server endpoint from a CAPI Cluster resource.
-func (m *Manager) getClusterEndpoint(ctx context.Context, clusterName string, dynamicClient dynamic.Interface) (string, error) {
-	// List all CAPI Cluster resources to find the one we need
-	list, err := dynamicClient.Resource(CAPIClusterGVR).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", &ClusterNotFoundError{
-			ClusterName: clusterName,
-			Reason:      fmt.Sprintf("failed to query CAPI clusters: %v", err),
-		}
-	}
-
-	for _, cluster := range list.Items {
-		if cluster.GetName() == clusterName {
-			// Try to get endpoint from spec.controlPlaneEndpoint using standard k8s unstructured helpers
-			host, _, _ := unstructured.NestedString(cluster.Object, "spec", "controlPlaneEndpoint", "host")
-			port, _, _ := unstructured.NestedInt64(cluster.Object, "spec", "controlPlaneEndpoint", "port")
-
-			if host != "" {
-				if port > 0 {
-					return fmt.Sprintf("https://%s:%d", host, port), nil
-				}
-				return fmt.Sprintf("https://%s:6443", host), nil
-			}
-		}
-	}
-
-	return "", &ClusterNotFoundError{
-		ClusterName: clusterName,
-		Reason:      "could not determine cluster API endpoint from CAPI Cluster resource",
-	}
+	return caData, clusterInfo.Endpoint, nil
 }
 
 // getCAFromConfigMap retrieves the CA certificate from a CA ConfigMap.

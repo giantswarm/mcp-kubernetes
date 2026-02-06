@@ -11,8 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -44,17 +42,14 @@ func TestWorkloadClusterAuthMode_Constants(t *testing.T) {
 	}
 }
 
-func TestManager_GetClusterEndpoint(t *testing.T) {
+func TestExtractClusterEndpoint(t *testing.T) {
 	tests := []struct {
-		name        string
-		clusterName string
-		cluster     *unstructured.Unstructured
-		wantHost    string
-		wantErr     bool
+		name         string
+		cluster      *unstructured.Unstructured
+		wantEndpoint string
 	}{
 		{
-			name:        "cluster with host and port",
-			clusterName: "test-cluster",
+			name: "cluster with host and port",
 			cluster: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "cluster.x-k8s.io/v1beta2",
@@ -71,12 +66,10 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 					},
 				},
 			},
-			wantHost: "https://api.test-cluster.example.com:6443",
-			wantErr:  false,
+			wantEndpoint: "https://api.test-cluster.example.com:6443",
 		},
 		{
-			name:        "cluster with host only (default port)",
-			clusterName: "test-cluster",
+			name: "cluster with host only (default port 6443)",
 			cluster: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "cluster.x-k8s.io/v1beta2",
@@ -92,27 +85,10 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 					},
 				},
 			},
-			wantHost: "https://api.test-cluster.example.com:6443",
-			wantErr:  false,
+			wantEndpoint: "https://api.test-cluster.example.com:6443",
 		},
 		{
-			name:        "cluster not found",
-			clusterName: "nonexistent",
-			cluster: &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"apiVersion": "cluster.x-k8s.io/v1beta2",
-					"kind":       "Cluster",
-					"metadata": map[string]interface{}{
-						"name":      "other-cluster",
-						"namespace": "org-test",
-					},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name:        "cluster without controlPlaneEndpoint",
-			clusterName: "test-cluster",
+			name: "cluster without controlPlaneEndpoint returns empty",
 			cluster: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "cluster.x-k8s.io/v1beta2",
@@ -124,42 +100,35 @@ func TestManager_GetClusterEndpoint(t *testing.T) {
 					"spec": map[string]interface{}{},
 				},
 			},
-			wantErr: true,
+			wantEndpoint: "",
+		},
+		{
+			name: "cluster with custom port",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "api.test-cluster.example.com",
+							"port": float64(8443),
+						},
+					},
+				},
+			},
+			wantEndpoint: "https://api.test-cluster.example.com:8443",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create fake dynamic client with the cluster
-			scheme := runtime.NewScheme()
-			dynamicClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-				scheme,
-				map[schema.GroupVersionResource]string{
-					CAPIClusterGVR: "ClusterList",
-				},
-				tt.cluster,
-			)
-
-			manager, err := NewManager(&StaticClientProvider{
-				DynamicClient: dynamicClient,
-			})
-			if err != nil {
-				t.Fatalf("failed to create manager: %v", err)
-			}
-
-			host, err := manager.getClusterEndpoint(context.Background(), tt.clusterName, dynamicClient)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error, got nil")
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-				if host != tt.wantHost {
-					t.Errorf("expected host %q, got %q", tt.wantHost, host)
-				}
+			endpoint := extractClusterEndpoint(tt.cluster)
+			if endpoint != tt.wantEndpoint {
+				t.Errorf("expected endpoint %q, got %q", tt.wantEndpoint, endpoint)
 			}
 		})
 	}
@@ -508,13 +477,13 @@ func TestGetCAForCluster_CredentialModels(t *testing.T) {
 		assert.Equal(t, "https://api.wc-cluster.example.com:6443", endpoint)
 
 		// Verify privileged dynamic was used for CAPI discovery
-		assert.True(t, provider.privilegedDynamicCalled,
+		assert.True(t, provider.privilegedDynamicCalls > 0,
 			"privileged dynamic client should be used for CAPI discovery")
 		// Verify user credentials were used for ConfigMap access
-		assert.True(t, provider.userClientsForUserCalled,
+		assert.True(t, provider.userClientsForUserCalls > 0,
 			"user clients should be called for ConfigMap access (CA certs are public)")
 		// Verify privileged clientset was NOT used for ConfigMap (no secret access needed)
-		assert.False(t, provider.privilegedSecretsCalled,
+		assert.False(t, provider.privilegedSecretsCalls > 0,
 			"privileged secret access should not be used for CA ConfigMap retrieval")
 	})
 
@@ -554,10 +523,10 @@ func TestGetCAForCluster_CredentialModels(t *testing.T) {
 		// Verify correct client selection:
 		// - Privileged dynamic was NOT called (mode is CredentialModePrivilegedSecrets,
 		//   so discovery goes directly to user credentials)
-		assert.False(t, provider.privilegedDynamicCalled,
+		assert.False(t, provider.privilegedDynamicCalls > 0,
 			"privileged dynamic client should not be called in CredentialModePrivilegedSecrets")
 		// - User credentials were used for both CAPI discovery and ConfigMap access
-		assert.True(t, provider.userClientsForUserCalled,
+		assert.True(t, provider.userClientsForUserCalls > 0,
 			"user clients should be called for CAPI discovery and ConfigMap access")
 	})
 
@@ -584,7 +553,7 @@ func TestGetCAForCluster_CredentialModels(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrStrictPrivilegedAccessRequired),
 			"strict mode should prevent fallback to user credentials")
 		// User credentials should NOT have been called
-		assert.False(t, provider.userClientsForUserCalled,
+		assert.False(t, provider.userClientsForUserCalls > 0,
 			"user clients must not be called when strict mode rejects fallback")
 	})
 
@@ -615,10 +584,10 @@ func TestGetCAForCluster_CredentialModels(t *testing.T) {
 		assert.Equal(t, "https://api.wc-cluster.example.com:6443", endpoint)
 
 		// Privileged dynamic was called but failed
-		assert.True(t, provider.privilegedDynamicCalled,
+		assert.True(t, provider.privilegedDynamicCalls > 0,
 			"privileged dynamic client should have been attempted")
 		// Fallback to user credentials should have been used
-		assert.True(t, provider.userClientsForUserCalled,
+		assert.True(t, provider.userClientsForUserCalls > 0,
 			"user clients should be called as fallback when privileged access fails")
 	})
 }

@@ -662,28 +662,28 @@ type mockPrivilegedStaticProvider struct {
 	// strictMode controls whether fallback to user credentials is allowed
 	strictMode bool
 
-	// --- Call tracking for test assertions ---
+	// --- Call counters for test assertions ---
 
-	// userClientsForUserCalled tracks whether GetClientsForUser was invoked.
-	userClientsForUserCalled bool
-	// privilegedSecretsCalled tracks whether GetPrivilegedClientForSecrets was invoked.
-	privilegedSecretsCalled bool
-	// privilegedDynamicCalled tracks whether GetPrivilegedDynamicClient was invoked.
-	privilegedDynamicCalled bool
+	// userClientsForUserCalls counts how many times GetClientsForUser was invoked.
+	userClientsForUserCalls int
+	// privilegedSecretsCalls counts how many times GetPrivilegedClientForSecrets was invoked.
+	privilegedSecretsCalls int
+	// privilegedDynamicCalls counts how many times GetPrivilegedDynamicClient was invoked.
+	privilegedDynamicCalls int
 }
 
 func (p *mockPrivilegedStaticProvider) GetClientsForUser(_ context.Context, _ *UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
-	p.userClientsForUserCalled = true
+	p.userClientsForUserCalls++
 	return p.userClientset, p.userDynamicClient, nil, nil
 }
 
 func (p *mockPrivilegedStaticProvider) GetPrivilegedClientForSecrets(_ context.Context, _ *UserInfo) (kubernetes.Interface, error) {
-	p.privilegedSecretsCalled = true
+	p.privilegedSecretsCalls++
 	return p.privilegedClientset, p.privilegedClientsetErr
 }
 
 func (p *mockPrivilegedStaticProvider) GetPrivilegedDynamicClient(_ context.Context, _ *UserInfo) (dynamic.Interface, error) {
-	p.privilegedDynamicCalled = true
+	p.privilegedDynamicCalls++
 	return p.privilegedDynamicClient, p.privilegedDynamicErr
 }
 
@@ -833,12 +833,12 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		assert.Equal(t, "https://test-cluster.example.com:6443", config.Host)
 
 		// Verify privileged paths were used
-		assert.True(t, provider.privilegedDynamicCalled,
+		assert.True(t, provider.privilegedDynamicCalls > 0,
 			"privileged dynamic client should be used for CAPI discovery")
-		assert.True(t, provider.privilegedSecretsCalled,
+		assert.True(t, provider.privilegedSecretsCalls > 0,
 			"privileged clientset should be used for secret retrieval")
 		// User credentials should NOT have been called for discovery or secrets
-		assert.False(t, provider.userClientsForUserCalled,
+		assert.False(t, provider.userClientsForUserCalls > 0,
 			"user clients should not be called when privileged access succeeds")
 	})
 
@@ -880,13 +880,13 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		// Verify correct client selection:
 		// - Privileged dynamic was NOT called (mode is CredentialModePrivilegedSecrets,
 		//   so discovery goes directly to user credentials)
-		assert.False(t, provider.privilegedDynamicCalled,
+		assert.False(t, provider.privilegedDynamicCalls > 0,
 			"privileged dynamic client should not be called in CredentialModePrivilegedSecrets")
 		// - User credentials were used for CAPI discovery
-		assert.True(t, provider.userClientsForUserCalled,
+		assert.True(t, provider.userClientsForUserCalls > 0,
 			"user clients should be called for CAPI discovery")
 		// - Privileged clientset was used for secret access
-		assert.True(t, provider.privilegedSecretsCalled,
+		assert.True(t, provider.privilegedSecretsCalls > 0,
 			"privileged clientset should be used for secret retrieval")
 	})
 
@@ -946,7 +946,7 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrStrictPrivilegedAccessRequired),
 			"strict mode should prevent fallback to user credentials")
 		// User credentials should NOT have been called
-		assert.False(t, provider.userClientsForUserCalled,
+		assert.False(t, provider.userClientsForUserCalls > 0,
 			"user clients must not be called when strict mode rejects fallback")
 	})
 

@@ -1,5 +1,6 @@
 // credential_mode.go defines the credential modes that determine how the Manager
 // resolves clients for CAPI cluster discovery and kubeconfig secret access.
+
 package federation
 
 import "fmt"

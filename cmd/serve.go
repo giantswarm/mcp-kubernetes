@@ -614,7 +614,7 @@ func runServe(config ServeConfig) error {
 			clientProvider = hybridProvider
 
 			// Log the privileged access configuration (using provider's actual values after defaults applied)
-			slog.Info("Privileged access enabled (split-credential model)",
+			slog.Info("privileged access enabled (split-credential model)",
 				"strict_mode", hybridProvider.IsStrictMode(),
 				"privileged_capi_discovery", hybridProvider.PrivilegedCAPIDiscovery(),
 				"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
@@ -623,7 +623,7 @@ func runServe(config ServeConfig) error {
 			// No privileged access: user's own RBAC for all operations
 			clientProvider = oauthProvider
 
-			slog.Info("Privileged access disabled (CredentialModeUser)",
+			slog.Info("privileged access disabled (CredentialModeUser)",
 				"description", "all CAPI discovery and secret access use user RBAC")
 		}
 
