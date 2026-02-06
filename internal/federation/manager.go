@@ -138,6 +138,16 @@ type Manager struct {
 	// performed with the user's RBAC permissions, not elevated admin privileges.
 	clientProvider ClientProvider
 
+	// credentialMode determines how the Manager authenticates for CAPI discovery
+	// and kubeconfig secret retrieval. Resolved once at construction from the
+	// ClientProvider configuration. See CredentialMode for the three modes.
+	credentialMode CredentialMode
+
+	// privilegedProvider is the PrivilegedSecretAccessProvider interface, cached
+	// from the ClientProvider at construction time. Nil when credentialMode is
+	// CredentialModeUser (i.e., the provider does not support privileged access).
+	privilegedProvider PrivilegedSecretAccessProvider
+
 	// Client cache for remote workload cluster clients (per user)
 	cache *ClientCache
 
@@ -342,8 +352,15 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 		return nil, fmt.Errorf("client provider is required")
 	}
 
+	// Resolve the credential mode from the provider configuration.
+	// This determines how CAPI discovery and secret access are authenticated
+	// for the lifetime of this Manager. See CredentialMode for details.
+	credentialMode, privilegedProvider := resolveCredentialMode(clientProvider)
+
 	m := &Manager{
 		clientProvider:              clientProvider,
+		credentialMode:              credentialMode,
+		privilegedProvider:          privilegedProvider,
 		connectionValidationTimeout: DefaultConnectionValidationTimeout,
 		authMetrics:                 &noopAuthMetricsRecorder{},
 		logger:                      slog.Default(),
@@ -365,6 +382,7 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 	m.cache = NewClientCache(cacheOpts...)
 
 	m.logger.Info("Federation manager initialized",
+		"credential_mode", credentialMode.String(),
 		"cache_enabled", m.cache != nil)
 
 	return m, nil

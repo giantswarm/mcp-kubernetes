@@ -553,58 +553,62 @@ func (m *Manager) listClustersWithOptions(ctx context.Context, user *UserInfo, o
 
 // getDynamicClientForCAPIDiscovery returns a dynamic client suitable for CAPI cluster discovery.
 //
-// It implements the split-credential fallback strategy:
-//  1. Try ServiceAccount credentials via PrivilegedSecretAccessProvider (preferred)
-//  2. Fall back to user credentials if privileged access is unavailable
+// The behavior depends on the Manager's credentialMode (resolved at construction):
 //
-// When strict mode is enabled, the fallback is disabled and an error is returned
-// instead, enforcing the split-credential security model.
+//   - CredentialModeFullPrivileged: Uses ServiceAccount credentials via GetPrivilegedDynamicClient.
+//     If the ServiceAccount client fails at runtime, falls back to user credentials
+//     unless strict mode is enabled.
 //
-// This ensures CAPI discovery works in all deployment scenarios while preferring
-// the more secure split-credential model when available.
+//   - CredentialModePrivilegedSecrets, CredentialModeUser: Uses user credentials
+//     (the user must have RBAC to list CAPI clusters).
 func (m *Manager) getDynamicClientForCAPIDiscovery(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
-	dynamicClient, err := m.getPrivilegedDynamicClientForCAPI(ctx, user)
-	if err != nil {
-		// Check if strict mode prevents fallback
-		if hybridProvider, ok := m.clientProvider.(*HybridOAuthClientProvider); ok && hybridProvider.IsStrictMode() {
+	switch m.credentialMode {
+	case CredentialModeFullPrivileged:
+		client, err := m.privilegedProvider.GetPrivilegedDynamicClient(ctx, user)
+		if err == nil {
+			return client, nil
+		}
+
+		// Runtime failure: ServiceAccount client couldn't be created.
+		// Fall back to user credentials unless strict mode is enabled.
+		if m.privilegedProvider.IsStrictMode() {
 			m.logger.Error("Privileged CAPI discovery failed in strict mode",
+				"credential_mode", m.credentialMode.String(),
 				UserHashAttr(user.Email),
 				"error", err)
 			return nil, fmt.Errorf("CAPI discovery failed (strict mode): %w", ErrStrictPrivilegedAccessRequired)
 		}
 
-		m.logger.Debug("Privileged CAPI access not available, using user credentials",
+		m.logger.Debug("Privileged CAPI access failed at runtime, falling back to user credentials",
+			"credential_mode", m.credentialMode.String(),
 			UserHashAttr(user.Email),
 			"error", err)
+		m.recordPrivilegedFallbackMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery)
 
-		// Record fallback metric if the provider supports it
-		if hybridProvider, ok := m.clientProvider.(*HybridOAuthClientProvider); ok {
-			hybridProvider.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "fallback")
-		}
+		return m.getUserDynamicClient(ctx, user)
 
-		// Fall back to user credentials
-		dynamicClient, err = m.GetDynamicClient(ctx, "", user)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get dynamic client for CAPI discovery: %w", err)
-		}
+	case CredentialModePrivilegedSecrets, CredentialModeUser:
+		return m.getUserDynamicClient(ctx, user)
+
+	default:
+		return nil, fmt.Errorf("unknown credential mode: %s", m.credentialMode)
 	}
-	return dynamicClient, nil
 }
 
-// getPrivilegedDynamicClientForCAPI returns a privileged dynamic client for CAPI discovery.
-// Returns an error if privileged access is not available.
-func (m *Manager) getPrivilegedDynamicClientForCAPI(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
-	// Check if the client provider supports privileged access
-	privilegedProvider, ok := m.clientProvider.(PrivilegedSecretAccessProvider)
-	if !ok {
-		return nil, fmt.Errorf("client provider does not support privileged access")
+// getUserDynamicClient returns the user-scoped dynamic client for the local (management) cluster.
+func (m *Manager) getUserDynamicClient(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
+	client, err := m.GetDynamicClient(ctx, "", user)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user dynamic client for CAPI discovery: %w", err)
 	}
+	return client, nil
+}
 
-	if !privilegedProvider.HasPrivilegedAccess() {
-		return nil, fmt.Errorf("privileged access not available")
+// recordPrivilegedFallbackMetric records a fallback metric if the provider supports it.
+func (m *Manager) recordPrivilegedFallbackMetric(ctx context.Context, userEmail, operation string) {
+	if hybridProvider, ok := m.clientProvider.(*HybridOAuthClientProvider); ok {
+		hybridProvider.recordMetric(ctx, userEmail, operation, "fallback")
 	}
-
-	return privilegedProvider.GetPrivilegedDynamicClient(ctx, user)
 }
 
 // ClusterAge returns the age of a cluster as a duration.

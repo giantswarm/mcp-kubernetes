@@ -102,6 +102,20 @@ type PrivilegedSecretAccessProvider interface {
 	// HasPrivilegedAccess returns true if privileged secret access is available.
 	// This allows the Manager to check if it should use privileged access for secrets.
 	HasPrivilegedAccess() bool
+
+	// PrivilegedCAPIDiscovery returns whether CAPI cluster discovery uses
+	// ServiceAccount credentials instead of user credentials.
+	//
+	// When true, the Manager uses ServiceAccount credentials for CAPI discovery
+	// (CredentialModeFullPrivileged). When false, user RBAC is used for discovery
+	// while secrets still use the ServiceAccount (CredentialModePrivilegedSecrets).
+	PrivilegedCAPIDiscovery() bool
+
+	// IsStrictMode returns true if strict privileged access mode is enabled.
+	// When strict mode is enabled, the Manager will NOT fall back to user
+	// credentials if ServiceAccount access fails at runtime. Instead, it
+	// returns an error.
+	IsStrictMode() bool
 }
 
 // Default rate limiting values for privileged secret access

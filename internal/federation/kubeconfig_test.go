@@ -693,6 +693,10 @@ func (p *mockPrivilegedStaticProvider) HasPrivilegedAccess() bool {
 	return true
 }
 
+func (p *mockPrivilegedStaticProvider) PrivilegedCAPIDiscovery() bool {
+	return p.privilegedCAPIDiscovery
+}
+
 func (p *mockPrivilegedStaticProvider) IsStrictMode() bool {
 	return p.strictMode
 }
@@ -733,6 +737,9 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		manager, err := NewManager(clientProvider, WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
+
+		// Verify the credential mode was resolved correctly
+		assert.Equal(t, CredentialModeUser, manager.credentialMode)
 
 		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
 
@@ -822,6 +829,9 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
 
+		// Verify the credential mode was resolved correctly
+		assert.Equal(t, CredentialModeFullPrivileged, manager.credentialMode)
+
 		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
 
 		require.NoError(t, err)
@@ -856,13 +866,16 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 			userClientset:           fake.NewClientset(),
 			userDynamicClient:       userDynamic,
 			privilegedClientset:     privClientset,
-			privilegedDynamicClient: nil, // Not used
+			privilegedDynamicClient: nil, // Not used in this mode
 			privilegedCAPIDiscovery: false,
 		}
 
 		manager, err := NewManager(provider, WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = manager.Close() })
+
+		// Verify the credential mode was resolved correctly
+		assert.Equal(t, CredentialModePrivilegedSecrets, manager.credentialMode)
 
 		config, err := manager.GetKubeconfigForCluster(context.Background(), clusterName, testUser())
 
@@ -871,12 +884,13 @@ func TestGetKubeconfigForCluster_CredentialModels(t *testing.T) {
 		assert.Equal(t, "https://test-cluster.example.com:6443", config.Host)
 
 		// Verify correct client selection:
-		// - Privileged dynamic was attempted but returned ErrPrivilegedCAPIDiscoveryDisabled
-		assert.True(t, provider.privilegedDynamicCalled,
-			"privileged dynamic client should be attempted first")
-		// - User credentials were used as fallback for CAPI discovery
+		// - Privileged dynamic was NOT called (mode is CredentialModePrivilegedSecrets,
+		//   so discovery goes directly to user credentials)
+		assert.False(t, provider.privilegedDynamicCalled,
+			"privileged dynamic client should not be called in CredentialModePrivilegedSecrets")
+		// - User credentials were used for CAPI discovery
 		assert.True(t, provider.userClientsForUserCalled,
-			"user clients should be called as fallback for CAPI discovery")
+			"user clients should be called for CAPI discovery")
 		// - Privileged clientset was used for secret access
 		assert.True(t, provider.privilegedSecretsCalled,
 			"privileged clientset should be used for secret retrieval")

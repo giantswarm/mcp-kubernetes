@@ -116,56 +116,58 @@ var ErrStrictPrivilegedAccessRequired = fmt.Errorf("privileged secret access req
 
 // getSecretAccessClient returns the appropriate client for kubeconfig secret access.
 //
-// # Security Model
+// The behavior depends on the Manager's credentialMode (resolved at construction):
 //
-// If the ClientProvider implements PrivilegedSecretAccessProvider, uses the
-// ServiceAccount client. This prevents users from reading kubeconfig secrets
-// directly via kubectl, enforcing that all workload cluster access goes through
-// mcp-kubernetes with proper impersonation.
+//   - CredentialModeFullPrivileged, CredentialModePrivilegedSecrets: Uses ServiceAccount
+//     credentials via GetPrivilegedClientForSecrets. If the ServiceAccount client fails
+//     at runtime, falls back to user credentials unless strict mode is enabled.
 //
-// If only basic ClientProvider is available, falls back to user credentials.
-// This maintains backward compatibility but requires users to have secret access.
-//
-// # Strict Mode
-//
-// When the provider has StrictPrivilegedAccess enabled, this method will return
-// an error instead of falling back to user credentials. This enforces the
-// split-credential security model.
+//   - CredentialModeUser: Uses user credentials (user must have RBAC to read secrets).
 func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
-	// Check if provider supports privileged secret access
-	if privilegedProvider, ok := m.clientProvider.(PrivilegedSecretAccessProvider); ok && privilegedProvider.HasPrivilegedAccess() {
+	switch m.credentialMode {
+	case CredentialModeFullPrivileged, CredentialModePrivilegedSecrets:
 		m.logger.Debug("Using ServiceAccount for privileged secret access",
+			"credential_mode", m.credentialMode.String(),
 			"cluster", clusterName,
 			UserHashAttr(user.Email))
 
-		client, err := privilegedProvider.GetPrivilegedClientForSecrets(ctx, user)
-		if err != nil {
-			// Check if strict mode is enabled
-			if hybridProvider, isHybrid := privilegedProvider.(*HybridOAuthClientProvider); isHybrid && hybridProvider.IsStrictMode() {
-				m.logger.Error("Privileged secret access failed in strict mode",
-					"cluster", clusterName,
-					UserHashAttr(user.Email),
-					"error", err)
-				return nil, ErrStrictPrivilegedAccessRequired
-			}
+		client, err := m.privilegedProvider.GetPrivilegedClientForSecrets(ctx, user)
+		if err == nil {
+			return client, nil
+		}
 
-			m.logger.Warn("Failed to get privileged client, falling back to user credentials",
+		// Runtime failure: ServiceAccount client couldn't be created.
+		// Fall back to user credentials unless strict mode is enabled.
+		if m.privilegedProvider.IsStrictMode() {
+			m.logger.Error("Privileged secret access failed in strict mode",
+				"credential_mode", m.credentialMode.String(),
 				"cluster", clusterName,
 				UserHashAttr(user.Email),
 				"error", err)
-
-			// Record fallback metric if the provider supports it
-			if hybridProvider, isHybrid := privilegedProvider.(*HybridOAuthClientProvider); isHybrid {
-				hybridProvider.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "fallback")
-			}
-			// Fall through to user credentials
-		} else {
-			return client, nil
+			return nil, ErrStrictPrivilegedAccessRequired
 		}
-	}
 
-	// Fallback: Use user's credentials for secret access
-	m.logger.Debug("Using user credentials for secret access (fallback mode)",
+		m.logger.Warn("Privileged secret access failed at runtime, falling back to user credentials",
+			"credential_mode", m.credentialMode.String(),
+			"cluster", clusterName,
+			UserHashAttr(user.Email),
+			"error", err)
+		m.recordPrivilegedFallbackMetric(ctx, user.Email, PrivilegedOperationSecretAccess)
+
+		return m.getUserSecretClient(ctx, clusterName, user)
+
+	case CredentialModeUser:
+		return m.getUserSecretClient(ctx, clusterName, user)
+
+	default:
+		return nil, fmt.Errorf("unknown credential mode: %s", m.credentialMode)
+	}
+}
+
+// getUserSecretClient returns the user-scoped clientset for secret access.
+func (m *Manager) getUserSecretClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
+	m.logger.Debug("Using user credentials for secret access",
+		"credential_mode", m.credentialMode.String(),
 		"cluster", clusterName,
 		UserHashAttr(user.Email))
 
