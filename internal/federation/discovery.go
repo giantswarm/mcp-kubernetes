@@ -583,7 +583,7 @@ func (m *Manager) getDynamicClientForCAPIDiscovery(ctx context.Context, user *Us
 			"credential_mode", m.credentialMode.String(),
 			UserHashAttr(user.Email),
 			"error", err)
-		m.recordPrivilegedFallbackMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery)
+		m.privilegedProvider.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "fallback")
 
 		return m.getUserDynamicClient(ctx, user)
 
@@ -602,13 +602,6 @@ func (m *Manager) getUserDynamicClient(ctx context.Context, user *UserInfo) (dyn
 		return nil, fmt.Errorf("failed to get user dynamic client for CAPI discovery: %w", err)
 	}
 	return client, nil
-}
-
-// recordPrivilegedFallbackMetric records a fallback metric if the provider supports it.
-func (m *Manager) recordPrivilegedFallbackMetric(ctx context.Context, userEmail, operation string) {
-	if hybridProvider, ok := m.clientProvider.(*HybridOAuthClientProvider); ok {
-		hybridProvider.recordMetric(ctx, userEmail, operation, "fallback")
-	}
 }
 
 // ClusterAge returns the age of a cluster as a duration.

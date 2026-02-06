@@ -99,10 +99,6 @@ type PrivilegedSecretAccessProvider interface {
 	//   - error: Any error during client creation
 	GetPrivilegedDynamicClient(ctx context.Context, user *UserInfo) (dynamic.Interface, error)
 
-	// HasPrivilegedAccess returns true if privileged secret access is available.
-	// This allows the Manager to check if it should use privileged access for secrets.
-	HasPrivilegedAccess() bool
-
 	// PrivilegedCAPIDiscovery returns whether CAPI cluster discovery uses
 	// ServiceAccount credentials instead of user credentials.
 	//
@@ -116,6 +112,17 @@ type PrivilegedSecretAccessProvider interface {
 	// credentials if ServiceAccount access fails at runtime. Instead, it
 	// returns an error.
 	IsStrictMode() bool
+
+	// RecordMetric records a privileged access metric event.
+	// This enables the Manager to record fallback metrics without
+	// requiring a concrete type assertion.
+	//
+	// Parameters:
+	//   - ctx: Request context
+	//   - userEmail: User's email (will be domain-extracted for cardinality control)
+	//   - operation: The type of privileged operation (e.g., "secret_access", "capi_discovery")
+	//   - result: One of "success", "error", "rate_limited", "fallback"
+	RecordMetric(ctx context.Context, userEmail, operation, result string)
 }
 
 // Default rate limiting values for privileged secret access
@@ -418,8 +425,8 @@ const (
 	PrivilegedOperationCAPIDiscovery = "capi_discovery"
 )
 
-// recordMetric safely records a privileged access metric if metrics are configured.
-func (p *HybridOAuthClientProvider) recordMetric(ctx context.Context, userEmail, operation, result string) {
+// RecordMetric safely records a privileged access metric if metrics are configured.
+func (p *HybridOAuthClientProvider) RecordMetric(ctx context.Context, userEmail, operation, result string) {
 	if p.metrics != nil {
 		userDomain := extractUserDomain(userEmail)
 		p.metrics.RecordPrivilegedSecretAccess(ctx, userDomain, operation, result)
@@ -480,13 +487,13 @@ func (p *HybridOAuthClientProvider) GetPrivilegedClientForSecrets(ctx context.Co
 		p.logger.Warn("Privileged secret access rate limited",
 			UserHashAttr(user.Email),
 			"operation", PrivilegedOperationSecretAccess)
-		p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "rate_limited")
+		p.RecordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "rate_limited")
 		return nil, ErrRateLimited
 	}
 
 	// Ensure ServiceAccount client is initialized
 	if err := p.initServiceAccountClient(); err != nil {
-		p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "error")
+		p.RecordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "error")
 		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
 	}
 
@@ -497,7 +504,7 @@ func (p *HybridOAuthClientProvider) GetPrivilegedClientForSecrets(ctx context.Co
 		UserHashAttr(user.Email),
 		"operation", PrivilegedOperationSecretAccess)
 
-	p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "success")
+	p.RecordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "success")
 	return p.saClientset, nil
 }
 
@@ -530,13 +537,13 @@ func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Conte
 		p.logger.Warn("Privileged CAPI access rate limited",
 			UserHashAttr(user.Email),
 			"operation", PrivilegedOperationCAPIDiscovery)
-		p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "rate_limited")
+		p.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "rate_limited")
 		return nil, ErrRateLimited
 	}
 
 	// Ensure ServiceAccount clients are initialized
 	if err := p.initServiceAccountClient(); err != nil {
-		p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "error")
+		p.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "error")
 		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
 	}
 
@@ -546,19 +553,8 @@ func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Conte
 		UserHashAttr(user.Email),
 		"operation", PrivilegedOperationCAPIDiscovery)
 
-	p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "success")
+	p.RecordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "success")
 	return p.saDynamicClient, nil
-}
-
-// HasPrivilegedAccess returns true if privileged secret access is available.
-// This checks if the ServiceAccount client can be initialized.
-func (p *HybridOAuthClientProvider) HasPrivilegedAccess() bool {
-	if err := p.initServiceAccountClient(); err != nil {
-		p.logger.Debug("Privileged access not available",
-			"error", err)
-		return false
-	}
-	return true
 }
 
 // initServiceAccountClient lazily initializes the ServiceAccount clients.

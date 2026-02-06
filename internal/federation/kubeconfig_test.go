@@ -689,16 +689,16 @@ func (p *mockPrivilegedStaticProvider) GetPrivilegedDynamicClient(_ context.Cont
 	return p.privilegedDynamicClient, nil
 }
 
-func (p *mockPrivilegedStaticProvider) HasPrivilegedAccess() bool {
-	return true
-}
-
 func (p *mockPrivilegedStaticProvider) PrivilegedCAPIDiscovery() bool {
 	return p.privilegedCAPIDiscovery
 }
 
 func (p *mockPrivilegedStaticProvider) IsStrictMode() bool {
 	return p.strictMode
+}
+
+func (p *mockPrivilegedStaticProvider) RecordMetric(_ context.Context, _, _, _ string) {
+	// no-op for tests
 }
 
 // Ensure mockPrivilegedStaticProvider implements PrivilegedSecretAccessProvider.

@@ -213,52 +213,6 @@ func TestHybridOAuthClientProvider_GetPrivilegedClientForSecrets(t *testing.T) {
 	})
 }
 
-func TestHybridOAuthClientProvider_HasPrivilegedAccess(t *testing.T) {
-	t.Run("returns true when ServiceAccount client is available", func(t *testing.T) {
-		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
-		require.NoError(t, err)
-
-		mockConfig := &rest.Config{
-			Host: "https://kubernetes.default.svc",
-		}
-
-		config := &HybridOAuthClientProviderConfig{
-			UserProvider:   userProvider,
-			Logger:         newTestLogger(),
-			ConfigProvider: mockInClusterConfig(mockConfig, nil),
-		}
-
-		provider, err := NewHybridOAuthClientProvider(config)
-		require.NoError(t, err)
-		defer provider.Close()
-
-		hasAccess := provider.HasPrivilegedAccess()
-
-		assert.True(t, hasAccess)
-	})
-
-	t.Run("returns false when in-cluster config fails", func(t *testing.T) {
-		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
-		require.NoError(t, err)
-
-		configErr := errors.New("not running in cluster")
-
-		config := &HybridOAuthClientProviderConfig{
-			UserProvider:   userProvider,
-			Logger:         newTestLogger(),
-			ConfigProvider: mockInClusterConfig(nil, configErr),
-		}
-
-		provider, err := NewHybridOAuthClientProvider(config)
-		require.NoError(t, err)
-		defer provider.Close()
-
-		hasAccess := provider.HasPrivilegedAccess()
-
-		assert.False(t, hasAccess)
-	})
-}
-
 func TestHybridOAuthClientProvider_GetPrivilegedDynamicClient(t *testing.T) {
 	t.Run("returns dynamic client when config is available", func(t *testing.T) {
 		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
