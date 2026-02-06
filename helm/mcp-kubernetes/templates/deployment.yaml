@@ -302,7 +302,7 @@ spec:
               value: {{ .Values.capiMode.privilegedAccess.enabled | quote }}
             {{- end }}
             {{- if .Values.capiMode.privilegedAccess.strict }}
-            - name: PRIVILEGED_SECRET_ACCESS_STRICT
+            - name: PRIVILEGED_ACCESS_STRICT
               value: "true"
             {{- end }}
             {{- if hasKey .Values.capiMode.privilegedAccess "privilegedCAPIDiscovery" }}
@@ -311,11 +311,11 @@ spec:
             {{- end }}
             {{- if .Values.capiMode.privilegedAccess.rateLimit }}
             {{- if .Values.capiMode.privilegedAccess.rateLimit.perSecond }}
-            - name: PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND
+            - name: PRIVILEGED_ACCESS_RATE_PER_SECOND
               value: {{ .Values.capiMode.privilegedAccess.rateLimit.perSecond | quote }}
             {{- end }}
             {{- if .Values.capiMode.privilegedAccess.rateLimit.burst }}
-            - name: PRIVILEGED_SECRET_ACCESS_RATE_BURST
+            - name: PRIVILEGED_ACCESS_RATE_BURST
               value: {{ .Values.capiMode.privilegedAccess.rateLimit.burst | quote }}
             {{- end }}
             {{- end }}

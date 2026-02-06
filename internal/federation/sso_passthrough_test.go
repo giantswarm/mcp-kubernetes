@@ -122,6 +122,146 @@ func TestExtractClusterEndpoint(t *testing.T) {
 			},
 			wantEndpoint: "https://api.test-cluster.example.com:8443",
 		},
+		{
+			name: "cluster with IP address host",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "10.0.1.100",
+							"port": float64(6443),
+						},
+					},
+				},
+			},
+			wantEndpoint: "https://10.0.1.100:6443",
+		},
+		{
+			name: "rejects host with path separator",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "evil.example.com/path?",
+							"port": float64(6443),
+						},
+					},
+				},
+			},
+			wantEndpoint: "",
+		},
+		{
+			name: "rejects host with query string",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "evil.example.com?redirect=http://attacker.com",
+							"port": float64(6443),
+						},
+					},
+				},
+			},
+			wantEndpoint: "",
+		},
+		{
+			name: "rejects host with at-sign (userinfo injection)",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "user@evil.example.com",
+							"port": float64(6443),
+						},
+					},
+				},
+			},
+			wantEndpoint: "",
+		},
+		{
+			name: "rejects host with spaces",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "evil .example.com",
+							"port": float64(6443),
+						},
+					},
+				},
+			},
+			wantEndpoint: "",
+		},
+		{
+			name: "port out of range defaults to 6443",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "api.test-cluster.example.com",
+							"port": float64(99999),
+						},
+					},
+				},
+			},
+			wantEndpoint: "https://api.test-cluster.example.com:6443",
+		},
+		{
+			name: "negative port defaults to 6443",
+			cluster: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cluster.x-k8s.io/v1beta2",
+					"kind":       "Cluster",
+					"metadata": map[string]interface{}{
+						"name":      "test-cluster",
+						"namespace": "org-test",
+					},
+					"spec": map[string]interface{}{
+						"controlPlaneEndpoint": map[string]interface{}{
+							"host": "api.test-cluster.example.com",
+							"port": float64(-1),
+						},
+					},
+				},
+			},
+			wantEndpoint: "https://api.test-cluster.example.com:6443",
+		},
 	}
 
 	for _, tt := range tests {
@@ -129,6 +269,59 @@ func TestExtractClusterEndpoint(t *testing.T) {
 			endpoint := extractClusterEndpoint(tt.cluster)
 			if endpoint != tt.wantEndpoint {
 				t.Errorf("expected endpoint %q, got %q", tt.wantEndpoint, endpoint)
+			}
+		})
+	}
+}
+
+func TestIsValidEndpointHost(t *testing.T) {
+	tests := []struct {
+		host  string
+		valid bool
+	}{
+		// Valid hostnames
+		{"api.example.com", true},
+		{"api.test-cluster.example.com", true},
+		{"localhost", true},
+		{"a", true},
+		{"a.b.c", true},
+
+		// Valid IPs
+		{"10.0.1.100", true},
+		{"192.168.1.1", true},
+		{"::1", true},
+		{"2001:db8::1", true},
+
+		// Invalid: URL injection characters
+		{"evil.example.com/path", false},
+		{"evil.example.com?query", false},
+		{"evil.example.com#fragment", false},
+		{"user@evil.example.com", false},
+		{"evil.example.com\\path", false},
+		{"evil.example.com:8080", false}, // port should not be in host
+
+		// Invalid: whitespace
+		{"evil .example.com", false},
+		{"evil\texample.com", false},
+		{"evil\nexample.com", false},
+
+		// Invalid: empty labels
+		{".example.com", false},
+		{"example..com", false},
+
+		// Invalid: labels starting/ending with hyphen
+		{"-example.com", false},
+		{"example-.com", false},
+
+		// Invalid: empty
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			got := isValidEndpointHost(tt.host)
+			if got != tt.valid {
+				t.Errorf("isValidEndpointHost(%q) = %v, want %v", tt.host, got, tt.valid)
 			}
 		})
 	}

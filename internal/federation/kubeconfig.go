@@ -284,12 +284,27 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 
 // extractClusterEndpoint extracts the API server endpoint from an unstructured
 // CAPI Cluster resource's spec.controlPlaneEndpoint. Returns an empty string
-// if the endpoint is not set (e.g., cluster is still provisioning).
+// if the endpoint is not set or contains invalid values (e.g., cluster is still
+// provisioning, or the host/port values are malformed).
+//
+// # Validation
+//
+// The host value is validated to ensure it is a valid hostname or IP address.
+// The port is validated to be within the TCP port range (1-65535).
+// Invalid values are treated as if the endpoint is not set (returns "").
 func extractClusterEndpoint(cluster *unstructured.Unstructured) string {
 	host, _, _ := unstructured.NestedString(cluster.Object, "spec", "controlPlaneEndpoint", "host")
 	if host == "" {
 		return ""
 	}
+
+	// Validate host: must be a valid hostname or IP, and must not contain
+	// path separators, query strings, or other URL components that could
+	// lead to unexpected URL construction.
+	if !isValidEndpointHost(host) {
+		return ""
+	}
+
 	// Try int64 first (API server responses), then float64 (JSON-decoded unstructured data).
 	port, found, _ := unstructured.NestedInt64(cluster.Object, "spec", "controlPlaneEndpoint", "port")
 	if !found {
@@ -297,10 +312,56 @@ func extractClusterEndpoint(cluster *unstructured.Unstructured) string {
 			port = int64(fport)
 		}
 	}
-	if port > 0 {
+
+	// Validate port range (TCP: 1-65535). Out-of-range values default to 6443.
+	if port > 0 && port <= 65535 {
 		return fmt.Sprintf("https://%s:%d", host, port)
 	}
 	return fmt.Sprintf("https://%s:6443", host)
+}
+
+// isValidEndpointHost checks that a host string is safe to use in a URL.
+// It rejects hosts containing path separators, query strings, fragments,
+// spaces, or other characters that could alter URL semantics.
+//
+// Accepts valid IPv4 addresses, IPv6 addresses, and RFC 952/1123 hostnames.
+func isValidEndpointHost(host string) bool {
+	if host == "" {
+		return false
+	}
+
+	// Check IP addresses first (IPv4 and IPv6). IPv6 addresses contain colons
+	// which would be rejected by the hostname character check below.
+	if net.ParseIP(host) != nil {
+		return true
+	}
+
+	// For hostnames: reject any character that could break out of the host
+	// component of a URL.
+	if strings.ContainsAny(host, "/?#@\\: \t\n\r") {
+		return false
+	}
+
+	// Verify each label is non-empty and contains only valid hostname characters.
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+		for _, c := range label {
+			isLower := c >= 'a' && c <= 'z'
+			isUpper := c >= 'A' && c <= 'Z'
+			isDigit := c >= '0' && c <= '9'
+			if !isLower && !isUpper && !isDigit && c != '-' {
+				return false
+			}
+		}
+		// Labels must not start or end with a hyphen.
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // getKubeconfigFromSecret retrieves the kubeconfig data from the cluster's secret.

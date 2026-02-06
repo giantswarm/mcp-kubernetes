@@ -620,11 +620,13 @@ func runServe(config ServeConfig) error {
 				"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
 				"rate_limit_burst", hybridProvider.RateLimitBurst())
 		} else {
-			// No privileged access: user's own RBAC for all operations
+			// No privileged access: user's own RBAC for all operations.
+			// Log at Warn because this significantly changes the security posture:
+			// users need direct RBAC for CAPI clusters and kubeconfig secrets.
 			clientProvider = oauthProvider
 
-			slog.Info("privileged access disabled (CredentialModeUser)",
-				"description", "all CAPI discovery and secret access use user RBAC")
+			slog.Warn("privileged access disabled (CredentialModeUser) - users need RBAC for CAPI discovery and secret access",
+				"description", "all CAPI discovery and secret access use user RBAC; ensure users have appropriate ClusterRoleBindings")
 		}
 
 		// Build federation manager options
@@ -1107,12 +1109,12 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	}
 
 	// Privileged access configuration (split-credential model)
-	// Note: Environment variable names are kept for backward compatibility.
 	if v := os.Getenv("PRIVILEGED_ACCESS_ENABLED"); v != "" {
 		val := v == envValueTrue
 		config.PrivilegedAccess.Enabled = &val
 	}
-	if os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
+	// PRIVILEGED_ACCESS_STRICT (new) with PRIVILEGED_SECRET_ACCESS_STRICT (deprecated) fallback
+	if os.Getenv("PRIVILEGED_ACCESS_STRICT") == envValueTrue || os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
 		config.PrivilegedAccess.Strict = true
 	}
 	// Privileged CAPI discovery (default: true)
@@ -1120,10 +1122,16 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 		val := v == envValueTrue
 		config.PrivilegedAccess.PrivilegedCAPIDiscovery = &val
 	}
-	if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"); ok {
+	// PRIVILEGED_ACCESS_RATE_PER_SECOND (new) with PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND (deprecated) fallback
+	if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_ACCESS_RATE_PER_SECOND"); ok {
+		config.PrivilegedAccess.RateLimitPerSecond = f
+	} else if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"); ok {
 		config.PrivilegedAccess.RateLimitPerSecond = f
 	}
-	if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_BURST"), "PRIVILEGED_SECRET_ACCESS_RATE_BURST"); ok {
+	// PRIVILEGED_ACCESS_RATE_BURST (new) with PRIVILEGED_SECRET_ACCESS_RATE_BURST (deprecated) fallback
+	if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_ACCESS_RATE_BURST"), "PRIVILEGED_ACCESS_RATE_BURST"); ok {
+		config.PrivilegedAccess.RateLimitBurst = n
+	} else if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_BURST"), "PRIVILEGED_SECRET_ACCESS_RATE_BURST"); ok {
 		config.PrivilegedAccess.RateLimitBurst = n
 	}
 
