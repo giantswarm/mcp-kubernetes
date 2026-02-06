@@ -2,8 +2,11 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -11,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestSSOPassthroughConfig_Default(t *testing.T) {
@@ -392,4 +396,277 @@ func TestSSOPassthroughDefaults(t *testing.T) {
 	if DefaultSSOPassthroughBurst != 100 {
 		t.Errorf("expected DefaultSSOPassthroughBurst to be 100, got %d", DefaultSSOPassthroughBurst)
 	}
+}
+
+// TestGetCAForCluster_CredentialModels tests the three deployment credential
+// configurations for CA certificate retrieval via SSO passthrough:
+//
+//  1. No privileged access (StaticClientProvider) - user RBAC for both discovery and ConfigMap
+//  2. Privileged access + privileged CAPI discovery - ServiceAccount for discovery, user for ConfigMap
+//  3. Privileged access + NO privileged CAPI discovery - user RBAC for both
+//  4. Strict mode - rejects fallback on runtime failure
+func TestGetCAForCluster_CredentialModels(t *testing.T) {
+	const (
+		clusterName = "wc-cluster"
+		namespace   = "org-acme"
+		host        = "api.wc-cluster.example.com"
+		port        = int64(6443)
+	)
+
+	// --- Scenario 1: No privileged access at all ---
+	// privilegedSecretAccess: false (implies privilegedCAPIDiscovery: false)
+	// => User RBAC is used for both CAPI discovery AND ConfigMap access
+
+	t.Run("no privileged access: user RBAC for discovery and ConfigMap", func(t *testing.T) {
+		cluster := createTestCAPIClusterWithEndpoint(clusterName, namespace, host, port)
+		caConfigMap := createTestCAConfigMap(clusterName, namespace, DefaultCAConfigMapSuffix)
+
+		// Both discovery and ConfigMap data are accessible via the user's client
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+		userClientset := fake.NewClientset(caConfigMap)
+
+		clientProvider := &StaticClientProvider{
+			Clientset:     userClientset,
+			DynamicClient: userDynamic,
+		}
+
+		manager, err := NewManager(clientProvider, WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		// Verify the credential mode was resolved correctly
+		assert.Equal(t, CredentialModeUser, manager.credentialMode)
+
+		caData, endpoint, err := manager.GetCAForCluster(context.Background(), clusterName, testUser())
+
+		require.NoError(t, err)
+		assert.NotEmpty(t, caData)
+		assert.Contains(t, string(caData), "BEGIN CERTIFICATE")
+		assert.Equal(t, "https://api.wc-cluster.example.com:6443", endpoint)
+	})
+
+	t.Run("no privileged access: fails when user lacks CAPI list RBAC", func(t *testing.T) {
+		// User cannot list CAPI clusters and no privileged fallback exists
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme())
+		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("clusters.cluster.x-k8s.io is forbidden")
+		})
+
+		clientProvider := &StaticClientProvider{
+			Clientset:     fake.NewClientset(),
+			DynamicClient: userDynamic,
+		}
+
+		manager, err := NewManager(clientProvider, WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		_, _, err = manager.GetCAForCluster(context.Background(), clusterName, testUser())
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrClusterNotFound))
+	})
+
+	// --- Scenario 2: Privileged access + privileged CAPI discovery ---
+	// privilegedSecretAccess: true, privilegedCAPIDiscovery: true
+	// => ServiceAccount for CAPI discovery, user credentials for ConfigMap access
+
+	t.Run("full privileged: ServiceAccount for discovery, user for ConfigMap", func(t *testing.T) {
+		cluster := createTestCAPIClusterWithEndpoint(clusterName, namespace, host, port)
+		caConfigMap := createTestCAConfigMap(clusterName, namespace, DefaultCAConfigMapSuffix)
+
+		// Privileged dynamic client has the CAPI clusters
+		privDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+
+		// User clients have the ConfigMap (CA cert is public, user credentials for ConfigMap)
+		// but NO CAPI cluster data (proving privileged path is used for discovery)
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme())
+		userDynamic.PrependReactor("list", "clusters", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("clusters.cluster.x-k8s.io is forbidden")
+		})
+
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(caConfigMap),
+			userDynamicClient:       userDynamic,
+			privilegedClientset:     fake.NewClientset(),
+			privilegedDynamicClient: privDynamic,
+			privilegedCAPIDiscovery: true,
+		}
+
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		// Verify the credential mode was resolved correctly
+		assert.Equal(t, CredentialModeFullPrivileged, manager.credentialMode)
+
+		caData, endpoint, err := manager.GetCAForCluster(context.Background(), clusterName, testUser())
+
+		require.NoError(t, err)
+		assert.NotEmpty(t, caData)
+		assert.Contains(t, string(caData), "BEGIN CERTIFICATE")
+		assert.Equal(t, "https://api.wc-cluster.example.com:6443", endpoint)
+
+		// Verify privileged dynamic was used for CAPI discovery
+		assert.True(t, provider.privilegedDynamicCalled,
+			"privileged dynamic client should be used for CAPI discovery")
+		// Verify user credentials were used for ConfigMap access
+		assert.True(t, provider.userClientsForUserCalled,
+			"user clients should be called for ConfigMap access (CA certs are public)")
+		// Verify privileged clientset was NOT used for ConfigMap (no secret access needed)
+		assert.False(t, provider.privilegedSecretsCalled,
+			"privileged secret access should not be used for CA ConfigMap retrieval")
+	})
+
+	// --- Scenario 3: Privileged secret access + NO privileged CAPI discovery ---
+	// privilegedSecretAccess: true, privilegedCAPIDiscovery: false
+	// => User RBAC for CAPI discovery, user credentials for ConfigMap access
+
+	t.Run("privileged secrets only: user RBAC for discovery and ConfigMap", func(t *testing.T) {
+		cluster := createTestCAPIClusterWithEndpoint(clusterName, namespace, host, port)
+		caConfigMap := createTestCAConfigMap(clusterName, namespace, DefaultCAConfigMapSuffix)
+
+		// User dynamic client has the CAPI clusters (user has RBAC to list them)
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(caConfigMap),
+			userDynamicClient:       userDynamic,
+			privilegedClientset:     fake.NewClientset(),
+			privilegedDynamicClient: nil, // Not used in this mode
+			privilegedCAPIDiscovery: false,
+		}
+
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		// Verify the credential mode was resolved correctly
+		assert.Equal(t, CredentialModePrivilegedSecrets, manager.credentialMode)
+
+		caData, endpoint, err := manager.GetCAForCluster(context.Background(), clusterName, testUser())
+
+		require.NoError(t, err)
+		assert.NotEmpty(t, caData)
+		assert.Contains(t, string(caData), "BEGIN CERTIFICATE")
+		assert.Equal(t, "https://api.wc-cluster.example.com:6443", endpoint)
+
+		// Verify correct client selection:
+		// - Privileged dynamic was NOT called (mode is CredentialModePrivilegedSecrets,
+		//   so discovery goes directly to user credentials)
+		assert.False(t, provider.privilegedDynamicCalled,
+			"privileged dynamic client should not be called in CredentialModePrivilegedSecrets")
+		// - User credentials were used for both CAPI discovery and ConfigMap access
+		assert.True(t, provider.userClientsForUserCalled,
+			"user clients should be called for CAPI discovery and ConfigMap access")
+	})
+
+	// --- Scenario 4: Strict mode rejects fallback on runtime failure ---
+
+	t.Run("strict mode: CAPI discovery failure returns error instead of fallback", func(t *testing.T) {
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(),
+			userDynamicClient:       createTestFakeDynamicClient(runtime.NewScheme()),
+			privilegedDynamicErr:    errors.New("ServiceAccount client init failed"),
+			privilegedCAPIDiscovery: true,
+			strictMode:              true,
+		}
+
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		assert.Equal(t, CredentialModeFullPrivileged, manager.credentialMode)
+
+		_, _, err = manager.GetCAForCluster(context.Background(), clusterName, testUser())
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrStrictPrivilegedAccessRequired),
+			"strict mode should prevent fallback to user credentials")
+		// User credentials should NOT have been called
+		assert.False(t, provider.userClientsForUserCalled,
+			"user clients must not be called when strict mode rejects fallback")
+	})
+
+	t.Run("full privileged: runtime fallback when ServiceAccount fails (non-strict)", func(t *testing.T) {
+		cluster := createTestCAPIClusterWithEndpoint(clusterName, namespace, host, port)
+		caConfigMap := createTestCAConfigMap(clusterName, namespace, DefaultCAConfigMapSuffix)
+
+		// Privileged dynamic client fails at runtime
+		// User clients have both CAPI data and ConfigMap as fallback
+		userDynamic := createTestFakeDynamicClient(runtime.NewScheme(), cluster)
+
+		provider := &mockPrivilegedStaticProvider{
+			userClientset:           fake.NewClientset(caConfigMap),
+			userDynamicClient:       userDynamic,
+			privilegedDynamicErr:    errors.New("ServiceAccount client init failed"),
+			privilegedCAPIDiscovery: true,
+			strictMode:              false, // non-strict: allows fallback
+		}
+
+		manager, err := NewManager(provider, WithPrivilegedAccess(provider), WithManagerLogger(newTestLogger()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = manager.Close() })
+
+		caData, endpoint, err := manager.GetCAForCluster(context.Background(), clusterName, testUser())
+
+		require.NoError(t, err)
+		assert.NotEmpty(t, caData)
+		assert.Equal(t, "https://api.wc-cluster.example.com:6443", endpoint)
+
+		// Privileged dynamic was called but failed
+		assert.True(t, provider.privilegedDynamicCalled,
+			"privileged dynamic client should have been attempted")
+		// Fallback to user credentials should have been used
+		assert.True(t, provider.userClientsForUserCalled,
+			"user clients should be called as fallback when privileged access fails")
+	})
+}
+
+// TestGetCAForCluster_Validation tests that GetCAForCluster validates inputs.
+func TestGetCAForCluster_Validation(t *testing.T) {
+	t.Run("returns error when user is nil", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+
+		_, _, err := manager.GetCAForCluster(context.Background(), "test-cluster", nil)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrUserInfoRequired),
+			"expected ErrUserInfoRequired, got %v", err)
+	})
+
+	t.Run("returns error when cluster name is invalid", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+		user := testUser()
+
+		_, _, err := manager.GetCAForCluster(context.Background(), "../secret-cluster", user)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidClusterName),
+			"expected ErrInvalidClusterName for path traversal, got %v", err)
+	})
+
+	t.Run("returns error when cluster name is empty", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+		user := testUser()
+
+		_, _, err := manager.GetCAForCluster(context.Background(), "", user)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidClusterName),
+			"expected ErrInvalidClusterName for empty name, got %v", err)
+	})
+
+	t.Run("returns error when context is cancelled", func(t *testing.T) {
+		manager := setupTestManager(t, nil, nil)
+		user := testUser()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, _, err := manager.GetCAForCluster(ctx, "test-cluster", user)
+
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrClusterNotFound))
+	})
 }

@@ -3,6 +3,7 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,6 +42,16 @@ func DefaultSSOPassthroughConfig() *SSOPassthroughConfig {
 // The CA certificate is public information needed for TLS verification.
 // Since CA certificates are public keys, they are stored in ConfigMaps rather than Secrets.
 //
+// # Split-Credential Model
+//
+// CAPI cluster discovery (listing Cluster resources) uses getDynamicClientForCAPIDiscovery(),
+// which respects the Manager's CredentialMode. In CredentialModeFullPrivileged, this uses
+// ServiceAccount credentials so users don't need cluster-scoped CAPI list permissions.
+// This is consistent with the impersonation path (GetKubeconfigForCluster).
+//
+// ConfigMap access uses user credentials because CA certificates are public information
+// and no privilege escalation is needed for reading ConfigMaps.
+//
 // # ConfigMap Convention
 //
 // The CA ConfigMap is expected to be named: ${CLUSTER_NAME}${caConfigMapSuffix}
@@ -65,16 +76,26 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 		}
 	}
 
-	// Get user-scoped clients for MC operations (cluster discovery and ConfigMap access)
-	clientset, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	// Get dynamic client for CAPI discovery, respecting CredentialMode.
+	// In CredentialModeFullPrivileged, this uses ServiceAccount credentials
+	// so users don't need cluster-scoped CAPI list permissions.
+	// This is consistent with the impersonation path (GetKubeconfigForCluster).
+	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		m.logger.Debug("Failed to get user clients for CA retrieval",
+		m.logger.Debug("Failed to get dynamic client for CAPI discovery in CA retrieval",
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
+
+		// Preserve strict-mode sentinel so callers can distinguish policy
+		// rejections from transient failures.
+		if errors.Is(err, ErrStrictPrivilegedAccessRequired) {
+			return nil, "", err
+		}
+
 		return nil, "", &ClusterNotFoundError{
 			ClusterName: clusterName,
-			Reason:      "failed to create client for user",
+			Reason:      "failed to create client for CAPI discovery",
 		}
 	}
 
@@ -88,6 +109,21 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 	endpoint, err := m.getClusterEndpoint(ctx, clusterName, dynamicClient)
 	if err != nil {
 		return nil, "", err
+	}
+
+	// Get user-scoped clientset for ConfigMap access.
+	// CA certificates are public information, so no privileged access is needed.
+	// User credentials are sufficient for reading ConfigMaps.
+	clientset, _, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	if err != nil {
+		m.logger.Debug("Failed to get user clients for CA ConfigMap access",
+			"cluster", clusterName,
+			UserHashAttr(user.Email),
+			"error", err)
+		return nil, "", &ClusterNotFoundError{
+			ClusterName: clusterName,
+			Reason:      "failed to create client for ConfigMap access",
+		}
 	}
 
 	// Retrieve CA certificate from the CA ConfigMap

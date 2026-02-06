@@ -4,15 +4,49 @@ package federation
 
 import "fmt"
 
-// CredentialMode describes how the Manager authenticates for CAPI discovery
-// and kubeconfig secret retrieval.
+// CredentialMode describes how the Manager authenticates for Management Cluster
+// operations: CAPI cluster discovery and kubeconfig secret/ConfigMap retrieval.
 //
 // The mode is resolved once at Manager construction from the ClientProvider
 // configuration and remains constant for the Manager's lifetime.
 //
+// # Two Orthogonal Axes
+//
+// The Manager's authentication model has two independent dimensions:
+//
+//  1. CredentialMode (this type): Controls how the Manager authenticates
+//     to the Management Cluster for CAPI discovery and kubeconfig/CA access.
+//     This determines WHICH credentials are used to read MC resources.
+//
+//  2. WorkloadClusterAuthMode: Controls how the Manager authenticates
+//     to Workload Cluster API servers after discovery.
+//     This determines HOW users access WC resources.
+//
+// These axes are orthogonal -- any CredentialMode can be combined with any
+// WorkloadClusterAuthMode:
+//
+//	┌─────────────────────────────────┬────────────────────────────┬────────────────────────────┐
+//	│                                 │ WC Auth: Impersonation     │ WC Auth: SSO Passthrough   │
+//	├─────────────────────────────────┼────────────────────────────┼────────────────────────────┤
+//	│ CredentialModeUser              │ User RBAC → admin creds    │ User RBAC → SSO token      │
+//	│                                 │ + impersonation headers    │ forwarded to WC             │
+//	├─────────────────────────────────┼────────────────────────────┼────────────────────────────┤
+//	│ CredentialModeFullPrivileged    │ SA creds → admin creds     │ SA creds → SSO token       │
+//	│                                 │ + impersonation headers    │ forwarded to WC             │
+//	├─────────────────────────────────┼────────────────────────────┼────────────────────────────┤
+//	│ CredentialModePrivilegedSecrets │ User RBAC disc → SA creds  │ User RBAC disc → SSO token │
+//	│                                 │ + impersonation headers    │ forwarded to WC             │
+//	└─────────────────────────────────┴────────────────────────────┴────────────────────────────┘
+//
+// Key differences between the two WC auth modes after MC discovery:
+//   - Impersonation: reads kubeconfig Secrets (admin credentials), creates WC
+//     clients with admin creds + Impersonate-User/Group headers
+//   - SSO Passthrough: reads CA ConfigMaps (public CA cert + endpoint), creates
+//     WC clients with the user's SSO token as Bearer token
+//
 // # Three Credential Modes
 //
-// The Manager supports three credential configurations:
+// The Manager supports three credential configurations for MC access:
 //
 //	┌─────────────────────────────────┬───────────────────┬───────────────────┐
 //	│ Mode                            │ CAPI Discovery    │ Secret Access     │
@@ -21,6 +55,11 @@ import "fmt"
 //	│ CredentialModeFullPrivileged    │ ServiceAccount    │ ServiceAccount    │
 //	│ CredentialModePrivilegedSecrets │ User RBAC         │ ServiceAccount    │
 //	└─────────────────────────────────┴───────────────────┴───────────────────┘
+//
+// Note: In SSO passthrough mode, "Secret Access" column applies to ConfigMap
+// access for CA certificates. Since CA certs are public information, SSO
+// passthrough always uses user credentials for this step regardless of mode.
+// The CredentialMode only affects CAPI discovery in the SSO passthrough path.
 //
 // # Runtime Fallback
 //
