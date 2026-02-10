@@ -108,19 +108,44 @@
 // requests. This enables audit log correlation to identify operations performed via
 // the MCP server, distinguishing them from direct kubectl access.
 //
-// # Group Mapping Behavior
+// # Group Handling and Mapping
 //
-// OAuth groups are passed through to Kubernetes impersonation headers WITHOUT
-// transformation. This ensures consistency between MCP-mediated access and direct
-// kubectl access with the same identity. Common group formats:
+// By default, OAuth groups are passed through to Kubernetes impersonation headers
+// WITHOUT transformation. This ensures consistency between MCP-mediated access and
+// direct kubectl access with the same identity. Common group formats:
 //
 //   - GitHub: "github:org:myorg", "github:team:platform"
 //   - Azure AD: "azure:group:abc123-def456"
 //   - LDAP: "ldap:group:cn=admins,dc=example,dc=com"
 //   - System: "system:authenticated", "system:masters"
 //
+// However, the OIDC provider may return group identifiers in a different format than
+// what the workload cluster RoleBindings expect. This is especially common when a
+// federation broker like Dex sits between mcp-kubernetes and the upstream IdP. For
+// example, Dex may return Azure AD group display names while workload clusters use
+// Azure AD group GUIDs for RoleBindings.
+//
+// To handle this, mcp-kubernetes supports configurable group mapping via the
+// GroupMapper type. When configured (via WithGroupMapper option or the
+// WC_GROUP_MAPPINGS environment variable), group identifiers are translated before
+// setting Impersonate-Group headers:
+//
+//   - Mapped groups: translated to their target identifiers
+//   - Unmapped groups: passed through unchanged (backward compatible)
+//   - All translations are logged at Debug level for audit purposes
+//
+// Group mapping is only applied in impersonation mode. In SSO passthrough mode,
+// the workload cluster's own OIDC configuration handles group resolution.
+//
+// Example Helm values configuration:
+//
+//	capiMode:
+//	  workloadClusterAuth:
+//	    groupMappings: '{"customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}'
+//
 // Administrators should configure Workload Cluster RBAC policies to match the exact
-// group strings provided by their identity provider through Dex.
+// group strings provided by their identity provider through Dex, or use group mapping
+// when the formats differ.
 //
 // # OAuth Provider Trust Boundary
 //

@@ -741,6 +741,25 @@ capiMode:
     # Trade-off: Higher latency per request (no connection reuse).
     # Default: false (caching enabled for better performance)
     disableCaching: false
+    # Group mappings for impersonation mode
+    #
+    # Translates OIDC group identifiers before setting Impersonate-Group headers.
+    # This is useful when the OIDC provider (e.g., Dex) returns group identifiers
+    # in a different format than what the workload cluster RoleBindings expect.
+    #
+    # Common use cases:
+    #   - OIDC provider returns Azure AD display names, but WC uses GUIDs
+    #   - Federation broker normalizes groups differently from the upstream IdP
+    #   - LDAP-backed provider returns DNs, but WC expects short names
+    #
+    # Only applies in "impersonation" mode. Unmapped groups pass through unchanged.
+    # The value is a JSON object: {"source-group": "target-group", ...}
+    #
+    # Example:
+    #   groupMappings: '{"customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "customer:Developers": "b2c3d4e5-f6a7-8901-bcde-f12345678901"}'
+    #
+    # Default: "" (no group mapping, all groups pass through unchanged)
+    groupMappings: ""
 
   # Privileged access configuration (split-credential model)
   #

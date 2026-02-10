@@ -121,6 +121,22 @@ type WorkloadClusterAuthConfig struct {
 	// Trade-off: Higher latency per request (no connection reuse).
 	// Default: false (caching enabled for better performance)
 	DisableCaching bool
+
+	// GroupMappings is a map of source-group -> target-group for translating
+	// OIDC group identifiers before setting Impersonate-Group headers.
+	//
+	// This is useful when the OIDC provider (e.g., Dex, Google, Okta) returns
+	// group identifiers in a different format than what the workload cluster
+	// RoleBindings expect. For example:
+	//   - OIDC provider returns Azure AD display names ("customer:GroupA"),
+	//     but workload cluster RoleBindings use Azure AD group GUIDs.
+	//   - LDAP-backed provider returns group DNs, but the cluster expects short names.
+	//
+	// Only used in "impersonation" mode. Unmapped groups pass through unchanged.
+	// Set via the WC_GROUP_MAPPINGS environment variable (JSON format).
+	//
+	// Example: {"customer:GroupA": "abc123-def456", "customer:GroupB": "xyz789-012345"}
+	GroupMappings map[string]string
 }
 
 // PrivilegedAccessConfig configures the split-credential model for privileged access.

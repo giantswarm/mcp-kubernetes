@@ -783,6 +783,21 @@ func runServe(config ServeConfig) error {
 			}
 		}
 
+		// Configure group mapping for impersonation mode
+		if len(config.CAPIMode.WorkloadClusterAuth.GroupMappings) > 0 {
+			groupMapper, mapperErr := federation.NewGroupMapper(federation.GroupMapperConfig{
+				Mappings: config.CAPIMode.WorkloadClusterAuth.GroupMappings,
+			}, slog.Default())
+			if mapperErr != nil {
+				return fmt.Errorf("failed to create group mapper: %w", mapperErr)
+			}
+			if groupMapper != nil {
+				managerOpts = append(managerOpts, federation.WithGroupMapper(groupMapper))
+				slog.Info("Group mapping enabled for workload cluster impersonation",
+					"mapping_count", groupMapper.MappingCount())
+			}
+		}
+
 		// Create federation manager
 		fedManager, err = federation.NewManager(clientProvider, managerOpts...)
 		if err != nil {
@@ -1106,6 +1121,19 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	}
 	if os.Getenv("WC_DISABLE_CACHING") == envValueTrue {
 		config.WorkloadClusterAuth.DisableCaching = true
+	}
+	// Group mappings for impersonation mode (JSON format)
+	if mappingsJSON := os.Getenv("WC_GROUP_MAPPINGS"); mappingsJSON != "" {
+		mappings, err := federation.ParseGroupMappingsJSON(mappingsJSON)
+		if err != nil {
+			slog.Warn("Invalid WC_GROUP_MAPPINGS, ignoring",
+				"error", err)
+		} else if len(mappings) > 0 {
+			config.WorkloadClusterAuth.GroupMappings = mappings
+			slog.Info("Group mappings loaded from WC_GROUP_MAPPINGS",
+				"mapping_count", len(mappings),
+				"summary", federation.FormatGroupMappingsForLog(mappings))
+		}
 	}
 
 	// Privileged access configuration (split-credential model)
