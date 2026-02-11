@@ -141,7 +141,10 @@
 // Security note: group mappings can change the effective permissions of users on
 // workload clusters. Whoever controls the mapping configuration (Helm values or env
 // var) controls which Kubernetes groups users are impersonated into. Mapping to
-// "system:masters" is blocked, but other system:* targets produce a warning.
+// dangerous system groups (system:masters, system:nodes, system:kube-controller-manager,
+// system:kube-scheduler, system:kube-proxy) is blocked at startup. Other system:*
+// targets produce a warning. Malformed WC_GROUP_MAPPINGS JSON will fail startup
+// (fail-closed) rather than silently starting without mappings.
 // Reconstructing a full audit trail for mapped requests requires correlating
 // mcp-kubernetes application logs (which record translations) with the Kubernetes
 // audit log of the target workload cluster (which records the resulting API calls).

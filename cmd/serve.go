@@ -552,7 +552,9 @@ func runServe(config ServeConfig) error {
 	}
 
 	// Load CAPI mode configuration from environment variables
-	loadCAPIModeConfig(&config.CAPIMode)
+	if err := loadCAPIModeConfig(&config.CAPIMode); err != nil {
+		return fmt.Errorf("failed to load CAPI mode configuration: %w", err)
+	}
 
 	// Create federation manager if CAPI mode is enabled
 	var fedManager federation.ClusterClientManager
@@ -1102,8 +1104,11 @@ func loadOAuthStorageEnvVars(cmd *cobra.Command, config *server.OAuthStorageConf
 
 // loadCAPIModeConfig loads CAPI mode configuration from environment variables.
 // This matches the environment variables set by the Helm chart deployment.yaml.
-// Invalid values are logged as warnings and ignored.
-func loadCAPIModeConfig(config *CAPIModeConfig) {
+//
+// Returns an error for security-critical configuration that must not be silently
+// ignored (e.g., malformed WC_GROUP_MAPPINGS). Non-critical values are logged
+// as warnings and use defaults.
+func loadCAPIModeConfig(config *CAPIModeConfig) error {
 	// Check if CAPI mode is enabled
 	if os.Getenv("CAPI_MODE_ENABLED") == envValueTrue {
 		config.Enabled = true
@@ -1119,13 +1124,16 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	if os.Getenv("WC_DISABLE_CACHING") == envValueTrue {
 		config.WorkloadClusterAuth.DisableCaching = true
 	}
-	// Group mappings for impersonation mode (JSON format)
+	// Group mappings for impersonation mode (JSON format).
+	// This is a security-critical setting: if an operator sets it, malformed JSON
+	// must fail startup rather than silently starting without mappings (fail-closed).
 	if mappingsJSON := os.Getenv("WC_GROUP_MAPPINGS"); mappingsJSON != "" {
 		mappings, err := federation.ParseGroupMappingsJSON(mappingsJSON)
 		if err != nil {
-			slog.Warn("Invalid WC_GROUP_MAPPINGS, ignoring",
-				"error", err)
-		} else if len(mappings) > 0 {
+			return fmt.Errorf("invalid WC_GROUP_MAPPINGS: %w (the server refuses to start "+
+				"with a malformed group mapping to prevent silent misconfiguration)", err)
+		}
+		if len(mappings) > 0 {
 			config.WorkloadClusterAuth.GroupMappings = mappings
 			slog.Info("Group mappings loaded from WC_GROUP_MAPPINGS",
 				"mapping_count", len(mappings),
@@ -1196,4 +1204,6 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	if n, ok := parseIntEnv(os.Getenv("CONNECTIVITY_BURST"), "CONNECTIVITY_BURST"); ok {
 		config.ConnectivityBurst = n
 	}
+
+	return nil
 }

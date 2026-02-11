@@ -1,6 +1,7 @@
 package federation
 
 import (
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -119,6 +120,45 @@ func TestNewGroupMapper(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "denied")
 		assert.Contains(t, err.Error(), "system:kube-controller-manager")
+	})
+
+	t.Run("rejects system:kube-scheduler as target group", func(t *testing.T) {
+		_, err := NewGroupMapper(map[string]string{
+			"customer:GroupA": "system:kube-scheduler",
+		}, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied")
+		assert.Contains(t, err.Error(), "system:kube-scheduler")
+	})
+
+	t.Run("rejects system:kube-proxy as target group", func(t *testing.T) {
+		_, err := NewGroupMapper(map[string]string{
+			"customer:GroupA": "system:kube-proxy",
+		}, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied")
+		assert.Contains(t, err.Error(), "system:kube-proxy")
+	})
+
+	t.Run("rejects too many mappings", func(t *testing.T) {
+		oversized := make(map[string]string, MaxMappingCount+1)
+		for i := 0; i <= MaxMappingCount; i++ {
+			oversized[fmt.Sprintf("source-%d", i)] = fmt.Sprintf("target-%d", i)
+		}
+		_, err := NewGroupMapper(oversized, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "too many group mappings")
+	})
+
+	t.Run("accepts exactly MaxMappingCount mappings", func(t *testing.T) {
+		exact := make(map[string]string, MaxMappingCount)
+		for i := 0; i < MaxMappingCount; i++ {
+			exact[fmt.Sprintf("source-%d", i)] = fmt.Sprintf("target-%d", i)
+		}
+		mapper, err := NewGroupMapper(exact, logger)
+		require.NoError(t, err)
+		require.NotNil(t, mapper)
+		assert.Equal(t, MaxMappingCount, mapper.MappingCount())
 	})
 
 	t.Run("allows non-dangerous system: target groups with warning", func(t *testing.T) {
@@ -342,6 +382,32 @@ func TestValidateGroupMappings(t *testing.T) {
 		assert.Contains(t, err.Error(), "denied")
 	})
 
+	t.Run("rejects system:kube-scheduler as target", func(t *testing.T) {
+		err := validateGroupMappings(map[string]string{
+			"any-group": "system:kube-scheduler",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied")
+	})
+
+	t.Run("rejects system:kube-proxy as target", func(t *testing.T) {
+		err := validateGroupMappings(map[string]string{
+			"any-group": "system:kube-proxy",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied")
+	})
+
+	t.Run("rejects too many mappings", func(t *testing.T) {
+		oversized := make(map[string]string, MaxMappingCount+1)
+		for i := 0; i <= MaxMappingCount; i++ {
+			oversized[fmt.Sprintf("source-%d", i)] = fmt.Sprintf("target-%d", i)
+		}
+		err := validateGroupMappings(oversized)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "too many group mappings")
+	})
+
 	t.Run("allows non-denied system: targets", func(t *testing.T) {
 		// system:authenticated is not on the denylist
 		assert.NoError(t, validateGroupMappings(map[string]string{
@@ -364,6 +430,22 @@ func TestDeniedTargetGroups(t *testing.T) {
 	t.Run("system:kube-controller-manager is denied", func(t *testing.T) {
 		_, ok := deniedTargetGroups["system:kube-controller-manager"]
 		assert.True(t, ok)
+	})
+
+	t.Run("system:kube-scheduler is denied", func(t *testing.T) {
+		_, ok := deniedTargetGroups["system:kube-scheduler"]
+		assert.True(t, ok)
+	})
+
+	t.Run("system:kube-proxy is denied", func(t *testing.T) {
+		_, ok := deniedTargetGroups["system:kube-proxy"]
+		assert.True(t, ok)
+	})
+
+	t.Run("denylist has expected size", func(t *testing.T) {
+		// Guard against accidentally removing entries.
+		// Update this count when adding new entries.
+		assert.Equal(t, 5, len(deniedTargetGroups))
 	})
 
 	t.Run("system:authenticated is not denied", func(t *testing.T) {

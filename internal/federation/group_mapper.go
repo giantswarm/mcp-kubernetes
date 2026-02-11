@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+const (
+	// MaxMappingCount is the maximum number of group mappings allowed.
+	// This limits the size of the mapping table to prevent excessively large
+	// configurations that would slow down startup validation and produce verbose
+	// warning logs. 100 mappings is generous for any real-world deployment.
+	MaxMappingCount = 100
+)
+
 // GroupMapper translates OIDC group identifiers to the identifiers expected by
 // workload cluster RoleBindings before setting Impersonate-Group headers.
 //
@@ -196,14 +204,23 @@ func (gm *GroupMapper) String() string {
 //     potential privilege escalation through node identity impersonation.
 //   - system:kube-controller-manager: Grants controller-manager privileges,
 //     which include creating/modifying most cluster resources.
+//   - system:kube-scheduler: Grants scheduler privileges including pod placement
+//     decisions and access to scheduling-related resources.
+//   - system:kube-proxy: Can modify network rules (iptables/ipvs) on nodes,
+//     enabling traffic interception or redirection.
 //
 // This is a hard denylist: the server will refuse to start if any mapping targets
 // one of these groups. This prevents both accidental misconfiguration and
 // intentional privilege escalation via the mapping configuration.
+//
+// Any other "system:*" prefixed target group that is NOT on this denylist will
+// still trigger a warning log at startup (see NewGroupMapper).
 var deniedTargetGroups = map[string]struct{}{
 	"system:masters":                 {},
 	"system:nodes":                   {},
 	"system:kube-controller-manager": {},
+	"system:kube-scheduler":          {},
+	"system:kube-proxy":              {},
 }
 
 // validateGroupMappings validates the group mapping configuration.
@@ -216,6 +233,10 @@ var deniedTargetGroups = map[string]struct{}{
 func validateGroupMappings(mappings map[string]string) error {
 	if len(mappings) == 0 {
 		return nil
+	}
+
+	if len(mappings) > MaxMappingCount {
+		return fmt.Errorf("too many group mappings (%d): maximum is %d", len(mappings), MaxMappingCount)
 	}
 
 	// Track target groups to detect duplicates
@@ -279,8 +300,10 @@ func ParseGroupMappingsJSON(jsonStr string) (map[string]string, error) {
 }
 
 // FormatGroupMappingsForLog returns a human-readable representation of group mappings
-// for operator logs. It only includes the number of configured mappings, not the
-// actual group names, to avoid leaking organizational structure in log output.
+// for operator logs. It includes the mapping count and source group names (sorted
+// alphabetically) to help operators verify the configuration. Note that source
+// group names may contain organizational structure (e.g., team names, AD group
+// display names); ensure log aggregation systems treat these as sensitive data.
 func FormatGroupMappingsForLog(mappings map[string]string) string {
 	if len(mappings) == 0 {
 		return "none"

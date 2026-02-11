@@ -753,9 +753,12 @@ capiMode:
     #   - LDAP-backed provider returns DNs, but WC expects short names
     #
     # SECURITY: Mappings control which Kubernetes groups users are impersonated
-    # into on workload clusters. Mapping to "system:masters" is blocked at startup.
+    # into on workload clusters. Mapping to dangerous system groups
+    # (system:masters, system:nodes, system:kube-controller-manager,
+    # system:kube-scheduler, system:kube-proxy) is blocked at startup.
     # Mapping to any other "system:*" group produces a warning. Each translation
     # is logged at Info level. Restrict who can modify this value.
+    # Malformed JSON will prevent the application from starting (fail-closed).
     #
     # Only applies in "impersonation" mode. Unmapped groups pass through unchanged.
     # The value is a JSON object: {"source-group": "target-group", ...}
