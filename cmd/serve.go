@@ -785,9 +785,8 @@ func runServe(config ServeConfig) error {
 
 		// Configure group mapping for impersonation mode
 		if len(config.CAPIMode.WorkloadClusterAuth.GroupMappings) > 0 {
-			groupMapper, err := federation.NewGroupMapper(federation.GroupMapperConfig{
-				Mappings: config.CAPIMode.WorkloadClusterAuth.GroupMappings,
-			}, slog.Default())
+			groupMapper, err := federation.NewGroupMapper(
+				config.CAPIMode.WorkloadClusterAuth.GroupMappings, slog.Default())
 			if err != nil {
 				return fmt.Errorf("failed to create group mapper: %w", err)
 			}

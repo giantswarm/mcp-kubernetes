@@ -35,7 +35,7 @@ import (
 // env var) can control which Kubernetes groups users are impersonated into. To mitigate
 // accidental or intentional privilege escalation:
 //
-//   - Mapping to dangerous Kubernetes system groups (e.g., "system:masters") is rejected
+//   - Mapping to dangerous Kubernetes system groups (see deniedTargetGroups) is rejected
 //     at validation time and the server will refuse to start.
 //   - Mapping to any "system:*" prefixed group triggers a warning log at startup.
 //   - All group translations are logged at Info level (not Debug) so they appear in
@@ -66,27 +66,17 @@ type GroupMapper struct {
 	logger *slog.Logger
 }
 
-// GroupMapperConfig holds the configuration for constructing a GroupMapper.
-type GroupMapperConfig struct {
-	// Mappings is a map of source-group -> target-group.
-	// When a user's OIDC group matches a source-group key, it is
-	// translated to the corresponding target-group value before
-	// being set as an Impersonate-Group header.
-	//
-	// Groups not present in this map pass through unchanged.
-	Mappings map[string]string
-}
-
-// NewGroupMapper creates a new GroupMapper with the given configuration.
-// Returns nil if the configuration has no mappings (no-op optimization).
+// NewGroupMapper creates a new GroupMapper with the given mappings.
+// Returns nil if the mappings are empty (no-op optimization).
 //
-// The mappings are defensively copied to prevent external mutation.
-// After construction, the GroupMapper is immutable and safe for concurrent use.
+// The mappings are defensively copied before validation to prevent external
+// mutation. After construction, the GroupMapper is immutable and safe for
+// concurrent use.
 //
-// Returns an error if the configuration is invalid (e.g., empty keys or values,
+// Returns an error if the mappings are invalid (e.g., empty keys or values,
 // multiple source groups mapping to the same target, dangerous target groups).
-func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper, error) {
-	if len(config.Mappings) == 0 {
+func NewGroupMapper(mappings map[string]string, logger *slog.Logger) (*GroupMapper, error) {
+	if len(mappings) == 0 {
 		return nil, nil
 	}
 
@@ -94,14 +84,20 @@ func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper
 		logger = slog.Default()
 	}
 
-	// Validate mappings (includes denylist check for dangerous target groups)
-	if err := validateGroupMappings(config.Mappings); err != nil {
+	// Defensive copy first, then validate the copy (not the original).
+	// This ensures we validate exactly what we store.
+	copied := make(map[string]string, len(mappings))
+	for k, v := range mappings {
+		copied[k] = v
+	}
+
+	if err := validateGroupMappings(copied); err != nil {
 		return nil, fmt.Errorf("invalid group mappings: %w", err)
 	}
 
 	// Warn about any system:* target groups that passed validation
 	// (they aren't on the denylist but may still be unexpected)
-	for source, target := range config.Mappings {
+	for source, target := range copied {
 		if strings.HasPrefix(target, "system:") {
 			logger.Warn("Group mapping targets a Kubernetes system group",
 				"source_group", source,
@@ -110,14 +106,8 @@ func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper
 		}
 	}
 
-	// Defensive copy to prevent external mutation
-	mappings := make(map[string]string, len(config.Mappings))
-	for k, v := range config.Mappings {
-		mappings[k] = v
-	}
-
 	return &GroupMapper{
-		mappings: mappings,
+		mappings: copied,
 		logger:   logger,
 	}, nil
 }
@@ -128,7 +118,7 @@ func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper
 // The original slice is never modified. A new slice is always returned when any
 // mapping is applied.
 //
-// Each individual group translation is logged at Info level for operational visibility.
+// A summary of all translations is logged at Info level for operational visibility.
 // Note that the user email is hashed in logs (via UserHashAttr) for privacy; correlating
 // a specific translation with a user identity requires matching the hash across log entries
 // or consulting the Kubernetes audit log of the target workload cluster.
@@ -162,17 +152,21 @@ func (gm *GroupMapper) MapGroups(groups []string, userEmail string) []string {
 
 	// At least one group needs mapping: create a new slice
 	mapped := make([]string, len(groups))
+	var translations []string
 	for i, g := range groups {
 		if target, ok := gm.mappings[g]; ok {
 			mapped[i] = target
-			gm.logger.Info("Group mapped for impersonation",
-				"original_group", g,
-				"mapped_group", target,
-				UserHashAttr(userEmail))
+			translations = append(translations, fmt.Sprintf("%s->%s", g, target))
 		} else {
 			mapped[i] = g
 		}
 	}
+
+	gm.logger.Info("Groups mapped for impersonation",
+		"mapped_count", len(translations),
+		"total_groups", len(groups),
+		"translations", strings.Join(translations, ", "),
+		UserHashAttr(userEmail))
 
 	return mapped
 }
@@ -198,14 +192,18 @@ func (gm *GroupMapper) String() string {
 // targets. These groups grant dangerous privileges that bypass normal RBAC:
 //
 //   - system:masters: Bypasses ALL RBAC checks, equivalent to cluster-admin.
-//     Mapping any OIDC group to system:masters would give all members of that
-//     group unrestricted access to the workload cluster.
+//   - system:nodes: Grants node-level access via the Node authorizer, enabling
+//     potential privilege escalation through node identity impersonation.
+//   - system:kube-controller-manager: Grants controller-manager privileges,
+//     which include creating/modifying most cluster resources.
 //
 // This is a hard denylist: the server will refuse to start if any mapping targets
 // one of these groups. This prevents both accidental misconfiguration and
 // intentional privilege escalation via the mapping configuration.
-var deniedTargetGroups = map[string]bool{
-	"system:masters": true,
+var deniedTargetGroups = map[string]struct{}{
+	"system:masters":                 {},
+	"system:nodes":                   {},
+	"system:kube-controller-manager": {},
 }
 
 // validateGroupMappings validates the group mapping configuration.
@@ -241,7 +239,7 @@ func validateGroupMappings(mappings map[string]string) error {
 		}
 
 		// Reject dangerous target groups that would enable privilege escalation
-		if deniedTargetGroups[target] {
+		if _, denied := deniedTargetGroups[target]; denied {
 			return fmt.Errorf(
 				"target group %q for source %q is denied: mapping to this group "+
 					"would enable privilege escalation (this group bypasses RBAC)",
@@ -258,15 +256,15 @@ func validateGroupMappings(mappings map[string]string) error {
 	return nil
 }
 
-// ParseGroupMappingsJSON parses and validates a JSON string into a group mappings map.
+// ParseGroupMappingsJSON parses a JSON string into a group mappings map.
 // The expected format is a JSON object: {"source1": "target1", "source2": "target2"}.
 //
 // This is the primary format used by the WC_GROUP_MAPPINGS environment variable.
 // JSON is used instead of a simple key=value format because group names may
 // contain characters like '=' and ',' that would be ambiguous in simpler formats.
 //
-// The parsed mappings are validated for correctness (no empty keys/values, no control
-// characters, no duplicate targets). This ensures callers get a ready-to-use map.
+// This function only handles JSON parsing. Semantic validation (denylist, duplicates,
+// control characters) is performed by NewGroupMapper to avoid double validation.
 func ParseGroupMappingsJSON(jsonStr string) (map[string]string, error) {
 	if jsonStr == "" {
 		return nil, nil
@@ -277,17 +275,12 @@ func ParseGroupMappingsJSON(jsonStr string) (map[string]string, error) {
 		return nil, fmt.Errorf("failed to parse group mappings JSON: %w", err)
 	}
 
-	if err := validateGroupMappings(mappings); err != nil {
-		return nil, fmt.Errorf("invalid group mappings: %w", err)
-	}
-
 	return mappings, nil
 }
 
 // FormatGroupMappingsForLog returns a human-readable representation of group mappings
-// for operator logs. It intentionally includes source group names (which are OIDC
-// group identifiers controlled by the IdP configuration) to aid debugging, but omits
-// target values which may contain sensitive identifiers like Azure AD GUIDs.
+// for operator logs. It only includes the number of configured mappings, not the
+// actual group names, to avoid leaking organizational structure in log output.
 func FormatGroupMappingsForLog(mappings map[string]string) string {
 	if len(mappings) == 0 {
 		return "none"
