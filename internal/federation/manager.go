@@ -832,14 +832,13 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	// Apply group mapping if configured.
 	// This translates OIDC group identifiers to the format expected by the
 	// workload cluster's RoleBindings (e.g., display names -> GUIDs).
-	// The original user.Groups are not modified; a new UserInfo is created
-	// with the mapped groups for impersonation.
+	// The original user.Groups slice is never modified; MapGroups returns a
+	// new slice only when at least one group is translated.
 	impersonationUser := user
 	if m.groupMapper != nil {
-		mappedGroups := m.groupMapper.MapGroups(user.Groups, user.Email)
 		impersonationUser = &UserInfo{
 			Email:  user.Email,
-			Groups: mappedGroups,
+			Groups: m.groupMapper.MapGroups(user.Groups, user.Email),
 			Extra:  user.Extra,
 		}
 	}

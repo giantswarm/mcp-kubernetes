@@ -331,6 +331,12 @@ func TestParseGroupMappingsJSON(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to parse group mappings JSON")
 	})
 
+	t.Run("rejects empty target in JSON", func(t *testing.T) {
+		_, err := ParseGroupMappingsJSON(`{"customer:GroupA": ""}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid group mappings")
+	})
+
 	t.Run("handles special characters in group names", func(t *testing.T) {
 		result, err := ParseGroupMappingsJSON(`{"ldap:group:cn=admins,dc=example,dc=com": "admins"}`)
 		require.NoError(t, err)
@@ -360,23 +366,6 @@ func TestFormatGroupMappingsForLog(t *testing.T) {
 			"customer:GroupA": "abc",
 		})
 		assert.Equal(t, "2 mappings (sources: customer:GroupA, customer:GroupB)", result)
-	})
-}
-
-func TestContainsControlChars(t *testing.T) {
-	t.Run("normal strings are clean", func(t *testing.T) {
-		assert.False(t, containsControlChars("normal-group"))
-		assert.False(t, containsControlChars("customer:GroupA"))
-		assert.False(t, containsControlChars("ldap:group:cn=admins,dc=example,dc=com"))
-		assert.False(t, containsControlChars("a1b2c3d4-e5f6-7890-abcd-ef1234567890"))
-	})
-
-	t.Run("control characters are detected", func(t *testing.T) {
-		assert.True(t, containsControlChars("group\x00name"))
-		assert.True(t, containsControlChars("group\nnewline"))
-		assert.True(t, containsControlChars("group\rcarriage"))
-		assert.True(t, containsControlChars("group\ttab"))
-		assert.True(t, containsControlChars("\x7fdelete"))
 	})
 }
 

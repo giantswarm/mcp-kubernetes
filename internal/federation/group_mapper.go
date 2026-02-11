@@ -87,9 +87,6 @@ func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper
 		mappings[k] = v
 	}
 
-	logger.Info("Group mapper initialized",
-		"mapping_count", len(mappings))
-
 	return &GroupMapper{
 		mappings: mappings,
 		logger:   logger,
@@ -185,7 +182,7 @@ func validateGroupMappings(mappings map[string]string) error {
 		if strings.TrimSpace(source) == "" {
 			return fmt.Errorf("source group must not be empty")
 		}
-		if containsControlChars(source) {
+		if containsControlCharacters(source) {
 			return fmt.Errorf("source group %q contains control characters", source)
 		}
 
@@ -193,7 +190,7 @@ func validateGroupMappings(mappings map[string]string) error {
 		if strings.TrimSpace(target) == "" {
 			return fmt.Errorf("target group for source %q must not be empty", source)
 		}
-		if containsControlChars(target) {
+		if containsControlCharacters(target) {
 			return fmt.Errorf("target group %q for source %q contains control characters", target, source)
 		}
 
@@ -207,22 +204,15 @@ func validateGroupMappings(mappings map[string]string) error {
 	return nil
 }
 
-// containsControlChars checks if a string contains ASCII control characters.
-func containsControlChars(s string) bool {
-	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
-			return true
-		}
-	}
-	return false
-}
-
-// ParseGroupMappingsJSON parses a JSON string into a group mappings map.
+// ParseGroupMappingsJSON parses and validates a JSON string into a group mappings map.
 // The expected format is a JSON object: {"source1": "target1", "source2": "target2"}.
 //
 // This is the primary format used by the WC_GROUP_MAPPINGS environment variable.
 // JSON is used instead of a simple key=value format because group names may
 // contain characters like '=' and ',' that would be ambiguous in simpler formats.
+//
+// The parsed mappings are validated for correctness (no empty keys/values, no control
+// characters, no duplicate targets). This ensures callers get a ready-to-use map.
 func ParseGroupMappingsJSON(jsonStr string) (map[string]string, error) {
 	if jsonStr == "" {
 		return nil, nil
@@ -233,12 +223,17 @@ func ParseGroupMappingsJSON(jsonStr string) (map[string]string, error) {
 		return nil, fmt.Errorf("failed to parse group mappings JSON: %w", err)
 	}
 
+	if err := validateGroupMappings(mappings); err != nil {
+		return nil, fmt.Errorf("invalid group mappings: %w", err)
+	}
+
 	return mappings, nil
 }
 
-// FormatGroupMappingsForLog returns a safe representation of group mappings for logging.
-// It shows the number of mappings and the source group names (but not target values,
-// which could contain sensitive identifiers like GUIDs).
+// FormatGroupMappingsForLog returns a human-readable representation of group mappings
+// for operator logs. It intentionally includes source group names (which are OIDC
+// group identifiers controlled by the IdP configuration) to aid debugging, but omits
+// target values which may contain sensitive identifiers like Azure AD GUIDs.
 func FormatGroupMappingsForLog(mappings map[string]string) string {
 	if len(mappings) == 0 {
 		return "none"
