@@ -132,6 +132,10 @@ type WorkloadClusterAuthConfig struct {
 	//     but workload cluster RoleBindings use Azure AD group GUIDs.
 	//   - LDAP-backed provider returns group DNs, but the cluster expects short names.
 	//
+	// SECURITY: Mappings control which Kubernetes groups users are impersonated
+	// into. Mapping to "system:masters" is rejected at startup. Mapping to other
+	// "system:*" groups produces a warning. Restrict access to this configuration.
+	//
 	// Only used in "impersonation" mode. Unmapped groups pass through unchanged.
 	// Set via the WC_GROUP_MAPPINGS environment variable (JSON format).
 	//

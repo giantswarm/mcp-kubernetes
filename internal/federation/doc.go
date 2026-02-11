@@ -132,10 +132,19 @@
 //
 //   - Mapped groups: translated to their target identifiers
 //   - Unmapped groups: passed through unchanged (backward compatible)
-//   - All translations are logged at Debug level for audit purposes
+//   - Each translation is logged at Info level for operational visibility
+//   - Mapping to dangerous system groups (e.g., system:masters) is rejected at startup
 //
 // Group mapping is only applied in impersonation mode. In SSO passthrough mode,
 // the workload cluster's own OIDC configuration handles group resolution.
+//
+// Security note: group mappings can change the effective permissions of users on
+// workload clusters. Whoever controls the mapping configuration (Helm values or env
+// var) controls which Kubernetes groups users are impersonated into. Mapping to
+// "system:masters" is blocked, but other system:* targets produce a warning.
+// Reconstructing a full audit trail for mapped requests requires correlating
+// mcp-kubernetes application logs (which record translations) with the Kubernetes
+// audit log of the target workload cluster (which records the resulting API calls).
 //
 // Example Helm values configuration:
 //

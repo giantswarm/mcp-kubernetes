@@ -98,6 +98,41 @@ func TestNewGroupMapper(t *testing.T) {
 		assert.Contains(t, err.Error(), "duplicate target group")
 	})
 
+	t.Run("rejects system:masters as target group", func(t *testing.T) {
+		_, err := NewGroupMapper(GroupMapperConfig{
+			Mappings: map[string]string{
+				"customer:GroupA": "system:masters",
+			},
+		}, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied")
+		assert.Contains(t, err.Error(), "system:masters")
+		assert.Contains(t, err.Error(), "privilege escalation")
+	})
+
+	t.Run("rejects system:masters even with other valid mappings", func(t *testing.T) {
+		_, err := NewGroupMapper(GroupMapperConfig{
+			Mappings: map[string]string{
+				"customer:GroupA": "valid-target",
+				"customer:GroupB": "system:masters",
+			},
+		}, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "system:masters")
+	})
+
+	t.Run("allows non-dangerous system: target groups with warning", func(t *testing.T) {
+		// system:authenticated and other non-denied system groups should be allowed
+		// (they produce a warning log but are not rejected)
+		mapper, err := NewGroupMapper(GroupMapperConfig{
+			Mappings: map[string]string{
+				"customer:GroupA": "system:authenticated",
+			},
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, mapper)
+	})
+
 	t.Run("uses default logger when nil", func(t *testing.T) {
 		mapper, err := NewGroupMapper(GroupMapperConfig{
 			Mappings: map[string]string{
@@ -307,6 +342,36 @@ func TestValidateGroupMappings(t *testing.T) {
 			"github:org:myorg":                       "org-myorg",
 		}))
 	})
+
+	t.Run("rejects system:masters as target", func(t *testing.T) {
+		err := validateGroupMappings(map[string]string{
+			"any-group": "system:masters",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied")
+		assert.Contains(t, err.Error(), "privilege escalation")
+	})
+
+	t.Run("allows non-denied system: targets", func(t *testing.T) {
+		// system:authenticated is not on the denylist
+		assert.NoError(t, validateGroupMappings(map[string]string{
+			"customer:GroupA": "system:authenticated",
+		}))
+	})
+}
+
+func TestDeniedTargetGroups(t *testing.T) {
+	t.Run("system:masters is denied", func(t *testing.T) {
+		assert.True(t, deniedTargetGroups["system:masters"])
+	})
+
+	t.Run("system:authenticated is not denied", func(t *testing.T) {
+		assert.False(t, deniedTargetGroups["system:authenticated"])
+	})
+
+	t.Run("arbitrary groups are not denied", func(t *testing.T) {
+		assert.False(t, deniedTargetGroups["my-custom-group"])
+	})
 }
 
 func TestParseGroupMappingsJSON(t *testing.T) {
@@ -351,6 +416,12 @@ func TestParseGroupMappingsJSON(t *testing.T) {
 		assert.Equal(t, map[string]string{
 			"Développeurs": "developers",
 		}, result)
+	})
+
+	t.Run("rejects denied target group in JSON", func(t *testing.T) {
+		_, err := ParseGroupMappingsJSON(`{"customer:GroupA": "system:masters"}`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied")
 	})
 }
 

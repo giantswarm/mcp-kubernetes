@@ -24,9 +24,27 @@ import (
 // GroupMapper uses a static mapping table (source -> target) that is configured
 // at startup. This approach is:
 //   - Predictable: mappings are explicit and visible in configuration
-//   - Auditable: all translations are logged with original and mapped values
-//   - Secure: only configured mappings are applied, no dynamic resolution
+//   - Logged: all translations are logged at Info level for operational visibility
+//   - Validated: dangerous target groups (e.g., system:masters) are rejected at startup
 //   - Fast: O(1) lookup per group, no external dependencies
+//
+// # Security Considerations
+//
+// Group mappings can change the effective permissions of users on workload clusters.
+// Anyone who can modify the mapping configuration (Helm values or WC_GROUP_MAPPINGS
+// env var) can control which Kubernetes groups users are impersonated into. To mitigate
+// accidental or intentional privilege escalation:
+//
+//   - Mapping to dangerous Kubernetes system groups (e.g., "system:masters") is rejected
+//     at validation time and the server will refuse to start.
+//   - Mapping to any "system:*" prefixed group triggers a warning log at startup.
+//   - All group translations are logged at Info level (not Debug) so they appear in
+//     default production log output.
+//
+// Note that reconstructing a complete audit trail for a mapped impersonation request
+// requires correlating mcp-kubernetes application logs with the Kubernetes audit log
+// of the target workload cluster. The application logs record which groups were
+// translated; the cluster audit log records the resulting API calls.
 //
 // # Thread Safety
 //
@@ -44,7 +62,7 @@ type GroupMapper struct {
 	// This map is never modified after construction (immutable).
 	mappings map[string]string
 
-	// logger for audit logging of group translations.
+	// logger for logging group translations.
 	logger *slog.Logger
 }
 
@@ -66,7 +84,7 @@ type GroupMapperConfig struct {
 // After construction, the GroupMapper is immutable and safe for concurrent use.
 //
 // Returns an error if the configuration is invalid (e.g., empty keys or values,
-// multiple source groups mapping to the same target).
+// multiple source groups mapping to the same target, dangerous target groups).
 func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper, error) {
 	if len(config.Mappings) == 0 {
 		return nil, nil
@@ -76,9 +94,20 @@ func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper
 		logger = slog.Default()
 	}
 
-	// Validate mappings
+	// Validate mappings (includes denylist check for dangerous target groups)
 	if err := validateGroupMappings(config.Mappings); err != nil {
 		return nil, fmt.Errorf("invalid group mappings: %w", err)
+	}
+
+	// Warn about any system:* target groups that passed validation
+	// (they aren't on the denylist but may still be unexpected)
+	for source, target := range config.Mappings {
+		if strings.HasPrefix(target, "system:") {
+			logger.Warn("Group mapping targets a Kubernetes system group",
+				"source_group", source,
+				"target_group", target,
+				"hint", "Ensure this is intentional; system groups carry special privileges")
+		}
 	}
 
 	// Defensive copy to prevent external mutation
@@ -99,8 +128,10 @@ func NewGroupMapper(config GroupMapperConfig, logger *slog.Logger) (*GroupMapper
 // The original slice is never modified. A new slice is always returned when any
 // mapping is applied.
 //
-// All translations are logged at Debug level for audit purposes, including
-// the original and mapped group values.
+// Each individual group translation is logged at Info level for operational visibility.
+// Note that the user email is hashed in logs (via UserHashAttr) for privacy; correlating
+// a specific translation with a user identity requires matching the hash across log entries
+// or consulting the Kubernetes audit log of the target workload cluster.
 //
 // Returns nil if groups is nil, or an empty slice if groups is empty.
 func (gm *GroupMapper) MapGroups(groups []string, userEmail string) []string {
@@ -134,7 +165,7 @@ func (gm *GroupMapper) MapGroups(groups []string, userEmail string) []string {
 	for i, g := range groups {
 		if target, ok := gm.mappings[g]; ok {
 			mapped[i] = target
-			gm.logger.Debug("Group mapped for impersonation",
+			gm.logger.Info("Group mapped for impersonation",
 				"original_group", g,
 				"mapped_group", target,
 				UserHashAttr(userEmail))
@@ -163,11 +194,26 @@ func (gm *GroupMapper) String() string {
 	return fmt.Sprintf("GroupMapper{mappings=%d}", len(gm.mappings))
 }
 
+// deniedTargetGroups contains Kubernetes groups that must never be used as mapping
+// targets. These groups grant dangerous privileges that bypass normal RBAC:
+//
+//   - system:masters: Bypasses ALL RBAC checks, equivalent to cluster-admin.
+//     Mapping any OIDC group to system:masters would give all members of that
+//     group unrestricted access to the workload cluster.
+//
+// This is a hard denylist: the server will refuse to start if any mapping targets
+// one of these groups. This prevents both accidental misconfiguration and
+// intentional privilege escalation via the mapping configuration.
+var deniedTargetGroups = map[string]bool{
+	"system:masters": true,
+}
+
 // validateGroupMappings validates the group mapping configuration.
 // It ensures:
 //   - No empty keys or values
+//   - No mapping to dangerous target groups (see deniedTargetGroups)
 //   - No duplicate target groups (multiple sources mapping to the same target
-//     would make audit trails ambiguous)
+//     would make log correlation ambiguous)
 //   - Keys and values don't contain control characters
 func validateGroupMappings(mappings map[string]string) error {
 	if len(mappings) == 0 {
@@ -194,7 +240,15 @@ func validateGroupMappings(mappings map[string]string) error {
 			return fmt.Errorf("target group %q for source %q contains control characters", target, source)
 		}
 
-		// Check for duplicate targets (ambiguous audit trail)
+		// Reject dangerous target groups that would enable privilege escalation
+		if deniedTargetGroups[target] {
+			return fmt.Errorf(
+				"target group %q for source %q is denied: mapping to this group "+
+					"would enable privilege escalation (this group bypasses RBAC)",
+				target, source)
+		}
+
+		// Check for duplicate targets (ambiguous log correlation)
 		if existingSource, ok := targetToSource[target]; ok {
 			return fmt.Errorf("duplicate target group %q: both %q and %q map to it", target, existingSource, source)
 		}

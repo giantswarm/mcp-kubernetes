@@ -752,6 +752,11 @@ capiMode:
     #   - Federation broker normalizes groups differently from the upstream IdP
     #   - LDAP-backed provider returns DNs, but WC expects short names
     #
+    # SECURITY: Mappings control which Kubernetes groups users are impersonated
+    # into on workload clusters. Mapping to "system:masters" is blocked at startup.
+    # Mapping to any other "system:*" group produces a warning. Each translation
+    # is logged at Info level. Restrict who can modify this value.
+    #
     # Only applies in "impersonation" mode. Unmapped groups pass through unchanged.
     # The value is a JSON object: {"source-group": "target-group", ...}
     #
