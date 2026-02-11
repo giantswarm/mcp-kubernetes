@@ -294,6 +294,10 @@ spec:
             - name: WC_DISABLE_CACHING
               value: "true"
             {{- end }}
+            {{- if .Values.capiMode.workloadClusterAuth.groupMappings }}
+            - name: WC_GROUP_MAPPINGS
+              value: {{ .Values.capiMode.workloadClusterAuth.groupMappings | toJson | quote }}
+            {{- end }}
             {{- end }}
             # Privileged Access Configuration (split-credential model)
             {{- if .Values.capiMode.privilegedAccess }}

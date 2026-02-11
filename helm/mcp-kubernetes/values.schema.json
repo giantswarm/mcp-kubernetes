@@ -731,6 +731,14 @@
             "disableCaching": {
               "type": "boolean",
               "description": "Disable client caching in sso-passthrough mode. Each request creates a fresh client with current SSO token. Recommended for high-security deployments to ensure token revocation takes effect immediately."
+            },
+            "groupMappings": {
+              "type": "object",
+              "description": "Map of OIDC group identifiers to workload cluster group identifiers for impersonation mode. Keys are source groups, values are target groups. Unmapped groups pass through unchanged.",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {}
             }
           }
         },

@@ -187,6 +187,11 @@ type Manager struct {
 	// Only used when workloadClusterAuthMode is WorkloadClusterAuthModeSSOPassthrough.
 	ssoPassthroughConfig *SSOPassthroughConfig
 
+	// groupMapper translates OIDC group identifiers to the identifiers expected
+	// by workload cluster RoleBindings. Only used in impersonation mode.
+	// Nil when no group mapping is configured (groups pass through unchanged).
+	groupMapper *GroupMapper
+
 	// Logger for operational messages
 	logger *slog.Logger
 
@@ -334,6 +339,23 @@ func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {
 	}
 }
 
+// WithGroupMapper sets the group mapper for translating OIDC group identifiers
+// before setting Impersonate-Group headers on workload cluster requests.
+//
+// This is useful when the OIDC provider returns group identifiers in a different
+// format than what the workload cluster RoleBindings expect. For example, when
+// Dex returns Azure AD group display names but workload clusters use GUIDs.
+//
+// The group mapper is only applied in impersonation mode. In SSO passthrough mode,
+// the workload cluster's own OIDC configuration handles group resolution.
+//
+// Pass nil to disable group mapping (default behavior, all groups pass through unchanged).
+func WithGroupMapper(mapper *GroupMapper) ManagerOption {
+	return func(m *Manager) {
+		m.groupMapper = mapper
+	}
+}
+
 // WithPrivilegedAccess configures the Manager to use a PrivilegedAccessProvider
 // for ServiceAccount-based secret access and optionally CAPI discovery.
 //
@@ -441,7 +463,8 @@ func NewManager(clientProvider ClientProvider, opts ...ManagerOption) (*Manager,
 
 	m.logger.Info("Federation manager initialized",
 		"credential_mode", m.credentialMode.String(),
-		"cache_enabled", m.cache != nil)
+		"cache_enabled", m.cache != nil,
+		"group_mapper", m.groupMapper.String())
 
 	return m, nil
 }
@@ -806,9 +829,41 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 		}
 	}
 
+	// Apply group mapping if configured.
+	// This translates OIDC group identifiers to the format expected by the
+	// workload cluster's RoleBindings (e.g., display names -> GUIDs).
+	// The original user.Groups slice is never modified; MapGroups returns a
+	// new slice only when at least one group is translated.
+	impersonationUser := user
+	if m.groupMapper != nil {
+		mappedGroups, didMap := m.groupMapper.MapGroups(user.Groups, user.Email)
+		if didMap {
+			// Include original groups in impersonation extras for audit trail.
+			// This ensures the K8s audit log on the workload cluster contains both
+			// the mapped groups (in Impersonate-Group) and the originals (in Extra),
+			// providing a complete audit trail in a single log source.
+			//
+			// Deep copy slice values to prevent any downstream mutation from
+			// affecting the original UserInfo (defense-in-depth for security path).
+			extra := make(map[string][]string, len(user.Extra)+1)
+			for k, v := range user.Extra {
+				copied := make([]string, len(v))
+				copy(copied, v)
+				extra[k] = copied
+			}
+			extra[OriginalGroupsExtraKey] = user.Groups
+
+			impersonationUser = &UserInfo{
+				Email:  user.Email,
+				Groups: mappedGroups,
+				Extra:  extra,
+			}
+		}
+	}
+
 	// Configure impersonation for WC operations
 	// The kubeconfig contains admin credentials; we impersonate the user
-	impersonatedConfig := ConfigWithImpersonation(baseConfig, user)
+	impersonatedConfig := ConfigWithImpersonation(baseConfig, impersonationUser)
 
 	// Record impersonation metric - this tracks successful impersonation configuration
 	m.authMetrics.RecordImpersonation(ctx, user.Email, clusterName, "success")
