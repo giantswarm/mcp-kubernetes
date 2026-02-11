@@ -199,27 +199,30 @@ func TestGroupMapper_MapGroups(t *testing.T) {
 	t.Run("nil mapper passes groups through", func(t *testing.T) {
 		var mapper *GroupMapper
 		groups := []string{"group-a", "group-b"}
-		result := mapper.MapGroups(groups, "user@example.com")
+		result, didMap := mapper.MapGroups(groups, "user@example.com")
 		assert.Equal(t, groups, result)
+		assert.False(t, didMap)
 	})
 
 	t.Run("nil groups returns nil", func(t *testing.T) {
 		mapper, err := NewGroupMapper(map[string]string{"source": "target"}, logger)
 		require.NoError(t, err)
 
-		result := mapper.MapGroups(nil, "user@example.com")
+		result, didMap := mapper.MapGroups(nil, "user@example.com")
 		assert.Nil(t, result)
+		assert.False(t, didMap)
 	})
 
 	t.Run("empty groups returns empty", func(t *testing.T) {
 		mapper, err := NewGroupMapper(map[string]string{"source": "target"}, logger)
 		require.NoError(t, err)
 
-		result := mapper.MapGroups([]string{}, "user@example.com")
+		result, didMap := mapper.MapGroups([]string{}, "user@example.com")
 		assert.Empty(t, result)
+		assert.False(t, didMap)
 	})
 
-	t.Run("maps matching groups", func(t *testing.T) {
+	t.Run("maps matching groups and returns didMap true", func(t *testing.T) {
 		mapper, err := NewGroupMapper(map[string]string{
 			"customer:GroupA": "abc123-def456",
 			"customer:GroupB": "xyz789-012345",
@@ -227,9 +230,10 @@ func TestGroupMapper_MapGroups(t *testing.T) {
 		require.NoError(t, err)
 
 		groups := []string{"customer:GroupA", "customer:GroupB"}
-		result := mapper.MapGroups(groups, "user@example.com")
+		result, didMap := mapper.MapGroups(groups, "user@example.com")
 
 		assert.Equal(t, []string{"abc123-def456", "xyz789-012345"}, result)
+		assert.True(t, didMap)
 	})
 
 	t.Run("passes through unmapped groups", func(t *testing.T) {
@@ -239,22 +243,24 @@ func TestGroupMapper_MapGroups(t *testing.T) {
 		require.NoError(t, err)
 
 		groups := []string{"system:authenticated", "customer:GroupA", "other-group"}
-		result := mapper.MapGroups(groups, "user@example.com")
+		result, didMap := mapper.MapGroups(groups, "user@example.com")
 
 		assert.Equal(t, []string{"system:authenticated", "abc123-def456", "other-group"}, result)
+		assert.True(t, didMap)
 	})
 
-	t.Run("no mapping needed returns original slice", func(t *testing.T) {
+	t.Run("no mapping needed returns original slice and didMap false", func(t *testing.T) {
 		mapper, err := NewGroupMapper(map[string]string{
 			"customer:GroupA": "abc123-def456",
 		}, logger)
 		require.NoError(t, err)
 
 		groups := []string{"system:authenticated", "other-group"}
-		result := mapper.MapGroups(groups, "user@example.com")
+		result, didMap := mapper.MapGroups(groups, "user@example.com")
 
 		// Should return the exact same slice (no allocation)
 		assert.Equal(t, groups, result)
+		assert.False(t, didMap)
 	})
 
 	t.Run("does not modify original slice", func(t *testing.T) {
@@ -267,7 +273,7 @@ func TestGroupMapper_MapGroups(t *testing.T) {
 		originalCopy := make([]string, len(original))
 		copy(originalCopy, original)
 
-		mapper.MapGroups(original, "user@example.com")
+		_, _ = mapper.MapGroups(original, "user@example.com")
 
 		assert.Equal(t, originalCopy, original, "original slice must not be modified")
 	})
@@ -284,13 +290,14 @@ func TestGroupMapper_MapGroups(t *testing.T) {
 			"customer:Platform Engineers",
 			"customer:Developers",
 		}
-		result := mapper.MapGroups(groups, "user@company.com")
+		result, didMap := mapper.MapGroups(groups, "user@company.com")
 
 		assert.Equal(t, []string{
 			"system:authenticated",
 			"a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 			"b2c3d4e5-f6a7-8901-bcde-f12345678901",
 		}, result)
+		assert.True(t, didMap)
 	})
 
 	t.Run("handles LDAP DN to short name mapping", func(t *testing.T) {
@@ -304,9 +311,10 @@ func TestGroupMapper_MapGroups(t *testing.T) {
 			"ldap:group:cn=admins,dc=example,dc=com",
 			"ldap:group:cn=devops,dc=example,dc=com",
 		}
-		result := mapper.MapGroups(groups, "user@example.com")
+		result, didMap := mapper.MapGroups(groups, "user@example.com")
 
 		assert.Equal(t, []string{"admins", "devops"}, result)
+		assert.True(t, didMap)
 	})
 }
 
@@ -529,9 +537,9 @@ func TestFormatGroupMappingsForLog(t *testing.T) {
 }
 
 // TestGroupMapper_Integration tests the GroupMapper in an impersonation context
-// to verify it works correctly with ConfigWithImpersonation.
+// to verify it works correctly with ConfigWithImpersonation and the audit trail.
 func TestGroupMapper_Integration(t *testing.T) {
-	t.Run("mapped groups are used in impersonation config", func(t *testing.T) {
+	t.Run("mapped groups are used in impersonation config with original groups in extras", func(t *testing.T) {
 		mapper, err := NewGroupMapper(map[string]string{
 			"customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		}, slog.Default())
@@ -543,13 +551,18 @@ func TestGroupMapper_Integration(t *testing.T) {
 		}
 
 		// Apply mapping (as the Manager would do before ConfigWithImpersonation)
-		mappedGroups := mapper.MapGroups(user.Groups, user.Email)
+		mappedGroups, didMap := mapper.MapGroups(user.Groups, user.Email)
+		require.True(t, didMap)
 
-		// Create a user copy with mapped groups for impersonation
+		// When mapping occurs, the manager adds original groups to extras
+		// for audit trail completeness in the K8s audit log.
+		extra := make(map[string][]string, 1)
+		extra[OriginalGroupsExtraKey] = user.Groups
+
 		mappedUser := &UserInfo{
 			Email:  user.Email,
 			Groups: mappedGroups,
-			Extra:  user.Extra,
+			Extra:  extra,
 		}
 
 		baseConfig := &rest.Config{Host: "https://test.example.com"}
@@ -560,6 +573,38 @@ func TestGroupMapper_Integration(t *testing.T) {
 			"system:authenticated",
 			"a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		}, config.Impersonate.Groups)
+
+		// Verify original groups are in the impersonation extras for audit trail
+		assert.Contains(t, config.Impersonate.Extra, OriginalGroupsExtraKey)
+		assert.Equal(t, []string{
+			"system:authenticated",
+			"customer:Platform Engineers",
+		}, config.Impersonate.Extra[OriginalGroupsExtraKey])
+
+		// Agent header should also be present (added by mergeExtraWithAgent)
+		assert.Contains(t, config.Impersonate.Extra, ImpersonationAgentExtraKey)
+	})
+
+	t.Run("no mapping means no original groups in extras", func(t *testing.T) {
+		mapper, err := NewGroupMapper(map[string]string{
+			"customer:GroupA": "guid-a",
+		}, slog.Default())
+		require.NoError(t, err)
+
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"system:authenticated", "other-group"},
+		}
+
+		// No groups match the mapping
+		_, didMap := mapper.MapGroups(user.Groups, user.Email)
+		assert.False(t, didMap, "no mapping should have been applied")
+
+		// When didMap is false, the manager does not add original groups to extras
+		baseConfig := &rest.Config{Host: "https://test.example.com"}
+		config := ConfigWithImpersonation(baseConfig, user)
+
+		assert.NotContains(t, config.Impersonate.Extra, OriginalGroupsExtraKey)
 	})
 
 	t.Run("original user groups are not modified", func(t *testing.T) {
@@ -577,7 +622,7 @@ func TestGroupMapper_Integration(t *testing.T) {
 		originalGroups := make([]string, len(user.Groups))
 		copy(originalGroups, user.Groups)
 
-		mapper.MapGroups(user.Groups, user.Email)
+		_, _ = mapper.MapGroups(user.Groups, user.Email)
 
 		assert.Equal(t, originalGroups, user.Groups, "original user groups must not be modified")
 	})

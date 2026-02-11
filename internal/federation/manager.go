@@ -836,10 +836,23 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 	// new slice only when at least one group is translated.
 	impersonationUser := user
 	if m.groupMapper != nil {
-		impersonationUser = &UserInfo{
-			Email:  user.Email,
-			Groups: m.groupMapper.MapGroups(user.Groups, user.Email),
-			Extra:  user.Extra,
+		mappedGroups, didMap := m.groupMapper.MapGroups(user.Groups, user.Email)
+		if didMap {
+			// Include original groups in impersonation extras for audit trail.
+			// This ensures the K8s audit log on the workload cluster contains both
+			// the mapped groups (in Impersonate-Group) and the originals (in Extra),
+			// providing a complete audit trail in a single log source.
+			extra := make(map[string][]string, len(user.Extra)+1)
+			for k, v := range user.Extra {
+				extra[k] = v
+			}
+			extra[OriginalGroupsExtraKey] = user.Groups
+
+			impersonationUser = &UserInfo{
+				Email:  user.Email,
+				Groups: mappedGroups,
+				Extra:  extra,
+			}
 		}
 	}
 

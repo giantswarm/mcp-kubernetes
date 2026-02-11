@@ -49,10 +49,13 @@ const (
 //   - All group translations are logged at Info level (not Debug) so they appear in
 //     default production log output.
 //
-// Note that reconstructing a complete audit trail for a mapped impersonation request
-// requires correlating mcp-kubernetes application logs with the Kubernetes audit log
-// of the target workload cluster. The application logs record which groups were
-// translated; the cluster audit log records the resulting API calls.
+// # Audit Trail
+//
+// When group mapping is applied, the original (pre-mapping) groups are included in
+// the impersonation Extra headers (see OriginalGroupsExtraKey). This ensures the
+// Kubernetes audit log on the workload cluster contains both the mapped groups (in
+// Impersonate-Group) and the originals (in Impersonate-Extra), providing a complete
+// audit trail in a single log source without needing to correlate multiple systems.
 //
 // # Thread Safety
 //
@@ -123,26 +126,28 @@ func NewGroupMapper(mappings map[string]string, logger *slog.Logger) (*GroupMapp
 // MapGroups translates a slice of OIDC group identifiers using the configured mappings.
 // Groups that have a mapping are translated; groups without a mapping pass through unchanged.
 //
-// The original slice is never modified. A new slice is always returned when any
-// mapping is applied.
+// The original slice is never modified. A new slice is returned when any mapping is applied.
+//
+// Returns the mapped groups and a boolean indicating whether any group was actually
+// translated. When mapped is true, the caller should record the original groups in the
+// impersonation Extra headers (via OriginalGroupsExtraKey) so the Kubernetes audit log
+// on the workload cluster contains a complete audit trail.
 //
 // A summary of all translations is logged at Info level for operational visibility.
-// Note that the user email is hashed in logs (via UserHashAttr) for privacy; correlating
-// a specific translation with a user identity requires matching the hash across log entries
-// or consulting the Kubernetes audit log of the target workload cluster.
+// The user email is hashed in logs (via UserHashAttr) for privacy.
 //
-// Returns nil if groups is nil, or an empty slice if groups is empty.
-func (gm *GroupMapper) MapGroups(groups []string, userEmail string) []string {
+// Returns (nil, false) if groups is nil, or (empty, false) if groups is empty.
+func (gm *GroupMapper) MapGroups(groups []string, userEmail string) ([]string, bool) {
 	if gm == nil || len(gm.mappings) == 0 {
-		return groups
+		return groups, false
 	}
 
 	if groups == nil {
-		return nil
+		return nil, false
 	}
 
 	if len(groups) == 0 {
-		return groups
+		return groups, false
 	}
 
 	// Check if any mapping applies before allocating a new slice
@@ -155,7 +160,7 @@ func (gm *GroupMapper) MapGroups(groups []string, userEmail string) []string {
 	}
 
 	if !anyMapped {
-		return groups
+		return groups, false
 	}
 
 	// At least one group needs mapping: create a new slice
@@ -176,7 +181,7 @@ func (gm *GroupMapper) MapGroups(groups []string, userEmail string) []string {
 		"translations", strings.Join(translations, ", "),
 		UserHashAttr(userEmail))
 
-	return mapped
+	return mapped, true
 }
 
 // MappingCount returns the number of configured group mappings.

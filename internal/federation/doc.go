@@ -145,9 +145,12 @@
 // system:kube-scheduler, system:kube-proxy) is blocked at startup. Other system:*
 // targets produce a warning. Malformed WC_GROUP_MAPPINGS JSON will fail startup
 // (fail-closed) rather than silently starting without mappings.
-// Reconstructing a full audit trail for mapped requests requires correlating
-// mcp-kubernetes application logs (which record translations) with the Kubernetes
-// audit log of the target workload cluster (which records the resulting API calls).
+//
+// The original (pre-mapping) groups are included as impersonation Extra headers
+// (via OriginalGroupsExtraKey) whenever mapping is applied. This ensures the
+// Kubernetes audit log on the workload cluster contains both the mapped groups
+// and the originals, providing a complete audit trail in a single log source.
+// Additionally, translations are logged at Info level in mcp-kubernetes logs.
 //
 // Example Helm values configuration:
 //
