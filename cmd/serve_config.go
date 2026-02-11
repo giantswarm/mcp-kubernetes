@@ -136,13 +136,12 @@ type WorkloadClusterAuthConfig struct {
 	// into. Mapping to dangerous system groups (system:masters, system:nodes,
 	// system:kube-controller-manager, system:kube-scheduler, system:kube-proxy)
 	// is rejected at startup. Mapping to other "system:*" groups produces a
-	// warning. Malformed JSON will prevent startup (fail-closed). Restrict
+	// warning. Invalid mappings will prevent startup (fail-closed). Restrict
 	// access to this configuration.
 	//
 	// Only used in "impersonation" mode. Unmapped groups pass through unchanged.
-	// Set via the WC_GROUP_MAPPINGS environment variable (JSON format).
-	//
-	// Example: {"customer:GroupA": "abc123-def456", "customer:GroupB": "xyz789-012345"}
+	// Configured via Helm values (native YAML map) or the WC_GROUP_MAPPINGS
+	// environment variable (JSON-serialized by the Helm template).
 	GroupMappings map[string]string
 }
 

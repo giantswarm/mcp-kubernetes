@@ -842,9 +842,14 @@ func (m *Manager) createImpersonationClient(ctx context.Context, clusterName str
 			// This ensures the K8s audit log on the workload cluster contains both
 			// the mapped groups (in Impersonate-Group) and the originals (in Extra),
 			// providing a complete audit trail in a single log source.
+			//
+			// Deep copy slice values to prevent any downstream mutation from
+			// affecting the original UserInfo (defense-in-depth for security path).
 			extra := make(map[string][]string, len(user.Extra)+1)
 			for k, v := range user.Extra {
-				extra[k] = v
+				copied := make([]string, len(v))
+				copy(copied, v)
+				extra[k] = copied
 			}
 			extra[OriginalGroupsExtraKey] = user.Groups
 

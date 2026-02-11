@@ -231,6 +231,7 @@ var deniedTargetGroups = map[string]struct{}{
 // validateGroupMappings validates the group mapping configuration.
 // It ensures:
 //   - No empty keys or values
+//   - No identity mappings (source == target)
 //   - No mapping to dangerous target groups (see deniedTargetGroups)
 //   - No duplicate target groups (multiple sources mapping to the same target
 //     would make log correlation ambiguous)
@@ -270,6 +271,12 @@ func validateGroupMappings(mappings map[string]string) error {
 				"target group %q for source %q is denied: mapping to this group "+
 					"would enable privilege escalation (this group bypasses RBAC)",
 				target, source)
+		}
+
+		// Reject identity mappings (source == target) which are no-ops that
+		// would still trigger logging and audit trail extras, confusing operators.
+		if source == target {
+			return fmt.Errorf("identity mapping %q -> %q is a no-op; remove it to avoid confusion", source, target)
 		}
 
 		// Check for duplicate targets (ambiguous log correlation)

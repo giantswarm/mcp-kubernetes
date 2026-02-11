@@ -744,8 +744,8 @@ capiMode:
     # Group mappings for impersonation mode
     #
     # Translates OIDC group identifiers before setting Impersonate-Group headers.
-    # This is useful when the OIDC provider (e.g., Dex) returns group identifiers
-    # in a different format than what the workload cluster RoleBindings expect.
+    # Each key is the source group (as returned by the OIDC provider) and the
+    # value is the target group (as expected by workload cluster RoleBindings).
     #
     # Common use cases:
     #   - OIDC provider returns Azure AD display names, but WC uses GUIDs
@@ -758,16 +758,17 @@ capiMode:
     # system:kube-scheduler, system:kube-proxy) is blocked at startup.
     # Mapping to any other "system:*" group produces a warning. Each translation
     # is logged at Info level. Restrict who can modify this value.
-    # Malformed JSON will prevent the application from starting (fail-closed).
+    # Invalid mappings will prevent the application from starting (fail-closed).
     #
     # Only applies in "impersonation" mode. Unmapped groups pass through unchanged.
-    # The value is a JSON object: {"source-group": "target-group", ...}
     #
     # Example:
-    #   groupMappings: '{"customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "customer:Developers": "b2c3d4e5-f6a7-8901-bcde-f12345678901"}'
+    #   groupMappings:
+    #     "customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    #     "customer:Developers": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
     #
-    # Default: "" (no group mapping, all groups pass through unchanged)
-    groupMappings: ""
+    # Default: {} (no group mapping, all groups pass through unchanged)
+    groupMappings: {}
 
   # Privileged access configuration (split-credential model)
   #

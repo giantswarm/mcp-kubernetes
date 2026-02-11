@@ -76,6 +76,15 @@ func TestNewGroupMapper(t *testing.T) {
 		assert.Contains(t, err.Error(), "control characters")
 	})
 
+	t.Run("rejects identity mapping (source equals target)", func(t *testing.T) {
+		_, err := NewGroupMapper(map[string]string{
+			"group-a": "group-a",
+		}, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "identity mapping")
+		assert.Contains(t, err.Error(), "no-op")
+	})
+
 	t.Run("rejects duplicate target groups", func(t *testing.T) {
 		_, err := NewGroupMapper(map[string]string{
 			"source-a": "same-target",
@@ -416,6 +425,14 @@ func TestValidateGroupMappings(t *testing.T) {
 		assert.Contains(t, err.Error(), "too many group mappings")
 	})
 
+	t.Run("rejects identity mapping", func(t *testing.T) {
+		err := validateGroupMappings(map[string]string{
+			"same-group": "same-group",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "identity mapping")
+	})
+
 	t.Run("allows non-denied system: targets", func(t *testing.T) {
 		// system:authenticated is not on the denylist
 		assert.NoError(t, validateGroupMappings(map[string]string{
@@ -425,45 +442,12 @@ func TestValidateGroupMappings(t *testing.T) {
 }
 
 func TestDeniedTargetGroups(t *testing.T) {
-	t.Run("system:masters is denied", func(t *testing.T) {
-		_, ok := deniedTargetGroups["system:masters"]
-		assert.True(t, ok)
-	})
-
-	t.Run("system:nodes is denied", func(t *testing.T) {
-		_, ok := deniedTargetGroups["system:nodes"]
-		assert.True(t, ok)
-	})
-
-	t.Run("system:kube-controller-manager is denied", func(t *testing.T) {
-		_, ok := deniedTargetGroups["system:kube-controller-manager"]
-		assert.True(t, ok)
-	})
-
-	t.Run("system:kube-scheduler is denied", func(t *testing.T) {
-		_, ok := deniedTargetGroups["system:kube-scheduler"]
-		assert.True(t, ok)
-	})
-
-	t.Run("system:kube-proxy is denied", func(t *testing.T) {
-		_, ok := deniedTargetGroups["system:kube-proxy"]
-		assert.True(t, ok)
-	})
-
+	// Guard against accidentally adding or removing entries from the denylist.
+	// Individual denied groups are covered by TestValidateGroupMappings and
+	// TestNewGroupMapper which test the actual rejection behavior.
 	t.Run("denylist has expected size", func(t *testing.T) {
-		// Guard against accidentally removing entries.
-		// Update this count when adding new entries.
-		assert.Equal(t, 5, len(deniedTargetGroups))
-	})
-
-	t.Run("system:authenticated is not denied", func(t *testing.T) {
-		_, ok := deniedTargetGroups["system:authenticated"]
-		assert.False(t, ok)
-	})
-
-	t.Run("arbitrary groups are not denied", func(t *testing.T) {
-		_, ok := deniedTargetGroups["my-custom-group"]
-		assert.False(t, ok)
+		assert.Equal(t, 5, len(deniedTargetGroups),
+			"update this count and TestValidateGroupMappings when changing the denylist")
 	})
 }
 

@@ -143,7 +143,7 @@
 // var) controls which Kubernetes groups users are impersonated into. Mapping to
 // dangerous system groups (system:masters, system:nodes, system:kube-controller-manager,
 // system:kube-scheduler, system:kube-proxy) is blocked at startup. Other system:*
-// targets produce a warning. Malformed WC_GROUP_MAPPINGS JSON will fail startup
+// targets produce a warning. Invalid group mappings will fail startup
 // (fail-closed) rather than silently starting without mappings.
 //
 // The original (pre-mapping) groups are included as impersonation Extra headers
@@ -156,7 +156,8 @@
 //
 //	capiMode:
 //	  workloadClusterAuth:
-//	    groupMappings: '{"customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}'
+//	    groupMappings:
+//	      "customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 //
 // Administrators should configure Workload Cluster RBAC policies to match the exact
 // group strings provided by their identity provider through Dex, or use group mapping

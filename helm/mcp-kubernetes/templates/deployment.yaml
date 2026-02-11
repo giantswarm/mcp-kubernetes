@@ -296,7 +296,7 @@ spec:
             {{- end }}
             {{- if .Values.capiMode.workloadClusterAuth.groupMappings }}
             - name: WC_GROUP_MAPPINGS
-              value: {{ .Values.capiMode.workloadClusterAuth.groupMappings | quote }}
+              value: {{ .Values.capiMode.workloadClusterAuth.groupMappings | toJson | quote }}
             {{- end }}
             {{- end }}
             # Privileged Access Configuration (split-credential model)
