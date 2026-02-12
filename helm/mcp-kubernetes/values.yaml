@@ -741,6 +741,34 @@ capiMode:
     # Trade-off: Higher latency per request (no connection reuse).
     # Default: false (caching enabled for better performance)
     disableCaching: false
+    # Group mappings for impersonation mode
+    #
+    # Translates OIDC group identifiers before setting Impersonate-Group headers.
+    # Each key is the source group (as returned by the OIDC provider) and the
+    # value is the target group (as expected by workload cluster RoleBindings).
+    #
+    # Common use cases:
+    #   - OIDC provider returns Azure AD display names, but WC uses GUIDs
+    #   - Federation broker normalizes groups differently from the upstream IdP
+    #   - LDAP-backed provider returns DNs, but WC expects short names
+    #
+    # SECURITY: Mappings control which Kubernetes groups users are impersonated
+    # into on workload clusters. Mapping to dangerous system groups
+    # (system:masters, system:nodes, system:kube-controller-manager,
+    # system:kube-scheduler, system:kube-proxy) is blocked at startup.
+    # Mapping to any other "system:*" group produces a warning. Each translation
+    # is logged at Info level. Restrict who can modify this value.
+    # Invalid mappings will prevent the application from starting (fail-closed).
+    #
+    # Only applies in "impersonation" mode. Unmapped groups pass through unchanged.
+    #
+    # Example:
+    #   groupMappings:
+    #     "customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    #     "customer:Developers": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+    #
+    # Default: {} (no group mapping, all groups pass through unchanged)
+    groupMappings: {}
 
   # Privileged access configuration (split-credential model)
   #

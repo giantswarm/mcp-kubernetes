@@ -121,6 +121,28 @@ type WorkloadClusterAuthConfig struct {
 	// Trade-off: Higher latency per request (no connection reuse).
 	// Default: false (caching enabled for better performance)
 	DisableCaching bool
+
+	// GroupMappings is a map of source-group -> target-group for translating
+	// OIDC group identifiers before setting Impersonate-Group headers.
+	//
+	// This is useful when the OIDC provider (e.g., Dex, Google, Okta) returns
+	// group identifiers in a different format than what the workload cluster
+	// RoleBindings expect. For example:
+	//   - OIDC provider returns Azure AD display names ("customer:GroupA"),
+	//     but workload cluster RoleBindings use Azure AD group GUIDs.
+	//   - LDAP-backed provider returns group DNs, but the cluster expects short names.
+	//
+	// SECURITY: Mappings control which Kubernetes groups users are impersonated
+	// into. Mapping to dangerous system groups (system:masters, system:nodes,
+	// system:kube-controller-manager, system:kube-scheduler, system:kube-proxy)
+	// is rejected at startup. Mapping to other "system:*" groups produces a
+	// warning. Invalid mappings will prevent startup (fail-closed). Restrict
+	// access to this configuration.
+	//
+	// Only used in "impersonation" mode. Unmapped groups pass through unchanged.
+	// Configured via Helm values (native YAML map) or the WC_GROUP_MAPPINGS
+	// environment variable (JSON-serialized by the Helm template).
+	GroupMappings map[string]string
 }
 
 // PrivilegedAccessConfig configures the split-credential model for privileged access.
