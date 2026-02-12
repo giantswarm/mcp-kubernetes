@@ -1,8 +1,6 @@
 package cluster
 
 import (
-	"context"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -39,9 +37,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	)
 	apiResourcesTool := mcp.NewTool("kubernetes_api_resources", apiResourcesOpts...)
 
-	s.AddTool(apiResourcesTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleGetAPIResources(ctx, request, sc)
-	})
+	s.AddTool(apiResourcesTool, tools.WrapWithAuditLogging("kubernetes_api_resources", handleGetAPIResources, sc))
 
 	// kubernetes_cluster_health tool
 	clusterHealthOpts := []mcp.ToolOption{
@@ -50,9 +46,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	clusterHealthOpts = append(clusterHealthOpts, clusterContextParams...)
 	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health", clusterHealthOpts...)
 
-	s.AddTool(clusterHealthTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleGetClusterHealth(ctx, request, sc)
-	})
+	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("kubernetes_cluster_health", handleGetClusterHealth, sc))
 
 	return nil
 }

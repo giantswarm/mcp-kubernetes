@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
@@ -834,8 +835,18 @@ func runServe(config ServeConfig) error {
 	}()
 
 	// Create MCP server
+	hooks := &mcpserver.Hooks{}
+	hooks.AddAfterInitialize(func(ctx context.Context, id any, msg *mcp.InitializeRequest, result *mcp.InitializeResult) {
+		slog.Info("session initialized",
+			"client_name", msg.Params.ClientInfo.Name,
+			"client_version", msg.Params.ClientInfo.Version,
+			"protocol_version", msg.Params.ProtocolVersion,
+		)
+	})
+
 	mcpSrv := mcpserver.NewMCPServer("mcp-kubernetes", rootCmd.Version,
 		mcpserver.WithToolCapabilities(true),
+		mcpserver.WithHooks(hooks),
 	)
 
 	// Register all tool categories
@@ -866,10 +877,10 @@ func runServe(config ServeConfig) error {
 		// Don't print startup message for stdio mode as it interferes with MCP communication
 		return runStdioServer(mcpSrv)
 	case transportSSE:
-		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
+		slog.Info("starting MCP Kubernetes server", "transport", config.Transport)
 		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, config.Metrics)
 	case transportStreamableHTTP:
-		fmt.Printf("Starting MCP Kubernetes server with %s transport...\n", config.Transport)
+		slog.Info("starting MCP Kubernetes server", "transport", config.Transport)
 		if config.OAuth.Enabled {
 			// Get OAuth credentials from env vars if not provided via flags
 			loadEnvIfEmpty(&config.OAuth.GoogleClientID, "GOOGLE_CLIENT_ID")
@@ -989,31 +1000,31 @@ func runServe(config ServeConfig) error {
 				}
 
 				encryptionKey = decoded
-				fmt.Println("OAuth: Token encryption at rest enabled (AES-256-GCM)")
+				slog.Info("OAuth token encryption at rest enabled", "algorithm", "AES-256-GCM")
 			} else {
-				fmt.Println("WARNING: OAuth encryption key not set - tokens will be stored unencrypted")
+				slog.Warn("OAuth encryption key not set - tokens will be stored unencrypted")
 			}
 
 			// Warn about insecure configuration options
 			if config.OAuth.AllowPublicRegistration {
-				fmt.Println("WARNING: Public client registration is enabled - this allows unlimited client registration and may lead to DoS")
-				fmt.Println("         Recommended: Set --allow-public-registration=false and use --registration-token")
+				slog.Warn("public client registration is enabled - this allows unlimited client registration and may lead to DoS",
+					"recommendation", "set --allow-public-registration=false and use --registration-token")
 			}
 			if config.OAuth.AllowInsecureAuthWithoutState {
-				fmt.Println("WARNING: State parameter is optional - this weakens CSRF protection")
-				fmt.Println("         Recommended: Set --allow-insecure-auth-without-state=false for production")
+				slog.Warn("state parameter is optional - this weakens CSRF protection",
+					"recommendation", "set --allow-insecure-auth-without-state=false for production")
 			}
 			if config.DebugMode {
-				fmt.Println("WARNING: Debug logging is enabled - this may log sensitive information")
-				fmt.Println("         Recommended: Disable debug mode in production")
+				slog.Warn("debug logging is enabled - this may log sensitive information",
+					"recommendation", "disable debug mode in production")
 			}
 			if config.OAuth.AllowPrivateURLs {
-				fmt.Println("WARNING: Private URL validation disabled - OAuth URLs may resolve to internal IP addresses")
-				fmt.Println("         This reduces SSRF protection. Only use for internal/air-gapped deployments.")
+				slog.Warn("private URL validation disabled - OAuth URLs may resolve to internal IP addresses",
+					"note", "this reduces SSRF protection, only use for internal/air-gapped deployments")
 			}
 			if config.OAuth.CIMDAllowPrivateIPs {
-				fmt.Println("WARNING: CIMD private IP allowlist enabled - CIMD metadata URLs may resolve to internal IP addresses")
-				fmt.Println("         This reduces SSRF protection. Only use for internal/air-gapped deployments.")
+				slog.Warn("CIMD private IP allowlist enabled - CIMD metadata URLs may resolve to internal IP addresses",
+					"note", "this reduces SSRF protection, only use for internal/air-gapped deployments")
 			}
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{

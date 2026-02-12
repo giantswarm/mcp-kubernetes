@@ -43,9 +43,10 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 		slog.Debug("sse server instance created successfully")
 	}
 
-	fmt.Printf("SSE server starting on %s\n", addr)
-	fmt.Printf("  SSE endpoint: %s\n", sseEndpoint)
-	fmt.Printf("  Message endpoint: %s\n", messageEndpoint)
+	slog.Info("SSE server starting",
+		"addr", addr,
+		"sse_endpoint", sseEndpoint,
+		"message_endpoint", messageEndpoint)
 
 	// Apply HTTP metrics middleware to record request metrics
 	var handler http.Handler = mux
@@ -99,7 +100,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 		if debugMode {
 			slog.Debug("shutdown signal received, initiating sse server shutdown")
 		}
-		fmt.Println("Shutdown signal received, stopping SSE server...")
+		slog.Info("shutdown signal received, stopping SSE server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.DefaultShutdownTimeout)
 		defer cancel()
 		if debugMode {
@@ -128,15 +129,14 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 				slog.Debug("sse server stopped with error", "error", err)
 			}
 			return fmt.Errorf("SSE server stopped with error: %w", err)
-		} else {
-			if debugMode {
-				slog.Debug("sse server stopped normally")
-			}
-			fmt.Println("SSE server stopped normally")
 		}
+		if debugMode {
+			slog.Debug("sse server stopped normally")
+		}
+		slog.Info("SSE server stopped normally")
 	}
 
-	fmt.Println("SSE server gracefully stopped")
+	slog.Info("SSE server gracefully stopped")
 	if debugMode {
 		slog.Debug("sse server shutdown sequence completed")
 	}

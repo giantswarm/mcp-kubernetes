@@ -1,12 +1,11 @@
 package access
 
 import (
-	"context"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	mcpserver "github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // CanITool allows agents to check if the authenticated user has permission
@@ -44,7 +43,5 @@ var CanITool = mcp.NewTool("can_i",
 
 // RegisterTools registers the access tools with the MCP server.
 func RegisterTools(mcpServer *server.MCPServer, sc *mcpserver.ServerContext) {
-	mcpServer.AddTool(CanITool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return HandleCanI(ctx, request, sc)
-	})
+	mcpServer.AddTool(CanITool, tools.WrapWithAuditLogging("can_i", HandleCanI, sc))
 }
