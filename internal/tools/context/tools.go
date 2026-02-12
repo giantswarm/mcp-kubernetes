@@ -1,8 +1,6 @@
 package contexttools
 
 import (
-	"context"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -26,9 +24,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
-	s.AddTool(listContextsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleListContexts(ctx, request, sc)
-	})
+	s.AddTool(listContextsTool, tools.WrapWithAuditLogging("kubernetes_context_list", handleListContexts, sc))
 
 	// kubernetes_context_get_current tool
 	getCurrentContextTool := mcp.NewTool("kubernetes_context_get_current",
@@ -36,9 +32,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
-	s.AddTool(getCurrentContextTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleGetCurrentContext(ctx, request, sc)
-	})
+	s.AddTool(getCurrentContextTool, tools.WrapWithAuditLogging("kubernetes_context_get_current", handleGetCurrentContext, sc))
 
 	// kubernetes_context_use tool
 	useContextTool := mcp.NewTool("kubernetes_context_use",
@@ -49,9 +43,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		),
 	)
 
-	s.AddTool(useContextTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleUseContext(ctx, request, sc)
-	})
+	s.AddTool(useContextTool, tools.WrapWithAuditLogging("kubernetes_context_use", handleUseContext, sc))
 
 	return nil
 }

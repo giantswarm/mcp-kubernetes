@@ -1,8 +1,6 @@
 package pod
 
 import (
-	"context"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -53,9 +51,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	)
 	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)
 
-	s.AddTool(logsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleGetLogs(ctx, request, sc)
-	})
+	s.AddTool(logsTool, tools.WrapWithAuditLogging("kubernetes_logs", handleGetLogs, sc))
 
 	// kubernetes_exec tool
 	execOpts := []mcp.ToolOption{
@@ -85,9 +81,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	)
 	execTool := mcp.NewTool("kubernetes_exec", execOpts...)
 
-	s.AddTool(execTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleExec(ctx, request, sc)
-	})
+	s.AddTool(execTool, tools.WrapWithAuditLogging("kubernetes_exec", handleExec, sc))
 
 	// port_forward tool
 	portForwardOpts := []mcp.ToolOption{
@@ -115,9 +109,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	)
 	portForwardTool := mcp.NewTool("port_forward", portForwardOpts...)
 
-	s.AddTool(portForwardTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handlePortForward(ctx, request, sc)
-	})
+	s.AddTool(portForwardTool, tools.WrapWithAuditLogging("port_forward", handlePortForward, sc))
 
 	// list_port_forward_sessions tool
 	listSessionsTool := mcp.NewTool("list_port_forward_sessions",
@@ -125,9 +117,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
-	s.AddTool(listSessionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleListPortForwardSessions(ctx, request, sc)
-	})
+	s.AddTool(listSessionsTool, tools.WrapWithAuditLogging("list_port_forward_sessions", handleListPortForwardSessions, sc))
 
 	// stop_port_forward_session tool
 	stopSessionTool := mcp.NewTool("stop_port_forward_session",
@@ -138,9 +128,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(stopSessionTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleStopPortForwardSession(ctx, request, sc)
-	})
+	s.AddTool(stopSessionTool, tools.WrapWithAuditLogging("stop_port_forward_session", handleStopPortForwardSession, sc))
 
 	// stop_all_port_forward_sessions tool
 	stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
@@ -148,9 +136,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
-	s.AddTool(stopAllSessionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleStopAllPortForwardSessions(ctx, request, sc)
-	})
+	s.AddTool(stopAllSessionsTool, tools.WrapWithAuditLogging("stop_all_port_forward_sessions", handleStopAllPortForwardSessions, sc))
 
 	return nil
 }
