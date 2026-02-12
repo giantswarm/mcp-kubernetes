@@ -68,8 +68,8 @@ type Metrics struct {
 	impersonationTotal        metric.Int64Counter
 	federationClientCreations metric.Int64Counter
 
-	// Privileged secret access metrics
-	privilegedSecretAccessTotal metric.Int64Counter
+	// Privileged access metrics (covers both secret access and CAPI discovery)
+	privilegedAccessTotal metric.Int64Counter
 
 	// Workload cluster authentication metrics
 	wcAuthTotal metric.Int64Counter
@@ -241,17 +241,18 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 		return nil, fmt.Errorf("failed to create mcp_kubernetes_federation_client_creations_total counter: %w", err)
 	}
 
-	// Privileged Secret Access Metrics
+	// Privileged Access Metrics
 	//
 	// Note on cardinality: Uses user_domain instead of full email to control cardinality.
+	// Operation values: "secret_access", "capi_discovery"
 	// Result values: "success", "error", "rate_limited", "fallback"
-	m.privilegedSecretAccessTotal, err = meter.Int64Counter(
-		"mcp_kubernetes_privileged_secret_access_total",
-		metric.WithDescription("Total privileged secret access attempts. Labels: user_domain, result"),
+	m.privilegedAccessTotal, err = meter.Int64Counter(
+		"mcp_kubernetes_privileged_access_total",
+		metric.WithDescription("Total privileged access attempts. Labels: user_domain, operation, result"),
 		metric.WithUnit("{access}"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp_kubernetes_privileged_secret_access_total counter: %w", err)
+		return nil, fmt.Errorf("failed to create mcp_kubernetes_privileged_access_total counter: %w", err)
 	}
 
 	// Workload Cluster Authentication Metrics
@@ -529,31 +530,34 @@ func (m *Metrics) RecordFederationClientCreation(ctx context.Context, clusterNam
 	m.federationClientCreations.Add(ctx, 1, metric.WithAttributes(attrs...))
 }
 
-// RecordPrivilegedSecretAccess records a privileged secret access attempt.
-// This metric tracks ServiceAccount-based kubeconfig secret access for security monitoring.
+// RecordPrivilegedAccess records a privileged access attempt.
+// This metric tracks ServiceAccount-based privileged access for security monitoring.
 //
 // # Security Monitoring
 //
 // Use this metric to:
-//   - Monitor privileged access patterns
+//   - Monitor privileged access patterns by operation type
 //   - Detect rate limiting events
 //   - Track fallback to user credentials (potential security weakness)
 //   - Identify errors in privileged access setup
+//   - Distinguish between secret access and CAPI discovery volume
 //
 // Parameters:
 //   - userDomain: User's email domain (e.g., "giantswarm.io") for cardinality control
+//   - operation: The type of privileged operation ("secret_access" or "capi_discovery")
 //   - result: One of "success", "error", "rate_limited", "fallback"
-func (m *Metrics) RecordPrivilegedSecretAccess(ctx context.Context, userDomain, result string) {
-	if m.privilegedSecretAccessTotal == nil {
+func (m *Metrics) RecordPrivilegedAccess(ctx context.Context, userDomain, operation, result string) {
+	if m.privilegedAccessTotal == nil {
 		return // Instrumentation not initialized
 	}
 
 	attrs := []attribute.KeyValue{
 		attribute.String(attrUserDomain, userDomain),
+		attribute.String(attrOperation, operation),
 		attribute.String(attrResult, result),
 	}
 
-	m.privilegedSecretAccessTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+	m.privilegedAccessTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 }
 
 // RecordWorkloadClusterAuth records a workload cluster authentication attempt.

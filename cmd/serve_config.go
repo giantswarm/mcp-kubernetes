@@ -90,8 +90,8 @@ type CAPIModeConfig struct {
 	// Workload cluster authentication configuration
 	WorkloadClusterAuth WorkloadClusterAuthConfig
 
-	// Privileged secret access configuration (split-credential model)
-	PrivilegedSecretAccess PrivilegedSecretAccessConfig
+	// Privileged access configuration (split-credential model)
+	PrivilegedAccess PrivilegedAccessConfig
 }
 
 // WorkloadClusterAuthConfig configures how mcp-kubernetes authenticates to workload clusters.
@@ -121,12 +121,50 @@ type WorkloadClusterAuthConfig struct {
 	// Trade-off: Higher latency per request (no connection reuse).
 	// Default: false (caching enabled for better performance)
 	DisableCaching bool
+
+	// GroupMappings is a map of source-group -> target-group for translating
+	// OIDC group identifiers before setting Impersonate-Group headers.
+	//
+	// This is useful when the OIDC provider (e.g., Dex, Google, Okta) returns
+	// group identifiers in a different format than what the workload cluster
+	// RoleBindings expect. For example:
+	//   - OIDC provider returns Azure AD display names ("customer:GroupA"),
+	//     but workload cluster RoleBindings use Azure AD group GUIDs.
+	//   - LDAP-backed provider returns group DNs, but the cluster expects short names.
+	//
+	// SECURITY: Mappings control which Kubernetes groups users are impersonated
+	// into. Mapping to dangerous system groups (system:masters, system:nodes,
+	// system:kube-controller-manager, system:kube-scheduler, system:kube-proxy)
+	// is rejected at startup. Mapping to other "system:*" groups produces a
+	// warning. Invalid mappings will prevent startup (fail-closed). Restrict
+	// access to this configuration.
+	//
+	// Only used in "impersonation" mode. Unmapped groups pass through unchanged.
+	// Configured via Helm values (native YAML map) or the WC_GROUP_MAPPINGS
+	// environment variable (JSON-serialized by the Helm template).
+	GroupMappings map[string]string
 }
 
-// PrivilegedSecretAccessConfig configures the split-credential model for kubeconfig secret access.
-// When enabled, the ServiceAccount token is used for kubeconfig secret access instead of user OAuth tokens.
-// This prevents users from bypassing impersonation by extracting admin credentials via kubectl.
-type PrivilegedSecretAccessConfig struct {
+// PrivilegedAccessConfig configures the split-credential model for privileged access.
+// When enabled, the ServiceAccount token is used for kubeconfig secret access and
+// CAPI cluster discovery instead of user OAuth tokens. This prevents users from
+// bypassing impersonation by extracting admin credentials via kubectl.
+type PrivilegedAccessConfig struct {
+	// Enabled controls whether the split-credential model is active.
+	//
+	// When true (default), a HybridOAuthClientProvider is created and
+	// WithPrivilegedAccess is passed to the Manager. The resulting
+	// CredentialMode depends on PrivilegedCAPIDiscovery:
+	//   - true  → CredentialModeFullPrivileged
+	//   - false → CredentialModePrivilegedSecrets
+	//
+	// When false, no privileged provider is created and the Manager
+	// uses CredentialModeUser: all operations (CAPI discovery, secret
+	// access) use the user's own OAuth token and RBAC.
+	//
+	// Default: true
+	Enabled *bool
+
 	// Strict mode: When enabled, fails instead of falling back to user credentials
 	// when ServiceAccount access is unavailable.
 	//
@@ -137,6 +175,27 @@ type PrivilegedSecretAccessConfig struct {
 	//
 	// Default: false (fallback enabled for backward compatibility)
 	Strict bool
+
+	// PrivilegedCAPIDiscovery controls whether CAPI cluster discovery uses
+	// ServiceAccount credentials instead of user credentials.
+	//
+	// When enabled (default), the ServiceAccount discovers all CAPI clusters,
+	// eliminating the need for users to have cluster-scoped CAPI permissions.
+	// This is the recommended setting because granting every user cluster-scoped
+	// CAPI permissions is impractical in multi-tenant environments.
+	//
+	// When disabled, users must have their own RBAC permissions to list
+	// clusters.cluster.x-k8s.io resources. This limits cluster visibility
+	// to what the user's RBAC allows, providing tenant-level isolation of
+	// cluster discovery.
+	//
+	// VISIBILITY NOTE:
+	// When enabled, all users can see all CAPI clusters (names, namespaces,
+	// status). Access to workload cluster operations is still governed by
+	// the user's own RBAC via impersonation.
+	//
+	// Default: true (privileged CAPI discovery enabled)
+	PrivilegedCAPIDiscovery *bool
 
 	// RateLimitPerSecond is the rate limit for privileged access per user (requests/second).
 	// Prevents abuse by limiting how often a user can trigger ServiceAccount-based secret access.

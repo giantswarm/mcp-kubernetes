@@ -553,7 +553,9 @@ func runServe(config ServeConfig) error {
 	}
 
 	// Load CAPI mode configuration from environment variables
-	loadCAPIModeConfig(&config.CAPIMode)
+	if err := loadCAPIModeConfig(&config.CAPIMode); err != nil {
+		return fmt.Errorf("failed to load CAPI mode configuration: %w", err)
+	}
 
 	// Create federation manager if CAPI mode is enabled
 	var fedManager federation.ClusterClientManager
@@ -567,7 +569,7 @@ func runServe(config ServeConfig) error {
 			return fmt.Errorf("CAPI mode requires in-cluster mode (--in-cluster)")
 		}
 
-		// Create OAuth client provider
+		// Create OAuth client provider (used for user-scoped operations in all modes)
 		oauthProvider, err := federation.NewOAuthClientProviderFromInCluster()
 		if err != nil {
 			return fmt.Errorf("failed to create OAuth client provider: %w", err)
@@ -581,30 +583,54 @@ func runServe(config ServeConfig) error {
 			oauthProvider.SetMetrics(instrumentationProvider.Metrics())
 		}
 
-		// Create HybridOAuthClientProvider for split-credential model
-		// This wraps the OAuth provider with ServiceAccount-based secret access
-		hybridConfig := &federation.HybridOAuthClientProviderConfig{
-			UserProvider:           oauthProvider,
-			StrictPrivilegedAccess: config.CAPIMode.PrivilegedSecretAccess.Strict,
-			RateLimitPerSecond:     config.CAPIMode.PrivilegedSecretAccess.RateLimitPerSecond,
-			RateLimitBurst:         config.CAPIMode.PrivilegedSecretAccess.RateLimitBurst,
-		}
+		// Determine the client provider and manager options based on privileged
+		// access configuration. When privileged access is enabled (default), a
+		// HybridOAuthClientProvider wraps the user provider with ServiceAccount
+		// credentials. When disabled, the plain OAuth provider is used directly
+		// and the Manager runs in CredentialModeUser.
+		var clientProvider federation.ClientProvider
 
-		hybridProvider, err = federation.NewHybridOAuthClientProvider(hybridConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create hybrid OAuth client provider: %w", err)
-		}
+		// Default: privileged access is enabled unless explicitly disabled
+		privilegedAccessEnabled := config.CAPIMode.PrivilegedAccess.Enabled == nil || *config.CAPIMode.PrivilegedAccess.Enabled
 
-		// Set privileged access metrics if instrumentation is enabled
-		if instrumentationProvider.Enabled() {
-			hybridProvider.SetPrivilegedAccessMetrics(instrumentationProvider.Metrics())
-		}
+		if privilegedAccessEnabled {
+			// Create HybridOAuthClientProvider for split-credential model
+			// This wraps the OAuth provider with ServiceAccount-based secret access
+			hybridConfig := &federation.HybridOAuthClientProviderConfig{
+				UserProvider:            oauthProvider,
+				StrictPrivilegedAccess:  config.CAPIMode.PrivilegedAccess.Strict,
+				PrivilegedCAPIDiscovery: config.CAPIMode.PrivilegedAccess.PrivilegedCAPIDiscovery,
+				RateLimitPerSecond:      config.CAPIMode.PrivilegedAccess.RateLimitPerSecond,
+				RateLimitBurst:          config.CAPIMode.PrivilegedAccess.RateLimitBurst,
+			}
 
-		// Log the privileged access configuration (using provider's actual values after defaults applied)
-		slog.Info("privileged secret access enabled (split-credential model)",
-			"strict_mode", hybridProvider.StrictPrivilegedAccess(),
-			"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
-			"rate_limit_burst", hybridProvider.RateLimitBurst())
+			hybridProvider, err = federation.NewHybridOAuthClientProvider(hybridConfig)
+			if err != nil {
+				return fmt.Errorf("failed to create hybrid OAuth client provider: %w", err)
+			}
+
+			// Set privileged access metrics if instrumentation is enabled
+			if instrumentationProvider.Enabled() {
+				hybridProvider.SetPrivilegedAccessMetrics(instrumentationProvider.Metrics())
+			}
+
+			clientProvider = hybridProvider
+
+			// Log the privileged access configuration (using provider's actual values after defaults applied)
+			slog.Info("privileged access enabled (split-credential model)",
+				"strict_mode", hybridProvider.IsStrictMode(),
+				"privileged_capi_discovery", hybridProvider.PrivilegedCAPIDiscovery(),
+				"rate_limit_per_second", hybridProvider.RateLimitPerSecond(),
+				"rate_limit_burst", hybridProvider.RateLimitBurst())
+		} else {
+			// No privileged access: user's own RBAC for all operations.
+			// Log at Warn because this significantly changes the security posture:
+			// users need direct RBAC for CAPI clusters and kubeconfig secrets.
+			clientProvider = oauthProvider
+
+			slog.Warn("privileged access disabled (CredentialModeUser) - users need RBAC for CAPI discovery and secret access",
+				"description", "all CAPI discovery and secret access use user RBAC; ensure users have appropriate ClusterRoleBindings")
+		}
 
 		// Build federation manager options
 		var managerOpts []federation.ManagerOption
@@ -748,8 +774,32 @@ func runServe(config ServeConfig) error {
 			managerOpts = append(managerOpts, federation.WithAuthMetrics(instrumentationProvider.Metrics()))
 		}
 
-		// Create federation manager with the hybrid provider for split-credential model
-		fedManager, err = federation.NewManager(hybridProvider, managerOpts...)
+		// When privileged access is enabled, pass WithPrivilegedAccess to the
+		// Manager. This enables the split-credential model (ServiceAccount for
+		// secrets + CAPI discovery, user OAuth for workload cluster operations).
+		// Without it, the Manager uses CredentialModeUser where users need their
+		// own RBAC for everything.
+		if privilegedAccessEnabled {
+			managerOpts = append(managerOpts, federation.WithPrivilegedAccess(hybridProvider))
+			if instrumentationProvider.Enabled() {
+				managerOpts = append(managerOpts, federation.WithPrivilegedAccessMetrics(instrumentationProvider.Metrics()))
+			}
+		}
+
+		// Configure group mapping for impersonation mode
+		if len(config.CAPIMode.WorkloadClusterAuth.GroupMappings) > 0 {
+			groupMapper, err := federation.NewGroupMapper(
+				config.CAPIMode.WorkloadClusterAuth.GroupMappings, slog.Default())
+			if err != nil {
+				return fmt.Errorf("failed to create group mapper: %w", err)
+			}
+			managerOpts = append(managerOpts, federation.WithGroupMapper(groupMapper))
+			slog.Info("Group mapping enabled for workload cluster impersonation",
+				"mapping_count", groupMapper.MappingCount())
+		}
+
+		// Create federation manager
+		fedManager, err = federation.NewManager(clientProvider, managerOpts...)
 		if err != nil {
 			return fmt.Errorf("failed to create federation manager: %w", err)
 		}
@@ -1065,8 +1115,11 @@ func loadOAuthStorageEnvVars(cmd *cobra.Command, config *server.OAuthStorageConf
 
 // loadCAPIModeConfig loads CAPI mode configuration from environment variables.
 // This matches the environment variables set by the Helm chart deployment.yaml.
-// Invalid values are logged as warnings and ignored.
-func loadCAPIModeConfig(config *CAPIModeConfig) {
+//
+// Returns an error for security-critical configuration that must not be silently
+// ignored (e.g., malformed WC_GROUP_MAPPINGS). Non-critical values are logged
+// as warnings and use defaults.
+func loadCAPIModeConfig(config *CAPIModeConfig) error {
 	// Check if CAPI mode is enabled
 	if os.Getenv("CAPI_MODE_ENABLED") == envValueTrue {
 		config.Enabled = true
@@ -1082,16 +1135,48 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	if os.Getenv("WC_DISABLE_CACHING") == envValueTrue {
 		config.WorkloadClusterAuth.DisableCaching = true
 	}
+	// Group mappings for impersonation mode (JSON format).
+	// This is a security-critical setting: if an operator sets it, malformed JSON
+	// must fail startup rather than silently starting without mappings (fail-closed).
+	if mappingsJSON := os.Getenv("WC_GROUP_MAPPINGS"); mappingsJSON != "" {
+		mappings, err := federation.ParseGroupMappingsJSON(mappingsJSON)
+		if err != nil {
+			return fmt.Errorf("invalid WC_GROUP_MAPPINGS: %w (the server refuses to start "+
+				"with a malformed group mapping to prevent silent misconfiguration)", err)
+		}
+		if len(mappings) > 0 {
+			config.WorkloadClusterAuth.GroupMappings = mappings
+			slog.Info("Group mappings loaded from WC_GROUP_MAPPINGS",
+				"mapping_count", len(mappings),
+				"summary", federation.FormatGroupMappingsForLog(mappings))
+		}
+	}
 
-	// Privileged secret access configuration (split-credential model)
-	if os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
-		config.PrivilegedSecretAccess.Strict = true
+	// Privileged access configuration (split-credential model)
+	if v := os.Getenv("PRIVILEGED_ACCESS_ENABLED"); v != "" {
+		val := v == envValueTrue
+		config.PrivilegedAccess.Enabled = &val
 	}
-	if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"); ok {
-		config.PrivilegedSecretAccess.RateLimitPerSecond = f
+	// PRIVILEGED_ACCESS_STRICT (new) with PRIVILEGED_SECRET_ACCESS_STRICT (deprecated) fallback
+	if os.Getenv("PRIVILEGED_ACCESS_STRICT") == envValueTrue || os.Getenv("PRIVILEGED_SECRET_ACCESS_STRICT") == envValueTrue {
+		config.PrivilegedAccess.Strict = true
 	}
-	if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_BURST"), "PRIVILEGED_SECRET_ACCESS_RATE_BURST"); ok {
-		config.PrivilegedSecretAccess.RateLimitBurst = n
+	// Privileged CAPI discovery (default: true)
+	if v := os.Getenv("PRIVILEGED_CAPI_DISCOVERY"); v != "" {
+		val := v == envValueTrue
+		config.PrivilegedAccess.PrivilegedCAPIDiscovery = &val
+	}
+	// PRIVILEGED_ACCESS_RATE_PER_SECOND (new) with PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND (deprecated) fallback
+	if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_ACCESS_RATE_PER_SECOND"); ok {
+		config.PrivilegedAccess.RateLimitPerSecond = f
+	} else if f, ok := parseFloat64Env(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"), "PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND"); ok {
+		config.PrivilegedAccess.RateLimitPerSecond = f
+	}
+	// PRIVILEGED_ACCESS_RATE_BURST (new) with PRIVILEGED_SECRET_ACCESS_RATE_BURST (deprecated) fallback
+	if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_ACCESS_RATE_BURST"), "PRIVILEGED_ACCESS_RATE_BURST"); ok {
+		config.PrivilegedAccess.RateLimitBurst = n
+	} else if n, ok := parseIntEnv(os.Getenv("PRIVILEGED_SECRET_ACCESS_RATE_BURST"), "PRIVILEGED_SECRET_ACCESS_RATE_BURST"); ok {
+		config.PrivilegedAccess.RateLimitBurst = n
 	}
 
 	// Cache configuration - store as strings for later validation
@@ -1130,4 +1215,6 @@ func loadCAPIModeConfig(config *CAPIModeConfig) {
 	if n, ok := parseIntEnv(os.Getenv("CONNECTIVITY_BURST"), "CONNECTIVITY_BURST"); ok {
 		config.ConnectivityBurst = n
 	}
+
+	return nil
 }

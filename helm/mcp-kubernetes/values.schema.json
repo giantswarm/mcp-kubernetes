@@ -731,21 +731,39 @@
             "disableCaching": {
               "type": "boolean",
               "description": "Disable client caching in sso-passthrough mode. Each request creates a fresh client with current SSO token. Recommended for high-security deployments to ensure token revocation takes effect immediately."
+            },
+            "groupMappings": {
+              "type": "object",
+              "description": "Map of OIDC group identifiers to workload cluster group identifiers for impersonation mode. Keys are source groups, values are target groups. Unmapped groups pass through unchanged.",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {}
             }
           }
         },
-        "privilegedSecretAccess": {
+        "privilegedAccess": {
           "type": "object",
-          "description": "Privileged secret access configuration for split-credential model. When enabled, ServiceAccount token is used for kubeconfig secret access instead of user OAuth tokens, preventing users from bypassing impersonation by extracting admin credentials via kubectl.",
+          "description": "Privileged access configuration for split-credential model. ServiceAccount token is used for kubeconfig secret access and optionally CAPI discovery instead of user OAuth tokens.",
           "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable or disable the split-credential model. When false, all operations use the user's own OAuth token and RBAC (CredentialModeUser). When true (default), the ServiceAccount is used for secret access and optionally CAPI discovery.",
+              "default": true
+            },
             "strict": {
               "type": "boolean",
               "description": "When enabled, fails instead of falling back to user credentials when ServiceAccount access is unavailable. SECURITY RECOMMENDATION: Enable in production to enforce split-credential model.",
               "default": false
             },
+            "privilegedCAPIDiscovery": {
+              "type": "boolean",
+              "description": "When enabled, CAPI cluster discovery uses ServiceAccount credentials. All users can see all clusters but workload cluster access is still governed by user RBAC. When disabled, users need their own CAPI RBAC for cluster discovery.",
+              "default": true
+            },
             "rateLimit": {
               "type": "object",
-              "description": "Rate limiting for privileged secret access to prevent abuse",
+              "description": "Rate limiting for privileged access to prevent abuse",
               "properties": {
                 "perSecond": {
                   "type": "number",

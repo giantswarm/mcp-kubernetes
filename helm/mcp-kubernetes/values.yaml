@@ -741,19 +741,59 @@ capiMode:
     # Trade-off: Higher latency per request (no connection reuse).
     # Default: false (caching enabled for better performance)
     disableCaching: false
+    # Group mappings for impersonation mode
+    #
+    # Translates OIDC group identifiers before setting Impersonate-Group headers.
+    # Each key is the source group (as returned by the OIDC provider) and the
+    # value is the target group (as expected by workload cluster RoleBindings).
+    #
+    # Common use cases:
+    #   - OIDC provider returns Azure AD display names, but WC uses GUIDs
+    #   - Federation broker normalizes groups differently from the upstream IdP
+    #   - LDAP-backed provider returns DNs, but WC expects short names
+    #
+    # SECURITY: Mappings control which Kubernetes groups users are impersonated
+    # into on workload clusters. Mapping to dangerous system groups
+    # (system:masters, system:nodes, system:kube-controller-manager,
+    # system:kube-scheduler, system:kube-proxy) is blocked at startup.
+    # Mapping to any other "system:*" group produces a warning. Each translation
+    # is logged at Info level. Restrict who can modify this value.
+    # Invalid mappings will prevent the application from starting (fail-closed).
+    #
+    # Only applies in "impersonation" mode. Unmapped groups pass through unchanged.
+    #
+    # Example:
+    #   groupMappings:
+    #     "customer:Platform Engineers": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    #     "customer:Developers": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+    #
+    # Default: {} (no group mapping, all groups pass through unchanged)
+    groupMappings: {}
 
-  # Privileged secret access configuration (split-credential model)
+  # Privileged access configuration (split-credential model)
   #
   # SECURITY MODEL:
   # When OAuth downstream is enabled, the ServiceAccount reads kubeconfig secrets
-  # on behalf of users. This prevents users from bypassing impersonation by
-  # extracting admin credentials directly via kubectl.
+  # and discovers CAPI clusters on behalf of users. This prevents users from
+  # bypassing impersonation by extracting admin credentials directly via kubectl.
   #
   # NOTE: When using workloadClusterAuth.mode: "sso-passthrough", this configuration
-  # applies to CA-only secret access instead of full kubeconfig secret access.
+  # applies to CA ConfigMap access and CAPI discovery instead of kubeconfig secrets.
   #
   # See docs/rbac-security.md for detailed security model explanation.
-  privilegedSecretAccess:
+  privilegedAccess:
+    # Enable or disable the split-credential model.
+    #
+    # When true (default), the ServiceAccount is used for kubeconfig secret access
+    # and optionally CAPI cluster discovery (see privilegedCAPIDiscovery).
+    #
+    # When false, all operations use the user's own OAuth token and RBAC.
+    # Users must have RBAC to list CAPI clusters and read kubeconfig secrets.
+    # This is the CredentialModeUser configuration.
+    #
+    # Default: true
+    enabled: true
+
     # Strict mode: When enabled, fails instead of falling back to user credentials
     # when ServiceAccount access is unavailable.
     #
@@ -765,7 +805,21 @@ capiMode:
     # Default: false (fallback enabled for backward compatibility)
     strict: false
 
-    # Rate limiting for privileged secret access
+    # Privileged CAPI discovery: When enabled, CAPI cluster discovery uses
+    # ServiceAccount credentials instead of user credentials.
+    #
+    # When enabled (default), all users can discover all CAPI clusters without
+    # needing cluster-scoped CAPI RBAC. Access to workload cluster operations
+    # is still governed by the user's own RBAC via impersonation.
+    #
+    # When disabled, users must have their own RBAC permissions to list
+    # clusters.cluster.x-k8s.io resources. This provides tenant-level
+    # isolation of cluster discovery at the cost of additional RBAC management.
+    #
+    # Default: true (recommended for most deployments)
+    privilegedCAPIDiscovery: true
+
+    # Rate limiting for privileged access
     # Prevents abuse by limiting requests per user
     rateLimit:
       # Rate limit per user (requests per second)

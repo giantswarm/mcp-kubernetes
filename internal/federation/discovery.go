@@ -15,9 +15,6 @@ import (
 
 // Giant Swarm specific label keys for CAPI clusters.
 const (
-	// LabelClusterName is the standard CAPI cluster name label.
-	LabelClusterName = "cluster.x-k8s.io/cluster-name"
-
 	// LabelGiantSwarmCluster is Giant Swarm's cluster label.
 	LabelGiantSwarmCluster = "giantswarm.io/cluster"
 
@@ -400,10 +397,10 @@ func (m *Manager) ResolveCluster(ctx context.Context, namePattern string, user *
 		}
 	}
 
-	// Get user's dynamic client
-	dynamicClient, err := m.GetDynamicClient(ctx, "", user)
+	// Get dynamic client for CAPI discovery (privileged or user credentials)
+	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get dynamic client: %w", err)
+		return nil, fmt.Errorf("cluster resolution failed: %w", err)
 	}
 
 	// Discover all clusters
@@ -473,6 +470,17 @@ type ClusterListOptions struct {
 }
 
 // listClustersWithOptions lists clusters with optional filtering.
+//
+// # Split-Credential Model
+//
+// When the ClientProvider implements PrivilegedAccessProvider and has privileged
+// access available, this method uses ServiceAccount credentials for CAPI cluster discovery.
+// This is necessary because:
+//   - Users need to discover clusters to use multi-cluster tools
+//   - Granting every user cluster-scoped CAPI permissions is impractical
+//   - The ServiceAccount has the mcp-kubernetes-capi ClusterRole for CAPI access
+//
+// When privileged access is not available, it falls back to user credentials.
 func (m *Manager) listClustersWithOptions(ctx context.Context, user *UserInfo, opts *ClusterListOptions) ([]ClusterSummary, error) {
 	if err := m.checkClosed(); err != nil {
 		return nil, err
@@ -482,10 +490,10 @@ func (m *Manager) listClustersWithOptions(ctx context.Context, user *UserInfo, o
 		return nil, err
 	}
 
-	// Get user's dynamic client
-	dynamicClient, err := m.GetDynamicClient(ctx, "", user)
+	// Get dynamic client for CAPI discovery (privileged or user credentials)
+	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get dynamic client: %w", err)
+		return nil, fmt.Errorf("cluster listing failed: %w", err)
 	}
 
 	// Build list options
@@ -538,6 +546,63 @@ func (m *Manager) listClustersWithOptions(ctx context.Context, user *UserInfo, o
 		"filtered", len(clusters))
 
 	return clusters, nil
+}
+
+// getDynamicClientForCAPIDiscovery returns a dynamic client suitable for CAPI cluster discovery.
+//
+// The behavior depends on the Manager's credentialMode (resolved at construction):
+//
+//   - CredentialModeFullPrivileged: Uses ServiceAccount credentials via GetPrivilegedDynamicClient.
+//     If the ServiceAccount client fails at runtime, falls back to user credentials
+//     unless strict mode is enabled.
+//
+//   - CredentialModePrivilegedSecrets, CredentialModeUser: Uses user credentials
+//     (the user must have RBAC to list CAPI clusters).
+func (m *Manager) getDynamicClientForCAPIDiscovery(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
+	switch m.credentialMode {
+	case CredentialModeFullPrivileged:
+		client, err := m.privilegedProvider.GetPrivilegedDynamicClient(ctx, user)
+		if err == nil {
+			return client, nil
+		}
+
+		// Runtime failure: ServiceAccount client couldn't be created.
+		// Fall back to user credentials unless strict mode is enabled.
+		if m.privilegedProvider.IsStrictMode() {
+			m.logger.Error("Privileged CAPI discovery failed in strict mode",
+				"credential_mode", m.credentialMode.String(),
+				UserHashAttr(user.Email),
+				"error", err)
+			return nil, fmt.Errorf("CAPI discovery failed (strict mode): %w", ErrStrictPrivilegedAccessRequired)
+		}
+
+		// Log at Debug (not Warn) because CAPI discovery fallback is less
+		// security-sensitive than secret access fallback: discovery only
+		// reveals cluster names, not credentials.
+		m.logger.Debug("Privileged CAPI access failed at runtime, falling back to user credentials",
+			"credential_mode", m.credentialMode.String(),
+			UserHashAttr(user.Email),
+			"error", err)
+		m.recordPrivilegedMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "fallback")
+
+		return m.getUserDynamicClientForDiscovery(ctx, user)
+
+	case CredentialModePrivilegedSecrets, CredentialModeUser:
+		return m.getUserDynamicClientForDiscovery(ctx, user)
+
+	default:
+		return nil, fmt.Errorf("unknown credential mode: %s", m.credentialMode)
+	}
+}
+
+// getUserDynamicClientForDiscovery returns the user-scoped dynamic client for
+// CAPI cluster discovery on the local (management) cluster.
+func (m *Manager) getUserDynamicClientForDiscovery(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
+	client, err := m.GetDynamicClient(ctx, "", user)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user dynamic client for CAPI discovery: %w", err)
+	}
+	return client, nil
 }
 
 // ClusterAge returns the age of a cluster as a duration.

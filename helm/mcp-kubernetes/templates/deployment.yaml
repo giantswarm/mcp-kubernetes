@@ -294,21 +294,33 @@ spec:
             - name: WC_DISABLE_CACHING
               value: "true"
             {{- end }}
+            {{- if .Values.capiMode.workloadClusterAuth.groupMappings }}
+            - name: WC_GROUP_MAPPINGS
+              value: {{ .Values.capiMode.workloadClusterAuth.groupMappings | toJson | quote }}
             {{- end }}
-            # Privileged Secret Access Configuration (split-credential model)
-            {{- if .Values.capiMode.privilegedSecretAccess }}
-            {{- if .Values.capiMode.privilegedSecretAccess.strict }}
-            - name: PRIVILEGED_SECRET_ACCESS_STRICT
+            {{- end }}
+            # Privileged Access Configuration (split-credential model)
+            {{- if .Values.capiMode.privilegedAccess }}
+            {{- if hasKey .Values.capiMode.privilegedAccess "enabled" }}
+            - name: PRIVILEGED_ACCESS_ENABLED
+              value: {{ .Values.capiMode.privilegedAccess.enabled | quote }}
+            {{- end }}
+            {{- if .Values.capiMode.privilegedAccess.strict }}
+            - name: PRIVILEGED_ACCESS_STRICT
               value: "true"
             {{- end }}
-            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit }}
-            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit.perSecond }}
-            - name: PRIVILEGED_SECRET_ACCESS_RATE_PER_SECOND
-              value: {{ .Values.capiMode.privilegedSecretAccess.rateLimit.perSecond | quote }}
+            {{- if hasKey .Values.capiMode.privilegedAccess "privilegedCAPIDiscovery" }}
+            - name: PRIVILEGED_CAPI_DISCOVERY
+              value: {{ .Values.capiMode.privilegedAccess.privilegedCAPIDiscovery | quote }}
             {{- end }}
-            {{- if .Values.capiMode.privilegedSecretAccess.rateLimit.burst }}
-            - name: PRIVILEGED_SECRET_ACCESS_RATE_BURST
-              value: {{ .Values.capiMode.privilegedSecretAccess.rateLimit.burst | quote }}
+            {{- if .Values.capiMode.privilegedAccess.rateLimit }}
+            {{- if .Values.capiMode.privilegedAccess.rateLimit.perSecond }}
+            - name: PRIVILEGED_ACCESS_RATE_PER_SECOND
+              value: {{ .Values.capiMode.privilegedAccess.rateLimit.perSecond | quote }}
+            {{- end }}
+            {{- if .Values.capiMode.privilegedAccess.rateLimit.burst }}
+            - name: PRIVILEGED_ACCESS_RATE_BURST
+              value: {{ .Values.capiMode.privilegedAccess.rateLimit.burst | quote }}
             {{- end }}
             {{- end }}
             {{- end }}
