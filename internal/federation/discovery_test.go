@@ -31,11 +31,11 @@ func createTestCAPIClusterWithDetails(name, namespace string, opts ...clusterOpt
 				"conditions": []interface{}{
 					map[string]interface{}{
 						"type":   ConditionControlPlaneAvailable,
-						"status": "True",
+						"status": ConditionStatusTrue,
 					},
 					map[string]interface{}{
 						"type":   ConditionInfrastructureReady,
-						"status": "True",
+						"status": ConditionStatusTrue,
 					},
 				},
 			},
@@ -90,11 +90,11 @@ func withStatus(phase string, cpReady, infraReady bool) clusterOption {
 		_ = unstructured.SetNestedField(c.Object, phase, "status", "phase")
 		cpStatus := "False"
 		if cpReady {
-			cpStatus = "True"
+			cpStatus = ConditionStatusTrue
 		}
 		infraStatus := "False"
 		if infraReady {
-			infraStatus = "True"
+			infraStatus = ConditionStatusTrue
 		}
 		conditions := []interface{}{
 			map[string]interface{}{
@@ -110,55 +110,10 @@ func withStatus(phase string, cpReady, infraReady bool) clusterOption {
 	}
 }
 
-// withV1Beta1Status sets the cluster status using v1beta1 flat booleans (for backwards compat tests).
-func withV1Beta1Status(phase string, cpReady, infraReady bool) clusterOption {
-	return func(c *unstructured.Unstructured) {
-		_ = unstructured.SetNestedField(c.Object, phase, "status", "phase")
-		_ = unstructured.SetNestedField(c.Object, cpReady, "status", "controlPlaneReady")
-		_ = unstructured.SetNestedField(c.Object, infraReady, "status", "infrastructureReady")
-		// Remove any v1beta2 conditions that the default builder may have set
-		unstructured.RemoveNestedField(c.Object, "status", "conditions")
-	}
-}
-
-// withDeprecatedV1Beta1Conditions sets conditions under status.deprecated.v1beta1.conditions[].
-func withDeprecatedV1Beta1Conditions(cpReady, infraReady bool) clusterOption {
-	return func(c *unstructured.Unstructured) {
-		cpStatus := "False"
-		if cpReady {
-			cpStatus = "True"
-		}
-		infraStatus := "False"
-		if infraReady {
-			infraStatus = "True"
-		}
-		conditions := []interface{}{
-			map[string]interface{}{
-				"type":   ConditionControlPlaneReady,
-				"status": cpStatus,
-			},
-			map[string]interface{}{
-				"type":   ConditionInfrastructureReady,
-				"status": infraStatus,
-			},
-		}
-		_ = unstructured.SetNestedSlice(c.Object, conditions, "status", "deprecated", "v1beta1", "conditions")
-		// Remove any v1beta2 conditions that the default builder may have set
-		unstructured.RemoveNestedField(c.Object, "status", "conditions")
-	}
-}
-
-// withControlPlaneReplicas sets the v1beta2 control plane replica count.
+// withControlPlaneReplicas sets the control plane ready replica count.
 func withControlPlaneReplicas(count int) clusterOption {
 	return func(c *unstructured.Unstructured) {
 		_ = unstructured.SetNestedField(c.Object, int64(count), "status", "controlPlane", "readyReplicas")
-	}
-}
-
-// withWorkerNodes sets the worker node count (v1beta1 field).
-func withWorkerNodes(count int) clusterOption {
-	return func(c *unstructured.Unstructured) {
-		_ = unstructured.SetNestedField(c.Object, int64(count), "status", "workerNodes")
 	}
 }
 
@@ -197,7 +152,7 @@ func TestClusterSummaryFromUnstructured(t *testing.T) {
 				withInfrastructureRef("AWSCluster", "prod-cluster"),
 				withTopologyVersion("v1.28.5"),
 				withStatus("Provisioned", true, true),
-				withWorkerNodes(10),
+				withControlPlaneReplicas(3),
 			),
 			expected: ClusterSummary{
 				Name:                "prod-cluster",
@@ -209,7 +164,7 @@ func TestClusterSummaryFromUnstructured(t *testing.T) {
 				Ready:               true,
 				ControlPlaneReady:   true,
 				InfrastructureReady: true,
-				NodeCount:           10,
+				NodeCount:           3,
 			},
 		},
 		{
@@ -329,7 +284,7 @@ func TestExtractClusterStatus(t *testing.T) {
 		expectedInfraReady bool
 	}{
 		{
-			name: "v1beta2 conditions - fully ready",
+			name: "fully ready cluster",
 			cluster: createTestCAPIClusterWithDetails("ready", "ns",
 				withStatus("Provisioned", true, true),
 			),
@@ -339,7 +294,7 @@ func TestExtractClusterStatus(t *testing.T) {
 			expectedInfraReady: true,
 		},
 		{
-			name: "v1beta2 conditions - provisioning",
+			name: "provisioning cluster",
 			cluster: createTestCAPIClusterWithDetails("provisioning", "ns",
 				withStatus("Provisioning", false, false),
 			),
@@ -349,60 +304,20 @@ func TestExtractClusterStatus(t *testing.T) {
 			expectedInfraReady: false,
 		},
 		{
-			name: "v1beta2 conditions - deleting",
+			name: "deleting cluster",
 			cluster: createTestCAPIClusterWithDetails("deleting", "ns",
 				withStatus("Deleting", true, true),
 			),
 			expectedPhase:      "Deleting",
-			expectedReady:      false, // Deleting phase is not "Provisioned"
-			expectedCPReady:    true,
-			expectedInfraReady: true,
-		},
-		{
-			name: "deprecated v1beta1 conditions fallback",
-			cluster: createTestCAPIClusterWithDetails("deprecated", "ns",
-				withDeprecatedV1Beta1Conditions(true, true),
-			),
-			expectedPhase:      "Provisioned", // Default from builder
-			expectedReady:      true,
-			expectedCPReady:    true,
-			expectedInfraReady: true,
-		},
-		{
-			name: "deprecated v1beta1 conditions - partially ready",
-			cluster: createTestCAPIClusterWithDetails("deprecated-partial", "ns",
-				withDeprecatedV1Beta1Conditions(true, false),
-			),
-			expectedPhase:      "Provisioned",
 			expectedReady:      false,
 			expectedCPReady:    true,
-			expectedInfraReady: false,
-		},
-		{
-			name: "v1beta1 flat booleans fallback",
-			cluster: createTestCAPIClusterWithDetails("v1beta1", "ns",
-				withV1Beta1Status("Provisioned", true, true),
-			),
-			expectedPhase:      "Provisioned",
-			expectedReady:      true,
-			expectedCPReady:    true,
 			expectedInfraReady: true,
 		},
 		{
-			name: "v1beta1 flat booleans - cp not ready",
-			cluster: createTestCAPIClusterWithDetails("v1beta1-partial", "ns",
-				withV1Beta1Status("Provisioned", false, true),
-			),
-			expectedPhase:      "Provisioned",
-			expectedReady:      false,
-			expectedCPReady:    false,
-			expectedInfraReady: true,
-		},
-		{
-			name:               "cluster with missing status",
+			name:               "cluster with missing conditions",
 			cluster:            createTestCAPICluster("minimal", "ns"),
-			expectedPhase:      "Provisioned", // Default from createTestCAPICluster
-			expectedReady:      false,         // No conditions or ready flags set
+			expectedPhase:      "Provisioned",
+			expectedReady:      false,
 			expectedCPReady:    false,
 			expectedInfraReady: false,
 		},
@@ -434,7 +349,7 @@ func TestFindConditionStatus(t *testing.T) {
 			obj: map[string]interface{}{
 				"status": map[string]interface{}{
 					"conditions": []interface{}{
-						map[string]interface{}{"type": "Ready", "status": "True"},
+						map[string]interface{}{"type": "Ready", "status": ConditionStatusTrue},
 					},
 				},
 			},
@@ -462,7 +377,7 @@ func TestFindConditionStatus(t *testing.T) {
 			obj: map[string]interface{}{
 				"status": map[string]interface{}{
 					"conditions": []interface{}{
-						map[string]interface{}{"type": "Other", "status": "True"},
+						map[string]interface{}{"type": "Other", "status": ConditionStatusTrue},
 					},
 				},
 			},
@@ -478,24 +393,6 @@ func TestFindConditionStatus(t *testing.T) {
 			path:          []string{"status", "conditions"},
 			expectedVal:   false,
 			expectedFound: false,
-		},
-		{
-			name: "nested deprecated path",
-			obj: map[string]interface{}{
-				"status": map[string]interface{}{
-					"deprecated": map[string]interface{}{
-						"v1beta1": map[string]interface{}{
-							"conditions": []interface{}{
-								map[string]interface{}{"type": "ControlPlaneReady", "status": "True"},
-							},
-						},
-					},
-				},
-			},
-			conditionType: "ControlPlaneReady",
-			path:          []string{"status", "deprecated", "v1beta1", "conditions"},
-			expectedVal:   true,
-			expectedFound: true,
 		},
 	}
 
@@ -515,29 +412,14 @@ func TestExtractNodeCount(t *testing.T) {
 		expected int
 	}{
 		{
-			name: "v1beta2 controlPlane readyReplicas",
+			name: "control plane ready replicas",
 			cluster: createTestCAPIClusterWithDetails("test", "ns",
 				withControlPlaneReplicas(3),
 			),
 			expected: 3,
 		},
 		{
-			name: "v1beta1 workerNodes",
-			cluster: createTestCAPIClusterWithDetails("test", "ns",
-				withWorkerNodes(5),
-			),
-			expected: 5,
-		},
-		{
-			name: "controlPlane readyReplicas takes priority over workerNodes",
-			cluster: createTestCAPIClusterWithDetails("test", "ns",
-				withControlPlaneReplicas(3),
-				withWorkerNodes(5),
-			),
-			expected: 3,
-		},
-		{
-			name:     "no node info returns 0",
+			name:     "no replica info returns 0",
 			cluster:  createTestCAPICluster("test", "ns"),
 			expected: 0,
 		},
@@ -712,7 +594,7 @@ func TestManager_ListClustersWithMetadata(t *testing.T) {
 		withInfrastructureRef("AWSCluster", "prod-cluster"),
 		withTopologyVersion("v1.28.5"),
 		withStatus("Provisioned", true, true),
-		withWorkerNodes(5),
+		withControlPlaneReplicas(3),
 	)
 
 	manager := setupTestManager(t, []*unstructured.Unstructured{cluster}, nil)
@@ -731,7 +613,7 @@ func TestManager_ListClustersWithMetadata(t *testing.T) {
 	assert.True(t, c.Ready)
 	assert.True(t, c.ControlPlaneReady)
 	assert.True(t, c.InfrastructureReady)
-	assert.Equal(t, 5, c.NodeCount)
+	assert.Equal(t, 3, c.NodeCount)
 
 	// Check helper methods
 	assert.True(t, c.IsGiantSwarmCluster())

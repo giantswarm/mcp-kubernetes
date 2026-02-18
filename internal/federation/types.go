@@ -122,8 +122,7 @@ type ClusterSummary struct {
 	// (VMs, networks, etc.) is provisioned and healthy.
 	InfrastructureReady bool `json:"infrastructureReady"`
 
-	// NodeCount is the current number of worker nodes in the cluster.
-	// This may differ from the desired count during scaling operations.
+	// NodeCount is the number of ready control plane replicas (from CAPI v1beta2).
 	NodeCount int `json:"nodeCount,omitempty"`
 
 	// CreatedAt is the timestamp when the cluster was initially created.
