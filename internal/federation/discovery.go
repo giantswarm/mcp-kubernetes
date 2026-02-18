@@ -241,10 +241,49 @@ func extractKubernetesVersion(cluster *unstructured.Unstructured) string {
 	return ""
 }
 
+// CAPI v1beta2 condition type names.
+const (
+	// ConditionControlPlaneAvailable is the v1beta2 condition for control plane readiness.
+	ConditionControlPlaneAvailable = "ControlPlaneAvailable"
+
+	// ConditionInfrastructureReady is the condition for infrastructure readiness (same name in v1beta1 and v1beta2).
+	ConditionInfrastructureReady = "InfrastructureReady"
+
+	// ConditionControlPlaneReady is the v1beta1 condition for control plane readiness.
+	ConditionControlPlaneReady = "ControlPlaneReady"
+)
+
+// findConditionStatus searches a conditions array at the given path for a condition
+// with the specified type and returns whether its status is "True".
+// Returns (isTrue, found).
+func findConditionStatus(obj map[string]interface{}, conditionType string, path ...string) (bool, bool) {
+	conditions, found, err := unstructured.NestedSlice(obj, path...)
+	if err != nil || !found {
+		return false, false
+	}
+	for _, c := range conditions {
+		condMap, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cType, _, _ := unstructured.NestedString(condMap, "type")
+		if cType == conditionType {
+			status, _, _ := unstructured.NestedString(condMap, "status")
+			return status == "True", true
+		}
+	}
+	return false, false
+}
+
 // extractClusterStatus extracts the cluster phase and ready conditions.
 // Returns phase, ready, controlPlaneReady, infrastructureReady.
+//
+// Supports three schema variants with fallback:
+//  1. CAPI v1beta2: status.conditions[] with ControlPlaneAvailable and InfrastructureReady
+//  2. CAPI v1beta2 deprecated: status.deprecated.v1beta1.conditions[] with ControlPlaneReady and InfrastructureReady
+//  3. CAPI v1beta1: flat booleans status.controlPlaneReady and status.infrastructureReady
 func extractClusterStatus(cluster *unstructured.Unstructured) (phase string, ready, controlPlaneReady, infrastructureReady bool) {
-	// Extract phase from status.phase
+	// Extract phase from status.phase (unchanged across versions)
 	phaseStr, found, err := unstructured.NestedString(cluster.Object, "status", "phase")
 	if err != nil || !found {
 		phase = string(ClusterPhaseUnknown)
@@ -252,15 +291,21 @@ func extractClusterStatus(cluster *unstructured.Unstructured) (phase string, rea
 		phase = phaseStr
 	}
 
-	// Extract controlPlaneReady from status.controlPlaneReady
-	cpReady, found, err := unstructured.NestedBool(cluster.Object, "status", "controlPlaneReady")
-	if err == nil && found {
+	// Extract controlPlaneReady with v1beta2 -> deprecated -> v1beta1 fallback
+	if val, ok := findConditionStatus(cluster.Object, ConditionControlPlaneAvailable, "status", "conditions"); ok {
+		controlPlaneReady = val
+	} else if val, ok := findConditionStatus(cluster.Object, ConditionControlPlaneReady, "status", "deprecated", "v1beta1", "conditions"); ok {
+		controlPlaneReady = val
+	} else if cpReady, found, err := unstructured.NestedBool(cluster.Object, "status", "controlPlaneReady"); err == nil && found {
 		controlPlaneReady = cpReady
 	}
 
-	// Extract infrastructureReady from status.infrastructureReady
-	infraReady, found, err := unstructured.NestedBool(cluster.Object, "status", "infrastructureReady")
-	if err == nil && found {
+	// Extract infrastructureReady with v1beta2 -> deprecated -> v1beta1 fallback
+	if val, ok := findConditionStatus(cluster.Object, ConditionInfrastructureReady, "status", "conditions"); ok {
+		infrastructureReady = val
+	} else if val, ok := findConditionStatus(cluster.Object, ConditionInfrastructureReady, "status", "deprecated", "v1beta1", "conditions"); ok {
+		infrastructureReady = val
+	} else if infraReady, found, err := unstructured.NestedBool(cluster.Object, "status", "infrastructureReady"); err == nil && found {
 		infrastructureReady = infraReady
 	}
 
@@ -271,15 +316,26 @@ func extractClusterStatus(cluster *unstructured.Unstructured) (phase string, rea
 	return phase, ready, controlPlaneReady, infrastructureReady
 }
 
-// extractNodeCount extracts the worker node count from the cluster status.
+// extractNodeCount extracts the node count from the cluster status.
+//
+// Supports multiple schema variants with fallback:
+//  1. CAPI v1beta2: status.controlPlane.readyReplicas (control plane node count)
+//  2. v1beta1: status.workerNodes
+//  3. v1beta1: status.readyReplicas
 func extractNodeCount(cluster *unstructured.Unstructured) int {
-	// Try status.workerNodes (if available)
-	count, found, err := unstructured.NestedInt64(cluster.Object, "status", "workerNodes")
+	// Try v1beta2 status.controlPlane.readyReplicas
+	count, found, err := unstructured.NestedInt64(cluster.Object, "status", "controlPlane", "readyReplicas")
 	if err == nil && found {
 		return int(count)
 	}
 
-	// Try status.readyReplicas as fallback
+	// Try status.workerNodes (v1beta1)
+	count, found, err = unstructured.NestedInt64(cluster.Object, "status", "workerNodes")
+	if err == nil && found {
+		return int(count)
+	}
+
+	// Try status.readyReplicas as fallback (v1beta1)
 	count, found, err = unstructured.NestedInt64(cluster.Object, "status", "readyReplicas")
 	if err == nil && found {
 		return int(count)

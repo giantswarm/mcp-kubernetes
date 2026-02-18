@@ -12,6 +12,7 @@ import (
 )
 
 // createTestCAPIClusterWithDetails creates a CAPI Cluster resource with full metadata.
+// By default it creates a v1beta2-style cluster with conditions in status.conditions[].
 func createTestCAPIClusterWithDetails(name, namespace string, opts ...clusterOption) *unstructured.Unstructured {
 	cluster := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -26,9 +27,17 @@ func createTestCAPIClusterWithDetails(name, namespace string, opts ...clusterOpt
 				"paused": false,
 			},
 			"status": map[string]interface{}{
-				"phase":               "Provisioned",
-				"controlPlaneReady":   true,
-				"infrastructureReady": true,
+				"phase": "Provisioned",
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   ConditionControlPlaneAvailable,
+						"status": "True",
+					},
+					map[string]interface{}{
+						"type":   ConditionInfrastructureReady,
+						"status": "True",
+					},
+				},
 			},
 		},
 	}
@@ -75,16 +84,78 @@ func withTopologyVersion(version string) clusterOption {
 	}
 }
 
-// withStatus sets the cluster status fields.
+// withStatus sets the cluster status using v1beta2 conditions.
 func withStatus(phase string, cpReady, infraReady bool) clusterOption {
+	return func(c *unstructured.Unstructured) {
+		_ = unstructured.SetNestedField(c.Object, phase, "status", "phase")
+		cpStatus := "False"
+		if cpReady {
+			cpStatus = "True"
+		}
+		infraStatus := "False"
+		if infraReady {
+			infraStatus = "True"
+		}
+		conditions := []interface{}{
+			map[string]interface{}{
+				"type":   ConditionControlPlaneAvailable,
+				"status": cpStatus,
+			},
+			map[string]interface{}{
+				"type":   ConditionInfrastructureReady,
+				"status": infraStatus,
+			},
+		}
+		_ = unstructured.SetNestedSlice(c.Object, conditions, "status", "conditions")
+	}
+}
+
+// withV1Beta1Status sets the cluster status using v1beta1 flat booleans (for backwards compat tests).
+func withV1Beta1Status(phase string, cpReady, infraReady bool) clusterOption {
 	return func(c *unstructured.Unstructured) {
 		_ = unstructured.SetNestedField(c.Object, phase, "status", "phase")
 		_ = unstructured.SetNestedField(c.Object, cpReady, "status", "controlPlaneReady")
 		_ = unstructured.SetNestedField(c.Object, infraReady, "status", "infrastructureReady")
+		// Remove any v1beta2 conditions that the default builder may have set
+		unstructured.RemoveNestedField(c.Object, "status", "conditions")
 	}
 }
 
-// withWorkerNodes sets the worker node count.
+// withDeprecatedV1Beta1Conditions sets conditions under status.deprecated.v1beta1.conditions[].
+func withDeprecatedV1Beta1Conditions(cpReady, infraReady bool) clusterOption {
+	return func(c *unstructured.Unstructured) {
+		cpStatus := "False"
+		if cpReady {
+			cpStatus = "True"
+		}
+		infraStatus := "False"
+		if infraReady {
+			infraStatus = "True"
+		}
+		conditions := []interface{}{
+			map[string]interface{}{
+				"type":   ConditionControlPlaneReady,
+				"status": cpStatus,
+			},
+			map[string]interface{}{
+				"type":   ConditionInfrastructureReady,
+				"status": infraStatus,
+			},
+		}
+		_ = unstructured.SetNestedSlice(c.Object, conditions, "status", "deprecated", "v1beta1", "conditions")
+		// Remove any v1beta2 conditions that the default builder may have set
+		unstructured.RemoveNestedField(c.Object, "status", "conditions")
+	}
+}
+
+// withControlPlaneReplicas sets the v1beta2 control plane replica count.
+func withControlPlaneReplicas(count int) clusterOption {
+	return func(c *unstructured.Unstructured) {
+		_ = unstructured.SetNestedField(c.Object, int64(count), "status", "controlPlane", "readyReplicas")
+	}
+}
+
+// withWorkerNodes sets the worker node count (v1beta1 field).
 func withWorkerNodes(count int) clusterOption {
 	return func(c *unstructured.Unstructured) {
 		_ = unstructured.SetNestedField(c.Object, int64(count), "status", "workerNodes")
@@ -258,7 +329,7 @@ func TestExtractClusterStatus(t *testing.T) {
 		expectedInfraReady bool
 	}{
 		{
-			name: "fully ready cluster",
+			name: "v1beta2 conditions - fully ready",
 			cluster: createTestCAPIClusterWithDetails("ready", "ns",
 				withStatus("Provisioned", true, true),
 			),
@@ -268,7 +339,7 @@ func TestExtractClusterStatus(t *testing.T) {
 			expectedInfraReady: true,
 		},
 		{
-			name: "provisioning cluster",
+			name: "v1beta2 conditions - provisioning",
 			cluster: createTestCAPIClusterWithDetails("provisioning", "ns",
 				withStatus("Provisioning", false, false),
 			),
@@ -278,7 +349,7 @@ func TestExtractClusterStatus(t *testing.T) {
 			expectedInfraReady: false,
 		},
 		{
-			name: "deleting cluster",
+			name: "v1beta2 conditions - deleting",
 			cluster: createTestCAPIClusterWithDetails("deleting", "ns",
 				withStatus("Deleting", true, true),
 			),
@@ -288,10 +359,50 @@ func TestExtractClusterStatus(t *testing.T) {
 			expectedInfraReady: true,
 		},
 		{
+			name: "deprecated v1beta1 conditions fallback",
+			cluster: createTestCAPIClusterWithDetails("deprecated", "ns",
+				withDeprecatedV1Beta1Conditions(true, true),
+			),
+			expectedPhase:      "Provisioned", // Default from builder
+			expectedReady:      true,
+			expectedCPReady:    true,
+			expectedInfraReady: true,
+		},
+		{
+			name: "deprecated v1beta1 conditions - partially ready",
+			cluster: createTestCAPIClusterWithDetails("deprecated-partial", "ns",
+				withDeprecatedV1Beta1Conditions(true, false),
+			),
+			expectedPhase:      "Provisioned",
+			expectedReady:      false,
+			expectedCPReady:    true,
+			expectedInfraReady: false,
+		},
+		{
+			name: "v1beta1 flat booleans fallback",
+			cluster: createTestCAPIClusterWithDetails("v1beta1", "ns",
+				withV1Beta1Status("Provisioned", true, true),
+			),
+			expectedPhase:      "Provisioned",
+			expectedReady:      true,
+			expectedCPReady:    true,
+			expectedInfraReady: true,
+		},
+		{
+			name: "v1beta1 flat booleans - cp not ready",
+			cluster: createTestCAPIClusterWithDetails("v1beta1-partial", "ns",
+				withV1Beta1Status("Provisioned", false, true),
+			),
+			expectedPhase:      "Provisioned",
+			expectedReady:      false,
+			expectedCPReady:    false,
+			expectedInfraReady: true,
+		},
+		{
 			name:               "cluster with missing status",
 			cluster:            createTestCAPICluster("minimal", "ns"),
 			expectedPhase:      "Provisioned", // Default from createTestCAPICluster
-			expectedReady:      false,         // No ready flags set
+			expectedReady:      false,         // No conditions or ready flags set
 			expectedCPReady:    false,
 			expectedInfraReady: false,
 		},
@@ -305,6 +416,137 @@ func TestExtractClusterStatus(t *testing.T) {
 			assert.Equal(t, tt.expectedReady, ready)
 			assert.Equal(t, tt.expectedCPReady, cpReady)
 			assert.Equal(t, tt.expectedInfraReady, infraReady)
+		})
+	}
+}
+
+func TestFindConditionStatus(t *testing.T) {
+	tests := []struct {
+		name          string
+		obj           map[string]interface{}
+		conditionType string
+		path          []string
+		expectedVal   bool
+		expectedFound bool
+	}{
+		{
+			name: "finds True condition",
+			obj: map[string]interface{}{
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{"type": "Ready", "status": "True"},
+					},
+				},
+			},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   true,
+			expectedFound: true,
+		},
+		{
+			name: "finds False condition",
+			obj: map[string]interface{}{
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{"type": "Ready", "status": "False"},
+					},
+				},
+			},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   false,
+			expectedFound: true,
+		},
+		{
+			name: "condition not found",
+			obj: map[string]interface{}{
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{"type": "Other", "status": "True"},
+					},
+				},
+			},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   false,
+			expectedFound: false,
+		},
+		{
+			name:          "missing conditions path",
+			obj:           map[string]interface{}{},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   false,
+			expectedFound: false,
+		},
+		{
+			name: "nested deprecated path",
+			obj: map[string]interface{}{
+				"status": map[string]interface{}{
+					"deprecated": map[string]interface{}{
+						"v1beta1": map[string]interface{}{
+							"conditions": []interface{}{
+								map[string]interface{}{"type": "ControlPlaneReady", "status": "True"},
+							},
+						},
+					},
+				},
+			},
+			conditionType: "ControlPlaneReady",
+			path:          []string{"status", "deprecated", "v1beta1", "conditions"},
+			expectedVal:   true,
+			expectedFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, found := findConditionStatus(tt.obj, tt.conditionType, tt.path...)
+			assert.Equal(t, tt.expectedVal, val)
+			assert.Equal(t, tt.expectedFound, found)
+		})
+	}
+}
+
+func TestExtractNodeCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		cluster  *unstructured.Unstructured
+		expected int
+	}{
+		{
+			name: "v1beta2 controlPlane readyReplicas",
+			cluster: createTestCAPIClusterWithDetails("test", "ns",
+				withControlPlaneReplicas(3),
+			),
+			expected: 3,
+		},
+		{
+			name: "v1beta1 workerNodes",
+			cluster: createTestCAPIClusterWithDetails("test", "ns",
+				withWorkerNodes(5),
+			),
+			expected: 5,
+		},
+		{
+			name: "controlPlane readyReplicas takes priority over workerNodes",
+			cluster: createTestCAPIClusterWithDetails("test", "ns",
+				withControlPlaneReplicas(3),
+				withWorkerNodes(5),
+			),
+			expected: 3,
+		},
+		{
+			name:     "no node info returns 0",
+			cluster:  createTestCAPICluster("test", "ns"),
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractNodeCount(tt.cluster)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
