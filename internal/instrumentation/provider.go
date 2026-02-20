@@ -29,6 +29,7 @@ type Provider struct {
 	tracerProvider     *sdktrace.TracerProvider
 	metrics            *Metrics
 	prometheusExporter *prometheus.Exporter
+	auditLogger        *AuditLogger
 	enabled            bool
 }
 
@@ -36,9 +37,10 @@ type Provider struct {
 func NewProvider(ctx context.Context, config Config) (*Provider, error) {
 	if !config.Enabled {
 		return &Provider{
-			config:  config,
-			enabled: false,
-			metrics: &Metrics{}, // Return a no-op metrics recorder
+			config:      config,
+			enabled:     false,
+			metrics:     &Metrics{}, // Return a no-op metrics recorder
+			auditLogger: NewAuditLogger(slog.Default()),
 		}, nil
 	}
 
@@ -101,6 +103,9 @@ func NewProvider(ctx context.Context, config Config) (*Provider, error) {
 		_ = provider.Shutdown(ctx)
 		return nil, fmt.Errorf("failed to create metrics recorder: %w", err)
 	}
+
+	// Create audit logger
+	provider.auditLogger = NewAuditLogger(slog.Default())
 
 	return provider, nil
 }
@@ -238,6 +243,11 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 // Metrics returns the metrics recorder for recording observability metrics.
 func (p *Provider) Metrics() *Metrics {
 	return p.metrics
+}
+
+// AuditLogger returns the audit logger for recording tool invocations.
+func (p *Provider) AuditLogger() *AuditLogger {
+	return p.auditLogger
 }
 
 // Tracer returns a tracer for creating spans.

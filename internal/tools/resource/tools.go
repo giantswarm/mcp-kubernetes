@@ -1,9 +1,6 @@
 package resource
 
 import (
-	"context"
-	"log/slog"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -123,9 +120,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	getResourceTool := mcp.NewTool("kubernetes_get", getResourceOpts...)
 
-	s.AddTool(getResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleGetResource(ctx, request, sc)
-	})
+	s.AddTool(getResourceTool, tools.WrapWithAuditLogging("kubernetes_get", handleGetResource, sc))
 
 	// kubernetes_list tool
 	listResourceOpts := []mcp.ToolOption{
@@ -201,10 +196,7 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 	)
 	listResourceTool := mcp.NewTool("kubernetes_list", listResourceOpts...)
 
-	s.AddTool(listResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		slog.Debug("kubernetes_list tool invoked", slog.String("tool", "kubernetes_list"))
-		return handleListResources(ctx, request, sc)
-	})
+	s.AddTool(listResourceTool, tools.WrapWithAuditLogging("kubernetes_list", handleListResources, sc))
 
 	// kubernetes_describe tool
 	describeResourceOpts := []mcp.ToolOption{
@@ -235,9 +227,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	describeResourceTool := mcp.NewTool("kubernetes_describe", describeResourceOpts...)
 
-	s.AddTool(describeResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleDescribeResource(ctx, request, sc)
-	})
+	s.AddTool(describeResourceTool, tools.WrapWithAuditLogging("kubernetes_describe", handleDescribeResource, sc))
 
 	// kubernetes_create tool
 	createResourceOpts := []mcp.ToolOption{
@@ -256,9 +246,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	createResourceTool := mcp.NewTool("kubernetes_create", createResourceOpts...)
 
-	s.AddTool(createResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleCreateResource(ctx, request, sc)
-	})
+	s.AddTool(createResourceTool, tools.WrapWithAuditLogging("kubernetes_create", handleCreateResource, sc))
 
 	// kubernetes_apply tool
 	applyResourceOpts := []mcp.ToolOption{
@@ -277,9 +265,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	applyResourceTool := mcp.NewTool("kubernetes_apply", applyResourceOpts...)
 
-	s.AddTool(applyResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleApplyResource(ctx, request, sc)
-	})
+	s.AddTool(applyResourceTool, tools.WrapWithAuditLogging("kubernetes_apply", handleApplyResource, sc))
 
 	// kubernetes_delete tool
 	deleteResourceOpts := []mcp.ToolOption{
@@ -310,9 +296,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	deleteResourceTool := mcp.NewTool("kubernetes_delete", deleteResourceOpts...)
 
-	s.AddTool(deleteResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleDeleteResource(ctx, request, sc)
-	})
+	s.AddTool(deleteResourceTool, tools.WrapWithAuditLogging("kubernetes_delete", handleDeleteResource, sc))
 
 	// kubernetes_patch tool
 	patchResourceOpts := []mcp.ToolOption{
@@ -352,9 +336,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	patchResourceTool := mcp.NewTool("kubernetes_patch", patchResourceOpts...)
 
-	s.AddTool(patchResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handlePatchResource(ctx, request, sc)
-	})
+	s.AddTool(patchResourceTool, tools.WrapWithAuditLogging("kubernetes_patch", handlePatchResource, sc))
 
 	// kubernetes_scale tool
 	scaleResourceOpts := []mcp.ToolOption{
@@ -384,9 +366,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	scaleResourceTool := mcp.NewTool("kubernetes_scale", scaleResourceOpts...)
 
-	s.AddTool(scaleResourceTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleScaleResource(ctx, request, sc)
-	})
+	s.AddTool(scaleResourceTool, tools.WrapWithAuditLogging("kubernetes_scale", handleScaleResource, sc))
 
 	return nil
 }

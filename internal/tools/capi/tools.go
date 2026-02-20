@@ -1,12 +1,11 @@
 package capi
 
 import (
-	"context"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
 
 // RegisterCAPITools registers all CAPI discovery tools with the MCP server.
@@ -46,9 +45,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(listClustersTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleListClusters(ctx, request, sc)
-	})
+	s.AddTool(listClustersTool, tools.WrapWithAuditLogging("capi_list_clusters", handleListClusters, sc))
 
 	// capi_get_cluster tool
 	getClusterTool := mcp.NewTool("capi_get_cluster",
@@ -59,9 +56,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(getClusterTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleGetCluster(ctx, request, sc)
-	})
+	s.AddTool(getClusterTool, tools.WrapWithAuditLogging("capi_get_cluster", handleGetCluster, sc))
 
 	// capi_resolve_cluster tool
 	resolveClusterTool := mcp.NewTool("capi_resolve_cluster",
@@ -72,9 +67,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(resolveClusterTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleResolveCluster(ctx, request, sc)
-	})
+	s.AddTool(resolveClusterTool, tools.WrapWithAuditLogging("capi_resolve_cluster", handleResolveCluster, sc))
 
 	// capi_cluster_health tool
 	clusterHealthTool := mcp.NewTool("capi_cluster_health",
@@ -85,9 +78,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(clusterHealthTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return handleClusterHealth(ctx, request, sc)
-	})
+	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("capi_cluster_health", handleClusterHealth, sc))
 
 	return nil
 }

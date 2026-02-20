@@ -33,10 +33,11 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	// Add health check endpoints
 	healthChecker := server.NewHealthChecker(sc)
 	healthChecker.RegisterHealthEndpoints(mux)
-	fmt.Printf("  Health endpoints: /healthz, /readyz\n")
 
-	fmt.Printf("Streamable HTTP server starting on %s\n", addr)
-	fmt.Printf("  HTTP endpoint: %s\n", endpoint)
+	slog.Info("streamable HTTP server starting",
+		"addr", addr,
+		"endpoint", endpoint,
+		"health_endpoints", []string{"/healthz", "/readyz"})
 
 	// Apply HTTP metrics middleware to record request metrics
 	var handler http.Handler = mux
@@ -73,7 +74,7 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	// Wait for either shutdown signal or server completion
 	select {
 	case <-ctx.Done():
-		fmt.Println("Shutdown signal received, stopping HTTP server...")
+		slog.Info("shutdown signal received, stopping HTTP server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.DefaultShutdownTimeout)
 		defer cancel()
 
@@ -90,12 +91,11 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 	case err := <-serverDone:
 		if err != nil {
 			return fmt.Errorf("HTTP server stopped with error: %w", err)
-		} else {
-			fmt.Println("HTTP server stopped normally")
 		}
+		slog.Info("HTTP server stopped normally")
 	}
 
-	fmt.Println("HTTP server gracefully stopped")
+	slog.Info("HTTP server gracefully stopped")
 	return nil
 }
 
@@ -111,19 +111,21 @@ func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Co
 	healthChecker := server.NewHealthChecker(sc)
 	oauthServer.SetHealthChecker(healthChecker)
 
-	fmt.Printf("OAuth-enabled HTTP server starting on %s\n", addr)
-	fmt.Printf("  Base URL: %s\n", config.BaseURL)
-	fmt.Printf("  MCP endpoint: /mcp (requires OAuth Bearer token)\n")
-	fmt.Printf("  Health endpoints: /healthz, /readyz\n")
-	fmt.Printf("  OAuth endpoints:\n")
-	fmt.Printf("    - Authorization Server Metadata: /.well-known/oauth-authorization-server\n")
-	fmt.Printf("    - Protected Resource Metadata: /.well-known/oauth-protected-resource\n")
-	fmt.Printf("    - Client Registration: /oauth/register\n")
-	fmt.Printf("    - Authorization: /oauth/authorize\n")
-	fmt.Printf("    - Token: /oauth/token\n")
-	fmt.Printf("    - Callback: /oauth/callback\n")
-	fmt.Printf("    - Revoke: /oauth/revoke\n")
-	fmt.Printf("    - Introspect: /oauth/introspect\n")
+	slog.Info("OAuth-enabled HTTP server starting",
+		"addr", addr,
+		"base_url", config.BaseURL,
+		"mcp_endpoint", "/mcp",
+		"health_endpoints", []string{"/healthz", "/readyz"},
+		"oauth_endpoints", []string{
+			"/.well-known/oauth-authorization-server",
+			"/.well-known/oauth-protected-resource",
+			"/oauth/register",
+			"/oauth/authorize",
+			"/oauth/token",
+			"/oauth/callback",
+			"/oauth/revoke",
+			"/oauth/introspect",
+		})
 
 	// Start metrics server if enabled (separate from main server for security)
 	var metricsServer *server.MetricsServer
@@ -146,7 +148,7 @@ func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Co
 	// Wait for either shutdown signal or server completion
 	select {
 	case <-ctx.Done():
-		fmt.Println("Shutdown signal received, stopping OAuth HTTP server...")
+		slog.Info("shutdown signal received, stopping OAuth HTTP server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.DefaultShutdownTimeout)
 		defer cancel()
 
@@ -163,12 +165,11 @@ func runOAuthHTTPServer(mcpSrv *mcpserver.MCPServer, addr string, ctx context.Co
 	case err := <-serverDone:
 		if err != nil {
 			return fmt.Errorf("OAuth HTTP server stopped with error: %w", err)
-		} else {
-			fmt.Println("OAuth HTTP server stopped normally")
 		}
+		slog.Info("OAuth HTTP server stopped normally")
 	}
 
-	fmt.Println("OAuth HTTP server gracefully stopped")
+	slog.Info("OAuth HTTP server gracefully stopped")
 	return nil
 }
 
@@ -191,6 +192,6 @@ func startMetricsServer(config MetricsServeConfig, provider *instrumentation.Pro
 		}
 	}()
 
-	fmt.Printf("  Metrics server: %s/metrics (dedicated port)\n", config.Addr)
+	slog.Info("metrics server started", "addr", config.Addr, "endpoint", "/metrics")
 	return metricsServer, nil
 }
