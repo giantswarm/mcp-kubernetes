@@ -12,6 +12,7 @@ import (
 )
 
 // createTestCAPIClusterWithDetails creates a CAPI Cluster resource with full metadata.
+// By default it creates a v1beta2-style cluster with conditions in status.conditions[].
 func createTestCAPIClusterWithDetails(name, namespace string, opts ...clusterOption) *unstructured.Unstructured {
 	cluster := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -26,9 +27,17 @@ func createTestCAPIClusterWithDetails(name, namespace string, opts ...clusterOpt
 				"paused": false,
 			},
 			"status": map[string]interface{}{
-				"phase":               "Provisioned",
-				"controlPlaneReady":   true,
-				"infrastructureReady": true,
+				"phase": "Provisioned",
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   ConditionControlPlaneAvailable,
+						"status": ConditionStatusTrue,
+					},
+					map[string]interface{}{
+						"type":   ConditionInfrastructureReady,
+						"status": ConditionStatusTrue,
+					},
+				},
 			},
 		},
 	}
@@ -75,19 +84,36 @@ func withTopologyVersion(version string) clusterOption {
 	}
 }
 
-// withStatus sets the cluster status fields.
+// withStatus sets the cluster status using v1beta2 conditions.
 func withStatus(phase string, cpReady, infraReady bool) clusterOption {
 	return func(c *unstructured.Unstructured) {
 		_ = unstructured.SetNestedField(c.Object, phase, "status", "phase")
-		_ = unstructured.SetNestedField(c.Object, cpReady, "status", "controlPlaneReady")
-		_ = unstructured.SetNestedField(c.Object, infraReady, "status", "infrastructureReady")
+		cpStatus := "False"
+		if cpReady {
+			cpStatus = ConditionStatusTrue
+		}
+		infraStatus := "False"
+		if infraReady {
+			infraStatus = ConditionStatusTrue
+		}
+		conditions := []interface{}{
+			map[string]interface{}{
+				"type":   ConditionControlPlaneAvailable,
+				"status": cpStatus,
+			},
+			map[string]interface{}{
+				"type":   ConditionInfrastructureReady,
+				"status": infraStatus,
+			},
+		}
+		_ = unstructured.SetNestedSlice(c.Object, conditions, "status", "conditions")
 	}
 }
 
-// withWorkerNodes sets the worker node count.
-func withWorkerNodes(count int) clusterOption {
+// withControlPlaneReplicas sets the control plane ready replica count.
+func withControlPlaneReplicas(count int) clusterOption {
 	return func(c *unstructured.Unstructured) {
-		_ = unstructured.SetNestedField(c.Object, int64(count), "status", "workerNodes")
+		_ = unstructured.SetNestedField(c.Object, int64(count), "status", "controlPlane", "readyReplicas")
 	}
 }
 
@@ -126,7 +152,7 @@ func TestClusterSummaryFromUnstructured(t *testing.T) {
 				withInfrastructureRef("AWSCluster", "prod-cluster"),
 				withTopologyVersion("v1.28.5"),
 				withStatus("Provisioned", true, true),
-				withWorkerNodes(10),
+				withControlPlaneReplicas(3),
 			),
 			expected: ClusterSummary{
 				Name:                "prod-cluster",
@@ -138,7 +164,7 @@ func TestClusterSummaryFromUnstructured(t *testing.T) {
 				Ready:               true,
 				ControlPlaneReady:   true,
 				InfrastructureReady: true,
-				NodeCount:           10,
+				NodeCount:           3,
 			},
 		},
 		{
@@ -283,15 +309,15 @@ func TestExtractClusterStatus(t *testing.T) {
 				withStatus("Deleting", true, true),
 			),
 			expectedPhase:      "Deleting",
-			expectedReady:      false, // Deleting phase is not "Provisioned"
+			expectedReady:      false,
 			expectedCPReady:    true,
 			expectedInfraReady: true,
 		},
 		{
-			name:               "cluster with missing status",
+			name:               "cluster with missing conditions",
 			cluster:            createTestCAPICluster("minimal", "ns"),
-			expectedPhase:      "Provisioned", // Default from createTestCAPICluster
-			expectedReady:      false,         // No ready flags set
+			expectedPhase:      "Provisioned",
+			expectedReady:      false,
 			expectedCPReady:    false,
 			expectedInfraReady: false,
 		},
@@ -305,6 +331,104 @@ func TestExtractClusterStatus(t *testing.T) {
 			assert.Equal(t, tt.expectedReady, ready)
 			assert.Equal(t, tt.expectedCPReady, cpReady)
 			assert.Equal(t, tt.expectedInfraReady, infraReady)
+		})
+	}
+}
+
+func TestFindConditionStatus(t *testing.T) {
+	tests := []struct {
+		name          string
+		obj           map[string]interface{}
+		conditionType string
+		path          []string
+		expectedVal   bool
+		expectedFound bool
+	}{
+		{
+			name: "finds True condition",
+			obj: map[string]interface{}{
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{"type": "Ready", "status": ConditionStatusTrue},
+					},
+				},
+			},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   true,
+			expectedFound: true,
+		},
+		{
+			name: "finds False condition",
+			obj: map[string]interface{}{
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{"type": "Ready", "status": "False"},
+					},
+				},
+			},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   false,
+			expectedFound: true,
+		},
+		{
+			name: "condition not found",
+			obj: map[string]interface{}{
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{"type": "Other", "status": ConditionStatusTrue},
+					},
+				},
+			},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   false,
+			expectedFound: false,
+		},
+		{
+			name:          "missing conditions path",
+			obj:           map[string]interface{}{},
+			conditionType: "Ready",
+			path:          []string{"status", "conditions"},
+			expectedVal:   false,
+			expectedFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, found := findConditionStatus(tt.obj, tt.conditionType, tt.path...)
+			assert.Equal(t, tt.expectedVal, val)
+			assert.Equal(t, tt.expectedFound, found)
+		})
+	}
+}
+
+func TestExtractNodeCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		cluster  *unstructured.Unstructured
+		expected int
+	}{
+		{
+			name: "control plane ready replicas",
+			cluster: createTestCAPIClusterWithDetails("test", "ns",
+				withControlPlaneReplicas(3),
+			),
+			expected: 3,
+		},
+		{
+			name:     "no replica info returns 0",
+			cluster:  createTestCAPICluster("test", "ns"),
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractNodeCount(tt.cluster)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -470,7 +594,7 @@ func TestManager_ListClustersWithMetadata(t *testing.T) {
 		withInfrastructureRef("AWSCluster", "prod-cluster"),
 		withTopologyVersion("v1.28.5"),
 		withStatus("Provisioned", true, true),
-		withWorkerNodes(5),
+		withControlPlaneReplicas(3),
 	)
 
 	manager := setupTestManager(t, []*unstructured.Unstructured{cluster}, nil)
@@ -489,7 +613,7 @@ func TestManager_ListClustersWithMetadata(t *testing.T) {
 	assert.True(t, c.Ready)
 	assert.True(t, c.ControlPlaneReady)
 	assert.True(t, c.InfrastructureReady)
-	assert.Equal(t, 5, c.NodeCount)
+	assert.Equal(t, 3, c.NodeCount)
 
 	// Check helper methods
 	assert.True(t, c.IsGiantSwarmCluster())

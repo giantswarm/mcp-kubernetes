@@ -53,7 +53,7 @@ type ClusterListItem struct {
 	// Age is the human-readable age of the cluster.
 	Age string `json:"age"`
 
-	// NodeCount is the number of worker nodes.
+	// NodeCount is the number of ready control plane replicas.
 	NodeCount int `json:"nodeCount,omitempty"`
 }
 
@@ -117,7 +117,7 @@ type ClusterStatus struct {
 	// InfrastructureReady indicates if the infrastructure is ready.
 	InfrastructureReady bool `json:"infrastructureReady"`
 
-	// NodeCount is the number of worker nodes.
+	// NodeCount is the number of ready control plane replicas.
 	NodeCount int `json:"nodeCount,omitempty"`
 }
 
@@ -162,7 +162,7 @@ type ClusterHealthComponents struct {
 	// Infrastructure indicates infrastructure health.
 	Infrastructure ComponentHealth `json:"infrastructure"`
 
-	// Nodes indicates worker node health.
+	// Nodes indicates control plane replica health.
 	Nodes ComponentHealth `json:"nodes"`
 }
 
@@ -342,19 +342,19 @@ func buildInfrastructureHealth(c *federation.ClusterSummary) ComponentHealth {
 	}
 }
 
-// buildNodesHealth builds nodes health from cluster status.
+// buildNodesHealth builds control plane replica health from cluster status.
 func buildNodesHealth(c *federation.ClusterSummary) ComponentHealth {
 	if c.NodeCount > 0 {
 		return ComponentHealth{
 			Status:  ComponentStatusHealthy,
 			Ready:   c.NodeCount,
 			Total:   c.NodeCount,
-			Message: strconv.Itoa(c.NodeCount) + " node(s) ready",
+			Message: strconv.Itoa(c.NodeCount) + " control plane replica(s) ready",
 		}
 	}
 	return ComponentHealth{
 		Status:  ComponentStatusUnknown,
-		Message: "Node count unavailable",
+		Message: "Control plane replica count unavailable",
 	}
 }
 
@@ -441,14 +441,14 @@ func buildHealthChecks(c *federation.ClusterSummary) []HealthCheck {
 	}
 	checks = append(checks, phaseCheck)
 
-	// Node health check
-	nodeCheck := HealthCheck{Name: "nodes"}
+	// Control plane replica check
+	nodeCheck := HealthCheck{Name: "control-plane-replicas"}
 	if c.NodeCount > 0 {
 		nodeCheck.Status = CheckStatusPass
-		nodeCheck.Message = strconv.Itoa(c.NodeCount) + " worker node(s) detected"
+		nodeCheck.Message = strconv.Itoa(c.NodeCount) + " control plane replica(s) ready"
 	} else {
 		nodeCheck.Status = CheckStatusWarn
-		nodeCheck.Message = "No worker node information available"
+		nodeCheck.Message = "Control plane replica count unavailable"
 	}
 	checks = append(checks, nodeCheck)
 

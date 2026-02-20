@@ -241,10 +241,44 @@ func extractKubernetesVersion(cluster *unstructured.Unstructured) string {
 	return ""
 }
 
-// extractClusterStatus extracts the cluster phase and ready conditions.
+// CAPI v1beta2 condition constants.
+const (
+	// ConditionControlPlaneAvailable is the v1beta2 condition for control plane readiness.
+	ConditionControlPlaneAvailable = "ControlPlaneAvailable"
+
+	// ConditionInfrastructureReady is the v1beta2 condition for infrastructure readiness.
+	ConditionInfrastructureReady = "InfrastructureReady"
+
+	// ConditionStatusTrue is the status value for a condition that is met.
+	ConditionStatusTrue = "True"
+)
+
+// findConditionStatus searches a conditions array at the given path for a condition
+// with the specified type and returns whether its status is "True".
+// Returns (isTrue, found).
+func findConditionStatus(obj map[string]interface{}, conditionType string, path ...string) (bool, bool) {
+	conditions, found, err := unstructured.NestedSlice(obj, path...)
+	if err != nil || !found {
+		return false, false
+	}
+	for _, c := range conditions {
+		condMap, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cType, _, _ := unstructured.NestedString(condMap, "type")
+		if cType == conditionType {
+			status, _, _ := unstructured.NestedString(condMap, "status")
+			return status == ConditionStatusTrue, true
+		}
+	}
+	return false, false
+}
+
+// extractClusterStatus extracts the cluster phase and ready conditions
+// from CAPI v1beta2 status.conditions[].
 // Returns phase, ready, controlPlaneReady, infrastructureReady.
 func extractClusterStatus(cluster *unstructured.Unstructured) (phase string, ready, controlPlaneReady, infrastructureReady bool) {
-	// Extract phase from status.phase
 	phaseStr, found, err := unstructured.NestedString(cluster.Object, "status", "phase")
 	if err != nil || !found {
 		phase = string(ClusterPhaseUnknown)
@@ -252,39 +286,26 @@ func extractClusterStatus(cluster *unstructured.Unstructured) (phase string, rea
 		phase = phaseStr
 	}
 
-	// Extract controlPlaneReady from status.controlPlaneReady
-	cpReady, found, err := unstructured.NestedBool(cluster.Object, "status", "controlPlaneReady")
-	if err == nil && found {
-		controlPlaneReady = cpReady
+	if val, ok := findConditionStatus(cluster.Object, ConditionControlPlaneAvailable, "status", "conditions"); ok {
+		controlPlaneReady = val
 	}
 
-	// Extract infrastructureReady from status.infrastructureReady
-	infraReady, found, err := unstructured.NestedBool(cluster.Object, "status", "infrastructureReady")
-	if err == nil && found {
-		infrastructureReady = infraReady
+	if val, ok := findConditionStatus(cluster.Object, ConditionInfrastructureReady, "status", "conditions"); ok {
+		infrastructureReady = val
 	}
 
-	// Cluster is considered ready when both control plane and infrastructure are ready
-	// and the phase is "Provisioned"
 	ready = controlPlaneReady && infrastructureReady && ClusterPhase(phase) == ClusterPhaseProvisioned
 
 	return phase, ready, controlPlaneReady, infrastructureReady
 }
 
-// extractNodeCount extracts the worker node count from the cluster status.
+// extractNodeCount extracts the control plane ready replica count
+// from CAPI v1beta2 status.controlPlane.readyReplicas.
 func extractNodeCount(cluster *unstructured.Unstructured) int {
-	// Try status.workerNodes (if available)
-	count, found, err := unstructured.NestedInt64(cluster.Object, "status", "workerNodes")
+	count, found, err := unstructured.NestedInt64(cluster.Object, "status", "controlPlane", "readyReplicas")
 	if err == nil && found {
 		return int(count)
 	}
-
-	// Try status.readyReplicas as fallback
-	count, found, err = unstructured.NestedInt64(cluster.Object, "status", "readyReplicas")
-	if err == nil && found {
-		return int(count)
-	}
-
 	return 0
 }
 

@@ -325,9 +325,9 @@ func TestBuildHealthChecks(t *testing.T) {
 	assert.Equal(t, "cluster-phase", phaseCheck.Name)
 	assert.Equal(t, CheckStatusPass, phaseCheck.Status)
 
-	// Verify nodes check
+	// Verify control plane replicas check
 	nodeCheck := checks[3]
-	assert.Equal(t, "nodes", nodeCheck.Name)
+	assert.Equal(t, "control-plane-replicas", nodeCheck.Name)
 	assert.Equal(t, CheckStatusPass, nodeCheck.Status)
 	assert.Contains(t, nodeCheck.Message, "5")
 }
