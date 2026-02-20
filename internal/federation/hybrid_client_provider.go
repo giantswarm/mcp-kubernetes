@@ -15,36 +15,45 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// PrivilegedSecretAccessMetricsRecorder provides an interface for recording privileged access metrics.
-// This enables monitoring of privileged secret access patterns for security observability.
-type PrivilegedSecretAccessMetricsRecorder interface {
-	// RecordPrivilegedSecretAccess records a privileged secret access attempt.
+// PrivilegedAccessMetricsRecorder provides an interface for recording privileged access metrics.
+// This enables monitoring of privileged access patterns for security observability.
+// It covers both secret access and CAPI discovery metrics.
+type PrivilegedAccessMetricsRecorder interface {
+	// RecordPrivilegedAccess records a privileged access attempt.
 	// Parameters:
 	//   - ctx: Request context
 	//   - userDomain: User's email domain (e.g., "giantswarm.io") for cardinality control
+	//   - operation: The type of privileged operation ("secret_access" or "capi_discovery")
 	//   - result: One of "success", "error", "rate_limited", "fallback"
-	RecordPrivilegedSecretAccess(ctx context.Context, userDomain, result string)
+	RecordPrivilegedAccess(ctx context.Context, userDomain, operation, result string)
 }
 
-// PrivilegedSecretAccessProvider extends ClientProvider with the ability to access
-// kubeconfig secrets using ServiceAccount credentials instead of user credentials.
+// PrivilegedAccessProvider extends ClientProvider with the ability to access
+// kubeconfig secrets and CAPI resources using ServiceAccount credentials instead of user credentials.
 //
 // # Security Model
 //
 // This interface enables a split-credential model for CAPI mode with OAuth downstream:
-//   - User OAuth tokens are used for CAPI cluster discovery (RBAC enforced)
-//   - ServiceAccount credentials are used for kubeconfig secret access
+//   - ServiceAccount credentials are used for CAPI cluster discovery and kubeconfig secret access
+//   - User OAuth tokens are used for operations on workload clusters (with impersonation)
 //   - This prevents users from extracting admin kubeconfig credentials via kubectl
 //
 // The key security property is that users cannot bypass impersonation:
 //   - Without this: Users with secret access could read kubeconfig directly and bypass impersonation
 //   - With this: Only mcp-kubernetes reads kubeconfig secrets, impersonation is always enforced
 //
+// # CAPI Discovery
+//
+// CAPI cluster discovery uses ServiceAccount credentials because:
+//   - Users need to discover clusters to use multi-cluster tools
+//   - Granting every user cluster-scoped CAPI permissions is impractical
+//   - The ServiceAccount can list all clusters, then filter by user's namespace permissions
+//
 // # Audit Trail
 //
-// All privileged secret access is logged with the user identity that triggered it,
+// All privileged access is logged with the user identity that triggered it,
 // ensuring accountability and traceability in audit logs.
-type PrivilegedSecretAccessProvider interface {
+type PrivilegedAccessProvider interface {
 	ClientProvider
 
 	// GetPrivilegedClientForSecrets returns a Kubernetes client using ServiceAccount credentials.
@@ -66,9 +75,42 @@ type PrivilegedSecretAccessProvider interface {
 	//   - error: Any error during client creation
 	GetPrivilegedClientForSecrets(ctx context.Context, user *UserInfo) (kubernetes.Interface, error)
 
-	// HasPrivilegedAccess returns true if privileged secret access is available.
-	// This allows the Manager to check if it should use privileged access for secrets.
-	HasPrivilegedAccess() bool
+	// GetPrivilegedDynamicClient returns a dynamic client using ServiceAccount credentials.
+	// This client is used for CAPI cluster discovery operations.
+	//
+	// # Security
+	//
+	// - The returned client uses the pod's ServiceAccount credentials
+	// - This enables CAPI cluster discovery without granting users cluster-scoped CAPI permissions
+	// - The user parameter is used for audit logging only, not for authentication
+	// - The returned client should ONLY be used for CAPI cluster listing/discovery
+	//
+	// Parameters:
+	//   - ctx: Context for the request
+	//   - user: User identity for audit logging (who triggered this access)
+	//
+	// Returns:
+	//   - dynamic.Interface: Dynamic client for CAPI operations
+	//   - error: Any error during client creation
+	GetPrivilegedDynamicClient(ctx context.Context, user *UserInfo) (dynamic.Interface, error)
+
+	// PrivilegedCAPIDiscovery returns whether CAPI cluster discovery uses
+	// ServiceAccount credentials instead of user credentials.
+	//
+	// This setting acts as a cluster visibility switch:
+	//   - true (default): All users can discover all CAPI clusters. Access
+	//     control is enforced at the workload cluster level via impersonation
+	//     or SSO passthrough. Maps to CredentialModeFullPrivileged.
+	//   - false: Users can only discover clusters they have RBAC to list.
+	//     This provides per-user cluster filtering at the MC level.
+	//     Maps to CredentialModePrivilegedSecrets.
+	PrivilegedCAPIDiscovery() bool
+
+	// IsStrictMode returns true if strict privileged access mode is enabled.
+	// When strict mode is enabled, the Manager will NOT fall back to user
+	// credentials if ServiceAccount access fails at runtime. Instead, it
+	// returns an error.
+	IsStrictMode() bool
 }
 
 // Default rate limiting values for privileged secret access
@@ -92,13 +134,13 @@ type userRateLimiter struct {
 	lastAccess time.Time
 }
 
-// HybridOAuthClientProvider implements PrivilegedSecretAccessProvider for OAuth downstream
+// HybridOAuthClientProvider implements PrivilegedAccessProvider for OAuth downstream
 // authentication with split credential model.
 //
 // This provider wraps two credential sources: user OAuth tokens for user-scoped operations
-// (CAPI discovery, WC operations) and ServiceAccount credentials for privileged operations
-// (kubeconfig secret access). This split-credential model prevents users from extracting
-// admin kubeconfig credentials via kubectl and bypassing impersonation.
+// (workload cluster operations with impersonation) and ServiceAccount credentials for privileged
+// operations (kubeconfig secret access and CAPI cluster discovery). This split-credential model
+// prevents users from extracting admin kubeconfig credentials via kubectl and bypassing impersonation.
 //
 // See docs/rbac-security.md for the complete security model, rate limiting configuration,
 // and audit trail details.
@@ -108,6 +150,9 @@ type HybridOAuthClientProvider struct {
 
 	// saClientset is the ServiceAccount client for privileged secret access
 	saClientset kubernetes.Interface
+
+	// saDynamicClient is the ServiceAccount dynamic client for CAPI discovery
+	saDynamicClient dynamic.Interface
 
 	// logger for audit trail and operational logging
 	logger *slog.Logger
@@ -124,8 +169,11 @@ type HybridOAuthClientProvider struct {
 	// strictPrivilegedAccess when true, fails instead of falling back to user credentials
 	strictPrivilegedAccess bool
 
+	// privilegedCAPIDiscovery when true, uses ServiceAccount for CAPI discovery
+	privilegedCAPIDiscovery bool
+
 	// metrics for recording privileged access events
-	metrics PrivilegedSecretAccessMetricsRecorder
+	metrics PrivilegedAccessMetricsRecorder
 
 	// Rate limiting for privileged access
 	rateLimitPerSecond float64
@@ -172,9 +220,21 @@ type HybridOAuthClientProviderConfig struct {
 	// Default: false (fallback enabled for backward compatibility)
 	StrictPrivilegedAccess bool
 
+	// PrivilegedCAPIDiscovery controls whether CAPI cluster discovery uses
+	// ServiceAccount credentials instead of user credentials. This acts as
+	// the cluster visibility switch:
+	//
+	//   - true (default): All users can discover all CAPI clusters.
+	//     Access control is enforced at the workload cluster level.
+	//   - false: Users can only discover clusters they have explicit RBAC
+	//     to list, providing per-user cluster visibility filtering.
+	//
+	// Default: true
+	PrivilegedCAPIDiscovery *bool
+
 	// Metrics recorder for privileged access events (optional)
 	// When configured, records success/failure/rate_limited/fallback events
-	Metrics PrivilegedSecretAccessMetricsRecorder
+	Metrics PrivilegedAccessMetricsRecorder
 
 	// RateLimitPerSecond is the rate limit for privileged access per user (requests/second)
 	// Default: 10.0
@@ -236,18 +296,25 @@ func NewHybridOAuthClientProvider(config *HybridOAuthClientProviderConfig) (*Hyb
 		rateLimiterExpiry = DefaultRateLimiterExpiry
 	}
 
+	// Default privileged CAPI discovery to true
+	privilegedCAPIDiscovery := true
+	if config.PrivilegedCAPIDiscovery != nil {
+		privilegedCAPIDiscovery = *config.PrivilegedCAPIDiscovery
+	}
+
 	p := &HybridOAuthClientProvider{
-		userProvider:           config.UserProvider,
-		logger:                 logger,
-		configProvider:         configProvider,
-		strictPrivilegedAccess: config.StrictPrivilegedAccess,
-		metrics:                config.Metrics,
-		rateLimitPerSecond:     rateLimitPerSecond,
-		rateLimitBurst:         rateLimitBurst,
-		rateLimiters:           make(map[string]*userRateLimiter),
-		cleanupInterval:        cleanupInterval,
-		rateLimiterExpiry:      rateLimiterExpiry,
-		stopCleanup:            make(chan struct{}),
+		userProvider:            config.UserProvider,
+		logger:                  logger,
+		configProvider:          configProvider,
+		strictPrivilegedAccess:  config.StrictPrivilegedAccess,
+		privilegedCAPIDiscovery: privilegedCAPIDiscovery,
+		metrics:                 config.Metrics,
+		rateLimitPerSecond:      rateLimitPerSecond,
+		rateLimitBurst:          rateLimitBurst,
+		rateLimiters:            make(map[string]*userRateLimiter),
+		cleanupInterval:         cleanupInterval,
+		rateLimiterExpiry:       rateLimiterExpiry,
+		stopCleanup:             make(chan struct{}),
 	}
 
 	// Start background cleanup goroutine
@@ -273,9 +340,9 @@ func (p *HybridOAuthClientProvider) RateLimitBurst() int {
 	return p.rateLimitBurst
 }
 
-// StrictPrivilegedAccess returns whether strict mode is enabled.
-func (p *HybridOAuthClientProvider) StrictPrivilegedAccess() bool {
-	return p.strictPrivilegedAccess
+// PrivilegedCAPIDiscovery returns whether privileged CAPI discovery is enabled.
+func (p *HybridOAuthClientProvider) PrivilegedCAPIDiscovery() bool {
+	return p.privilegedCAPIDiscovery
 }
 
 // rateLimiterCleanupLoop periodically removes expired rate limiters.
@@ -340,11 +407,22 @@ func (p *HybridOAuthClientProvider) IsStrictMode() bool {
 	return p.strictPrivilegedAccess
 }
 
+// Privileged access operation constants for metrics.
+const (
+	// PrivilegedOperationSecretAccess is the operation label for kubeconfig secret access.
+	PrivilegedOperationSecretAccess = "secret_access"
+
+	// PrivilegedOperationCAPIDiscovery is the operation label for CAPI cluster discovery.
+	PrivilegedOperationCAPIDiscovery = "capi_discovery"
+)
+
 // recordMetric safely records a privileged access metric if metrics are configured.
-func (p *HybridOAuthClientProvider) recordMetric(ctx context.Context, userEmail, result string) {
+// This is used internally for success/error/rate_limited events within the provider.
+// Fallback metrics are recorded separately by the Manager via recordPrivilegedMetric.
+func (p *HybridOAuthClientProvider) recordMetric(ctx context.Context, userEmail, operation, result string) {
 	if p.metrics != nil {
 		userDomain := extractUserDomain(userEmail)
-		p.metrics.RecordPrivilegedSecretAccess(ctx, userDomain, result)
+		p.metrics.RecordPrivilegedAccess(ctx, userDomain, operation, result)
 	}
 }
 
@@ -380,7 +458,7 @@ func (p *HybridOAuthClientProvider) GetClientsForUser(ctx context.Context, user 
 }
 
 // ErrRateLimited is returned when a user exceeds the rate limit for privileged access.
-var ErrRateLimited = fmt.Errorf("rate limit exceeded for privileged secret access")
+var ErrRateLimited = fmt.Errorf("rate limit exceeded for privileged access")
 
 // GetPrivilegedClientForSecrets returns the ServiceAccount client for secret access.
 //
@@ -401,42 +479,82 @@ func (p *HybridOAuthClientProvider) GetPrivilegedClientForSecrets(ctx context.Co
 	if !limiter.Allow() {
 		p.logger.Warn("Privileged secret access rate limited",
 			UserHashAttr(user.Email),
-			"operation", "kubeconfig_secret_access")
-		p.recordMetric(ctx, user.Email, "rate_limited")
+			"operation", PrivilegedOperationSecretAccess)
+		p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "rate_limited")
 		return nil, ErrRateLimited
 	}
 
 	// Ensure ServiceAccount client is initialized
 	if err := p.initServiceAccountClient(); err != nil {
-		p.recordMetric(ctx, user.Email, "error")
+		p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "error")
 		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
 	}
 
-	// Log the privileged access for audit trail
-	p.logger.Info("Privileged secret access initiated",
+	// Log the privileged access for audit trail.
+	// Use Debug level because secret access is high-frequency in CAPI mode
+	// (triggered on every workload cluster operation that needs a kubeconfig).
+	p.logger.Debug("Privileged secret access initiated",
 		UserHashAttr(user.Email),
-		"operation", "kubeconfig_secret_access")
+		"operation", PrivilegedOperationSecretAccess)
 
-	p.recordMetric(ctx, user.Email, "success")
+	p.recordMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "success")
 	return p.saClientset, nil
 }
 
-// HasPrivilegedAccess returns true if privileged secret access is available.
-// This checks if the ServiceAccount client can be initialized.
-func (p *HybridOAuthClientProvider) HasPrivilegedAccess() bool {
-	if err := p.initServiceAccountClient(); err != nil {
-		p.logger.Debug("Privileged access not available",
-			"error", err)
-		return false
+// ErrPrivilegedCAPIDiscoveryDisabled is returned when privileged CAPI discovery is disabled.
+var ErrPrivilegedCAPIDiscoveryDisabled = fmt.Errorf("privileged CAPI discovery is disabled")
+
+// GetPrivilegedDynamicClient returns the ServiceAccount dynamic client for CAPI discovery.
+//
+// # Security
+//
+// This method:
+//  1. Checks if privileged CAPI discovery is enabled
+//  2. Checks rate limiting per user (prevents abuse)
+//  3. Lazily initializes the ServiceAccount dynamic client on first call
+//  4. Logs the access for audit purposes (with user identity)
+//  5. Records metrics for monitoring
+//  6. Returns a client that should ONLY be used for CAPI cluster discovery
+//
+// The audit log entry includes the user identity to track who triggered the access,
+// even though the actual Kubernetes API call uses ServiceAccount credentials.
+func (p *HybridOAuthClientProvider) GetPrivilegedDynamicClient(ctx context.Context, user *UserInfo) (dynamic.Interface, error) {
+	// Check if privileged CAPI discovery is enabled
+	if !p.privilegedCAPIDiscovery {
+		return nil, ErrPrivilegedCAPIDiscoveryDisabled
 	}
-	return true
+
+	// Check rate limit for this user
+	limiter := p.getRateLimiter(user.Email)
+	if !limiter.Allow() {
+		p.logger.Warn("Privileged CAPI access rate limited",
+			UserHashAttr(user.Email),
+			"operation", PrivilegedOperationCAPIDiscovery)
+		p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "rate_limited")
+		return nil, ErrRateLimited
+	}
+
+	// Ensure ServiceAccount clients are initialized
+	if err := p.initServiceAccountClient(); err != nil {
+		p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "error")
+		return nil, fmt.Errorf("failed to initialize ServiceAccount client: %w", err)
+	}
+
+	// Log the privileged access for audit trail.
+	// Use Debug level because CAPI discovery is high-frequency (every ListClusters/ResolveCluster call).
+	p.logger.Debug("Privileged CAPI access initiated",
+		UserHashAttr(user.Email),
+		"operation", PrivilegedOperationCAPIDiscovery)
+
+	p.recordMetric(ctx, user.Email, PrivilegedOperationCAPIDiscovery, "success")
+	return p.saDynamicClient, nil
 }
 
-// initServiceAccountClient lazily initializes the ServiceAccount client.
+// initServiceAccountClient lazily initializes the ServiceAccount clients.
 // This is called on first use to avoid startup errors when running outside a cluster.
 func (p *HybridOAuthClientProvider) initServiceAccountClient() error {
 	p.initOnce.Do(func() {
-		p.logger.Debug("Initializing ServiceAccount client for privileged secret access")
+		p.logger.Debug("Initializing ServiceAccount clients for privileged access")
 
 		// Get in-cluster config
 		config, err := p.configProvider()
@@ -457,7 +575,21 @@ func (p *HybridOAuthClientProvider) initServiceAccountClient() error {
 		}
 		p.saClientset = clientset
 
-		p.logger.Info("ServiceAccount client initialized for privileged secret access")
+		// Create dynamic client for CAPI discovery
+		dynamicClient, err := dynamic.NewForConfig(config)
+		if err != nil {
+			// Clear clientset to avoid partial initialization state.
+			// sync.Once ensures this function only runs once, so a failure here
+			// is permanent -- subsequent calls return initErr without retrying.
+			p.saClientset = nil
+			p.initErr = fmt.Errorf("failed to create dynamic client: %w", err)
+			p.logger.Error("Failed to create ServiceAccount dynamic client",
+				"error", p.initErr)
+			return
+		}
+		p.saDynamicClient = dynamicClient
+
+		p.logger.Info("ServiceAccount clients initialized for privileged access")
 	})
 
 	return p.initErr
@@ -471,17 +603,17 @@ func (p *HybridOAuthClientProvider) SetTokenExtractor(extractor TokenExtractor) 
 
 // SetMetrics sets the metrics recorder on the underlying user provider.
 // This method passes through to the wrapped OAuthClientProvider.
-func (p *HybridOAuthClientProvider) SetMetrics(metrics OAuthAuthMetricsRecorder) {
+func (p *HybridOAuthClientProvider) SetMetrics(metrics OAuthMetricsRecorder) {
 	p.userProvider.SetMetrics(metrics)
 }
 
 // SetPrivilegedAccessMetrics sets the metrics recorder for privileged access events.
-func (p *HybridOAuthClientProvider) SetPrivilegedAccessMetrics(metrics PrivilegedSecretAccessMetricsRecorder) {
+func (p *HybridOAuthClientProvider) SetPrivilegedAccessMetrics(metrics PrivilegedAccessMetricsRecorder) {
 	p.metrics = metrics
 }
 
-// Ensure HybridOAuthClientProvider implements PrivilegedSecretAccessProvider.
-var _ PrivilegedSecretAccessProvider = (*HybridOAuthClientProvider)(nil)
+// Ensure HybridOAuthClientProvider implements PrivilegedAccessProvider.
+var _ PrivilegedAccessProvider = (*HybridOAuthClientProvider)(nil)
 
 // Ensure HybridOAuthClientProvider implements ClientProvider.
 var _ ClientProvider = (*HybridOAuthClientProvider)(nil)

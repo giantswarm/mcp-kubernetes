@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated CAPI Cluster discovery to use `cluster.x-k8s.io/v1beta2` API ([#253](https://github.com/giantswarm/mcp-kubernetes/issues/253))
 
+### Fixed
+- Fixed `capi_cluster_health` reporting healthy clusters as UNHEALTHY due to CAPI v1beta2 schema changes ([#287](https://github.com/giantswarm/mcp-kubernetes/issues/287))
+
 ## [0.0.19] - 2025-07-24
 
 ### Changed

@@ -2,6 +2,7 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -21,13 +23,19 @@ import (
 // This can be overridden using WithManagerConnectionValidationTimeout.
 const DefaultConnectionValidationTimeout = 10 * time.Second
 
-// ClusterInfo contains information about a CAPI cluster needed for kubeconfig retrieval.
+// ClusterInfo contains information about a CAPI cluster needed for kubeconfig retrieval
+// and SSO passthrough (CA certificate + endpoint).
 type ClusterInfo struct {
 	// Name is the cluster name.
 	Name string
 
 	// Namespace is the namespace where the cluster resource and its kubeconfig secret reside.
 	Namespace string
+
+	// Endpoint is the API server endpoint (e.g., "https://api.cluster.example.com:6443").
+	// Populated from spec.controlPlaneEndpoint when available. Empty if the cluster
+	// resource does not have a control plane endpoint set.
+	Endpoint string
 }
 
 // GetKubeconfigForCluster retrieves the kubeconfig secret for a CAPI cluster
@@ -37,13 +45,13 @@ type ClusterInfo struct {
 //
 // This method implements a split-credential model for enhanced security:
 //
-// When PrivilegedSecretAccessProvider is available:
-//  1. Finds the Cluster resource using user's dynamic client (RBAC enforced)
+// When PrivilegedAccessProvider is available:
+//  1. Finds the Cluster resource using SERVICEACCOUNT credentials (privileged CAPI discovery)
 //  2. Fetches the kubeconfig secret using SERVICEACCOUNT credentials (privileged)
 //  3. Parses the kubeconfig into a rest.Config
 //
 // This prevents users from bypassing impersonation:
-//   - Users can discover clusters they have RBAC to list
+//   - Users can discover clusters without needing cluster-scoped CAPI permissions
 //   - But they cannot extract kubeconfig secrets via kubectl
 //   - mcp-kubernetes reads secrets using ServiceAccount credentials
 //   - All workload cluster operations enforce impersonation
@@ -51,11 +59,11 @@ type ClusterInfo struct {
 // When only basic ClientProvider is available (fallback mode):
 //  1. Finds the Cluster resource using user's dynamic client (RBAC enforced)
 //  2. Fetches the kubeconfig secret using user's client (RBAC enforced)
-//  3. User must have RBAC permission to read secrets
+//  3. User must have RBAC permission to read secrets and list CAPI clusters
 //
 // # Audit Trail
 //
-// All privileged secret access is logged with the user identity for accountability.
+// All privileged access is logged with the user identity for accountability.
 //
 // Security notes:
 //   - Never logs kubeconfig contents (sensitive credential data)
@@ -78,20 +86,30 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 		}
 	}
 
-	// Get user-scoped clients for MC operations (cluster discovery)
-	_, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	// Get a dynamic client for CAPI cluster discovery.
+	// This uses the same split-credential strategy as the CAPI tools:
+	// 1. Try ServiceAccount credentials (privileged) - no cluster-scoped RBAC needed for user
+	// 2. Fall back to user credentials if privileged access is unavailable
+	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		m.logger.Debug("Failed to get user clients for kubeconfig retrieval",
+		m.logger.Debug("Failed to get dynamic client for CAPI discovery in kubeconfig retrieval",
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
+
+		// Preserve strict-mode sentinel so callers can distinguish policy
+		// rejections from transient failures.
+		if errors.Is(err, ErrStrictPrivilegedAccessRequired) {
+			return nil, err
+		}
+
 		return nil, &ClusterNotFoundError{
 			ClusterName: clusterName,
-			Reason:      "failed to create client for user",
+			Reason:      "failed to create client for CAPI discovery",
 		}
 	}
 
-	// Find the cluster to determine its namespace (using user's RBAC)
+	// Find the cluster to determine its namespace
 	clusterInfo, err := m.findClusterInfo(ctx, clusterName, dynamicClient, user)
 	if err != nil {
 		return nil, err
@@ -113,56 +131,60 @@ var ErrStrictPrivilegedAccessRequired = fmt.Errorf("privileged secret access req
 
 // getSecretAccessClient returns the appropriate client for kubeconfig secret access.
 //
-// # Security Model
+// The behavior depends on the Manager's credentialMode (resolved at construction):
 //
-// If the ClientProvider implements PrivilegedSecretAccessProvider, uses the
-// ServiceAccount client. This prevents users from reading kubeconfig secrets
-// directly via kubectl, enforcing that all workload cluster access goes through
-// mcp-kubernetes with proper impersonation.
+//   - CredentialModeFullPrivileged, CredentialModePrivilegedSecrets: Uses ServiceAccount
+//     credentials via GetPrivilegedClientForSecrets. If the ServiceAccount client fails
+//     at runtime, falls back to user credentials unless strict mode is enabled.
 //
-// If only basic ClientProvider is available, falls back to user credentials.
-// This maintains backward compatibility but requires users to have secret access.
-//
-// # Strict Mode
-//
-// When the provider has StrictPrivilegedAccess enabled, this method will return
-// an error instead of falling back to user credentials. This enforces the
-// split-credential security model.
+//   - CredentialModeUser: Uses user credentials (user must have RBAC to read secrets).
 func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
-	// Check if provider supports privileged secret access
-	if privilegedProvider, ok := m.clientProvider.(PrivilegedSecretAccessProvider); ok && privilegedProvider.HasPrivilegedAccess() {
-		m.logger.Debug("Using ServiceAccount for privileged secret access",
-			"cluster", clusterName,
-			UserHashAttr(user.Email))
+	switch m.credentialMode {
+	case CredentialModeFullPrivileged, CredentialModePrivilegedSecrets:
+		client, err := m.privilegedProvider.GetPrivilegedClientForSecrets(ctx, user)
+		if err == nil {
+			m.logger.Debug("Using ServiceAccount for privileged secret access",
+				"credential_mode", m.credentialMode.String(),
+				"cluster", clusterName,
+				UserHashAttr(user.Email))
+			return client, nil
+		}
 
-		client, err := privilegedProvider.GetPrivilegedClientForSecrets(ctx, user)
-		if err != nil {
-			// Check if strict mode is enabled
-			if hybridProvider, isHybrid := privilegedProvider.(*HybridOAuthClientProvider); isHybrid && hybridProvider.IsStrictMode() {
-				m.logger.Error("Privileged secret access failed in strict mode",
-					"cluster", clusterName,
-					UserHashAttr(user.Email),
-					"error", err)
-				return nil, ErrStrictPrivilegedAccessRequired
-			}
-
-			m.logger.Warn("Failed to get privileged client, falling back to user credentials",
+		// Runtime failure: ServiceAccount client couldn't be created.
+		// Fall back to user credentials unless strict mode is enabled.
+		if m.privilegedProvider.IsStrictMode() {
+			m.logger.Error("Privileged secret access failed in strict mode",
+				"credential_mode", m.credentialMode.String(),
 				"cluster", clusterName,
 				UserHashAttr(user.Email),
 				"error", err)
-
-			// Record fallback metric if the provider supports it
-			if hybridProvider, isHybrid := privilegedProvider.(*HybridOAuthClientProvider); isHybrid {
-				hybridProvider.recordMetric(ctx, user.Email, "fallback")
-			}
-			// Fall through to user credentials
-		} else {
-			return client, nil
+			return nil, ErrStrictPrivilegedAccessRequired
 		}
-	}
 
-	// Fallback: Use user's credentials for secret access
-	m.logger.Debug("Using user credentials for secret access (fallback mode)",
+		// Warn (not Debug) because secret access fallback means the user's
+		// own credentials are used to read kubeconfig secrets, which is a
+		// weaker security posture than the split-credential model.
+		m.logger.Warn("Privileged secret access failed at runtime, falling back to user credentials",
+			"credential_mode", m.credentialMode.String(),
+			"cluster", clusterName,
+			UserHashAttr(user.Email),
+			"error", err)
+		m.recordPrivilegedMetric(ctx, user.Email, PrivilegedOperationSecretAccess, "fallback")
+
+		return m.getUserSecretClient(ctx, clusterName, user)
+
+	case CredentialModeUser:
+		return m.getUserSecretClient(ctx, clusterName, user)
+
+	default:
+		return nil, fmt.Errorf("unknown credential mode: %s", m.credentialMode)
+	}
+}
+
+// getUserSecretClient returns the user-scoped clientset for secret access.
+func (m *Manager) getUserSecretClient(ctx context.Context, clusterName string, user *UserInfo) (kubernetes.Interface, error) {
+	m.logger.Debug("Using user credentials for secret access",
+		"credential_mode", m.credentialMode.String(),
 		"cluster", clusterName,
 		UserHashAttr(user.Email))
 
@@ -172,10 +194,7 @@ func (m *Manager) getSecretAccessClient(ctx context.Context, clusterName string,
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
-		return nil, &ClusterNotFoundError{
-			ClusterName: clusterName,
-			Reason:      "failed to create client for user",
-		}
+		return nil, fmt.Errorf("failed to create user client for secret access (cluster %s): %w", clusterName, err)
 	}
 
 	return clientset, nil
@@ -205,10 +224,12 @@ func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterN
 //
 // # Security Model
 //
-// This method uses the user's dynamic client, ensuring:
-//   - User must have RBAC permission to list Cluster resources
-//   - Only clusters the user has access to will be found
-//   - Defense in depth: MC RBAC is enforced before any WC access
+// The caller is responsible for providing the appropriate dynamic client:
+//   - When called with a privileged client (from getDynamicClientForCAPIDiscovery),
+//     the ServiceAccount credentials are used for discovery, so users don't need
+//     cluster-scoped CAPI permissions.
+//   - When called with a user-scoped client, the user must have RBAC permission
+//     to list Cluster resources.
 //
 // The cluster name must be validated using ValidateClusterName() before calling
 // this method to prevent path traversal or injection attacks.
@@ -216,7 +237,7 @@ func (m *Manager) GetKubeconfigForClusterValidated(ctx context.Context, clusterN
 // All user-facing errors are sanitized via UserFacingError() to prevent
 // information leakage through error response differentiation.
 func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynamicClient dynamic.Interface, user *UserInfo) (*ClusterInfo, error) {
-	// List all CAPI Cluster resources across all namespaces (using user's RBAC)
+	// List all CAPI Cluster resources across all namespaces
 	//
 	// Note: We don't use FieldSelector because the fake dynamic client doesn't support it well.
 	// TODO(performance): In production with many clusters, consider using a FieldSelector
@@ -239,6 +260,7 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 	for _, cluster := range list.Items {
 		if cluster.GetName() == clusterName {
 			namespace := cluster.GetNamespace()
+			endpoint := extractClusterEndpoint(&cluster)
 			m.logger.Debug("Found CAPI Cluster",
 				"cluster", clusterName,
 				"namespace", namespace,
@@ -246,6 +268,7 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 			return &ClusterInfo{
 				Name:      clusterName,
 				Namespace: namespace,
+				Endpoint:  endpoint,
 			}, nil
 		}
 	}
@@ -259,14 +282,95 @@ func (m *Manager) findClusterInfo(ctx context.Context, clusterName string, dynam
 	}
 }
 
+// extractClusterEndpoint extracts the API server endpoint from an unstructured
+// CAPI Cluster resource's spec.controlPlaneEndpoint. Returns an empty string
+// if the endpoint is not set or contains invalid values (e.g., cluster is still
+// provisioning, or the host/port values are malformed).
+//
+// # Validation
+//
+// The host value is validated to ensure it is a valid hostname or IP address.
+// The port is validated to be within the TCP port range (1-65535).
+// Invalid values are treated as if the endpoint is not set (returns "").
+func extractClusterEndpoint(cluster *unstructured.Unstructured) string {
+	host, _, _ := unstructured.NestedString(cluster.Object, "spec", "controlPlaneEndpoint", "host")
+	if host == "" {
+		return ""
+	}
+
+	// Validate host: must be a valid hostname or IP, and must not contain
+	// path separators, query strings, or other URL components that could
+	// lead to unexpected URL construction.
+	if !isValidEndpointHost(host) {
+		return ""
+	}
+
+	// Try int64 first (API server responses), then float64 (JSON-decoded unstructured data).
+	port, found, _ := unstructured.NestedInt64(cluster.Object, "spec", "controlPlaneEndpoint", "port")
+	if !found {
+		if fport, ok, _ := unstructured.NestedFloat64(cluster.Object, "spec", "controlPlaneEndpoint", "port"); ok {
+			port = int64(fport)
+		}
+	}
+
+	// Validate port range (TCP: 1-65535). Out-of-range values default to 6443.
+	if port > 0 && port <= 65535 {
+		return fmt.Sprintf("https://%s:%d", host, port)
+	}
+	return fmt.Sprintf("https://%s:6443", host)
+}
+
+// isValidEndpointHost checks that a host string is safe to use in a URL.
+// It rejects hosts containing path separators, query strings, fragments,
+// spaces, or other characters that could alter URL semantics.
+//
+// Accepts valid IPv4 addresses, IPv6 addresses, and RFC 952/1123 hostnames.
+func isValidEndpointHost(host string) bool {
+	if host == "" {
+		return false
+	}
+
+	// Check IP addresses first (IPv4 and IPv6). IPv6 addresses contain colons
+	// which would be rejected by the hostname character check below.
+	if net.ParseIP(host) != nil {
+		return true
+	}
+
+	// For hostnames: reject any character that could break out of the host
+	// component of a URL.
+	if strings.ContainsAny(host, "/?#@\\: \t\n\r") {
+		return false
+	}
+
+	// Verify each label is non-empty and contains only valid hostname characters.
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+		for _, c := range label {
+			isLower := c >= 'a' && c <= 'z'
+			isUpper := c >= 'A' && c <= 'Z'
+			isDigit := c >= '0' && c <= '9'
+			if !isLower && !isUpper && !isDigit && c != '-' {
+				return false
+			}
+		}
+		// Labels must not start or end with a hyphen.
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // getKubeconfigFromSecret retrieves the kubeconfig data from the cluster's secret.
 //
 // # Security Model
 //
-// This method uses the user's client, ensuring:
-//   - User must have RBAC permission to get Secrets in the cluster's namespace
-//   - Only secrets the user has access to can be retrieved
-//   - Defense in depth: MC RBAC is enforced for secret access
+// The caller provides the appropriate client based on the Manager's CredentialMode:
+//   - In privileged modes, the client is a ServiceAccount client (no user RBAC needed)
+//   - In user mode, the client is a user-scoped client (user must have secret read RBAC)
 //
 // By CAPI convention, the secret is named ${CLUSTER_NAME}-kubeconfig and contains
 // the kubeconfig data in either the 'value' or 'kubeconfig' key.

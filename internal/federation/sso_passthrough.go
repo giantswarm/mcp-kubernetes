@@ -3,10 +3,10 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -41,6 +41,16 @@ func DefaultSSOPassthroughConfig() *SSOPassthroughConfig {
 // The CA certificate is public information needed for TLS verification.
 // Since CA certificates are public keys, they are stored in ConfigMaps rather than Secrets.
 //
+// # Split-Credential Model
+//
+// CAPI cluster discovery (listing Cluster resources) uses getDynamicClientForCAPIDiscovery(),
+// which respects the Manager's CredentialMode. In CredentialModeFullPrivileged, this uses
+// ServiceAccount credentials so users don't need cluster-scoped CAPI list permissions.
+// This is consistent with the impersonation path (GetKubeconfigForCluster).
+//
+// ConfigMap access uses user credentials because CA certificates are public information
+// and no privilege escalation is needed for reading ConfigMaps.
+//
 // # ConfigMap Convention
 //
 // The CA ConfigMap is expected to be named: ${CLUSTER_NAME}${caConfigMapSuffix}
@@ -65,29 +75,55 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 		}
 	}
 
-	// Get user-scoped clients for MC operations (cluster discovery and ConfigMap access)
-	clientset, dynamicClient, _, err := m.clientProvider.GetClientsForUser(ctx, user)
+	// Get dynamic client for CAPI discovery, respecting CredentialMode.
+	// In CredentialModeFullPrivileged, this uses ServiceAccount credentials
+	// so users don't need cluster-scoped CAPI list permissions.
+	// This is consistent with the impersonation path (GetKubeconfigForCluster).
+	dynamicClient, err := m.getDynamicClientForCAPIDiscovery(ctx, user)
 	if err != nil {
-		m.logger.Debug("Failed to get user clients for CA retrieval",
+		m.logger.Debug("Failed to get dynamic client for CAPI discovery in CA retrieval",
 			"cluster", clusterName,
 			UserHashAttr(user.Email),
 			"error", err)
+
+		// Preserve strict-mode sentinel so callers can distinguish policy
+		// rejections from transient failures.
+		if errors.Is(err, ErrStrictPrivilegedAccessRequired) {
+			return nil, "", err
+		}
+
 		return nil, "", &ClusterNotFoundError{
 			ClusterName: clusterName,
-			Reason:      "failed to create client for user",
+			Reason:      "failed to create client for CAPI discovery",
 		}
 	}
 
-	// Find the cluster to determine its namespace and endpoint
+	// Find the cluster to determine its namespace and endpoint.
+	// findClusterInfo populates ClusterInfo.Endpoint from spec.controlPlaneEndpoint,
+	// so we don't need a separate API call for the endpoint.
 	clusterInfo, err := m.findClusterInfo(ctx, clusterName, dynamicClient, user)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Get cluster endpoint from the CAPI Cluster resource
-	endpoint, err := m.getClusterEndpoint(ctx, clusterName, dynamicClient)
+	// Verify we have an endpoint (required for SSO passthrough TLS connection)
+	if clusterInfo.Endpoint == "" {
+		return nil, "", &ClusterNotFoundError{
+			ClusterName: clusterName,
+			Reason:      "could not determine cluster API endpoint from CAPI Cluster resource",
+		}
+	}
+
+	// Get user-scoped clientset for ConfigMap access.
+	// CA certificates are public information, so no privileged access is needed.
+	// User credentials are sufficient for reading ConfigMaps.
+	clientset, _, _, err := m.clientProvider.GetClientsForUser(ctx, user)
 	if err != nil {
-		return nil, "", err
+		m.logger.Debug("Failed to get user clients for CA ConfigMap access",
+			"cluster", clusterName,
+			UserHashAttr(user.Email),
+			"error", err)
+		return nil, "", fmt.Errorf("failed to create user client for ConfigMap access (cluster %s): %w", clusterName, err)
 	}
 
 	// Retrieve CA certificate from the CA ConfigMap
@@ -97,39 +133,7 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 		return nil, "", err
 	}
 
-	return caData, endpoint, nil
-}
-
-// getClusterEndpoint extracts the API server endpoint from a CAPI Cluster resource.
-func (m *Manager) getClusterEndpoint(ctx context.Context, clusterName string, dynamicClient dynamic.Interface) (string, error) {
-	// List all CAPI Cluster resources to find the one we need
-	list, err := dynamicClient.Resource(CAPIClusterGVR).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", &ClusterNotFoundError{
-			ClusterName: clusterName,
-			Reason:      fmt.Sprintf("failed to query CAPI clusters: %v", err),
-		}
-	}
-
-	for _, cluster := range list.Items {
-		if cluster.GetName() == clusterName {
-			// Try to get endpoint from spec.controlPlaneEndpoint using standard k8s unstructured helpers
-			host, _, _ := unstructured.NestedString(cluster.Object, "spec", "controlPlaneEndpoint", "host")
-			port, _, _ := unstructured.NestedInt64(cluster.Object, "spec", "controlPlaneEndpoint", "port")
-
-			if host != "" {
-				if port > 0 {
-					return fmt.Sprintf("https://%s:%d", host, port), nil
-				}
-				return fmt.Sprintf("https://%s:6443", host), nil
-			}
-		}
-	}
-
-	return "", &ClusterNotFoundError{
-		ClusterName: clusterName,
-		Reason:      "could not determine cluster API endpoint from CAPI Cluster resource",
-	}
+	return caData, clusterInfo.Endpoint, nil
 }
 
 // getCAFromConfigMap retrieves the CA certificate from a CA ConfigMap.

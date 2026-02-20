@@ -56,9 +56,9 @@ const UserExtraOAuthTokenKey = "oauth_token"
 //	}
 //	defer manager.Close()
 //
-// OAuthAuthMetricsRecorder provides an interface for recording OAuth authentication metrics.
+// OAuthMetricsRecorder provides an interface for recording OAuth authentication metrics.
 // This is used by OAuthClientProvider to track authentication success/failure rates.
-type OAuthAuthMetricsRecorder interface {
+type OAuthMetricsRecorder interface {
 	// RecordOAuthDownstreamAuth records an OAuth downstream authentication attempt.
 	// result should be one of: "success", "fallback", "failure", "no_token"
 	RecordOAuthDownstreamAuth(ctx context.Context, result string)
@@ -83,7 +83,7 @@ type OAuthClientProvider struct {
 	tokenExtractorOnce sync.Once
 
 	// metrics records OAuth authentication success/failure for monitoring
-	metrics OAuthAuthMetricsRecorder
+	metrics OAuthMetricsRecorder
 }
 
 // OAuthClientProviderConfig contains configuration for creating an OAuthClientProvider.
@@ -188,7 +188,7 @@ func (p *OAuthClientProvider) SetTokenExtractor(extractor TokenExtractor) {
 
 // SetMetrics sets the metrics recorder for tracking authentication success/failure.
 // This should be called during initialization to enable metrics collection.
-func (p *OAuthClientProvider) SetMetrics(metrics OAuthAuthMetricsRecorder) {
+func (p *OAuthClientProvider) SetMetrics(metrics OAuthMetricsRecorder) {
 	p.metrics = metrics
 }
 

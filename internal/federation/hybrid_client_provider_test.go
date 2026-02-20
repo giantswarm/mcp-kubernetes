@@ -32,6 +32,7 @@ func TestNewHybridOAuthClientProvider(t *testing.T) {
 		provider, err := NewHybridOAuthClientProvider(config)
 
 		require.NoError(t, err)
+		defer provider.Close()
 		assert.NotNil(t, provider)
 		assert.Same(t, userProvider, provider.userProvider)
 	})
@@ -69,6 +70,7 @@ func TestNewHybridOAuthClientProvider(t *testing.T) {
 		provider, err := NewHybridOAuthClientProvider(config)
 
 		require.NoError(t, err)
+		defer provider.Close()
 		assert.NotNil(t, provider)
 		assert.NotNil(t, provider.logger)
 	})
@@ -91,6 +93,7 @@ func TestHybridOAuthClientProvider_GetClientsForUser(t *testing.T) {
 
 		provider, err := NewHybridOAuthClientProvider(config)
 		require.NoError(t, err)
+		defer provider.Close()
 
 		user := &UserInfo{
 			Email:  "user@example.com",
@@ -129,6 +132,7 @@ func TestHybridOAuthClientProvider_GetPrivilegedClientForSecrets(t *testing.T) {
 
 		provider, err := NewHybridOAuthClientProvider(config)
 		require.NoError(t, err)
+		defer provider.Close()
 
 		user := &UserInfo{
 			Email:  "user@example.com",
@@ -155,6 +159,7 @@ func TestHybridOAuthClientProvider_GetPrivilegedClientForSecrets(t *testing.T) {
 
 		provider, err := NewHybridOAuthClientProvider(config)
 		require.NoError(t, err)
+		defer provider.Close()
 
 		user := &UserInfo{
 			Email: "user@example.com",
@@ -187,6 +192,7 @@ func TestHybridOAuthClientProvider_GetPrivilegedClientForSecrets(t *testing.T) {
 
 		provider, err := NewHybridOAuthClientProvider(config)
 		require.NoError(t, err)
+		defer provider.Close()
 
 		user := &UserInfo{Email: "user@example.com"}
 
@@ -207,8 +213,148 @@ func TestHybridOAuthClientProvider_GetPrivilegedClientForSecrets(t *testing.T) {
 	})
 }
 
-func TestHybridOAuthClientProvider_HasPrivilegedAccess(t *testing.T) {
-	t.Run("returns true when ServiceAccount client is available", func(t *testing.T) {
+func TestHybridOAuthClientProvider_GetPrivilegedDynamicClient(t *testing.T) {
+	t.Run("returns dynamic client when config is available", func(t *testing.T) {
+		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		require.NoError(t, err)
+
+		// Create a mock in-cluster config
+		mockConfig := &rest.Config{
+			Host: "https://kubernetes.default.svc",
+		}
+
+		config := &HybridOAuthClientProviderConfig{
+			UserProvider:   userProvider,
+			Logger:         newTestLogger(),
+			ConfigProvider: mockInClusterConfig(mockConfig, nil),
+		}
+
+		provider, err := NewHybridOAuthClientProvider(config)
+		require.NoError(t, err)
+		defer provider.Close()
+
+		user := &UserInfo{
+			Email:  "user@example.com",
+			Groups: []string{"developers"},
+		}
+
+		client, err := provider.GetPrivilegedDynamicClient(context.Background(), user)
+
+		require.NoError(t, err)
+		assert.NotNil(t, client)
+	})
+
+	t.Run("returns error when in-cluster config fails", func(t *testing.T) {
+		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		require.NoError(t, err)
+
+		configErr := errors.New("not running in cluster")
+
+		config := &HybridOAuthClientProviderConfig{
+			UserProvider:   userProvider,
+			Logger:         newTestLogger(),
+			ConfigProvider: mockInClusterConfig(nil, configErr),
+		}
+
+		provider, err := NewHybridOAuthClientProvider(config)
+		require.NoError(t, err)
+		defer provider.Close()
+
+		user := &UserInfo{
+			Email: "user@example.com",
+		}
+
+		client, err := provider.GetPrivilegedDynamicClient(context.Background(), user)
+
+		assert.Error(t, err)
+		assert.Nil(t, client)
+		assert.Contains(t, err.Error(), "failed to initialize ServiceAccount client")
+	})
+
+	t.Run("shares initialization with GetPrivilegedClientForSecrets", func(t *testing.T) {
+		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		require.NoError(t, err)
+
+		callCount := 0
+		mockConfig := &rest.Config{
+			Host: "https://kubernetes.default.svc",
+		}
+
+		config := &HybridOAuthClientProviderConfig{
+			UserProvider: userProvider,
+			Logger:       newTestLogger(),
+			ConfigProvider: func() (*rest.Config, error) {
+				callCount++
+				return mockConfig, nil
+			},
+		}
+
+		provider, err := NewHybridOAuthClientProvider(config)
+		require.NoError(t, err)
+		defer provider.Close()
+
+		user := &UserInfo{Email: "user@example.com"}
+
+		// First call with GetPrivilegedClientForSecrets
+		secretClient, err := provider.GetPrivilegedClientForSecrets(context.Background(), user)
+		require.NoError(t, err)
+		assert.NotNil(t, secretClient)
+		assert.Equal(t, 1, callCount, "config should be created on first call")
+
+		// Second call with GetPrivilegedDynamicClient - should use cached config
+		dynamicClient, err := provider.GetPrivilegedDynamicClient(context.Background(), user)
+		require.NoError(t, err)
+		assert.NotNil(t, dynamicClient)
+		assert.Equal(t, 1, callCount, "config should be cached, not created again")
+	})
+
+	t.Run("returns error when privileged CAPI discovery is disabled", func(t *testing.T) {
+		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		require.NoError(t, err)
+
+		mockConfig := &rest.Config{
+			Host: "https://kubernetes.default.svc",
+		}
+
+		disabled := false
+		config := &HybridOAuthClientProviderConfig{
+			UserProvider:            userProvider,
+			Logger:                  newTestLogger(),
+			ConfigProvider:          mockInClusterConfig(mockConfig, nil),
+			PrivilegedCAPIDiscovery: &disabled,
+		}
+
+		provider, err := NewHybridOAuthClientProvider(config)
+		require.NoError(t, err)
+		defer provider.Close()
+
+		user := &UserInfo{Email: "user@example.com"}
+
+		client, err := provider.GetPrivilegedDynamicClient(context.Background(), user)
+
+		assert.ErrorIs(t, err, ErrPrivilegedCAPIDiscoveryDisabled)
+		assert.Nil(t, client)
+		assert.False(t, provider.PrivilegedCAPIDiscovery())
+	})
+
+	t.Run("defaults to enabled when not configured", func(t *testing.T) {
+		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		require.NoError(t, err)
+
+		config := &HybridOAuthClientProviderConfig{
+			UserProvider:   userProvider,
+			Logger:         newTestLogger(),
+			ConfigProvider: mockInClusterConfig(&rest.Config{Host: "https://kubernetes.default.svc"}, nil),
+		}
+
+		provider, err := NewHybridOAuthClientProvider(config)
+		require.NoError(t, err)
+		defer provider.Close()
+
+		assert.True(t, provider.PrivilegedCAPIDiscovery())
+	})
+
+	t.Run("dynamic client is cached across calls", func(t *testing.T) {
 		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
 		require.NoError(t, err)
 
@@ -224,30 +370,20 @@ func TestHybridOAuthClientProvider_HasPrivilegedAccess(t *testing.T) {
 
 		provider, err := NewHybridOAuthClientProvider(config)
 		require.NoError(t, err)
+		defer provider.Close()
 
-		hasAccess := provider.HasPrivilegedAccess()
+		user := &UserInfo{Email: "user@example.com"}
 
-		assert.True(t, hasAccess)
-	})
-
-	t.Run("returns false when in-cluster config fails", func(t *testing.T) {
-		userProvider, err := NewOAuthClientProvider(DefaultOAuthClientProviderConfig())
+		// First call
+		client1, err := provider.GetPrivilegedDynamicClient(context.Background(), user)
 		require.NoError(t, err)
 
-		configErr := errors.New("not running in cluster")
-
-		config := &HybridOAuthClientProviderConfig{
-			UserProvider:   userProvider,
-			Logger:         newTestLogger(),
-			ConfigProvider: mockInClusterConfig(nil, configErr),
-		}
-
-		provider, err := NewHybridOAuthClientProvider(config)
+		// Second call
+		client2, err := provider.GetPrivilegedDynamicClient(context.Background(), user)
 		require.NoError(t, err)
 
-		hasAccess := provider.HasPrivilegedAccess()
-
-		assert.False(t, hasAccess)
+		// Should return the same client
+		assert.Same(t, client1, client2)
 	})
 }
 
@@ -263,6 +399,7 @@ func TestHybridOAuthClientProvider_SetTokenExtractor(t *testing.T) {
 
 		provider, err := NewHybridOAuthClientProvider(config)
 		require.NoError(t, err)
+		defer provider.Close()
 
 		// Set token extractor via hybrid provider
 		provider.SetTokenExtractor(func(ctx context.Context) (string, bool) {
@@ -288,6 +425,7 @@ func TestHybridOAuthClientProvider_SetMetrics(t *testing.T) {
 
 		provider, err := NewHybridOAuthClientProvider(config)
 		require.NoError(t, err)
+		defer provider.Close()
 
 		metrics := &mockOAuthMetricsRecorder{}
 		provider.SetMetrics(metrics)
@@ -302,8 +440,8 @@ func TestHybridOAuthClientProvider_ImplementsInterfaces(t *testing.T) {
 		var _ ClientProvider = (*HybridOAuthClientProvider)(nil)
 	})
 
-	t.Run("implements PrivilegedSecretAccessProvider", func(t *testing.T) {
-		var _ PrivilegedSecretAccessProvider = (*HybridOAuthClientProvider)(nil)
+	t.Run("implements PrivilegedAccessProvider", func(t *testing.T) {
+		var _ PrivilegedAccessProvider = (*HybridOAuthClientProvider)(nil)
 	})
 }
 
@@ -328,9 +466,10 @@ func TestGetSecretAccessClient_Integration(t *testing.T) {
 
 		hybridProvider, err := NewHybridOAuthClientProvider(hybridConfig)
 		require.NoError(t, err)
+		defer hybridProvider.Close()
 
-		// Create manager with hybrid provider
-		manager, err := NewManager(hybridProvider, WithManagerLogger(newTestLogger()))
+		// Create manager with hybrid provider and explicit privileged access
+		manager, err := NewManager(hybridProvider, WithPrivilegedAccess(hybridProvider), WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		defer func() { _ = manager.Close() }()
 
@@ -390,9 +529,10 @@ func TestGetSecretAccessClient_Integration(t *testing.T) {
 
 		hybridProvider, err := NewHybridOAuthClientProvider(hybridConfig)
 		require.NoError(t, err)
+		defer hybridProvider.Close()
 
-		// Create manager with hybrid provider
-		manager, err := NewManager(hybridProvider, WithManagerLogger(newTestLogger()))
+		// Create manager with hybrid provider and explicit privileged access
+		manager, err := NewManager(hybridProvider, WithPrivilegedAccess(hybridProvider), WithManagerLogger(newTestLogger()))
 		require.NoError(t, err)
 		defer func() { _ = manager.Close() }()
 
@@ -430,19 +570,21 @@ func TestDefaultInClusterConfigProvider(t *testing.T) {
 	})
 }
 
-// mockPrivilegedAccessMetrics implements PrivilegedSecretAccessMetricsRecorder for testing
+// mockPrivilegedAccessMetrics implements PrivilegedAccessMetricsRecorder for testing
 type mockPrivilegedAccessMetrics struct {
 	recordings []struct {
 		userDomain string
+		operation  string
 		result     string
 	}
 }
 
-func (m *mockPrivilegedAccessMetrics) RecordPrivilegedSecretAccess(_ context.Context, userDomain, result string) {
+func (m *mockPrivilegedAccessMetrics) RecordPrivilegedAccess(_ context.Context, userDomain, operation, result string) {
 	m.recordings = append(m.recordings, struct {
 		userDomain string
+		operation  string
 		result     string
-	}{userDomain, result})
+	}{userDomain, operation, result})
 }
 
 func TestHybridOAuthClientProvider_RateLimiting(t *testing.T) {

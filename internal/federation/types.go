@@ -122,8 +122,7 @@ type ClusterSummary struct {
 	// (VMs, networks, etc.) is provisioned and healthy.
 	InfrastructureReady bool `json:"infrastructureReady"`
 
-	// NodeCount is the current number of worker nodes in the cluster.
-	// This may differ from the desired count during scaling operations.
+	// NodeCount is the number of ready control plane replicas (from CAPI v1beta2).
 	NodeCount int `json:"nodeCount,omitempty"`
 
 	// CreatedAt is the timestamp when the cluster was initially created.
@@ -244,7 +243,7 @@ const (
 	ImpersonateExtraHeaderPrefix = "Impersonate-Extra-"
 )
 
-// Impersonation agent identification for audit trails.
+// Impersonation agent identification and audit trail headers.
 const (
 	// ImpersonationAgentName is the identifier used in Impersonate-Extra-agent headers.
 	// This allows audit logs to identify that operations were performed via mcp-kubernetes.
@@ -253,6 +252,18 @@ const (
 	// ImpersonationAgentExtraKey is the key used for the agent identifier in extra headers.
 	// This appears as "Impersonate-Extra-agent: mcp-kubernetes" in HTTP requests.
 	ImpersonationAgentExtraKey = "agent"
+
+	// OriginalGroupsExtraKey is the impersonation extra header key used to record the
+	// original (pre-mapping) OIDC groups when group mapping is active. This ensures
+	// the Kubernetes audit log on the workload cluster contains both the mapped groups
+	// (in Impersonate-Group headers) and the original groups (in this extra header),
+	// providing a complete audit trail in a single log source.
+	//
+	// The key uses a domain-prefixed format to avoid collisions with other extra headers.
+	// It appears as "Impersonate-Extra-Mcp.giantswarm.io%2Foriginal-Groups: <group>"
+	// in HTTP requests and as "mcp.giantswarm.io/original-groups" in the K8s audit log
+	// user.extra field.
+	OriginalGroupsExtraKey = "mcp.giantswarm.io/original-groups"
 )
 
 // AccessCheck describes a permission check to perform against a Kubernetes cluster.
