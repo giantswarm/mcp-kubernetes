@@ -305,7 +305,7 @@ func ValidateClusterParam(sc *server.ServerContext, clusterName string) string {
 //
 // Example output with impersonation:
 //
-//	"Failed to list resources: pods is forbidden: ... (impersonating user=fernando@example.com, groups=[org:giantswarm, team-platform])"
+//	"Failed to list resources: pods is forbidden: ... (impersonating user=fernando@example.com, groups=[giantswarm-connector:giantswarm, customer-connector:group-customer])"
 func FormatK8sError(prefix string, err error, user *federation.UserInfo) string {
 	msg := fmt.Sprintf("%s: %v", prefix, err)
 	if user != nil && user.Email != "" {
