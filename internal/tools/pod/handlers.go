@@ -130,7 +130,7 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 
 	if err != nil {
 		recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to get logs", err, client.User())), nil
 	}
 	defer func() { _ = logs.Close() }()
 
@@ -244,7 +244,7 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 
 	if err != nil {
 		recordPodOperation(ctx, sc, instrumentation.OperationExec, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to execute command: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to execute command", err, client.User())), nil
 	}
 
 	recordPodOperation(ctx, sc, instrumentation.OperationExec, namespace, instrumentation.StatusSuccess, duration)
@@ -345,14 +345,14 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	case defaultResourceTypePod:
 		session, err = k8sClient.PortForward(setupCtx, kubeContext, namespace, resourceName, ports, opts)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to setup port forwarding to pod: %v", err)), nil
+			return mcp.NewToolResultError(tools.FormatK8sError("Failed to setup port forwarding to pod", err, client.User())), nil
 		}
 		sessionID = fmt.Sprintf("%s/%s:%s", namespace, resourceName, strings.Join(ports, ","))
 
 	case "service":
 		session, err = k8sClient.PortForwardToService(setupCtx, kubeContext, namespace, resourceName, ports, opts)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to setup port forwarding to service: %v", err)), nil
+			return mcp.NewToolResultError(tools.FormatK8sError("Failed to setup port forwarding to service", err, client.User())), nil
 		}
 		sessionID = fmt.Sprintf("%s/service/%s:%s", namespace, resourceName, strings.Join(ports, ","))
 

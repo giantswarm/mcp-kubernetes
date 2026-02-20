@@ -71,7 +71,7 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to get resource", err, client.User())), nil
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
@@ -208,7 +208,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 			slog.String("resourceType", resourceType),
 			slog.Duration("duration", k8sDuration),
 			logging.SanitizedErr(err))
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to list resources: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to list resources", err, client.User())), nil
 	}
 	slog.Debug("K8s list completed",
 		slog.String("resourceType", resourceType),
@@ -331,7 +331,7 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to describe resource: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to describe resource", err, client.User())), nil
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
@@ -416,7 +416,7 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to create resource: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to create resource", err, client.User())), nil
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusSuccess, duration)
@@ -482,7 +482,7 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to apply resource: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to apply resource", err, client.User())), nil
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusSuccess, duration)
@@ -537,7 +537,7 @@ func handleDeleteResource(ctx context.Context, request mcp.CallToolRequest, sc *
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to delete resource: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to delete resource", err, client.User())), nil
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationDelete, resourceType, namespace, instrumentation.StatusSuccess, duration)
@@ -621,7 +621,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to patch resource: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to patch resource", err, client.User())), nil
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
@@ -692,7 +692,7 @@ func handleScaleResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	if err != nil {
 		recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusError, duration)
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to scale resource: %v", err)), nil
+		return mcp.NewToolResultError(tools.FormatK8sError("Failed to scale resource", err, client.User())), nil
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationScale, resourceType, namespace, instrumentation.StatusSuccess, duration)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
@@ -292,4 +293,27 @@ func ValidateClusterParam(sc *server.ServerContext, clusterName string) string {
 
 	// Federation is enabled and cluster name is valid
 	return ""
+}
+
+// FormatK8sError formats a Kubernetes operation error with optional impersonation context.
+// When user info is available (federation mode), the impersonated user and groups are
+// appended to help diagnose RBAC permission issues.
+//
+// Example output without impersonation:
+//
+//	"Failed to list resources: pods is forbidden: ..."
+//
+// Example output with impersonation:
+//
+//	"Failed to list resources: pods is forbidden: ... (impersonating user=fernando@example.com, groups=[giantswarm-connector:giantswarm, customer-connector:group-customer])"
+func FormatK8sError(prefix string, err error, user *federation.UserInfo) string {
+	msg := fmt.Sprintf("%s: %v", prefix, err)
+	if user != nil && user.Email != "" {
+		msg += fmt.Sprintf(" (impersonating user=%s", user.Email)
+		if len(user.Groups) > 0 {
+			msg += fmt.Sprintf(", groups=[%s]", strings.Join(user.Groups, ", "))
+		}
+		msg += ")"
+	}
+	return msg
 }
