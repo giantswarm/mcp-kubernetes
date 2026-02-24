@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and full multi-arch on release tags for faster PR builds.
 - Run chart tests before pushing to the app catalog.
 - Update Dockerfile with multi-stage Go build for buildx multi-arch support.
+- Update `mcp-oauth` to v0.2.68.
 
 ### Fixed
 - Fixed `capi_cluster_health` reporting healthy clusters as UNHEALTHY due to CAPI v1beta2 schema changes ([#287](https://github.com/giantswarm/mcp-kubernetes/issues/287))
