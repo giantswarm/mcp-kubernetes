@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-02-27
+
 ### Changed
 - Updated CAPI Cluster discovery to use `cluster.x-k8s.io/v1beta2` API ([#253](https://github.com/giantswarm/mcp-kubernetes/issues/253))
 - Switch CI to `push-to-registries-multiarch` with amd64-only on branches
@@ -112,7 +114,8 @@ Initial release
 - Kubernetes client package implementation ([#3](https://github.com/giantswarm/mcp-kubernetes/pull/3))
 
 
-[Unreleased]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.19...HEAD
+[Unreleased]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.19...v0.1.0
 [0.0.19]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.18...v0.0.19
 [0.0.18]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.17...v0.0.18
 [0.0.17]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.0.16...v0.0.17
