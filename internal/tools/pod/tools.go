@@ -83,60 +83,64 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 
 	s.AddTool(execTool, tools.WrapWithAuditLogging("kubernetes_exec", handleExec, sc))
 
-	// port_forward tool
-	portForwardOpts := []mcp.ToolOption{
-		mcp.WithDescription("Port-forward to a pod or service"),
+	// Port forwarding tools are only registered when NOT running in in-cluster mode,
+	// as forwarded ports bind to the local host and are inaccessible from within a container.
+	if !sc.InClusterMode() {
+		// port_forward tool
+		portForwardOpts := []mcp.ToolOption{
+			mcp.WithDescription("Port-forward to a pod or service"),
+		}
+		portForwardOpts = append(portForwardOpts, clusterContextParams...)
+		portForwardOpts = append(portForwardOpts,
+			mcp.WithString("namespace",
+				mcp.Required(),
+				mcp.Description("Namespace where the resource is located"),
+			),
+			mcp.WithString("resourceType",
+				mcp.Description("Type of resource to port-forward to: 'pod' or 'service' (default: 'pod')"),
+				mcp.Enum("pod", "service"),
+			),
+			mcp.WithString("resourceName",
+				mcp.Required(),
+				mcp.Description("Name of the pod or service to port-forward to"),
+			),
+			mcp.WithArray("ports",
+				mcp.Required(),
+				mcp.Description("Port mappings as array of strings (e.g., ['8080:80', '9090:9090'])"),
+				mcp.WithStringItems(),
+			),
+		)
+		portForwardTool := mcp.NewTool("port_forward", portForwardOpts...)
+
+		s.AddTool(portForwardTool, tools.WrapWithAuditLogging("port_forward", handlePortForward, sc))
+
+		// list_port_forward_sessions tool
+		listSessionsTool := mcp.NewTool("list_port_forward_sessions",
+			mcp.WithDescription("List all active port forwarding sessions"),
+			mcp.WithInputSchema[tools.EmptyRequest](),
+		)
+
+		s.AddTool(listSessionsTool, tools.WrapWithAuditLogging("list_port_forward_sessions", handleListPortForwardSessions, sc))
+
+		// stop_port_forward_session tool
+		stopSessionTool := mcp.NewTool("stop_port_forward_session",
+			mcp.WithDescription("Stop a specific port forwarding session by ID"),
+			mcp.WithString("sessionID",
+				mcp.Required(),
+				mcp.Description("ID of the port forwarding session to stop"),
+			),
+		)
+
+		s.AddTool(stopSessionTool, tools.WrapWithAuditLogging("stop_port_forward_session", handleStopPortForwardSession, sc))
+
+		// stop_all_port_forward_sessions tool
+		stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
+			mcp.WithDescription("Stop all active port forwarding sessions"),
+			mcp.WithInputSchema[tools.EmptyRequest](),
+		)
+
+		s.AddTool(stopAllSessionsTool, tools.WrapWithAuditLogging("stop_all_port_forward_sessions", handleStopAllPortForwardSessions, sc))
 	}
-	portForwardOpts = append(portForwardOpts, clusterContextParams...)
-	portForwardOpts = append(portForwardOpts,
-		mcp.WithString("namespace",
-			mcp.Required(),
-			mcp.Description("Namespace where the resource is located"),
-		),
-		mcp.WithString("resourceType",
-			mcp.Description("Type of resource to port-forward to: 'pod' or 'service' (default: 'pod')"),
-			mcp.Enum("pod", "service"),
-		),
-		mcp.WithString("resourceName",
-			mcp.Required(),
-			mcp.Description("Name of the pod or service to port-forward to"),
-		),
-		mcp.WithArray("ports",
-			mcp.Required(),
-			mcp.Description("Port mappings as array of strings (e.g., ['8080:80', '9090:9090'])"),
-			mcp.WithStringItems(),
-		),
-	)
-	portForwardTool := mcp.NewTool("port_forward", portForwardOpts...)
-
-	s.AddTool(portForwardTool, tools.WrapWithAuditLogging("port_forward", handlePortForward, sc))
-
-	// list_port_forward_sessions tool
-	listSessionsTool := mcp.NewTool("list_port_forward_sessions",
-		mcp.WithDescription("List all active port forwarding sessions"),
-		mcp.WithInputSchema[tools.EmptyRequest](),
-	)
-
-	s.AddTool(listSessionsTool, tools.WrapWithAuditLogging("list_port_forward_sessions", handleListPortForwardSessions, sc))
-
-	// stop_port_forward_session tool
-	stopSessionTool := mcp.NewTool("stop_port_forward_session",
-		mcp.WithDescription("Stop a specific port forwarding session by ID"),
-		mcp.WithString("sessionID",
-			mcp.Required(),
-			mcp.Description("ID of the port forwarding session to stop"),
-		),
-	)
-
-	s.AddTool(stopSessionTool, tools.WrapWithAuditLogging("stop_port_forward_session", handleStopPortForwardSession, sc))
-
-	// stop_all_port_forward_sessions tool
-	stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
-		mcp.WithDescription("Stop all active port forwarding sessions"),
-		mcp.WithInputSchema[tools.EmptyRequest](),
-	)
-
-	s.AddTool(stopAllSessionsTool, tools.WrapWithAuditLogging("stop_all_port_forward_sessions", handleStopAllPortForwardSessions, sc))
 
 	return nil
 }
