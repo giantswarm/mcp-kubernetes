@@ -215,7 +215,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "100 * sum(rate(mcp_kubernetes_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) / (sum(rate(mcp_kubernetes_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) + sum(rate(mcp_kubernetes_client_cache_misses_total{namespace=~\"$namespace\"}[$__rate_interval])))",
+          "expr": "(100 * sum(rate(mcp_kubernetes_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) / (sum(rate(mcp_kubernetes_client_cache_hits_total{namespace=~\"$namespace\"}[$__rate_interval])) + sum(rate(mcp_kubernetes_client_cache_misses_total{namespace=~\"$namespace\"}[$__rate_interval])))) or vector(0)",
           "legendFormat": "Cache Hit Ratio",
           "refId": "A"
         }
@@ -284,7 +284,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "100 * sum(rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\", status=\"error\"}[$__rate_interval])) / sum(rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\"}[$__rate_interval]))",
+          "expr": "(100 * sum(rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\", status=\"error\"}[$__rate_interval])) / sum(rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\"}[$__rate_interval]))) or vector(0)",
           "legendFormat": "Error Rate",
           "refId": "A"
         }
@@ -1233,7 +1233,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "100 * sum(rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\", result=\"success\"}[$__rate_interval])) / sum(rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\"}[$__rate_interval]))",
+          "expr": "(100 * sum(rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\", result=\"success\"}[$__rate_interval])) / sum(rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\", auth_mode=\"sso-passthrough\"}[$__rate_interval]))) or vector(0)",
           "legendFormat": "SSO Success Rate",
           "refId": "A"
         }
@@ -1600,7 +1600,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(http_requests_total, namespace)",
+        "definition": "label_values(up{job=\"mcp-kubernetes\"}, namespace)",
         "hide": 0,
         "includeAll": true,
         "label": "Namespace",
@@ -1608,7 +1608,7 @@
         "name": "namespace",
         "options": [],
         "query": {
-          "query": "label_values(http_requests_total, namespace)",
+          "query": "label_values(up{job=\"mcp-kubernetes\"}, namespace)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
