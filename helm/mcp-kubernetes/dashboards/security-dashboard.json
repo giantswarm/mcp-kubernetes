@@ -1984,7 +1984,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(mcp_kubernetes_operations_total, namespace)",
+        "definition": "label_values(up{job=\"mcp-kubernetes\"}, namespace)",
         "hide": 0,
         "includeAll": true,
         "label": "Namespace",
@@ -1992,7 +1992,7 @@
         "name": "namespace",
         "options": [],
         "query": {
-          "query": "label_values(mcp_kubernetes_operations_total, namespace)",
+          "query": "label_values(up{job=\"mcp-kubernetes\"}, namespace)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
