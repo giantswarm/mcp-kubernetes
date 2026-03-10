@@ -120,20 +120,20 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, e
 		return sc.k8sClient, nil
 	}
 
-	// Try to get the access token from context
-	accessToken, ok := oauth.GetAccessTokenFromContext(ctx)
-	if !ok || accessToken == "" {
-		// No access token in context
+	// Try to get the ID token from context
+	idToken, ok := oauth.GetIDTokenFromContext(ctx)
+	if !ok || idToken == "" {
+		// No ID token in context
 		if sc.downstreamOAuthStrict {
 			// Strict mode: fail closed - do not fall back to service account
-			sc.logger.Warn("No access token in context, denying access (strict mode enabled)")
+			sc.logger.Warn("No ID token in context, denying access (strict mode enabled)")
 			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
 			}
 			return nil, ErrOAuthTokenMissing
 		}
 		// Non-strict mode: fall back to shared client (legacy behavior)
-		sc.logger.Debug("No access token in context, using shared client")
+		sc.logger.Debug("No ID token in context, using shared client")
 		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultFallback)
 		}
@@ -141,7 +141,7 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, e
 	}
 
 	// Create a per-user client with the bearer token
-	client, err := sc.clientFactory.CreateBearerTokenClient(accessToken)
+	client, err := sc.clientFactory.CreateBearerTokenClient(idToken)
 	if err != nil {
 		if sc.downstreamOAuthStrict {
 			// Strict mode: fail closed - do not fall back to service account

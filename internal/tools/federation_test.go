@@ -544,7 +544,7 @@ func TestGetClusterClientWithDownstreamOAuth(t *testing.T) {
 
 	t.Run("with valid token returns per-user client", func(t *testing.T) {
 		// Add OAuth token to context
-		ctx := oauth.ContextWithAccessToken(context.Background(), "valid-token")
+		ctx := oauth.ContextWithIDToken(context.Background(), "valid-token")
 
 		sharedClient := &mockK8sClient{}
 		perUserClient := &mockK8sClient{}
@@ -577,7 +577,7 @@ func TestGetClusterClientWithDownstreamOAuth(t *testing.T) {
 
 	t.Run("with client creation error returns auth error", func(t *testing.T) {
 		// Add OAuth token to context
-		ctx := oauth.ContextWithAccessToken(context.Background(), "invalid-token")
+		ctx := oauth.ContextWithIDToken(context.Background(), "invalid-token")
 
 		sharedClient := &mockK8sClient{}
 

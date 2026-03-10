@@ -897,7 +897,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if userInfo.IsSSO() {
 			slog.Debug("AccessTokenInjector: using SSO-forwarded token directly as ID token",
 				logging.UserHash(userInfo.Email))
-			ctx = mcpoauth.ContextWithAccessToken(ctx, bearerToken)
+			ctx = mcpoauth.ContextWithIDToken(ctx, bearerToken)
 			r = r.WithContext(ctx)
 			recordMetric(ctx, "sso_success")
 			next.ServeHTTP(w, r)
@@ -960,7 +960,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		slog.Debug("AccessTokenInjector: successfully injected ID token",
 			logging.UserHash(userInfo.Email))
-		ctx = mcpoauth.ContextWithAccessToken(ctx, idToken)
+		ctx = mcpoauth.ContextWithIDToken(ctx, idToken)
 		r = r.WithContext(ctx)
 		recordMetric(ctx, "oauth_success")
 
@@ -970,20 +970,20 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 	})
 }
 
-// createHTTPContextFunc creates an HTTPContextFunc that copies the access token
+// createHTTPContextFunc creates an HTTPContextFunc that copies the ID token
 // from the HTTP request context (set by our middleware) to mcp-go's internal context.
 // This is necessary because mcp-go creates its own context for tool execution and
 // doesn't automatically inherit values from the HTTP request context.
 func (s *OAuthHTTPServer) createHTTPContextFunc() mcpserver.HTTPContextFunc {
 	return func(ctx context.Context, r *http.Request) context.Context {
-		// The access token was set in r.Context() by createAccessTokenInjectorMiddleware
+		// The ID token was set in r.Context() by createAccessTokenInjectorMiddleware
 		// We need to copy it to mcp-go's context for tool handlers to access it
-		accessToken, ok := mcpoauth.GetAccessTokenFromContext(r.Context())
-		if ok && accessToken != "" {
-			slog.Debug("HTTPContextFunc: propagating access token to mcp-go context")
-			return mcpoauth.ContextWithAccessToken(ctx, accessToken)
+		idToken, ok := mcpoauth.GetIDTokenFromContext(r.Context())
+		if ok && idToken != "" {
+			slog.Debug("HTTPContextFunc: propagating ID token to mcp-go context")
+			return mcpoauth.ContextWithIDToken(ctx, idToken)
 		}
-		slog.Debug("HTTPContextFunc: no access token in request context to propagate")
+		slog.Debug("HTTPContextFunc: no ID token in request context to propagate")
 		return ctx
 	}
 }

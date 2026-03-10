@@ -21,7 +21,7 @@ type SSOPassthroughConfig struct {
 	CAConfigMapSuffix string
 
 	// TokenExtractor extracts the user's SSO token from context.
-	// This is typically oauth.GetAccessTokenFromContext.
+	// This is typically oauth.GetIDTokenFromContext.
 	TokenExtractor TokenExtractor
 }
 

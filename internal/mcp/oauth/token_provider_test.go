@@ -1,5 +1,5 @@
 // Package oauth provides tests for OAuth token provider and context handling.
-// These tests verify the correct storage and retrieval of OAuth access tokens
+// These tests verify the correct storage and retrieval of OIDC ID tokens
 // in request contexts for downstream Kubernetes API authentication.
 package oauth
 
@@ -13,17 +13,17 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// TestContextWithAccessToken tests storing and retrieving access tokens from context.
-func TestContextWithAccessToken(t *testing.T) {
+// TestContextWithIDToken tests storing and retrieving ID tokens from context.
+func TestContextWithIDToken(t *testing.T) {
 	t.Run("stores and retrieves access token", func(t *testing.T) {
 		ctx := context.Background()
 		token := "test-access-token-12345"
 
 		// Store token in context
-		ctxWithToken := ContextWithAccessToken(ctx, token)
+		ctxWithToken := ContextWithIDToken(ctx, token)
 
 		// Retrieve token from context
-		retrievedToken, ok := GetAccessTokenFromContext(ctxWithToken)
+		retrievedToken, ok := GetIDTokenFromContext(ctxWithToken)
 		assert.True(t, ok)
 		assert.Equal(t, token, retrievedToken)
 	})
@@ -31,16 +31,16 @@ func TestContextWithAccessToken(t *testing.T) {
 	t.Run("returns false for missing token", func(t *testing.T) {
 		ctx := context.Background()
 
-		token, ok := GetAccessTokenFromContext(ctx)
+		token, ok := GetIDTokenFromContext(ctx)
 		assert.False(t, ok)
 		assert.Equal(t, "", token)
 	})
 
 	t.Run("returns false for empty token", func(t *testing.T) {
 		ctx := context.Background()
-		ctxWithToken := ContextWithAccessToken(ctx, "")
+		ctxWithToken := ContextWithIDToken(ctx, "")
 
-		token, ok := GetAccessTokenFromContext(ctxWithToken)
+		token, ok := GetIDTokenFromContext(ctxWithToken)
 		assert.False(t, ok)
 		assert.Equal(t, "", token)
 	})
@@ -49,23 +49,23 @@ func TestContextWithAccessToken(t *testing.T) {
 		type testKey string
 		ctx := context.WithValue(context.Background(), testKey("other-key"), "other-value")
 
-		ctxWithToken := ContextWithAccessToken(ctx, "my-token")
+		ctxWithToken := ContextWithIDToken(ctx, "my-token")
 
 		// Original value should still be accessible
 		assert.Equal(t, "other-value", ctxWithToken.Value(testKey("other-key")))
 
 		// Token should also be accessible
-		token, ok := GetAccessTokenFromContext(ctxWithToken)
+		token, ok := GetIDTokenFromContext(ctxWithToken)
 		assert.True(t, ok)
 		assert.Equal(t, "my-token", token)
 	})
 
 	t.Run("overwrites existing token", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = ContextWithAccessToken(ctx, "first-token")
-		ctx = ContextWithAccessToken(ctx, "second-token")
+		ctx = ContextWithIDToken(ctx, "first-token")
+		ctx = ContextWithIDToken(ctx, "second-token")
 
-		token, ok := GetAccessTokenFromContext(ctx)
+		token, ok := GetIDTokenFromContext(ctx)
 		assert.True(t, ok)
 		assert.Equal(t, "second-token", token)
 	})
@@ -140,10 +140,10 @@ func TestHasUserInfo(t *testing.T) {
 		assert.False(t, HasUserInfo(ctx))
 	})
 
-	t.Run("returns false for context with access token only", func(t *testing.T) {
+	t.Run("returns false for context with ID token only", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = ContextWithAccessToken(ctx, "some-token")
-		// Access token is different from user info - they use different context keys
+		ctx = ContextWithIDToken(ctx, "some-token")
+		// ID token is different from user info - they use different context keys
 		assert.False(t, HasUserInfo(ctx))
 	})
 }
@@ -185,15 +185,15 @@ func TestUserInfoFromContext(t *testing.T) {
 func TestContextKeyUniqueness(t *testing.T) {
 	// Create a context with our key
 	ctx := context.Background()
-	ctx = ContextWithAccessToken(ctx, "our-token")
+	ctx = ContextWithIDToken(ctx, "our-token")
 
 	// Try to retrieve using a plain string key (should fail)
 	// This tests that contextKey type prevents collisions
-	val := ctx.Value("oauth_access_token")
+	val := ctx.Value("oauth_id_token")
 	assert.Nil(t, val, "plain string key should not retrieve our token")
 
 	// Our typed key should still work
-	token, ok := GetAccessTokenFromContext(ctx)
+	token, ok := GetIDTokenFromContext(ctx)
 	require.True(t, ok)
 	assert.Equal(t, "our-token", token)
 }

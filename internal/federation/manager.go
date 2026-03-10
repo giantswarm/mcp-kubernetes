@@ -330,7 +330,7 @@ func WithWorkloadClusterAuthMode(mode WorkloadClusterAuthMode) ManagerOption {
 //	    federation.WithWorkloadClusterAuthMode(federation.WorkloadClusterAuthModeSSOPassthrough),
 //	    federation.WithSSOPassthroughConfig(&federation.SSOPassthroughConfig{
 //	        CAConfigMapSuffix: "-ca-public",
-//	        TokenExtractor: oauth.GetAccessTokenFromContext,
+//	        TokenExtractor: oauth.GetIDTokenFromContext,
 //	    }),
 //	)
 func WithSSOPassthroughConfig(config *SSOPassthroughConfig) ManagerOption {

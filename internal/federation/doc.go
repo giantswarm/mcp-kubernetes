@@ -22,7 +22,7 @@
 //	}
 //
 //	// Configure the token extractor to get OAuth tokens from context
-//	oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
+//	oauthProvider.SetTokenExtractor(oauth.GetIDTokenFromContext)
 //
 //	manager, err := federation.NewManager(oauthProvider,
 //		federation.WithManagerLogger(logger),
@@ -256,7 +256,7 @@
 //	}
 //
 //	// Configure the token extractor (uses OAuth middleware's context storage)
-//	oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
+//	oauthProvider.SetTokenExtractor(oauth.GetIDTokenFromContext)
 //
 //	// Initialize the manager with the OAuth provider
 //	manager, err := federation.NewManager(oauthProvider,
