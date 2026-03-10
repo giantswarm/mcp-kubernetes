@@ -105,7 +105,7 @@ func TestK8sClientForContext_EmptyToken_Denied(t *testing.T) {
 		logger: NewDefaultLogger(),
 	}
 
-	ctx := oauth.ContextWithAccessToken(context.Background(), "") // Empty token
+	ctx := oauth.ContextWithIDToken(context.Background(), "") // Empty token
 	client, err := sc.K8sClientForContext(ctx)
 
 	assert.Error(t, err)
@@ -127,7 +127,7 @@ func TestK8sClientForContext_ClientCreationFailed_Denied(t *testing.T) {
 		logger: NewDefaultLogger(),
 	}
 
-	ctx := oauth.ContextWithAccessToken(context.Background(), "valid-token")
+	ctx := oauth.ContextWithIDToken(context.Background(), "valid-token")
 	client, err := sc.K8sClientForContext(ctx)
 
 	assert.Error(t, err)
@@ -150,7 +150,7 @@ func TestK8sClientForContext_ValidToken_Success(t *testing.T) {
 		logger: NewDefaultLogger(),
 	}
 
-	ctx := oauth.ContextWithAccessToken(context.Background(), "valid-token")
+	ctx := oauth.ContextWithIDToken(context.Background(), "valid-token")
 	client, err := sc.K8sClientForContext(ctx)
 
 	assert.NoError(t, err)

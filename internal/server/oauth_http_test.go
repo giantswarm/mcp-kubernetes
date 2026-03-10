@@ -538,7 +538,7 @@ func TestAccessTokenInjectorMiddleware_SSOToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 
 	// Verify the ID token was injected into context (it should be the Bearer token itself)
-	injectedToken, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	injectedToken, ok := oauth.GetIDTokenFromContext(capturedCtx)
 	assert.True(t, ok, "ID token should be present in context for SSO tokens")
 	assert.Equal(t, ssoToken, injectedToken, "SSO token should be used directly as ID token")
 }
@@ -605,7 +605,7 @@ func TestAccessTokenInjectorMiddleware_NoUserInfo(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 
 	// No token should be injected
-	_, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	_, ok := oauth.GetIDTokenFromContext(capturedCtx)
 	assert.False(t, ok, "No token should be injected without user info")
 }
 
@@ -635,7 +635,7 @@ func TestAccessTokenInjectorMiddleware_NoBearerToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 
 	// No token should be injected
-	_, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	_, ok := oauth.GetIDTokenFromContext(capturedCtx)
 	assert.False(t, ok, "No token should be injected without bearer token")
 }
 
@@ -673,7 +673,7 @@ func TestAccessTokenInjectorMiddleware_NilTokenStoreWithOAuthToken(t *testing.T)
 	assert.Equal(t, http.StatusOK, rr.Code)
 
 	// No token should be injected (token store lookup would fail/panic without nil check)
-	_, ok := oauth.GetAccessTokenFromContext(capturedCtx)
+	_, ok := oauth.GetIDTokenFromContext(capturedCtx)
 	assert.False(t, ok, "No token should be injected when tokenStore is nil")
 }
 

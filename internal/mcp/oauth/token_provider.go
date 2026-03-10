@@ -16,12 +16,12 @@ import (
 type contextKey string
 
 const (
-	// accessTokenKey is the context key for storing the user's OAuth access token.
-	// This token can be used for downstream Kubernetes API authentication.
+	// idTokenKey is the context key for storing the user's OIDC ID token.
+	// This token is used for downstream Kubernetes OIDC authentication.
 	// The custom contextKey type ensures this key cannot collide with string keys
 	// from other packages.
 	//nolint:gosec // G101 false positive - this is a context key name, not a credential
-	accessTokenKey contextKey = "oauth_access_token"
+	idTokenKey contextKey = "oauth_id_token"
 )
 
 // UserInfo represents user information from an OAuth provider.
@@ -29,20 +29,19 @@ const (
 // It includes fields like Email, Groups, ID, Name, etc.
 type UserInfo = providers.UserInfo
 
-// ContextWithAccessToken creates a context with the given OAuth ID token.
-// This is used to pass the user's OAuth ID token for downstream
+// ContextWithIDToken creates a context with the given OIDC ID token.
+// This is used to pass the user's ID token for downstream
 // Kubernetes OIDC authentication.
-// Note: Kubernetes OIDC requires the ID token, not the access token.
-func ContextWithAccessToken(ctx context.Context, idToken string) context.Context {
-	return context.WithValue(ctx, accessTokenKey, idToken)
+func ContextWithIDToken(ctx context.Context, idToken string) context.Context {
+	return context.WithValue(ctx, idTokenKey, idToken)
 }
 
-// GetAccessTokenFromContext retrieves the OAuth ID token from the context.
-// This returns the user's OAuth ID token that can be used for
+// GetIDTokenFromContext retrieves the OIDC ID token from the context.
+// This returns the user's ID token that can be used for
 // downstream Kubernetes OIDC authentication.
 // Returns the ID token and true if present, or empty string and false if not available.
-func GetAccessTokenFromContext(ctx context.Context) (string, bool) {
-	token, ok := ctx.Value(accessTokenKey).(string)
+func GetIDTokenFromContext(ctx context.Context) (string, bool) {
+	token, ok := ctx.Value(idTokenKey).(string)
 	return token, ok && token != ""
 }
 

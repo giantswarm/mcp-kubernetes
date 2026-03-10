@@ -576,7 +576,7 @@ func runServe(config ServeConfig) error {
 		}
 
 		// Set the token extractor to use the OAuth token from context
-		oauthProvider.SetTokenExtractor(oauth.GetAccessTokenFromContext)
+		oauthProvider.SetTokenExtractor(oauth.GetIDTokenFromContext)
 
 		// Set metrics recorder if instrumentation is enabled
 		if instrumentationProvider.Enabled() {
@@ -658,7 +658,7 @@ func runServe(config ServeConfig) error {
 
 			// Configure SSO passthrough
 			ssoConfig := federation.DefaultSSOPassthroughConfig()
-			ssoConfig.TokenExtractor = oauth.GetAccessTokenFromContext
+			ssoConfig.TokenExtractor = oauth.GetIDTokenFromContext
 
 			// Use custom CA ConfigMap suffix if configured
 			if config.CAPIMode.WorkloadClusterAuth.CAConfigMapSuffix != "" {
