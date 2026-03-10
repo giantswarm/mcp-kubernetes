@@ -75,13 +75,18 @@ func TestValidateUserInfo(t *testing.T) {
 			errorContains: "email format is invalid",
 		},
 		{
-			name: "too many groups",
-			user: &UserInfo{
-				Email:  "user@example.com",
-				Groups: make([]string, MaxGroupCount+1),
-			},
-			expectedError: ErrInvalidGroupName,
-			errorContains: "too many groups",
+			name: "groups at default limit are accepted",
+			user: func() *UserInfo {
+				groups := make([]string, DefaultMaxGroupCount)
+				for i := range groups {
+					groups[i] = fmt.Sprintf("group-%d", i)
+				}
+				return &UserInfo{
+					Email:  "user@example.com",
+					Groups: groups,
+				}
+			}(),
+			expectedError: nil,
 		},
 		{
 			name: "empty group name",
@@ -197,6 +202,75 @@ func TestValidateUserInfo(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateUserInfo_TruncatesExcessiveGroups(t *testing.T) {
+	groupCount := DefaultMaxGroupCount + 50
+	groups := make([]string, groupCount)
+	for i := range groups {
+		groups[i] = fmt.Sprintf("group-%d", i)
+	}
+
+	user := &UserInfo{
+		Email:  "user@example.com",
+		Groups: groups,
+	}
+
+	err := ValidateUserInfo(user)
+	require.NoError(t, err, "excessive groups should be truncated, not rejected")
+	assert.Len(t, user.Groups, DefaultMaxGroupCount, "groups should be truncated to DefaultMaxGroupCount")
+	assert.Equal(t, "group-0", user.Groups[0], "first group should be preserved")
+	assert.Equal(t, fmt.Sprintf("group-%d", DefaultMaxGroupCount-1), user.Groups[DefaultMaxGroupCount-1], "last kept group should be correct")
+}
+
+func TestValidateUserInfo_MaxGroupCountEnvOverride(t *testing.T) {
+	t.Setenv("MAX_GROUP_COUNT", "10")
+
+	groups := make([]string, 20)
+	for i := range groups {
+		groups[i] = fmt.Sprintf("group-%d", i)
+	}
+
+	user := &UserInfo{
+		Email:  "user@example.com",
+		Groups: groups,
+	}
+
+	err := ValidateUserInfo(user)
+	require.NoError(t, err)
+	assert.Len(t, user.Groups, 10, "groups should be truncated to env-configured limit")
+}
+
+func TestMaxGroupCount(t *testing.T) {
+	t.Run("invalid env var falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_GROUP_COUNT", "not-a-number")
+		assert.Equal(t, DefaultMaxGroupCount, maxGroupCount())
+	})
+
+	t.Run("negative value falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_GROUP_COUNT", "-5")
+		assert.Equal(t, DefaultMaxGroupCount, maxGroupCount())
+	})
+
+	t.Run("zero falls back to default", func(t *testing.T) {
+		t.Setenv("MAX_GROUP_COUNT", "0")
+		assert.Equal(t, DefaultMaxGroupCount, maxGroupCount())
+	})
+
+	t.Run("value above absolute max is clamped", func(t *testing.T) {
+		t.Setenv("MAX_GROUP_COUNT", "999999")
+		assert.Equal(t, absoluteMaxGroupCount, maxGroupCount())
+	})
+
+	t.Run("valid value is respected", func(t *testing.T) {
+		t.Setenv("MAX_GROUP_COUNT", "200")
+		assert.Equal(t, 200, maxGroupCount())
+	})
+
+	t.Run("unset returns default", func(t *testing.T) {
+		t.Setenv("MAX_GROUP_COUNT", "")
+		assert.Equal(t, DefaultMaxGroupCount, maxGroupCount())
+	})
 }
 
 func TestValidateClusterName(t *testing.T) {

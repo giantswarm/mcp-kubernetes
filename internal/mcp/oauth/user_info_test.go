@@ -4,6 +4,7 @@
 package oauth
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -293,11 +294,10 @@ func TestValidateUserInfoForImpersonation(t *testing.T) {
 		assert.ErrorIs(t, err, federation.ErrInvalidGroupName)
 	})
 
-	t.Run("returns error for too many groups", func(t *testing.T) {
-		// Create more groups than allowed (max is 100)
-		groups := make([]string, 101)
+	t.Run("accepts user with excessive groups (truncated by federation layer)", func(t *testing.T) {
+		groups := make([]string, federation.DefaultMaxGroupCount+50)
 		for i := range groups {
-			groups[i] = "group"
+			groups[i] = fmt.Sprintf("group-%d", i)
 		}
 
 		user := &UserInfo{
@@ -307,8 +307,9 @@ func TestValidateUserInfoForImpersonation(t *testing.T) {
 
 		err := ValidateUserInfoForImpersonation(user)
 
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, federation.ErrInvalidGroupName)
+		// Validation succeeds because federation.ValidateUserInfo truncates
+		// excessive groups instead of rejecting them.
+		assert.NoError(t, err, "excessive groups should be truncated, not rejected")
 	})
 }
 

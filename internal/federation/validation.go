@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -18,8 +20,10 @@ const (
 	// MaxGroupNameLength is the maximum allowed length for a group name.
 	MaxGroupNameLength = 256
 
-	// MaxGroupCount is the maximum number of groups allowed per user.
-	MaxGroupCount = 100
+	// DefaultMaxGroupCount is the default maximum number of groups allowed per user.
+	// This matches the DefaultMaxGroups value in mcp-oauth.
+	// Override with the MAX_GROUP_COUNT environment variable.
+	DefaultMaxGroupCount = 500
 
 	// MaxExtraKeyLength is the maximum allowed length for an extra header key.
 	MaxExtraKeyLength = 256
@@ -83,6 +87,37 @@ func (e *ValidationError) UserFacingError() string {
 	return fmt.Sprintf("invalid %s provided", e.Field)
 }
 
+// absoluteMaxGroupCount is a safety ceiling to prevent misconfiguration from
+// disabling the group-count guard entirely. Each group becomes an
+// Impersonate-Group HTTP header, so an unbounded count can cause
+// request-size-based issues against the Kubernetes API server.
+const absoluteMaxGroupCount = 5000
+
+// maxGroupCount returns the configured maximum group count.
+// It checks the MAX_GROUP_COUNT environment variable first; if unset or invalid,
+// it returns DefaultMaxGroupCount. Values above absoluteMaxGroupCount are clamped.
+func maxGroupCount() int {
+	if v := os.Getenv("MAX_GROUP_COUNT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			slog.Warn("invalid MAX_GROUP_COUNT value, using default",
+				"value", v,
+				"default", DefaultMaxGroupCount,
+			)
+			return DefaultMaxGroupCount
+		}
+		if n > absoluteMaxGroupCount {
+			slog.Warn("MAX_GROUP_COUNT exceeds absolute maximum, clamping",
+				"requested", n,
+				"max", absoluteMaxGroupCount,
+			)
+			return absoluteMaxGroupCount
+		}
+		return n
+	}
+	return DefaultMaxGroupCount
+}
+
 // validClusterNameRegex matches valid Kubernetes resource names.
 // Must start with lowercase alphanumeric, contain only lowercase alphanumeric or hyphens,
 // and end with lowercase alphanumeric.
@@ -99,6 +134,10 @@ var validHeaderKeyRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 // ValidateUserInfo validates the UserInfo struct for security.
 // Returns ErrUserInfoRequired if user is nil.
 // Returns a ValidationError if any field fails validation.
+//
+// Note: if the group list exceeds the configured maximum (DefaultMaxGroupCount
+// or the MAX_GROUP_COUNT env var), the Groups slice is truncated in-place and a
+// warning is logged. Callers should be aware that user.Groups may be modified.
 func ValidateUserInfo(user *UserInfo) error {
 	if user == nil {
 		return ErrUserInfoRequired
@@ -111,13 +150,18 @@ func ValidateUserInfo(user *UserInfo) error {
 		}
 	}
 
-	// Validate groups
-	if len(user.Groups) > MaxGroupCount {
-		return &ValidationError{
-			Field:  "groups",
-			Reason: fmt.Sprintf("too many groups (max %d)", MaxGroupCount),
-			Err:    ErrInvalidGroupName,
-		}
+	// Truncate groups if they exceed the configured limit.
+	// This matches mcp-oauth behavior: large group lists are silently truncated
+	// rather than causing a hard rejection, so users with many IdP groups are
+	// not locked out entirely.
+	limit := maxGroupCount()
+	if len(user.Groups) > limit {
+		slog.Warn("truncating user groups to configured maximum",
+			"original_count", len(user.Groups),
+			"max_group_count", limit,
+			UserHashAttr(user.Email),
+		)
+		user.Groups = user.Groups[:limit]
 	}
 
 	for i, group := range user.Groups {
