@@ -5,7 +5,7 @@ type: application
 version: 0.1.0
 appVersion: "0.1.0"
 home: https://github.com/giantswarm/mcp-kubernetes
-icon: https://s.giantswarm.io/app-icons/giantswarm/1/dark.svg
+icon: https://s.giantswarm.io/app-icons/prometheus/1/dark.svg
 sources:
   - https://github.com/giantswarm/mcp-kubernetes
 keywords:
