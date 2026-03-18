@@ -179,9 +179,12 @@ gatewayAPI:
     # Enable BackendTrafficPolicy resource
     enabled: false
 
-    # Request timeout for backend connections
-    # MCP sessions can be long-running, so longer timeouts are recommended
-    timeout: "300s"
+    # Request timeout for backend connections.
+    # Set to "0s" to disable the timeout entirely, which is required for
+    # long-lived SSE/streaming connections used by the MCP protocol.
+    # Without this, Envoy Gateway applies a default 15s timeout that
+    # kills SSE connections.
+    timeout: "0s"
 
     # Additional annotations for the BackendTrafficPolicy
     annotations: {}
