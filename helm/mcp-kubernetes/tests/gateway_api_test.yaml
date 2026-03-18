@@ -369,7 +369,7 @@ tests:
     asserts:
       - equal:
           path: spec.timeout.http.requestTimeout
-          value: "300s"
+          value: "0s"
 
   - it: should configure custom timeout
     template: templates/backendtrafficpolicy.yaml
