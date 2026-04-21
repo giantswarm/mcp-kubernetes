@@ -16,6 +16,8 @@ import (
 var CanITool = mcp.NewTool("can_i",
 	mcp.WithDescription("Check if you have permission to perform an action on a Kubernetes resource. "+
 		"Use this before attempting operations to get clear feedback about permissions."),
+	mcp.WithReadOnlyHintAnnotation(true),
+	mcp.WithOpenWorldHintAnnotation(false),
 	mcp.WithString("verb",
 		mcp.Required(),
 		mcp.Description("The action to check (get, list, watch, create, update, patch, delete)"),

@@ -16,6 +16,8 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// kubernetes_logs tool
 	logsOpts := []mcp.ToolOption{
 		mcp.WithDescription("Get logs from a pod container"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	logsOpts = append(logsOpts, clusterContextParams...)
 	logsOpts = append(logsOpts,
@@ -56,6 +58,10 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// kubernetes_exec tool
 	execOpts := []mcp.ToolOption{
 		mcp.WithDescription("Execute a command inside a pod container"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	execOpts = append(execOpts, clusterContextParams...)
 	execOpts = append(execOpts,
@@ -89,6 +95,10 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		// port_forward tool
 		portForwardOpts := []mcp.ToolOption{
 			mcp.WithDescription("Port-forward to a pod or service"),
+			mcp.WithReadOnlyHintAnnotation(false),
+			mcp.WithDestructiveHintAnnotation(false),
+			mcp.WithIdempotentHintAnnotation(false),
+			mcp.WithOpenWorldHintAnnotation(false),
 		}
 		portForwardOpts = append(portForwardOpts, clusterContextParams...)
 		portForwardOpts = append(portForwardOpts,
@@ -117,6 +127,8 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		// list_port_forward_sessions tool
 		listSessionsTool := mcp.NewTool("list_port_forward_sessions",
 			mcp.WithDescription("List all active port forwarding sessions"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithOpenWorldHintAnnotation(false),
 			mcp.WithInputSchema[tools.EmptyRequest](),
 		)
 
@@ -125,6 +137,10 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		// stop_port_forward_session tool
 		stopSessionTool := mcp.NewTool("stop_port_forward_session",
 			mcp.WithDescription("Stop a specific port forwarding session by ID"),
+			mcp.WithReadOnlyHintAnnotation(false),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithIdempotentHintAnnotation(false),
+			mcp.WithOpenWorldHintAnnotation(false),
 			mcp.WithString("sessionID",
 				mcp.Required(),
 				mcp.Description("ID of the port forwarding session to stop"),
@@ -136,6 +152,10 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		// stop_all_port_forward_sessions tool
 		stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
 			mcp.WithDescription("Stop all active port forwarding sessions"),
+			mcp.WithReadOnlyHintAnnotation(false),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithIdempotentHintAnnotation(true),
+			mcp.WithOpenWorldHintAnnotation(false),
 			mcp.WithInputSchema[tools.EmptyRequest](),
 		)
 

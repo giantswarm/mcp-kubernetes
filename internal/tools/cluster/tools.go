@@ -16,6 +16,8 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	// kubernetes_api_resources tool
 	apiResourcesOpts := []mcp.ToolOption{
 		mcp.WithDescription("List available API resources in the cluster"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	apiResourcesOpts = append(apiResourcesOpts, clusterContextParams...)
 	apiResourcesOpts = append(apiResourcesOpts,
@@ -42,6 +44,8 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	// kubernetes_cluster_health tool
 	clusterHealthOpts := []mcp.ToolOption{
 		mcp.WithDescription("Check the health status of cluster components"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	clusterHealthOpts = append(clusterHealthOpts, clusterContextParams...)
 	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health", clusterHealthOpts...)
