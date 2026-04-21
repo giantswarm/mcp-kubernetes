@@ -99,6 +99,8 @@ Namespace Handling:
 - For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
 - For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
 - The tool automatically determines resource scope via Kubernetes API discovery`),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	getResourceOpts = append(getResourceOpts, clusterContextParams...)
 	getResourceOpts = append(getResourceOpts,
@@ -140,6 +142,8 @@ Examples:
 - List CAPI clusters: {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}
 
 Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios.`),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	listResourceOpts = append(listResourceOpts, clusterContextParams...)
 	listResourceOpts = append(listResourceOpts,
@@ -206,6 +210,8 @@ Namespace Handling:
 - For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
 - For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
 - The tool automatically determines resource scope via Kubernetes API discovery`),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	describeResourceOpts = append(describeResourceOpts, clusterContextParams...)
 	describeResourceOpts = append(describeResourceOpts,
@@ -232,6 +238,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	// kubernetes_create tool
 	createResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Create a new Kubernetes resource from a manifest"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	createResourceOpts = append(createResourceOpts, clusterContextParams...)
 	createResourceOpts = append(createResourceOpts,
@@ -251,6 +261,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	// kubernetes_apply tool
 	applyResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Apply a Kubernetes manifest (create or update)"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	applyResourceOpts = append(applyResourceOpts, clusterContextParams...)
 	applyResourceOpts = append(applyResourceOpts,
@@ -275,6 +289,10 @@ Namespace Handling:
 - For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
 - For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
 - The tool automatically determines resource scope via Kubernetes API discovery`),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	deleteResourceOpts = append(deleteResourceOpts, clusterContextParams...)
 	deleteResourceOpts = append(deleteResourceOpts,
@@ -306,6 +324,10 @@ Namespace Handling:
 - For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
 - For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
 - The tool automatically determines resource scope via Kubernetes API discovery`),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	patchResourceOpts = append(patchResourceOpts, clusterContextParams...)
 	patchResourceOpts = append(patchResourceOpts,
@@ -341,6 +363,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	// kubernetes_scale tool
 	scaleResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Scale a Kubernetes resource (deployment, replicaset, etc.)"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	scaleResourceOpts = append(scaleResourceOpts, clusterContextParams...)
 	scaleResourceOpts = append(scaleResourceOpts,
