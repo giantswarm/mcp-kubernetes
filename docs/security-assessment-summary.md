@@ -1,7 +1,9 @@
 # Security Assessment Summary
 
-**Assessment Date:** January 19, 2026  
-**Repository:** github.com/giantswarm/mcp-kubernetes  
+**Assessment Date:** January 19, 2026
+
+**Repository:** github.com/giantswarm/mcp-kubernetes
+
 **Assessors:** Claude Opus 4.5 (Anthropic), GPT-5.2-Codex (OpenAI), Gemini 3 Pro (Google)
 
 ---

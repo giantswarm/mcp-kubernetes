@@ -173,4 +173,3 @@ slog.SetDefault(slog.New(handler))
 4. **Be Appropriate**: Choose the right log level for the situation
 5. **Be Concise**: Log messages should be actionable and informative
 6. **Avoid Noise**: Don't log expected events at high levels (e.g., don't log every successful request at Info)
-

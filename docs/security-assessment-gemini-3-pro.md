@@ -1,8 +1,11 @@
 # Security Assessment: mcp-kubernetes
 
-**Assessment Date:** January 19, 2026  
-**Assessor:** Gemini 3 Pro (Google)  
-**Repository:** github.com/giantswarm/mcp-kubernetes  
+**Assessment Date:** January 19, 2026
+
+**Assessor:** Gemini 3 Pro (Google)
+
+**Repository:** github.com/giantswarm/mcp-kubernetes
+
 **Scope:** Security architecture review with focus on identity propagation and multi-cluster federation
 
 ---

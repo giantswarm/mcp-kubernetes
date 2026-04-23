@@ -1,8 +1,11 @@
 # Security Assessment: mcp-kubernetes
 
-**Assessment Date:** January 19, 2026  
-**Assessor:** Claude Opus 4.5 (Anthropic)  
-**Repository:** github.com/giantswarm/mcp-kubernetes  
+**Assessment Date:** January 19, 2026
+
+**Assessor:** Claude Opus 4.5 (Anthropic)
+
+**Repository:** github.com/giantswarm/mcp-kubernetes
+
 **Scope:** Full codebase security review focused on identity management and authentication
 
 ---
@@ -37,7 +40,7 @@
 - **Token Encryption at Rest**: AES-256-GCM encryption available via `OAUTH_ENCRYPTION_KEY`
 - **Rate Limiting**: Multi-layer protection:
   - IP-based: 10 req/s, burst 20
-  - User-based: 100 req/s, burst 200  
+  - User-based: 100 req/s, burst 200
   - Client registration: max 10 clients per IP
 - **SSRF Protection**: Validates OAuth URLs to block private IPs by default
 - **Audit Logging**: Security audit logging enabled by default via `security.NewAuditor`

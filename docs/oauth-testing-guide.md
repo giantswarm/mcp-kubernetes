@@ -404,14 +404,14 @@ msg="failed to parse authorization request" err="Unregistered redirect_uri (\"ht
    ```bash
    # If you're using HTTPS:
    --oauth-base-url=https://localhost:8080
-   
+
    # Then Dex MUST have this redirect URI:
    redirectURIs:
    - 'https://localhost:8080/oauth/callback'
-   
+
    # If you're using HTTP:
    --oauth-base-url=http://localhost:8080
-   
+
    # Then Dex MUST have this redirect URI:
    redirectURIs:
    - 'http://localhost:8080/oauth/callback'
@@ -442,7 +442,7 @@ msg="failed to parse authorization request" err="Unregistered redirect_uri (\"ht
    ```bash
    # Your mcp-kubernetes should be started with:
    --dex-client-id=mcp-kubernetes
-   
+
    # This must match the client ID in Dex config:
    staticClients:
    - id: mcp-kubernetes  # <-- Must match
@@ -452,7 +452,7 @@ msg="failed to parse authorization request" err="Unregistered redirect_uri (\"ht
    ```bash
    # Check what mcp-kubernetes is using:
    ps aux | grep "mcp-kubernetes serve" | grep "oauth-base-url"
-   
+
    # The redirect URI will be: <oauth-base-url>/oauth/callback
    # Example: https://localhost:8080/oauth/callback
    ```

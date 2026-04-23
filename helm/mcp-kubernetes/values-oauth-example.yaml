@@ -25,32 +25,32 @@ mcpKubernetes:
   kubernetes:
     # Use in-cluster configuration when deployed in Kubernetes
     inCluster: true
-  
+
   # OAuth 2.1 configuration
   oauth:
     # Enable OAuth 2.1 authentication
     enabled: true
-    
+
     # OAuth provider - use "google" for Google OAuth
     provider: "google"
-    
+
     # OAuth base URL - MUST match your ingress host
     # This is used for OAuth callbacks and metadata endpoints
     baseURL: "https://mcp-k8s.example.com"
-    
+
     # Google OAuth configuration
     google:
       # OPTION 1: Use values directly (NOT RECOMMENDED for production)
       # Only use this for testing/development
       # clientID: "your-client-id.apps.googleusercontent.com"
       # clientSecret: "your-client-secret"
-      
+
       # OPTION 2: Use an existing secret (RECOMMENDED for production)
       # The secret is referenced via existingSecret below
       # clientID and clientSecret are read from the secret
       clientID: ""
       clientSecret: ""
-    
+
     # OPTION 2: Use an existing secret (RECOMMENDED for production)
     # Create the secret with:
     # kubectl create secret generic mcp-k8s-oauth-credentials \
@@ -59,12 +59,12 @@ mcpKubernetes:
     #   --from-literal=registration-token=YOUR_REGISTRATION_TOKEN \
     #   --from-literal=oauth-encryption-key=$(openssl rand -base64 32)
     existingSecret: "mcp-k8s-oauth-credentials"
-    
+
     # Security settings
     allowPublicRegistration: false  # Require registration token (recommended)
     disableStreaming: false          # Enable streaming by default
     encryptionKey: true              # Enable token encryption at rest (recommended)
-  
+
   # Additional environment variables (if needed)
   env: []
 
@@ -84,6 +84,3 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
   targetMemoryUtilizationPercentage: 80
-
-
-

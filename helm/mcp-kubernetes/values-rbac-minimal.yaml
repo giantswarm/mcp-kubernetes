@@ -55,4 +55,3 @@ securityContext:
 # Network policy for security
 ciliumNetworkPolicy:
   enabled: true
-

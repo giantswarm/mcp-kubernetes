@@ -701,7 +701,7 @@ groups:
   # This could indicate OIDC misconfiguration or users not logged in
   - alert: HighOAuthDenialRate
     expr: |
-      rate(oauth_downstream_auth_total{result="denied"}[5m]) 
+      rate(oauth_downstream_auth_total{result="denied"}[5m])
       / rate(oauth_downstream_auth_total[5m]) > 0.1
     for: 5m
     labels:
@@ -747,7 +747,7 @@ After enabling downstream OAuth, monitor the following for at least 24 hours:
 
 ```promql
 # Success rate over time
-sum(rate(oauth_downstream_auth_total{result="success"}[5m])) 
+sum(rate(oauth_downstream_auth_total{result="success"}[5m]))
 / sum(rate(oauth_downstream_auth_total[5m])) * 100
 
 # Denials by reason
@@ -880,7 +880,7 @@ func getSecrets(ctx context.Context) (*OAuthSecrets, error) {
     }
 
     client := secretsmanager.NewFromConfig(cfg)
-    
+
     ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
     defer cancel()
 
@@ -1160,7 +1160,7 @@ resources:
    kubectl patch secret mcp-oauth-credentials \
      --type=json \
      -p '[{"op":"remove","path":"/data/oauth-encryption-key"}]'
-   
+
    # Rename new key to primary
    kubectl patch secret mcp-oauth-credentials \
      --type=json \
@@ -1576,7 +1576,7 @@ mcpKubernetes:
       clientID: "mcp-kubernetes"
     encryptionKey: true
     existingSecret: "mcp-kubernetes-oauth"
-    
+
     storage:
       type: "valkey"
       valkey:
@@ -1674,5 +1674,3 @@ When `--downstream-oauth` is enabled:
 - [RFC 8414: Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414)
 - [RFC 9728: Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)
 - [mcp-oauth Library](https://github.com/giantswarm/mcp-oauth)
-
-
