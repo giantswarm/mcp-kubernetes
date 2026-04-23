@@ -184,5 +184,3 @@ This tells the Kubernetes API server to validate the request without persisting 
 - [RBAC Security](rbac-security.md) - Configure Kubernetes RBAC for mcp-kubernetes
 - [OAuth](oauth.md) - Authentication configuration
 - [Observability](observability.md) - Monitoring and metrics
-
-

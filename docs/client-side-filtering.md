@@ -223,4 +223,3 @@ Client-side filtering includes built-in protections against resource exhaustion 
 ## Related Issues
 
 - [Issue #88: Field selector doesn't support filtering nodes by taints](https://github.com/giantswarm/mcp-kubernetes/issues/88)
-

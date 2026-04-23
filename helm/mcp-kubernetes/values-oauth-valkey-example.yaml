@@ -57,17 +57,17 @@ mcpKubernetes:
       valkey:
         # Valkey service address (adjust for your deployment)
         url: "valkey.default.svc:6379"
-        
+
         # Enable TLS for production
         tls:
           enabled: true
-        
+
         # Key prefix to avoid conflicts with other applications
         keyPrefix: "mcp:"
-        
+
         # Database number (0-15)
         db: 0
-        
+
         # Password is loaded from existingSecret
         # Note: Uses the same secret as OAuth credentials
         # The secret key is "valkey-password"

@@ -93,9 +93,9 @@ mcpKubernetes:
 When mcp-kubernetes accepts a cross-client token, it logs an audit event:
 
 ```
-level=INFO msg="SSO: accepting cross-client token" 
-  audience="muster-client" 
-  user_email_hash="abc123..." 
+level=INFO msg="SSO: accepting cross-client token"
+  audience="muster-client"
+  user_email_hash="abc123..."
   issuer="https://dex.example.com"
 ```
 
@@ -209,7 +209,7 @@ mcpKubernetes:
 
 **Warning:** Enabling `sso.allowPrivateIPs` reduces SSRF protection. Only use for:
 - Home lab deployments
-- Air-gapped environments  
+- Air-gapped environments
 - Internal enterprise networks
 
 **Note:** For Google OAuth, this setting has no effect because Google's JWKS endpoint (`https://www.googleapis.com/oauth2/v3/certs`) is always publicly accessible. This option is primarily for private Dex deployments.
@@ -225,8 +225,8 @@ mcp-kubernetes serve --debug \
 
 Look for log entries like:
 ```
-level=DEBUG msg="Validating token audience" 
-  token_audience="muster-client" 
+level=DEBUG msg="Validating token audience"
+  token_audience="muster-client"
   trusted_audiences=["muster-client"]
 ```
 

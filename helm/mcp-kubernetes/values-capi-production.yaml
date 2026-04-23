@@ -43,7 +43,7 @@ mcpKubernetes:
     enabled: true
     provider: "dex"
     baseURL: "https://mcp.g8s.example.com"
-    
+
     dex:
       # Dex issuer URL - the OIDC discovery endpoint
       issuerURL: "https://dex.g8s.example.com"
@@ -63,7 +63,7 @@ mcpKubernetes:
     # Security settings
     allowPublicRegistration: false
     encryptionKey: true
-    
+
     # Enable downstream OAuth for Kubernetes API authentication
     # User tokens are used for all Kubernetes API calls
     enableDownstreamOAuth: true
@@ -187,4 +187,3 @@ rbac:
 # Network policy for security
 ciliumNetworkPolicy:
   enabled: true
-

@@ -1,9 +1,13 @@
 # Security Assessment: mcp-kubernetes
 
-**Assessment Date:** January 19, 2026  
-**Assessor:** GPT-5.2-Codex (OpenAI)  
-**Repository:** github.com/giantswarm/mcp-kubernetes  
-**Scope:** Static review of repository source and Helm chart defaults  
+**Assessment Date:** January 19, 2026
+
+**Assessor:** GPT-5.2-Codex (OpenAI)
+
+**Repository:** github.com/giantswarm/mcp-kubernetes
+
+**Scope:** Static review of repository source and Helm chart defaults
+
 **Method:** Read-only code and documentation review. No runtime testing or external dependency audit.
 
 ---

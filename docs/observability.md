@@ -85,7 +85,7 @@ Histogram of HTTP request durations.
 **Example:**
 ```promql
 # 95th percentile request duration
-histogram_quantile(0.95, 
+histogram_quantile(0.95,
   rate(http_request_duration_seconds_bucket[5m])
 )
 
@@ -434,7 +434,7 @@ sum(rate(mcp_kubernetes_operations_total{
 
 ```promql
 # P95 HTTP request duration
-histogram_quantile(0.95, 
+histogram_quantile(0.95,
   sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
 )
 
@@ -702,14 +702,14 @@ All dashboards support these template variables:
 
 1. **Request Rate**: `rate(http_requests_total[1m])`
 2. **Error Rate**: `rate(http_requests_total{status=~"5.."}[1m])`
-3. **Request Duration (P50, P95, P99)**: 
+3. **Request Duration (P50, P95, P99)**:
    ```promql
    histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))
    histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
    histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
    ```
 4. **Active Sessions**: `active_port_forward_sessions`
-5. **Kubernetes Operations by Type**: 
+5. **Kubernetes Operations by Type**:
    ```promql
    sum by (operation) (rate(mcp_kubernetes_operations_total{
      cluster_scope="management",
@@ -718,8 +718,8 @@ All dashboards support these template variables:
    ```
 6. **Cache Hit Ratio**:
    ```promql
-   100 * sum(rate(mcp_kubernetes_client_cache_hits_total[$__rate_interval])) 
-   / (sum(rate(mcp_kubernetes_client_cache_hits_total[$__rate_interval])) 
+   100 * sum(rate(mcp_kubernetes_client_cache_hits_total[$__rate_interval]))
+   / (sum(rate(mcp_kubernetes_client_cache_hits_total[$__rate_interval]))
       + sum(rate(mcp_kubernetes_client_cache_misses_total[$__rate_interval])))
    ```
 7. **Impersonation Denials**:
@@ -1021,4 +1021,3 @@ If instrumentation impacts performance:
 1. Reduce trace sampling rate (`OTEL_TRACES_SAMPLER_ARG`)
 2. Use `prometheus` exporter instead of `otlp` for lower overhead
 3. Consider disabling tracing (`TRACING_EXPORTER=none`)
-
