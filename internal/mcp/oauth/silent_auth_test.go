@@ -297,7 +297,7 @@ func TestAuthorizationURLOptions(t *testing.T) {
 
 	t.Run("all fields can be set", func(t *testing.T) {
 		maxAge := 3600
-		opts := AuthorizationURLOptions{
+		opts := AuthorizationURLOptions{ //nolint:gosec // G101: test fixture, not a real credential
 			Prompt:      "none",
 			LoginHint:   "user@example.com",
 			MaxAge:      &maxAge,

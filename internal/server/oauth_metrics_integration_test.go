@@ -142,7 +142,7 @@ func TestOAuthServerMetricsIntegration(t *testing.T) {
 // match what the code expects to expose.
 func TestOAuthMetricNamesConsistency(t *testing.T) {
 	// These are the metric names from security-dashboard.json that rely on mcp-oauth
-	dashboardMetrics := map[string]string{
+	dashboardMetrics := map[string]string{ //nolint:gosec // G101: metric names, not credentials
 		"oauth_rate_limit_exceeded_total":            "Rate limit violations panel",
 		"oauth_redirect_uri_security_rejected_total": "Redirect URI rejections panel",
 		"oauth_code_reuse_detected_total":            "Code reuse detection panel",

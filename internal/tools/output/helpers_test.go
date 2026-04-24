@@ -92,7 +92,7 @@ func TestProcessRuntimeObjects(t *testing.T) {
 					"name":          "test-secret",
 					"managedFields": []interface{}{"field"},
 				},
-				"data": map[string]interface{}{
+				"data": map[string]interface{}{ //nolint:gosec // G101: test fixture, not a real credential
 					"password": "c2VjcmV0",
 				},
 			},
@@ -170,7 +170,7 @@ func TestProcessSingleRuntimeObject(t *testing.T) {
 				"name":          "test-secret",
 				"managedFields": []interface{}{"field"},
 			},
-			"data": map[string]interface{}{
+			"data": map[string]interface{}{ //nolint:gosec // G101: test fixture, not a real credential
 				"password": "c2VjcmV0",
 			},
 		},

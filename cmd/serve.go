@@ -72,7 +72,7 @@ func parseIntEnv(value, envName string) (int, bool) {
 	}
 	n, err := strconv.Atoi(value)
 	if err != nil {
-		slog.Warn("invalid integer for environment variable",
+		slog.Warn("invalid integer for environment variable", //nolint:gosec // G706: env var from operator, not end-user input
 			"env", envName,
 			"value", value,
 			"error", err)
@@ -90,7 +90,7 @@ func parseFloat64Env(value, envName string) (float64, bool) {
 	}
 	f, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		slog.Warn("invalid float for environment variable",
+		slog.Warn("invalid float for environment variable", //nolint:gosec // G706: env var from operator, not end-user input
 			"env", envName,
 			"value", value,
 			"error", err)
@@ -247,7 +247,7 @@ Downstream OAuth (--downstream-oauth):
 					if parsed, err := strconv.ParseBool(envVal); err == nil {
 						enableCIMD = parsed
 					} else {
-						slog.Warn("invalid ENABLE_CIMD value, using default",
+						slog.Warn("invalid ENABLE_CIMD value, using default", //nolint:gosec // G706: env var from operator, not end-user input
 							"value", envVal,
 							"default", enableCIMD,
 							"error", err)
@@ -261,7 +261,7 @@ Downstream OAuth (--downstream-oauth):
 					if parsed, err := strconv.ParseBool(envVal); err == nil {
 						cimdAllowPrivateIPs = parsed
 					} else {
-						slog.Warn("invalid CIMD_ALLOW_PRIVATE_IPS value, using default",
+						slog.Warn("invalid CIMD_ALLOW_PRIVATE_IPS value, using default", //nolint:gosec // G706: env var from operator, not end-user input
 							"value", envVal,
 							"default", cimdAllowPrivateIPs,
 							"error", err)
@@ -275,7 +275,7 @@ Downstream OAuth (--downstream-oauth):
 					if parsed, err := strconv.ParseBool(envVal); err == nil {
 						ssoAllowPrivateIPs = parsed
 					} else {
-						slog.Warn("invalid SSO_ALLOW_PRIVATE_IPS value, using default",
+						slog.Warn("invalid SSO_ALLOW_PRIVATE_IPS value, using default", //nolint:gosec // G706: env var from operator, not end-user input
 							"value", envVal,
 							"default", ssoAllowPrivateIPs,
 							"error", err)
@@ -1146,7 +1146,7 @@ func loadCAPIModeConfig(config *CAPIModeConfig) error {
 		}
 		if len(mappings) > 0 {
 			config.WorkloadClusterAuth.GroupMappings = mappings
-			slog.Info("Group mappings loaded from WC_GROUP_MAPPINGS",
+			slog.Info("Group mappings loaded from WC_GROUP_MAPPINGS", //nolint:gosec // G706: env var from operator, not end-user input
 				"mapping_count", len(mappings),
 				"summary", federation.FormatGroupMappingsForLog(mappings))
 		}

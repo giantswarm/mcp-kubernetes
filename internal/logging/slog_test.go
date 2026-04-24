@@ -140,7 +140,7 @@ func TestSanitizeToken(t *testing.T) {
 			token:    "abcd",
 			expected: "[token:4 chars]",
 		},
-		{
+		{ //nolint:gosec // G101: test fixture, not a real credential
 			name:     "normal token",
 			token:    "eyJhbGciOiJSUzI1NiIsImtpZCI6...",
 			expected: "[token:31 chars]",

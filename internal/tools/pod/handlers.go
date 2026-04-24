@@ -251,12 +251,12 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest, sc *server.Ser
 
 	// Format the result
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("Exit Code: %d\n", result.ExitCode))
+	fmt.Fprintf(&output, "Exit Code: %d\n", result.ExitCode)
 	if result.Stdout != "" {
-		output.WriteString(fmt.Sprintf("Stdout:\n%s\n", result.Stdout))
+		fmt.Fprintf(&output, "Stdout:\n%s\n", result.Stdout)
 	}
 	if result.Stderr != "" {
-		output.WriteString(fmt.Sprintf("Stderr:\n%s\n", result.Stderr))
+		fmt.Fprintf(&output, "Stderr:\n%s\n", result.Stderr)
 	}
 
 	return mcp.NewToolResultText(output.String()), nil
@@ -407,14 +407,14 @@ func handleListPortForwardSessions(ctx context.Context, request mcp.CallToolRequ
 	}
 
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("Active port forwarding sessions (%d):\n\n", len(sessions)))
+	fmt.Fprintf(&output, "Active port forwarding sessions (%d):\n\n", len(sessions))
 
 	for sessionID, session := range sessions {
-		output.WriteString(fmt.Sprintf("Session ID: %s\n", sessionID))
+		fmt.Fprintf(&output, "Session ID: %s\n", sessionID)
 		output.WriteString("Port mappings:\n")
 		for i, localPort := range session.LocalPorts {
 			if i < len(session.RemotePorts) {
-				output.WriteString(fmt.Sprintf("  Local port %d -> Remote port %d\n", localPort, session.RemotePorts[i]))
+				fmt.Fprintf(&output, "  Local port %d -> Remote port %d\n", localPort, session.RemotePorts[i])
 			}
 		}
 		output.WriteString("\n")
