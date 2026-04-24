@@ -864,7 +864,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log entry to confirm middleware is being called
-		slog.Debug("AccessTokenInjector: middleware entry",
+		slog.Debug("AccessTokenInjector: middleware entry", //nolint:gosec // G706: values emitted via structured slog handler which escapes control chars
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("content_type", r.Header.Get("Content-Type")))
@@ -921,7 +921,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// This is the same key used by mcp-oauth during token exchange and proactive refresh
 		token, err := s.tokenStore.GetToken(ctx, bearerToken)
 		if err != nil {
-			slog.Debug("AccessTokenInjector: failed to get token from store by access token",
+			slog.Debug("AccessTokenInjector: failed to get token from store by access token", //nolint:gosec // G706: email is hashed, err is internal
 				logging.UserHash(userInfo.Email), logging.Err(err))
 			// Fallback to email-based lookup for backwards compatibility
 			token, err = s.tokenStore.GetToken(ctx, userInfo.Email)
@@ -947,7 +947,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// Kubernetes OIDC validates the ID token, not the access token
 		idToken := mcpoauth.GetIDToken(token)
 		if idToken == "" {
-			slog.Debug("AccessTokenInjector: no ID token in stored token",
+			slog.Debug("AccessTokenInjector: no ID token in stored token", //nolint:gosec // G706: email is hashed, other values are bools
 				logging.UserHash(userInfo.Email),
 				slog.Bool("has_access_token", token.AccessToken != ""),
 				slog.Bool("has_refresh_token", token.RefreshToken != ""))

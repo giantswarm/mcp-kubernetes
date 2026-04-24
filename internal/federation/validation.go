@@ -100,7 +100,7 @@ func maxGroupCount() int {
 	if v := os.Getenv("MAX_GROUP_COUNT"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			slog.Warn("invalid MAX_GROUP_COUNT value, using default",
+			slog.Warn("invalid MAX_GROUP_COUNT value, using default", //nolint:gosec // G706: env var from operator, not end-user input
 				"value", v,
 				"default", DefaultMaxGroupCount,
 			)

@@ -24,7 +24,7 @@ func TestExtractBearerToken(t *testing.T) {
 		wantToken   string
 		wantSuccess bool
 	}{
-		{
+		{ //nolint:gosec // G101: test fixture, not a real credential
 			name:        "valid bearer token",
 			authHeader:  "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
 			wantToken:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",

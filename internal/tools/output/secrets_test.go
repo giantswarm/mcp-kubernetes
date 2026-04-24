@@ -34,7 +34,7 @@ func TestMaskSecrets(t *testing.T) {
 				"metadata": map[string]interface{}{
 					"name": "test-secret",
 				},
-				"data": map[string]interface{}{
+				"data": map[string]interface{}{ //nolint:gosec // G101: test fixture, not a real credential
 					"username": "dXNlcm5hbWU=",
 					"password": "cGFzc3dvcmQ=",
 				},
