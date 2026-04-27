@@ -85,7 +85,9 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	previous, _ := args["previous"].(bool)
 	timestamps, _ := args["timestamps"].(bool)
 
-	var tailLines, sinceLines, maxLines *int64
+	var tailLines, sinceLines *int64
+	defaultMaxLines := int64(20)
+	maxLines := &defaultMaxLines
 
 	if tailLinesVal, ok := args["tailLines"]; ok {
 		if tailLinesFloat, ok := tailLinesVal.(float64); ok {
@@ -104,6 +106,9 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	if maxLinesVal, ok := args["maxLines"]; ok {
 		if maxLinesFloat, ok := maxLinesVal.(float64); ok {
 			val := int64(maxLinesFloat)
+			if val < 1 {
+				return mcp.NewToolResultError("maxLines must be a positive integer"), nil
+			}
 			maxLines = &val
 		}
 	}
@@ -144,33 +149,27 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 
 	logText := string(logData)
 
-	// Apply pagination if sinceLines or maxLines are specified
-	if sinceLines != nil || maxLines != nil {
-		lines := strings.Split(logText, "\n")
+	// Apply pagination — maxLines always caps response size.
+	lines := strings.Split(logText, "\n")
 
-		startIdx := 0
-		if sinceLines != nil && *sinceLines > 0 {
-			startIdx = int(*sinceLines)
-			if startIdx >= len(lines) {
-				// If sinceLines is beyond available lines, return empty
-				return mcp.NewToolResultText(""), nil
-			}
+	startIdx := 0
+	if sinceLines != nil && *sinceLines > 0 {
+		startIdx = int(*sinceLines)
+		if startIdx >= len(lines) {
+			// If sinceLines is beyond available lines, return empty
+			return mcp.NewToolResultText(""), nil
 		}
+	}
 
-		endIdx := len(lines)
-		if maxLines != nil && *maxLines > 0 {
-			endIdx = startIdx + int(*maxLines)
-			if endIdx > len(lines) {
-				endIdx = len(lines)
-			}
-		}
+	endIdx := startIdx + int(*maxLines)
+	if endIdx > len(lines) {
+		endIdx = len(lines)
+	}
 
-		if startIdx < endIdx {
-			paginatedLines := lines[startIdx:endIdx]
-			logText = strings.Join(paginatedLines, "\n")
-		} else {
-			logText = ""
-		}
+	if startIdx < endIdx {
+		logText = strings.Join(lines[startIdx:endIdx], "\n")
+	} else {
+		logText = ""
 	}
 
 	return mcp.NewToolResultText(logText), nil

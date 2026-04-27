@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) to all tools to help clients and users assess tool behavior ([#36355](https://github.com/giantswarm/giantswarm/issues/36355)).
 
+### Changed
+
+- `kubernetes_logs` now caps responses at 20 lines by default via `maxLines` to prevent unbounded responses; non-positive values are rejected.
+
 ## [0.1.0] - 2026-02-27
 
 ### Changed

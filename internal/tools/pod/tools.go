@@ -48,7 +48,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.Description("Skip this many lines from the beginning (useful for pagination, optional)"),
 		),
 		mcp.WithNumber("maxLines",
-			mcp.Description("Maximum number of lines to return (useful for pagination, optional)"),
+			mcp.Description("Maximum number of lines to return (default: 20)"),
 		),
 	)
 	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)
