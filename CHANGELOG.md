@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-02-27
 
 ### Changed
+
 - Updated CAPI Cluster discovery to use `cluster.x-k8s.io/v1beta2` API ([#253](https://github.com/giantswarm/mcp-kubernetes/issues/253))
 - Switch CI to `push-to-registries-multiarch` with amd64-only on branches
   and full multi-arch on release tags for faster PR builds.
