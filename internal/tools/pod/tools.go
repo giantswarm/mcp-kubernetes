@@ -53,7 +53,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	)
 	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)
 
-	s.AddTool(logsTool, tools.WrapWithAuditLogging("kubernetes_logs", handleGetLogs, sc))
+	s.AddTool(logsTool, tools.WrapWithAuditLogging(logsTool, handleGetLogs, sc))
 
 	// kubernetes_exec tool
 	execOpts := []mcp.ToolOption{
@@ -87,7 +87,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	)
 	execTool := mcp.NewTool("kubernetes_exec", execOpts...)
 
-	s.AddTool(execTool, tools.WrapWithAuditLogging("kubernetes_exec", handleExec, sc))
+	s.AddTool(execTool, tools.WrapWithAuditLogging(execTool, handleExec, sc))
 
 	// Port forwarding tools are only registered when NOT running in in-cluster mode,
 	// as forwarded ports bind to the local host and are inaccessible from within a container.
@@ -122,7 +122,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		)
 		portForwardTool := mcp.NewTool("port_forward", portForwardOpts...)
 
-		s.AddTool(portForwardTool, tools.WrapWithAuditLogging("port_forward", handlePortForward, sc))
+		s.AddTool(portForwardTool, tools.WrapWithAuditLogging(portForwardTool, handlePortForward, sc))
 
 		// list_port_forward_sessions tool
 		listSessionsTool := mcp.NewTool("list_port_forward_sessions",
@@ -132,7 +132,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithInputSchema[tools.EmptyRequest](),
 		)
 
-		s.AddTool(listSessionsTool, tools.WrapWithAuditLogging("list_port_forward_sessions", handleListPortForwardSessions, sc))
+		s.AddTool(listSessionsTool, tools.WrapWithAuditLogging(listSessionsTool, handleListPortForwardSessions, sc))
 
 		// stop_port_forward_session tool
 		stopSessionTool := mcp.NewTool("stop_port_forward_session",
@@ -147,7 +147,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			),
 		)
 
-		s.AddTool(stopSessionTool, tools.WrapWithAuditLogging("stop_port_forward_session", handleStopPortForwardSession, sc))
+		s.AddTool(stopSessionTool, tools.WrapWithAuditLogging(stopSessionTool, handleStopPortForwardSession, sc))
 
 		// stop_all_port_forward_sessions tool
 		stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
@@ -159,7 +159,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithInputSchema[tools.EmptyRequest](),
 		)
 
-		s.AddTool(stopAllSessionsTool, tools.WrapWithAuditLogging("stop_all_port_forward_sessions", handleStopAllPortForwardSessions, sc))
+		s.AddTool(stopAllSessionsTool, tools.WrapWithAuditLogging(stopAllSessionsTool, handleStopAllPortForwardSessions, sc))
 	}
 
 	return nil

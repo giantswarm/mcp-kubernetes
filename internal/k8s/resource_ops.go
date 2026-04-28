@@ -161,7 +161,7 @@ func listResourcesWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 
 	response := &PaginatedListResponse{
 		Items:           objects,
-		Continue:        list.GetContinue(),
+		NextCursor:      list.GetContinue(),
 		ResourceVersion: list.GetResourceVersion(),
 		TotalItems:      len(objects),
 		Meta:            meta,

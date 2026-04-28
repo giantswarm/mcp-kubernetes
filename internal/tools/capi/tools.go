@@ -47,7 +47,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(listClustersTool, tools.WrapWithAuditLogging("capi_list_clusters", handleListClusters, sc))
+	s.AddTool(listClustersTool, tools.WrapWithAuditLogging(listClustersTool, handleListClusters, sc))
 
 	// capi_get_cluster tool
 	getClusterTool := mcp.NewTool("capi_get_cluster",
@@ -60,7 +60,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(getClusterTool, tools.WrapWithAuditLogging("capi_get_cluster", handleGetCluster, sc))
+	s.AddTool(getClusterTool, tools.WrapWithAuditLogging(getClusterTool, handleGetCluster, sc))
 
 	// capi_resolve_cluster tool
 	resolveClusterTool := mcp.NewTool("capi_resolve_cluster",
@@ -73,7 +73,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(resolveClusterTool, tools.WrapWithAuditLogging("capi_resolve_cluster", handleResolveCluster, sc))
+	s.AddTool(resolveClusterTool, tools.WrapWithAuditLogging(resolveClusterTool, handleResolveCluster, sc))
 
 	// capi_cluster_health tool
 	clusterHealthTool := mcp.NewTool("capi_cluster_health",
@@ -86,7 +86,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 	)
 
-	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("capi_cluster_health", handleClusterHealth, sc))
+	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging(clusterHealthTool, handleClusterHealth, sc))
 
 	return nil
 }

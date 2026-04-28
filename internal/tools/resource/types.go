@@ -37,7 +37,7 @@ type ListSummaryResponse struct {
 type PaginatedSummaryResponse struct {
 	Kind            string                 `json:"kind"`
 	Items           []ResourceSummary      `json:"items"`
-	Continue        string                 `json:"continue,omitempty"`        // Token for next page
+	NextCursor      string                 `json:"nextCursor,omitempty"`      // Cursor to pass to the next list call's `cursor` arg
 	RemainingItems  *int64                 `json:"remainingItems,omitempty"`  // Estimated remaining items (if available)
 	ResourceVersion string                 `json:"resourceVersion,omitempty"` // Resource version for consistency
 	TotalItems      int                    `json:"totalItems"`                // Number of items in this response
@@ -77,13 +77,13 @@ func SummarizeResources(objects []runtime.Object, includeLabels, includeAnnotati
 }
 
 // SummarizePaginatedResources converts a paginated list of runtime.Objects to compact ResourceSummary objects
-func SummarizePaginatedResources(objects []runtime.Object, includeLabels, includeAnnotations bool, continue_ string, resourceVersion string, remainingItems *int64) *PaginatedSummaryResponse {
+func SummarizePaginatedResources(objects []runtime.Object, includeLabels, includeAnnotations bool, nextCursor string, resourceVersion string, remainingItems *int64) *PaginatedSummaryResponse {
 	if len(objects) == 0 {
 		return &PaginatedSummaryResponse{
 			Kind:            "List",
 			Items:           []ResourceSummary{},
 			TotalItems:      0,
-			Continue:        continue_,
+			NextCursor:      nextCursor,
 			ResourceVersion: resourceVersion,
 			RemainingItems:  remainingItems,
 		}
@@ -108,7 +108,7 @@ func SummarizePaginatedResources(objects []runtime.Object, includeLabels, includ
 		Kind:            fmt.Sprintf("%sList", resourceKind),
 		Items:           summaries,
 		TotalItems:      len(summaries),
-		Continue:        continue_,
+		NextCursor:      nextCursor,
 		ResourceVersion: resourceVersion,
 		RemainingItems:  remainingItems,
 	}

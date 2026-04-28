@@ -26,7 +26,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
-	s.AddTool(listContextsTool, tools.WrapWithAuditLogging("kubernetes_context_list", handleListContexts, sc))
+	s.AddTool(listContextsTool, tools.WrapWithAuditLogging(listContextsTool, handleListContexts, sc))
 
 	// kubernetes_context_get_current tool
 	getCurrentContextTool := mcp.NewTool("kubernetes_context_get_current",
@@ -36,7 +36,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithInputSchema[tools.EmptyRequest](),
 	)
 
-	s.AddTool(getCurrentContextTool, tools.WrapWithAuditLogging("kubernetes_context_get_current", handleGetCurrentContext, sc))
+	s.AddTool(getCurrentContextTool, tools.WrapWithAuditLogging(getCurrentContextTool, handleGetCurrentContext, sc))
 
 	// kubernetes_context_use tool
 	useContextTool := mcp.NewTool("kubernetes_context_use",
@@ -51,7 +51,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		),
 	)
 
-	s.AddTool(useContextTool, tools.WrapWithAuditLogging("kubernetes_context_use", handleUseContext, sc))
+	s.AddTool(useContextTool, tools.WrapWithAuditLogging(useContextTool, handleUseContext, sc))
 
 	return nil
 }

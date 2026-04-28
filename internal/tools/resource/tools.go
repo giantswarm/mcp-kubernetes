@@ -30,7 +30,7 @@ type ListResourceArgs struct {
 	IncludeLabels      bool   `json:"includeLabels,omitempty"`
 	IncludeAnnotations bool   `json:"includeAnnotations,omitempty"`
 	Limit              int64  `json:"limit,omitempty"`
-	Continue           string `json:"continue,omitempty"`
+	Cursor             string `json:"cursor,omitempty"`
 }
 
 // DescribeResourceArgs defines the arguments for kubectl describe operations
@@ -122,7 +122,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	getResourceTool := mcp.NewTool("kubernetes_get", getResourceOpts...)
 
-	s.AddTool(getResourceTool, tools.WrapWithAuditLogging("kubernetes_get", handleGetResource, sc))
+	s.AddTool(getResourceTool, tools.WrapWithAuditLogging(getResourceTool, handleGetResource, sc))
 
 	// kubernetes_list tool
 	listResourceOpts := []mcp.ToolOption{
@@ -187,8 +187,8 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of items to return per page (optional, default: 20, max: 1000)"),
 		),
-		mcp.WithString("continue",
-			mcp.Description("Continue token from previous paginated request (optional)"),
+		mcp.WithString("cursor",
+			mcp.Description("Pagination cursor from a previous paginated response's `nextCursor` field (optional). Pass it back verbatim to fetch the next page."),
 		),
 		mcp.WithBoolean("summary",
 			mcp.Description("Return aggregated counts (by status, namespace) instead of full objects. Useful for fleet-scale operations with many results. Default: false"),
@@ -200,7 +200,7 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 	)
 	listResourceTool := mcp.NewTool("kubernetes_list", listResourceOpts...)
 
-	s.AddTool(listResourceTool, tools.WrapWithAuditLogging("kubernetes_list", handleListResources, sc))
+	s.AddTool(listResourceTool, tools.WrapWithAuditLogging(listResourceTool, handleListResources, sc))
 
 	// kubernetes_describe tool
 	describeResourceOpts := []mcp.ToolOption{
@@ -233,7 +233,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	describeResourceTool := mcp.NewTool("kubernetes_describe", describeResourceOpts...)
 
-	s.AddTool(describeResourceTool, tools.WrapWithAuditLogging("kubernetes_describe", handleDescribeResource, sc))
+	s.AddTool(describeResourceTool, tools.WrapWithAuditLogging(describeResourceTool, handleDescribeResource, sc))
 
 	// kubernetes_create tool
 	createResourceOpts := []mcp.ToolOption{
@@ -256,7 +256,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	createResourceTool := mcp.NewTool("kubernetes_create", createResourceOpts...)
 
-	s.AddTool(createResourceTool, tools.WrapWithAuditLogging("kubernetes_create", handleCreateResource, sc))
+	s.AddTool(createResourceTool, tools.WrapWithAuditLogging(createResourceTool, handleCreateResource, sc))
 
 	// kubernetes_apply tool
 	applyResourceOpts := []mcp.ToolOption{
@@ -279,7 +279,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	applyResourceTool := mcp.NewTool("kubernetes_apply", applyResourceOpts...)
 
-	s.AddTool(applyResourceTool, tools.WrapWithAuditLogging("kubernetes_apply", handleApplyResource, sc))
+	s.AddTool(applyResourceTool, tools.WrapWithAuditLogging(applyResourceTool, handleApplyResource, sc))
 
 	// kubernetes_delete tool
 	deleteResourceOpts := []mcp.ToolOption{
@@ -314,7 +314,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	deleteResourceTool := mcp.NewTool("kubernetes_delete", deleteResourceOpts...)
 
-	s.AddTool(deleteResourceTool, tools.WrapWithAuditLogging("kubernetes_delete", handleDeleteResource, sc))
+	s.AddTool(deleteResourceTool, tools.WrapWithAuditLogging(deleteResourceTool, handleDeleteResource, sc))
 
 	// kubernetes_patch tool
 	patchResourceOpts := []mcp.ToolOption{
@@ -358,7 +358,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	patchResourceTool := mcp.NewTool("kubernetes_patch", patchResourceOpts...)
 
-	s.AddTool(patchResourceTool, tools.WrapWithAuditLogging("kubernetes_patch", handlePatchResource, sc))
+	s.AddTool(patchResourceTool, tools.WrapWithAuditLogging(patchResourceTool, handlePatchResource, sc))
 
 	// kubernetes_scale tool
 	scaleResourceOpts := []mcp.ToolOption{
@@ -392,7 +392,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	)
 	scaleResourceTool := mcp.NewTool("kubernetes_scale", scaleResourceOpts...)
 
-	s.AddTool(scaleResourceTool, tools.WrapWithAuditLogging("kubernetes_scale", handleScaleResource, sc))
+	s.AddTool(scaleResourceTool, tools.WrapWithAuditLogging(scaleResourceTool, handleScaleResource, sc))
 
 	return nil
 }

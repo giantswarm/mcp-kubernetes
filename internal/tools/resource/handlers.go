@@ -173,14 +173,14 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 			limit = int64(limitFloat)
 		}
 	}
-	continueToken, _ := args["continue"].(string)
+	cursor, _ := args["cursor"].(string)
 
 	opts := k8s.ListOptions{
 		LabelSelector: labelSelector,
 		FieldSelector: fieldSelector,
 		AllNamespaces: allNamespaces,
 		Limit:         limit,
-		Continue:      continueToken,
+		Continue:      cursor,
 	}
 
 	// Track namespace for metrics (use "all" for cluster-wide operations)
@@ -276,7 +276,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		paginatedResponse.Items,
 		includeLabels,
 		includeAnnotations,
-		paginatedResponse.Continue,
+		paginatedResponse.NextCursor,
 		paginatedResponse.ResourceVersion,
 		paginatedResponse.RemainingItems,
 	)

@@ -45,5 +45,5 @@ var CanITool = mcp.NewTool("can_i",
 
 // RegisterTools registers the access tools with the MCP server.
 func RegisterTools(mcpServer *server.MCPServer, sc *mcpserver.ServerContext) {
-	mcpServer.AddTool(CanITool, tools.WrapWithAuditLogging("can_i", HandleCanI, sc))
+	mcpServer.AddTool(CanITool, tools.WrapWithAuditLogging(CanITool, HandleCanI, sc))
 }

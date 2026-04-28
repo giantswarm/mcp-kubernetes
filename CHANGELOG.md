@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) to all tools to help clients and users assess tool behavior ([#36355](https://github.com/giantswarm/giantswarm/issues/36355)).
+- All tool handlers now reject calls that include arguments not declared in the tool's input schema, returning an error that lists the unknown args and the valid ones. This replaces the previous behavior where typo'd or wrong-named arguments were silently dropped ([#36458](https://github.com/giantswarm/giantswarm/issues/36458)).
+
+### Changed
+
+- **Breaking:** `kubernetes_list` pagination renamed to match the MCP convention. The input parameter `continue` is now `cursor`, and the response field `continue` is now `nextCursor`. Existing callers passing `continue` (or reading the response's `continue` field) must be updated. The fix is paired with unknown-arg rejection so callers using the old name will now fail loudly instead of silently restarting from page 1 ([#36458](https://github.com/giantswarm/giantswarm/issues/36458)).
 
 ## [0.1.0] - 2026-02-27
 

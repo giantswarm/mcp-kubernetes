@@ -145,7 +145,7 @@ func (c *kubernetesClient) List(ctx context.Context, kubeContext, namespace, res
 	// Build paginated response
 	response := &PaginatedListResponse{
 		Items:           objects,
-		Continue:        list.GetContinue(),
+		NextCursor:      list.GetContinue(),
 		ResourceVersion: list.GetResourceVersion(),
 		TotalItems:      len(objects),
 		Meta:            meta,

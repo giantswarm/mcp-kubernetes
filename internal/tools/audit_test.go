@@ -28,7 +28,7 @@ func TestWrapWithAuditLogging_CapturesToolName(t *testing.T) {
 	}
 
 	// Wrap the handler
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	// Call the wrapped handler
 	request := createTestRequest(nil)
@@ -48,7 +48,7 @@ func TestWrapWithAuditLogging_ExtractsUserInfo(t *testing.T) {
 		return mcp.NewToolResultText("success"), nil
 	}
 
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	// Create context with user info
 	userInfo := &oauth.UserInfo{
@@ -70,7 +70,7 @@ func TestWrapWithAuditLogging_ExtractsClusterInfo(t *testing.T) {
 		return mcp.NewToolResultText("success"), nil
 	}
 
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	// Create request with cluster and resource info
 	args := map[string]interface{}{
@@ -95,7 +95,7 @@ func TestWrapWithAuditLogging_MeasuresDuration(t *testing.T) {
 		return mcp.NewToolResultText("success"), nil
 	}
 
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	request := createTestRequest(nil)
 	start := time.Now()
@@ -114,7 +114,7 @@ func TestWrapWithAuditLogging_HandlesSuccess(t *testing.T) {
 		return mcp.NewToolResultText("success"), nil
 	}
 
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	request := createTestRequest(nil)
 	result, err := wrapped(context.Background(), request)
@@ -133,7 +133,7 @@ func TestWrapWithAuditLogging_HandlesGoError(t *testing.T) {
 		return nil, expectedErr
 	}
 
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	request := createTestRequest(nil)
 	result, err := wrapped(context.Background(), request)
@@ -151,7 +151,7 @@ func TestWrapWithAuditLogging_HandlesMCPToolError(t *testing.T) {
 		return mcp.NewToolResultError("tool error message"), nil
 	}
 
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	request := createTestRequest(nil)
 	result, err := wrapped(context.Background(), request)
@@ -169,7 +169,7 @@ func TestWrapWithAuditLogging_NoProvider(t *testing.T) {
 		return mcp.NewToolResultText("success"), nil
 	}
 
-	wrapped := WrapWithAuditLogging("test_tool", handler, sc)
+	wrapped := WrapWithAuditLogging(mcp.NewTool("test_tool"), handler, sc)
 
 	request := createTestRequest(nil)
 	result, err := wrapped(context.Background(), request)
@@ -334,6 +334,90 @@ func TestExtractResourceName(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestWrapWithAuditLogging_RejectsUnknownArg(t *testing.T) {
+	sc := createTestServerContextNoInstrumentation(t)
+
+	handler := func(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+		t.Fatal("handler should not be called when args are invalid")
+		return nil, nil
+	}
+
+	tool := mcp.NewTool("validate_unknown_arg_test",
+		mcp.WithString("name"),
+		mcp.WithString("namespace"),
+	)
+	wrapped := WrapWithAuditLogging(tool, handler, sc)
+
+	// `cursor` is not declared on this tool — should fail.
+	request := createTestRequest(map[string]interface{}{
+		"name":   "x",
+		"cursor": "should-not-be-silently-dropped",
+	})
+	result, err := wrapped(context.Background(), request)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.IsError, "unknown arg should produce a tool-result error")
+	require.Len(t, result.Content, 1)
+	text, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, text.Text, "unknown argument")
+	assert.Contains(t, text.Text, "cursor")
+	assert.Contains(t, text.Text, "Valid arguments are")
+	assert.Contains(t, text.Text, "name")
+	assert.Contains(t, text.Text, "namespace")
+}
+
+func TestWrapWithAuditLogging_AcceptsKnownArgs(t *testing.T) {
+	sc := createTestServerContextNoInstrumentation(t)
+
+	called := false
+	handler := func(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+		called = true
+		return mcp.NewToolResultText("ok"), nil
+	}
+
+	tool := mcp.NewTool("validate_known_args_test",
+		mcp.WithString("name"),
+		mcp.WithString("cursor"),
+	)
+	wrapped := WrapWithAuditLogging(tool, handler, sc)
+
+	request := createTestRequest(map[string]interface{}{
+		"name":   "x",
+		"cursor": "abc",
+	})
+	result, err := wrapped(context.Background(), request)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.IsError)
+	assert.True(t, called, "handler should be called when args are valid")
+}
+
+func TestWrapWithAuditLogging_SkipsValidationForUndeclaredSchema(t *testing.T) {
+	sc := createTestServerContextNoInstrumentation(t)
+
+	called := false
+	handler := func(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
+		called = true
+		return mcp.NewToolResultText("ok"), nil
+	}
+
+	// Tool has no declared properties — validation must be skipped to avoid
+	// rejecting all callers.
+	tool := mcp.NewTool("validate_no_schema_test")
+	wrapped := WrapWithAuditLogging(tool, handler, sc)
+
+	request := createTestRequest(map[string]interface{}{"anything": "goes"})
+	result, err := wrapped(context.Background(), request)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.IsError)
+	assert.True(t, called)
 }
 
 // Helper functions

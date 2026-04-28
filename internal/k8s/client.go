@@ -124,7 +124,7 @@ type ListOptions struct {
 // PaginatedListResponse contains a paginated list of resources with metadata
 type PaginatedListResponse struct {
 	Items           []runtime.Object `json:"items"`
-	Continue        string           `json:"continue,omitempty"`        // Token for next page
+	NextCursor      string           `json:"nextCursor,omitempty"`      // Cursor to pass to the next list call's `cursor` arg
 	RemainingItems  *int64           `json:"remainingItems,omitempty"`  // Estimated remaining items (if available)
 	ResourceVersion string           `json:"resourceVersion,omitempty"` // Resource version for consistency
 	TotalItems      int              `json:"totalItems"`                // Number of items in this response

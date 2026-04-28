@@ -39,7 +39,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	)
 	apiResourcesTool := mcp.NewTool("kubernetes_api_resources", apiResourcesOpts...)
 
-	s.AddTool(apiResourcesTool, tools.WrapWithAuditLogging("kubernetes_api_resources", handleGetAPIResources, sc))
+	s.AddTool(apiResourcesTool, tools.WrapWithAuditLogging(apiResourcesTool, handleGetAPIResources, sc))
 
 	// kubernetes_cluster_health tool
 	clusterHealthOpts := []mcp.ToolOption{
@@ -50,7 +50,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	clusterHealthOpts = append(clusterHealthOpts, clusterContextParams...)
 	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health", clusterHealthOpts...)
 
-	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("kubernetes_cluster_health", handleGetClusterHealth, sc))
+	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging(clusterHealthTool, handleGetClusterHealth, sc))
 
 	return nil
 }
