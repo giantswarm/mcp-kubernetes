@@ -151,7 +151,7 @@ func TestCreateOAuthServer(t *testing.T) {
 		RegistrationAccessToken:       "test-token",
 		AllowInsecureAuthWithoutState: false,
 		MaxClientsPerIP:               5,
-		EncryptionKey:                 []byte("12345678901234567890123456789012"), // Exactly 32 bytes
+		EncryptionKey:                 []byte("abcdefghijklmnopqrstuvwxyz012345"), // 32 bytes, high entropy (32 distinct values)
 		DebugMode:                     false,
 		EnableCIMD:                    true, // CIMD enabled per MCP 2025-11-25
 	}
