@@ -85,32 +85,26 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	previous, _ := args["previous"].(bool)
 	timestamps, _ := args["timestamps"].(bool)
 
-	var tailLines, sinceLines *int64
-	defaultMaxLines := int64(20)
-	maxLines := &defaultMaxLines
+	defaultTailLines := int64(100)
+	tailLines := &defaultTailLines
 
 	if tailLinesVal, ok := args["tailLines"]; ok {
 		if tailLinesFloat, ok := tailLinesVal.(float64); ok {
 			val := int64(tailLinesFloat)
+			if val < 1 {
+				return mcp.NewToolResultError("tailLines must be a positive integer"), nil
+			}
 			tailLines = &val
 		}
 	}
 
-	if sinceLinesVal, ok := args["sinceLines"]; ok {
-		if sinceLinesFloat, ok := sinceLinesVal.(float64); ok {
-			val := int64(sinceLinesFloat)
-			sinceLines = &val
+	var sinceTime *time.Time
+	if sinceTimeVal, ok := args["sinceTime"].(string); ok && sinceTimeVal != "" {
+		t, err := time.Parse(time.RFC3339, sinceTimeVal)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid sinceTime: %v (expected RFC3339, e.g. 2026-04-29T10:00:00Z)", err)), nil
 		}
-	}
-
-	if maxLinesVal, ok := args["maxLines"]; ok {
-		if maxLinesFloat, ok := maxLinesVal.(float64); ok {
-			val := int64(maxLinesFloat)
-			if val < 1 {
-				return mcp.NewToolResultError("maxLines must be a positive integer"), nil
-			}
-			maxLines = &val
-		}
+		sinceTime = &t
 	}
 
 	opts := k8s.LogOptions{
@@ -118,8 +112,7 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 		Previous:   previous,
 		Timestamps: timestamps,
 		TailLines:  tailLines,
-		SinceLines: sinceLines,
-		MaxLines:   maxLines,
+		SinceTime:  sinceTime,
 	}
 
 	// Get the appropriate k8s client (local or federated)
@@ -141,38 +134,12 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 
 	recordPodOperation(ctx, sc, instrumentation.OperationLogs, namespace, instrumentation.StatusSuccess, duration)
 
-	// Read logs and apply pagination if needed
 	logData, err := io.ReadAll(logs)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to read logs: %v", err)), nil
 	}
 
-	logText := string(logData)
-
-	// Apply pagination — maxLines always caps response size.
-	lines := strings.Split(logText, "\n")
-
-	startIdx := 0
-	if sinceLines != nil && *sinceLines > 0 {
-		startIdx = int(*sinceLines)
-		if startIdx >= len(lines) {
-			// If sinceLines is beyond available lines, return empty
-			return mcp.NewToolResultText(""), nil
-		}
-	}
-
-	endIdx := startIdx + int(*maxLines)
-	if endIdx > len(lines) {
-		endIdx = len(lines)
-	}
-
-	if startIdx < endIdx {
-		logText = strings.Join(lines[startIdx:endIdx], "\n")
-	} else {
-		logText = ""
-	}
-
-	return mcp.NewToolResultText(logText), nil
+	return mcp.NewToolResultText(string(logData)), nil
 }
 
 // handleExec handles kubectl exec operations.

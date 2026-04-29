@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `kubernetes_logs` now caps responses at 20 lines by default via `maxLines` to prevent unbounded responses; non-positive values are rejected.
+- **Breaking:** `kubernetes_logs` parameter surface simplified. `tailLines` now defaults to `100` and is enforced server-side via `corev1.PodLogOptions.TailLines`, bounding both response size and gateway memory. The `sinceLines` and `maxLines` parameters have been removed; for time-based filtering, the new `sinceTime` parameter accepts an RFC3339 timestamp and is also applied server-side.
 
 ## [0.1.0] - 2026-02-27
 

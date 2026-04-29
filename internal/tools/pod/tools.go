@@ -42,13 +42,11 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.Description("Include timestamps in log output (default: false)"),
 		),
 		mcp.WithNumber("tailLines",
-			mcp.Description("Number of lines from the end of logs to show (optional)"),
+			mcp.Min(1),
+			mcp.Description("Return the last N lines of the log. Default: 100."),
 		),
-		mcp.WithNumber("sinceLines",
-			mcp.Description("Skip this many lines from the beginning (useful for pagination, optional)"),
-		),
-		mcp.WithNumber("maxLines",
-			mcp.Description("Maximum number of lines to return (default: 20)"),
+		mcp.WithString("sinceTime",
+			mcp.Description("Only return log lines after this RFC3339 timestamp (e.g. 2026-04-29T10:00:00Z). Optional."),
 		),
 	)
 	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)
