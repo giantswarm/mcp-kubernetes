@@ -130,7 +130,7 @@ Gateway API is the successor to Ingress in Kubernetes, providing more expressive
 | `mcpKubernetes.oauth.disableStreaming` | Disable streaming for HTTP transport | `false` |
 | `mcpKubernetes.oauth.existingSecret` | Use existing secret for OAuth credentials | `""` |
 
-**⚠️ SECURITY WARNING:** 
+**⚠️ SECURITY WARNING:**
 
 **For production deployments:**
 - **MUST** use `existingSecret` - NEVER set credentials in values.yaml
