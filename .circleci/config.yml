@@ -8,6 +8,7 @@ workflows:
     - architect/go-build:
         name: go-build-mcp-kubernetes
         binary: mcp-kubernetes
+        context: architect
         filters:
           tags:
             only: /^v.*/

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) to all tools to help clients and users assess tool behavior ([#36355](https://github.com/giantswarm/giantswarm/issues/36355)).
 
+### Changed
+
+- **Breaking:** `kubernetes_logs` parameter surface simplified. `tailLines` now defaults to `100`, is bounded to `[1, 1000]`, and is enforced server-side via `corev1.PodLogOptions.TailLines`, bounding both response size and gateway memory. The `sinceLines` and `maxLines` parameters have been removed; for time-based filtering, the new `sinceTime` parameter accepts an RFC3339 timestamp and is also applied server-side.
+
 ## [0.1.0] - 2026-02-27
 
 ### Changed

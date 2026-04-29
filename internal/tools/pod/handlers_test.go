@@ -3,15 +3,31 @@ package pod
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
+
+// capturingK8sMock wraps testdata.MockK8sClient and records the LogOptions
+// passed to GetLogs so tests can assert on the values forwarded by the handler.
+type capturingK8sMock struct {
+	*testdata.MockK8sClient
+	capturedLogOpts k8s.LogOptions
+	getLogsCalled   bool
+}
+
+func (m *capturingK8sMock) GetLogs(ctx context.Context, kubeContext, namespace, podName, containerName string, opts k8s.LogOptions) (io.ReadCloser, error) {
+	m.capturedLogOpts = opts
+	m.getLogsCalled = true
+	return m.MockK8sClient.GetLogs(ctx, kubeContext, namespace, podName, containerName, opts)
+}
 
 func TestPortForwardResponseStructure(t *testing.T) {
 	// Test that the PortForwardResponse struct can be properly marshaled to JSON
@@ -334,4 +350,104 @@ func TestLogsAlwaysAllowed(t *testing.T) {
 		assert.NotContains(t, errorText, "non-destructive mode",
 			"logs should always be allowed as it is read-only")
 	}
+}
+
+// newGetLogsTestServer builds a ServerContext wired to a capturing mock
+// so tests can inspect the LogOptions the handler forwards.
+func newGetLogsTestServer(t *testing.T) (*server.ServerContext, *capturingK8sMock) {
+	t.Helper()
+	mock := &capturingK8sMock{MockK8sClient: &testdata.MockK8sClient{}}
+	sc, err := server.NewServerContext(context.Background(),
+		server.WithK8sClient(mock),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+	return sc, mock
+}
+
+func TestGetLogsDefaultsTailLinesTo100(t *testing.T) {
+	sc, mock := newGetLogsTestServer(t)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"namespace": "default",
+		"podName":   "test-pod",
+	}
+
+	result, err := handleGetLogs(context.Background(), request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError, "expected success, got error: %s", getErrorText(t, result))
+	require.True(t, mock.getLogsCalled)
+	require.NotNil(t, mock.capturedLogOpts.TailLines)
+	assert.Equal(t, int64(100), *mock.capturedLogOpts.TailLines)
+	assert.Nil(t, mock.capturedLogOpts.SinceTime)
+}
+
+func TestGetLogsRejectsNonPositiveTailLines(t *testing.T) {
+	sc, mock := newGetLogsTestServer(t)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"namespace": "default",
+		"podName":   "test-pod",
+		"tailLines": float64(0),
+	}
+
+	result, err := handleGetLogs(context.Background(), request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, getErrorText(t, result), "tailLines must be between 1 and 1000")
+	assert.False(t, mock.getLogsCalled, "GetLogs must not be called when validation fails")
+}
+
+func TestGetLogsRejectsTailLinesAboveMax(t *testing.T) {
+	sc, mock := newGetLogsTestServer(t)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"namespace": "default",
+		"podName":   "test-pod",
+		"tailLines": float64(5000),
+	}
+
+	result, err := handleGetLogs(context.Background(), request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, getErrorText(t, result), "tailLines must be between 1 and 1000")
+	assert.False(t, mock.getLogsCalled)
+}
+
+func TestGetLogsAcceptsValidSinceTime(t *testing.T) {
+	sc, mock := newGetLogsTestServer(t)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"namespace": "default",
+		"podName":   "test-pod",
+		"sinceTime": "2026-04-29T10:00:00Z",
+	}
+
+	result, err := handleGetLogs(context.Background(), request, sc)
+	require.NoError(t, err)
+	assert.False(t, result.IsError, "expected success, got error: %s", getErrorText(t, result))
+	require.True(t, mock.getLogsCalled)
+	require.NotNil(t, mock.capturedLogOpts.SinceTime)
+	assert.Equal(t, "2026-04-29T10:00:00Z", mock.capturedLogOpts.SinceTime.UTC().Format("2006-01-02T15:04:05Z"))
+}
+
+func TestGetLogsRejectsInvalidSinceTime(t *testing.T) {
+	sc, mock := newGetLogsTestServer(t)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"namespace": "default",
+		"podName":   "test-pod",
+		"sinceTime": "yesterday at noon",
+	}
+
+	result, err := handleGetLogs(context.Background(), request, sc)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, getErrorText(t, result), "invalid sinceTime")
+	assert.False(t, mock.getLogsCalled)
 }

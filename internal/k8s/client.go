@@ -203,10 +203,6 @@ type LogOptions struct {
 	Timestamps bool       `json:"timestamps,omitempty"`
 	SinceTime  *time.Time `json:"sinceTime,omitempty"`
 	TailLines  *int64     `json:"tailLines,omitempty"`
-
-	// Pagination options for log output
-	SinceLines *int64 `json:"sinceLines,omitempty"` // Skip this many lines from the beginning
-	MaxLines   *int64 `json:"maxLines,omitempty"`   // Maximum number of lines to return
 }
 
 // ExecOptions configures command execution in pods.
