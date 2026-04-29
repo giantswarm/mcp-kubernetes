@@ -91,8 +91,8 @@ func handleGetLogs(ctx context.Context, request mcp.CallToolRequest, sc *server.
 	if tailLinesVal, ok := args["tailLines"]; ok {
 		if tailLinesFloat, ok := tailLinesVal.(float64); ok {
 			val := int64(tailLinesFloat)
-			if val < 1 {
-				return mcp.NewToolResultError("tailLines must be a positive integer"), nil
+			if val < 1 || val > 1000 {
+				return mcp.NewToolResultError("tailLines must be between 1 and 1000"), nil
 			}
 			tailLines = &val
 		}
