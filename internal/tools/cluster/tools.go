@@ -43,11 +43,21 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 
 	// kubernetes_cluster_health tool
 	clusterHealthOpts := []mcp.ToolOption{
-		mcp.WithDescription("Check the health status of cluster components"),
+		mcp.WithDescription("Check the health status of cluster components. Returns overall status, component health, and a node list (capped by nodesLimit). Per-node conditions are omitted by default; set includeNodeConditions=true to include them."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 	}
 	clusterHealthOpts = append(clusterHealthOpts, clusterContextParams...)
+	clusterHealthOpts = append(clusterHealthOpts,
+		mcp.WithNumber("nodesLimit",
+			mcp.Min(1),
+			mcp.Max(MaxNodesLimit),
+			mcp.Description("Maximum number of nodes to include in the response. Default: 20. Maximum: 1000. Use readyNodes/totalNodes to detect readiness issues even when truncated."),
+		),
+		mcp.WithBoolean("includeNodeConditions",
+			mcp.Description("Include the full per-node conditions array in the response (default: false). The Ready field on each node already conveys overall readiness."),
+		),
+	)
 	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health", clusterHealthOpts...)
 
 	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("kubernetes_cluster_health", handleGetClusterHealth, sc))
