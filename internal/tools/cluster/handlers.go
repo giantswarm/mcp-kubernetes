@@ -8,6 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 )
@@ -76,6 +77,18 @@ func handleGetClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc
 
 	kubeContext, _ := args["kubeContext"].(string)
 
+	// Parse output-shaping params. The schema enforces range via mcp.Min/Max,
+	// but we validate again as defense-in-depth for non-compliant clients.
+	nodesLimit := DefaultNodesLimit
+	if v, ok := args["nodesLimit"].(float64); ok {
+		val := int(v)
+		if val < 1 || val > MaxNodesLimit {
+			return mcp.NewToolResultError(fmt.Sprintf("nodesLimit must be between 1 and %d", MaxNodesLimit)), nil
+		}
+		nodesLimit = val
+	}
+	includeNodeConditions, _ := args["includeNodeConditions"].(bool)
+
 	// Get the appropriate k8s client (local or federated)
 	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
 	if errMsg != "" {
@@ -87,11 +100,53 @@ func handleGetClusterHealth(ctx context.Context, request mcp.CallToolRequest, sc
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get cluster health: %v", err)), nil
 	}
 
-	// Convert health to JSON for output
-	jsonData, err := json.MarshalIndent(health, "", "  ")
+	output := buildClusterHealthOutput(health, nodesLimit, includeNodeConditions)
+
+	jsonData, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal cluster health: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
+}
+
+// buildClusterHealthOutput shapes the raw ClusterHealth into the tool-level
+// ClusterHealthOutput, applying nodesLimit and conditionally stripping the
+// per-node conditions array. ReadyNodes is computed across the full node
+// list before truncation.
+func buildClusterHealthOutput(health *k8s.ClusterHealth, nodesLimit int, includeNodeConditions bool) ClusterHealthOutput {
+	out := ClusterHealthOutput{
+		Status:     health.Status,
+		Components: health.Components,
+	}
+
+	totalNodes := len(health.Nodes)
+	out.TotalNodes = totalNodes
+
+	for _, n := range health.Nodes {
+		if n.Ready {
+			out.ReadyNodes++
+		}
+	}
+
+	end := totalNodes
+	if nodesLimit > 0 && nodesLimit < totalNodes {
+		end = nodesLimit
+		out.NodesTruncated = true
+	}
+
+	out.Nodes = make([]NodeHealthOutput, 0, end)
+	for _, n := range health.Nodes[:end] {
+		entry := NodeHealthOutput{
+			Name:  n.Name,
+			Ready: n.Ready,
+		}
+		if includeNodeConditions {
+			entry.Conditions = n.Conditions
+		}
+		out.Nodes = append(out.Nodes, entry)
+	}
+	out.ReturnedNodes = len(out.Nodes)
+
+	return out
 }
