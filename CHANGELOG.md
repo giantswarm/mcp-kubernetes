@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** `kubernetes_logs` parameter surface simplified. `tailLines` now defaults to `100`, is bounded to `[1, 1000]`, and is enforced server-side via `corev1.PodLogOptions.TailLines`, bounding both response size and gateway memory. The `sinceLines` and `maxLines` parameters have been removed; for time-based filtering, the new `sinceTime` parameter accepts an RFC3339 timestamp and is also applied server-side.
+- `kubernetes_describe` now caps the embedded event list and returns events newest-first. New parameter `eventsLimit` (default 50, range 1–1000) controls the cap; the response gains `totalEvents`, `returnedEvents`, and `eventsTruncated` fields so callers can detect that the event history was clipped. `metadata.managedFields` is now stripped from each returned event.
 
 ## [0.1.0] - 2026-02-27
 

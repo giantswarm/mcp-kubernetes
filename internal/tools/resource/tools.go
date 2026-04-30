@@ -1,6 +1,8 @@
 package resource
 
 import (
+	"fmt"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -229,6 +231,11 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 		mcp.WithString("name",
 			mcp.Required(),
 			mcp.Description("Name of the resource to describe"),
+		),
+		mcp.WithNumber("eventsLimit",
+			mcp.Min(1),
+			mcp.Max(MaxEventsLimit),
+			mcp.Description(fmt.Sprintf("Maximum number of events to return, sorted newest-first by lastTimestamp. Default: %d. Range: [1, %d]. Use totalEvents/eventsTruncated in the response to detect clipping.", DefaultEventsLimit, MaxEventsLimit)),
 		),
 	)
 	describeResourceTool := mcp.NewTool("kubernetes_describe", describeResourceOpts...)

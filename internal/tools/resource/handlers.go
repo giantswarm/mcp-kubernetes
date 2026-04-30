@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -318,6 +320,17 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
+	// Parse output-shaping params. The schema enforces range via mcp.Min/Max,
+	// but we validate again as defense-in-depth for non-compliant clients.
+	eventsLimit := DefaultEventsLimit
+	if v, ok := args["eventsLimit"].(float64); ok {
+		val := int(v)
+		if val < 1 || val > MaxEventsLimit {
+			return mcp.NewToolResultError(fmt.Sprintf("eventsLimit must be between 1 and %d", MaxEventsLimit)), nil
+		}
+		eventsLimit = val
+	}
+
 	// Get the appropriate k8s client (local or federated)
 	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
 	if errMsg != "" {
@@ -343,25 +356,80 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
 	}
 
-	// Build response with processed resource
-	response := map[string]interface{}{
-		"resource": processedResource,
-		"metadata": description.Metadata,
-		"_meta":    description.Meta,
-	}
+	result := buildDescribeOutput(processedResource, description.Metadata, description.Meta, description.Events, eventsLimit)
 
-	// Include events if present
-	if len(description.Events) > 0 {
-		response["events"] = description.Events
-	}
-
-	// Convert the response to JSON for output
-	jsonData, err := json.MarshalIndent(response, "", "  ")
+	jsonData, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal description: %v", err)), nil
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
+}
+
+// buildDescribeOutput shapes the raw describe response into a DescribeOutput,
+// sorting events newest-first, truncating to eventsLimit, and stripping
+// metadata.managedFields from each returned event. TotalEvents reflects the
+// full pre-truncation count so callers can detect that the history was clipped.
+func buildDescribeOutput(
+	resource any,
+	metadata map[string]any,
+	meta *k8s.ResponseMeta,
+	events []corev1.Event,
+	limit int,
+) DescribeOutput {
+	out := DescribeOutput{
+		Resource:    resource,
+		Metadata:    metadata,
+		Meta:        meta,
+		TotalEvents: len(events),
+		Events:      []map[string]any{},
+	}
+
+	if len(events) == 0 {
+		return out
+	}
+
+	sorted := make([]corev1.Event, len(events))
+	copy(sorted, events)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return effectiveEventTime(sorted[i]).After(effectiveEventTime(sorted[j]))
+	})
+
+	end := len(sorted)
+	if limit < end {
+		end = limit
+	}
+
+	slimmed := make([]map[string]any, 0, end)
+	for i := range sorted[:end] {
+		raw, err := json.Marshal(&sorted[i])
+		if err != nil {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			continue
+		}
+		slimmed = append(slimmed, output.SlimResource(m, []string{"metadata.managedFields"}))
+	}
+	out.Events = slimmed
+	out.ReturnedEvents = len(slimmed)
+	// EventsTruncated reflects any reduction (eventsLimit or marshal failure),
+	// so callers cannot read EventsTruncated=false while ReturnedEvents<TotalEvents.
+	out.EventsTruncated = out.TotalEvents > out.ReturnedEvents
+	return out
+}
+
+// effectiveEventTime returns the best available timestamp for sorting:
+// LastTimestamp, then EventTime, then FirstTimestamp.
+func effectiveEventTime(ev corev1.Event) time.Time {
+	if !ev.LastTimestamp.IsZero() {
+		return ev.LastTimestamp.Time
+	}
+	if !ev.EventTime.IsZero() {
+		return ev.EventTime.Time
+	}
+	return ev.FirstTimestamp.Time
 }
 
 // handleCreateResource handles kubectl create operations
