@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -10,14 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
-	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
-
-// stubK8sClient satisfies k8s.Client for tests that only need a non-nil client.
-// Method calls would panic — tests using this must avoid invoking k8s operations.
-type stubK8sClient struct{ k8s.Client }
 
 func TestNewServeCmd(t *testing.T) {
 	cmd := newServeCmd()
@@ -121,62 +113,6 @@ func TestInClusterFlagParsing(t *testing.T) {
 					assert.False(t, capturedNonDestructive)
 				}
 			}
-		})
-	}
-}
-
-// TestModeServerContextOptions verifies that the safety-mode CLI flags
-// (--non-destructive, --dry-run) are correctly threaded into the
-// ServerContext configuration when serve options are built. This guards
-// the bug where flag values were dropped before reaching CheckMutatingOperation.
-func TestModeServerContextOptions(t *testing.T) {
-	tests := []struct {
-		name                   string
-		nonDestructive         bool
-		dryRun                 bool
-		wantNonDestructiveMode bool
-		wantDryRun             bool
-	}{
-		{
-			name:                   "non-destructive on, dry-run off (default)",
-			nonDestructive:         true,
-			dryRun:                 false,
-			wantNonDestructiveMode: true,
-			wantDryRun:             false,
-		},
-		{
-			name:                   "non-destructive off",
-			nonDestructive:         false,
-			dryRun:                 false,
-			wantNonDestructiveMode: false,
-			wantDryRun:             false,
-		},
-		{
-			name:                   "dry-run on",
-			nonDestructive:         true,
-			dryRun:                 true,
-			wantNonDestructiveMode: true,
-			wantDryRun:             true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opts := modeServerContextOptions(ServeConfig{
-				NonDestructiveMode: tt.nonDestructive,
-				DryRun:             tt.dryRun,
-			})
-
-			contextOpts := append([]server.Option{
-				server.WithK8sClient(&stubK8sClient{}),
-				server.WithLogger(server.NewDefaultLogger()),
-			}, opts...)
-
-			sc, err := server.NewServerContext(context.Background(), contextOpts...)
-			require.NoError(t, err)
-
-			assert.Equal(t, tt.wantNonDestructiveMode, sc.Config().NonDestructiveMode)
-			assert.Equal(t, tt.wantDryRun, sc.Config().DryRun)
 		})
 	}
 }

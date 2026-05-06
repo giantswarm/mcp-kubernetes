@@ -11,7 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Mutating tools (`kubernetes_create`, `kubernetes_apply`, `kubernetes_delete`, `kubernetes_patch`, `kubernetes_scale`, `kubernetes_exec`, `port_forward` and the related session-management tools) are no longer registered with the MCP server when they cannot be invoked under the current configuration. This shrinks the tool list seen by clients in non-destructive mode and prevents models from attempting destructive operations that would always be rejected. Mutating tools become visible again when `--non-destructive=false`, when `--dry-run` is set, or when the operation verb is in `AllowedOperations`. Resolves [#4296](https://github.com/giantswarm/roadmap/issues/4296).
 
+### Fixed
+
+- The `--non-destructive` and `--dry-run` CLI flags now correctly propagate to the server context. Previously, the values were only applied to the Kubernetes client layer, so the runtime safety check in `CheckMutatingOperation` always read the default values regardless of CLI input.
+
 ### [0.1.73] - 2026-05-05
+
+## [0.1.73] - 2026-05-05
 
 ### Changed
 
@@ -459,10 +465,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - fix(ci): prevent auto-release from conflicting with manual releases ([#306](https://github.com/giantswarm/mcp-kubernetes/pull/306))
-
-### Fixed
-
-- The `--non-destructive` and `--dry-run` CLI flags now correctly propagate to the server context. Previously, the values were only applied to the Kubernetes client layer, so the runtime safety check in `CheckMutatingOperation` always read the default values regardless of CLI input.
 
 ## [0.1.0] - 2026-02-27
 
