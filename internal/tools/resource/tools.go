@@ -243,173 +243,172 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	s.AddTool(describeResourceTool, tools.WrapWithAuditLogging("kubernetes_describe", handleDescribeResource, sc))
 
 	// kubernetes_create tool
-	if tools.IsMutatingOperationAllowed(sc, "create") {
-		createResourceOpts := []mcp.ToolOption{
-			mcp.WithDescription("Create a new Kubernetes resource from a manifest"),
-			mcp.WithReadOnlyHintAnnotation(false),
-			mcp.WithDestructiveHintAnnotation(false),
-			mcp.WithIdempotentHintAnnotation(false),
-			mcp.WithOpenWorldHintAnnotation(false),
-		}
-		createResourceOpts = append(createResourceOpts, clusterContextParams...)
-		createResourceOpts = append(createResourceOpts,
-			mcp.WithString("namespace",
-				mcp.Required(),
-				mcp.Description("Namespace where the resource should be created"),
-			),
-			mcp.WithObject("manifest",
-				mcp.Required(),
-				mcp.Description("Kubernetes manifest as JSON object"),
-			),
-		)
-		createResourceTool := mcp.NewTool("kubernetes_create", createResourceOpts...)
-
-		s.AddTool(createResourceTool, tools.WrapWithAuditLogging("kubernetes_create", handleCreateResource, sc))
+	createResourceOpts := []mcp.ToolOption{
+		mcp.WithDescription("Create a new Kubernetes resource from a manifest"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
+	createResourceOpts = append(createResourceOpts, clusterContextParams...)
+	createResourceOpts = append(createResourceOpts,
+		mcp.WithString("namespace",
+			mcp.Required(),
+			mcp.Description("Namespace where the resource should be created"),
+		),
+		mcp.WithObject("manifest",
+			mcp.Required(),
+			mcp.Description("Kubernetes manifest as JSON object"),
+		),
+	)
+	addMutatingTool(s, sc, "create", "kubernetes_create", handleCreateResource, createResourceOpts...)
 
 	// kubernetes_apply tool
-	if tools.IsMutatingOperationAllowed(sc, "apply") {
-		applyResourceOpts := []mcp.ToolOption{
-			mcp.WithDescription("Apply a Kubernetes manifest (create or update)"),
-			mcp.WithReadOnlyHintAnnotation(false),
-			mcp.WithDestructiveHintAnnotation(false),
-			mcp.WithIdempotentHintAnnotation(true),
-			mcp.WithOpenWorldHintAnnotation(false),
-		}
-		applyResourceOpts = append(applyResourceOpts, clusterContextParams...)
-		applyResourceOpts = append(applyResourceOpts,
-			mcp.WithString("namespace",
-				mcp.Required(),
-				mcp.Description("Namespace where the resource should be applied"),
-			),
-			mcp.WithObject("manifest",
-				mcp.Required(),
-				mcp.Description("Kubernetes manifest as JSON object"),
-			),
-		)
-		applyResourceTool := mcp.NewTool("kubernetes_apply", applyResourceOpts...)
-
-		s.AddTool(applyResourceTool, tools.WrapWithAuditLogging("kubernetes_apply", handleApplyResource, sc))
+	applyResourceOpts := []mcp.ToolOption{
+		mcp.WithDescription("Apply a Kubernetes manifest (create or update)"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
+	applyResourceOpts = append(applyResourceOpts, clusterContextParams...)
+	applyResourceOpts = append(applyResourceOpts,
+		mcp.WithString("namespace",
+			mcp.Required(),
+			mcp.Description("Namespace where the resource should be applied"),
+		),
+		mcp.WithObject("manifest",
+			mcp.Required(),
+			mcp.Description("Kubernetes manifest as JSON object"),
+		),
+	)
+	addMutatingTool(s, sc, "apply", "kubernetes_apply", handleApplyResource, applyResourceOpts...)
 
 	// kubernetes_delete tool
-	if tools.IsMutatingOperationAllowed(sc, "delete") {
-		deleteResourceOpts := []mcp.ToolOption{
-			mcp.WithDescription(`Delete a Kubernetes resource.
+	deleteResourceOpts := []mcp.ToolOption{
+		mcp.WithDescription(`Delete a Kubernetes resource.
 
 Namespace Handling:
 - For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
 - For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
 - The tool automatically determines resource scope via Kubernetes API discovery`),
-			mcp.WithReadOnlyHintAnnotation(false),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithIdempotentHintAnnotation(false),
-			mcp.WithOpenWorldHintAnnotation(false),
-		}
-		deleteResourceOpts = append(deleteResourceOpts, clusterContextParams...)
-		deleteResourceOpts = append(deleteResourceOpts,
-			mcp.WithString("namespace",
-				mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
-For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
-			),
-			mcp.WithString("resourceType",
-				mcp.Required(),
-				mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
-			),
-			mcp.WithString("apiGroup",
-				mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
-			),
-			mcp.WithString("name",
-				mcp.Required(),
-				mcp.Description("Name of the resource to delete"),
-			),
-		)
-		deleteResourceTool := mcp.NewTool("kubernetes_delete", deleteResourceOpts...)
-
-		s.AddTool(deleteResourceTool, tools.WrapWithAuditLogging("kubernetes_delete", handleDeleteResource, sc))
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
+	deleteResourceOpts = append(deleteResourceOpts, clusterContextParams...)
+	deleteResourceOpts = append(deleteResourceOpts,
+		mcp.WithString("namespace",
+			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
+For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
+		),
+		mcp.WithString("resourceType",
+			mcp.Required(),
+			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
+		),
+		mcp.WithString("name",
+			mcp.Required(),
+			mcp.Description("Name of the resource to delete"),
+		),
+	)
+	addMutatingTool(s, sc, "delete", "kubernetes_delete", handleDeleteResource, deleteResourceOpts...)
 
 	// kubernetes_patch tool
-	if tools.IsMutatingOperationAllowed(sc, "patch") {
-		patchResourceOpts := []mcp.ToolOption{
-			mcp.WithDescription(`Patch a Kubernetes resource with specific changes.
+	patchResourceOpts := []mcp.ToolOption{
+		mcp.WithDescription(`Patch a Kubernetes resource with specific changes.
 
 Namespace Handling:
 - For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
 - For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
 - The tool automatically determines resource scope via Kubernetes API discovery`),
-			mcp.WithReadOnlyHintAnnotation(false),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithIdempotentHintAnnotation(true),
-			mcp.WithOpenWorldHintAnnotation(false),
-		}
-		patchResourceOpts = append(patchResourceOpts, clusterContextParams...)
-		patchResourceOpts = append(patchResourceOpts,
-			mcp.WithString("namespace",
-				mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
-For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
-			),
-			mcp.WithString("resourceType",
-				mcp.Required(),
-				mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
-			),
-			mcp.WithString("apiGroup",
-				mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
-			),
-			mcp.WithString("name",
-				mcp.Required(),
-				mcp.Description("Name of the resource to patch"),
-			),
-			mcp.WithString("patchType",
-				mcp.Required(),
-				mcp.Description("Type of patch (strategic, merge, json)"),
-				mcp.Enum("strategic", "merge", "json"),
-			),
-			mcp.WithObject("patch",
-				mcp.Required(),
-				mcp.Description("Patch data as JSON object"),
-			),
-		)
-		patchResourceTool := mcp.NewTool("kubernetes_patch", patchResourceOpts...)
-
-		s.AddTool(patchResourceTool, tools.WrapWithAuditLogging("kubernetes_patch", handlePatchResource, sc))
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
+	patchResourceOpts = append(patchResourceOpts, clusterContextParams...)
+	patchResourceOpts = append(patchResourceOpts,
+		mcp.WithString("namespace",
+			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
+For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
+		),
+		mcp.WithString("resourceType",
+			mcp.Required(),
+			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
+		),
+		mcp.WithString("name",
+			mcp.Required(),
+			mcp.Description("Name of the resource to patch"),
+		),
+		mcp.WithString("patchType",
+			mcp.Required(),
+			mcp.Description("Type of patch (strategic, merge, json)"),
+			mcp.Enum("strategic", "merge", "json"),
+		),
+		mcp.WithObject("patch",
+			mcp.Required(),
+			mcp.Description("Patch data as JSON object"),
+		),
+	)
+	addMutatingTool(s, sc, "patch", "kubernetes_patch", handlePatchResource, patchResourceOpts...)
 
 	// kubernetes_scale tool
-	if tools.IsMutatingOperationAllowed(sc, "scale") {
-		scaleResourceOpts := []mcp.ToolOption{
-			mcp.WithDescription("Scale a Kubernetes resource (deployment, replicaset, etc.)"),
-			mcp.WithReadOnlyHintAnnotation(false),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithIdempotentHintAnnotation(true),
-			mcp.WithOpenWorldHintAnnotation(false),
-		}
-		scaleResourceOpts = append(scaleResourceOpts, clusterContextParams...)
-		scaleResourceOpts = append(scaleResourceOpts,
-			mcp.WithString("namespace",
-				mcp.Required(),
-				mcp.Description("Namespace where the resource is located"),
-			),
-			mcp.WithString("resourceType",
-				mcp.Required(),
-				mcp.Description("Type of scalable Kubernetes resource (deployment, replicaset, statefulset)"),
-			),
-			mcp.WithString("apiGroup",
-				mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
-			),
-			mcp.WithString("name",
-				mcp.Required(),
-				mcp.Description("Name of the resource to scale"),
-			),
-			mcp.WithNumber("replicas",
-				mcp.Required(),
-				mcp.Description("Number of replicas to scale to"),
-			),
-		)
-		scaleResourceTool := mcp.NewTool("kubernetes_scale", scaleResourceOpts...)
-
-		s.AddTool(scaleResourceTool, tools.WrapWithAuditLogging("kubernetes_scale", handleScaleResource, sc))
+	scaleResourceOpts := []mcp.ToolOption{
+		mcp.WithDescription("Scale a Kubernetes resource (deployment, replicaset, etc.)"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	}
+	scaleResourceOpts = append(scaleResourceOpts, clusterContextParams...)
+	scaleResourceOpts = append(scaleResourceOpts,
+		mcp.WithString("namespace",
+			mcp.Required(),
+			mcp.Description("Namespace where the resource is located"),
+		),
+		mcp.WithString("resourceType",
+			mcp.Required(),
+			mcp.Description("Type of scalable Kubernetes resource (deployment, replicaset, statefulset)"),
+		),
+		mcp.WithString("apiGroup",
+			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
+		),
+		mcp.WithString("name",
+			mcp.Required(),
+			mcp.Description("Name of the resource to scale"),
+		),
+		mcp.WithNumber("replicas",
+			mcp.Required(),
+			mcp.Description("Number of replicas to scale to"),
+		),
+	)
+	addMutatingTool(s, sc, "scale", "kubernetes_scale", handleScaleResource, scaleResourceOpts...)
 
 	return nil
+}
+
+// addMutatingTool registers a mutating tool only if the operation verb is permitted
+// by the current safety policy (tools.IsMutatingOperationAllowed). Disallowed tools
+// are not exposed at all, so MCP clients never see them in the tool list.
+//
+// op is the verb checked against AllowedOperations (e.g., "create", "delete").
+// name is the public MCP tool name (e.g., "kubernetes_create").
+func addMutatingTool(
+	s *mcpserver.MCPServer,
+	sc *server.ServerContext,
+	op, name string,
+	handler tools.ToolHandler,
+	opts ...mcp.ToolOption,
+) {
+	if !tools.IsMutatingOperationAllowed(sc, op) {
+		return
+	}
+	s.AddTool(mcp.NewTool(name, opts...), tools.WrapWithAuditLogging(name, handler, sc))
 }

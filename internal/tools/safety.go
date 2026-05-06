@@ -40,6 +40,10 @@ func CheckMutatingOperation(sc *server.ServerContext, operation string) *mcp.Cal
 //   - DryRun mode is enabled, OR
 //   - The operation is listed in AllowedOperations.
 //
+// In particular, AllowedOperations is honored even when NonDestructiveMode=true
+// and DryRun=false: the whitelist is the explicit escape hatch for selectively
+// enabling specific verbs without flipping the global mode.
+//
 // This predicate is used at two sites and a change to either rule affects both:
 //   - At tool-registration time, to skip exposing destructive tools that
 //     cannot be invoked under the current configuration.
