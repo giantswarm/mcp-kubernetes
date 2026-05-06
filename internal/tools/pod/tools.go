@@ -56,43 +56,48 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	s.AddTool(logsTool, tools.WrapWithAuditLogging("kubernetes_logs", handleGetLogs, sc))
 
 	// kubernetes_exec tool
-	execOpts := []mcp.ToolOption{
-		mcp.WithDescription("Execute a command inside a pod container"),
-		mcp.WithReadOnlyHintAnnotation(false),
-		mcp.WithDestructiveHintAnnotation(true),
-		mcp.WithIdempotentHintAnnotation(false),
-		mcp.WithOpenWorldHintAnnotation(false),
-		mcp.WithSchemaAdditionalProperties(false),
+	if tools.IsMutatingOperationAllowed(sc, "exec") {
+		execOpts := []mcp.ToolOption{
+			mcp.WithDescription("Execute a command inside a pod container"),
+			mcp.WithReadOnlyHintAnnotation(false),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithIdempotentHintAnnotation(false),
+			mcp.WithOpenWorldHintAnnotation(false),
+			mcp.WithSchemaAdditionalProperties(false),
+		}
+		execOpts = append(execOpts, clusterContextParams...)
+		execOpts = append(execOpts,
+			mcp.WithString("namespace",
+				mcp.Required(),
+				mcp.Description("Namespace where the pod is located"),
+			),
+			mcp.WithString("podName",
+				mcp.Required(),
+				mcp.Description("Name of the pod to execute command in"),
+			),
+			mcp.WithString("containerName",
+				mcp.Description("Name of the container (optional for single-container pods)"),
+			),
+			mcp.WithArray("command",
+				mcp.Required(),
+				mcp.Description("Command to execute as an array of strings"),
+				mcp.WithStringItems(),
+			),
+			mcp.WithBoolean("tty",
+				mcp.Description("Allocate a TTY for the exec session (default: false)"),
+			),
+		)
+		execTool := mcp.NewTool("kubernetes_exec", execOpts...)
+
+		s.AddTool(execTool, tools.WrapWithAuditLogging("kubernetes_exec", handleExec, sc))
 	}
-	execOpts = append(execOpts, clusterContextParams...)
-	execOpts = append(execOpts,
-		mcp.WithString("namespace",
-			mcp.Required(),
-			mcp.Description("Namespace where the pod is located"),
-		),
-		mcp.WithString("podName",
-			mcp.Required(),
-			mcp.Description("Name of the pod to execute command in"),
-		),
-		mcp.WithString("containerName",
-			mcp.Description("Name of the container (optional for single-container pods)"),
-		),
-		mcp.WithArray("command",
-			mcp.Required(),
-			mcp.Description("Command to execute as an array of strings"),
-			mcp.WithStringItems(),
-		),
-		mcp.WithBoolean("tty",
-			mcp.Description("Allocate a TTY for the exec session (default: false)"),
-		),
-	)
-	execTool := mcp.NewTool("kubernetes_exec", execOpts...)
 
-	s.AddTool(execTool, tools.WrapWithAuditLogging("kubernetes_exec", handleExec, sc))
-
-	// Port forwarding tools are only registered when NOT running in in-cluster mode,
-	// as forwarded ports bind to the local host and are inaccessible from within a container.
-	if !sc.InClusterMode() {
+	// Port forwarding tools are only registered when NOT running in in-cluster mode
+	// (forwarded ports bind to the local host, inaccessible from within a container)
+	// and when port-forward is permitted by the safety configuration. The session-
+	// management tools (list/stop) are gated alongside port_forward itself: without
+	// the ability to start a session there is nothing to list or stop.
+	if !sc.InClusterMode() && tools.IsMutatingOperationAllowed(sc, "port-forward") {
 		// port_forward tool
 		portForwardOpts := []mcp.ToolOption{
 			mcp.WithDescription("Port-forward to a pod or service"),
