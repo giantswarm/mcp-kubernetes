@@ -147,6 +147,78 @@ func TestCheckMutatingOperation_ReadOperationsAlwaysAllowed(t *testing.T) {
 	}
 }
 
+// TestIsMutatingOperationAllowed verifies the registration-time gate uses the
+// same rules as the runtime check: blocked in non-destructive mode, allowed when
+// dry-run is on, allowed when non-destructive is off, allowed when whitelisted.
+func TestIsMutatingOperationAllowed(t *testing.T) {
+	ctx := context.Background()
+
+	mutating := []string{"create", "apply", "delete", "patch", "scale", "exec", "port-forward"}
+
+	t.Run("blocked in non-destructive mode", func(t *testing.T) {
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(&testdata.MockK8sClient{}),
+			server.WithLogger(&testdata.MockLogger{}),
+			server.WithNonDestructiveMode(true),
+			server.WithDryRun(false),
+		)
+		require.NoError(t, err)
+
+		for _, op := range mutating {
+			assert.False(t, IsMutatingOperationAllowed(sc, op),
+				"%s should be blocked in non-destructive mode", op)
+		}
+	})
+
+	t.Run("allowed with dry-run", func(t *testing.T) {
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(&testdata.MockK8sClient{}),
+			server.WithLogger(&testdata.MockLogger{}),
+			server.WithNonDestructiveMode(true),
+			server.WithDryRun(true),
+		)
+		require.NoError(t, err)
+
+		for _, op := range mutating {
+			assert.True(t, IsMutatingOperationAllowed(sc, op),
+				"%s should be allowed with dry-run", op)
+		}
+	})
+
+	t.Run("allowed when non-destructive disabled", func(t *testing.T) {
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(&testdata.MockK8sClient{}),
+			server.WithLogger(&testdata.MockLogger{}),
+			server.WithNonDestructiveMode(false),
+		)
+		require.NoError(t, err)
+
+		for _, op := range mutating {
+			assert.True(t, IsMutatingOperationAllowed(sc, op),
+				"%s should be allowed when non-destructive disabled", op)
+		}
+	})
+
+	t.Run("whitelist permits specific operations", func(t *testing.T) {
+		customConfig := server.NewDefaultConfig()
+		customConfig.NonDestructiveMode = true
+		customConfig.DryRun = false
+		customConfig.AllowedOperations = []string{"get", "list", "describe", "create", "exec"}
+
+		sc, err := server.NewServerContext(ctx,
+			server.WithK8sClient(&testdata.MockK8sClient{}),
+			server.WithLogger(&testdata.MockLogger{}),
+			server.WithConfig(customConfig),
+		)
+		require.NoError(t, err)
+
+		assert.True(t, IsMutatingOperationAllowed(sc, "create"))
+		assert.True(t, IsMutatingOperationAllowed(sc, "exec"))
+		assert.False(t, IsMutatingOperationAllowed(sc, "delete"))
+		assert.False(t, IsMutatingOperationAllowed(sc, "port-forward"))
+	})
+}
+
 // TestCheckMutatingOperation_ErrorMessageFormat verifies the error message format.
 func TestCheckMutatingOperation_ErrorMessageFormat(t *testing.T) {
 	ctx := context.Background()

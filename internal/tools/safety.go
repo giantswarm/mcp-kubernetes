@@ -24,19 +24,42 @@ import (
 //
 // Protected operations include: create, apply, delete, patch, scale, exec, port-forward
 func CheckMutatingOperation(sc *server.ServerContext, operation string) *mcp.CallToolResult {
-	config := sc.Config()
-	if !config.NonDestructiveMode || config.DryRun {
+	if IsMutatingOperationAllowed(sc, operation) {
 		return nil
-	}
-
-	for _, op := range config.AllowedOperations {
-		if op == operation {
-			return nil
-		}
 	}
 
 	return mcp.NewToolResultError(fmt.Sprintf(
 		"%s operations are not allowed in non-destructive mode (use --dry-run to validate without applying)",
 		cases.Title(language.English).String(operation),
 	))
+}
+
+// IsMutatingOperationAllowed reports whether the given operation verb would be
+// permitted under the current server configuration. The rules are:
+//   - NonDestructiveMode is disabled, OR
+//   - DryRun mode is enabled, OR
+//   - The operation is listed in AllowedOperations.
+//
+// In particular, AllowedOperations is honored even when NonDestructiveMode=true
+// and DryRun=false: the whitelist is the explicit escape hatch for selectively
+// enabling specific verbs without flipping the global mode.
+//
+// This predicate is used at two sites and a change to either rule affects both:
+//   - At tool-registration time, to skip exposing destructive tools that
+//     cannot be invoked under the current configuration.
+//   - At handler invocation time, via CheckMutatingOperation, to enforce the
+//     same rule at the call site as a defence-in-depth check.
+func IsMutatingOperationAllowed(sc *server.ServerContext, operation string) bool {
+	config := sc.Config()
+	if !config.NonDestructiveMode || config.DryRun {
+		return true
+	}
+
+	for _, op := range config.AllowedOperations {
+		if op == operation {
+			return true
+		}
+	}
+
+	return false
 }

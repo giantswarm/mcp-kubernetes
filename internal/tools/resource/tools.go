@@ -261,9 +261,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Kubernetes manifest as JSON object"),
 		),
 	)
-	createResourceTool := mcp.NewTool("kubernetes_create", createResourceOpts...)
-
-	s.AddTool(createResourceTool, tools.WrapWithAuditLogging("kubernetes_create", handleCreateResource, sc))
+	addMutatingTool(s, sc, "create", "kubernetes_create", handleCreateResource, createResourceOpts...)
 
 	// kubernetes_apply tool
 	applyResourceOpts := []mcp.ToolOption{
@@ -284,9 +282,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Kubernetes manifest as JSON object"),
 		),
 	)
-	applyResourceTool := mcp.NewTool("kubernetes_apply", applyResourceOpts...)
-
-	s.AddTool(applyResourceTool, tools.WrapWithAuditLogging("kubernetes_apply", handleApplyResource, sc))
+	addMutatingTool(s, sc, "apply", "kubernetes_apply", handleApplyResource, applyResourceOpts...)
 
 	// kubernetes_delete tool
 	deleteResourceOpts := []mcp.ToolOption{
@@ -319,9 +315,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Name of the resource to delete"),
 		),
 	)
-	deleteResourceTool := mcp.NewTool("kubernetes_delete", deleteResourceOpts...)
-
-	s.AddTool(deleteResourceTool, tools.WrapWithAuditLogging("kubernetes_delete", handleDeleteResource, sc))
+	addMutatingTool(s, sc, "delete", "kubernetes_delete", handleDeleteResource, deleteResourceOpts...)
 
 	// kubernetes_patch tool
 	patchResourceOpts := []mcp.ToolOption{
@@ -363,9 +357,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Patch data as JSON object"),
 		),
 	)
-	patchResourceTool := mcp.NewTool("kubernetes_patch", patchResourceOpts...)
-
-	s.AddTool(patchResourceTool, tools.WrapWithAuditLogging("kubernetes_patch", handlePatchResource, sc))
+	addMutatingTool(s, sc, "patch", "kubernetes_patch", handlePatchResource, patchResourceOpts...)
 
 	// kubernetes_scale tool
 	scaleResourceOpts := []mcp.ToolOption{
@@ -397,9 +389,26 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Number of replicas to scale to"),
 		),
 	)
-	scaleResourceTool := mcp.NewTool("kubernetes_scale", scaleResourceOpts...)
-
-	s.AddTool(scaleResourceTool, tools.WrapWithAuditLogging("kubernetes_scale", handleScaleResource, sc))
+	addMutatingTool(s, sc, "scale", "kubernetes_scale", handleScaleResource, scaleResourceOpts...)
 
 	return nil
+}
+
+// addMutatingTool registers a mutating tool only if the operation verb is permitted
+// by the current safety policy (tools.IsMutatingOperationAllowed). Disallowed tools
+// are not exposed at all, so MCP clients never see them in the tool list.
+//
+// op is the verb checked against AllowedOperations (e.g., "create", "delete").
+// name is the public MCP tool name (e.g., "kubernetes_create").
+func addMutatingTool(
+	s *mcpserver.MCPServer,
+	sc *server.ServerContext,
+	op, name string,
+	handler tools.ToolHandler,
+	opts ...mcp.ToolOption,
+) {
+	if !tools.IsMutatingOperationAllowed(sc, op) {
+		return
+	}
+	s.AddTool(mcp.NewTool(name, opts...), tools.WrapWithAuditLogging(name, handler, sc))
 }
