@@ -458,16 +458,6 @@ func validateEncryptionKey(key []byte) error {
 	return nil
 }
 
-// modeServerContextOptions returns the ServerContext options that derive from
-// the safety-related fields of ServeConfig (--non-destructive, --dry-run).
-// Extracted to make CLI-to-ServerContext plumbing independently testable.
-func modeServerContextOptions(config ServeConfig) []server.Option {
-	return []server.Option{
-		server.WithNonDestructiveMode(config.NonDestructiveMode),
-		server.WithDryRun(config.DryRun),
-	}
-}
-
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
 	// Configure default slog logger level based on debug mode
@@ -538,7 +528,8 @@ func runServe(config ServeConfig) error {
 	var serverContextOptions []server.Option
 	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
 	serverContextOptions = append(serverContextOptions, server.WithInstrumentationProvider(instrumentationProvider))
-	serverContextOptions = append(serverContextOptions, modeServerContextOptions(config)...)
+	serverContextOptions = append(serverContextOptions, server.WithNonDestructiveMode(config.NonDestructiveMode))
+	serverContextOptions = append(serverContextOptions, server.WithDryRun(config.DryRun))
 
 	// Set in-cluster mode flag
 	if config.InCluster {
