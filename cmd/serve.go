@@ -849,6 +849,7 @@ func runServe(config ServeConfig) error {
 	mcpSrv := mcpserver.NewMCPServer("mcp-kubernetes", rootCmd.Version,
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithHooks(hooks),
+		mcpserver.WithInputSchemaValidation(),
 	)
 
 	// Register all tool categories

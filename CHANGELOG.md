@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Enable JSON-Schema input validation for every tool (per [SEP-1303](https://modelcontextprotocol.io/seps/1303-input-validation-errors-as-tool-execution-errors)). Calls with unknown property names, wrong types, or missing required fields now return a structured tool execution error instead of being silently dropped — for example, sending `cursor` instead of `continue` to `kubernetes_list` is rejected with a message the model can self-correct from ([#36458](https://github.com/giantswarm/giantswarm/issues/36458)). The `port_forward` tool retains a `podName` parameter as a deprecated alias for `resourceName`.
+
 ### Changed
 
 - Mutating tools (`kubernetes_create`, `kubernetes_apply`, `kubernetes_delete`, `kubernetes_patch`, `kubernetes_scale`, `kubernetes_exec`, `port_forward` and the related session-management tools) are no longer registered with the MCP server when they cannot be invoked under the current configuration. This shrinks the tool list seen by clients in non-destructive mode and prevents models from attempting destructive operations that would always be rejected. Mutating tools become visible again when `--non-destructive=false`, when `--dry-run` is set, or when the operation verb is in `AllowedOperations`. Resolves [#4296](https://github.com/giantswarm/roadmap/issues/4296).

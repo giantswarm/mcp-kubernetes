@@ -23,7 +23,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithDescription("List all available Kubernetes contexts"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
-		mcp.WithInputSchema[tools.EmptyRequest](),
+		mcp.WithSchemaAdditionalProperties(false),
 	)
 
 	s.AddTool(listContextsTool, tools.WrapWithAuditLogging("kubernetes_context_list", handleListContexts, sc))
@@ -33,7 +33,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithDescription("Get the current Kubernetes context"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
-		mcp.WithInputSchema[tools.EmptyRequest](),
+		mcp.WithSchemaAdditionalProperties(false),
 	)
 
 	s.AddTool(getCurrentContextTool, tools.WrapWithAuditLogging("kubernetes_context_get_current", handleGetCurrentContext, sc))
@@ -45,6 +45,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 		mcp.WithString("contextName",
 			mcp.Required(),
 			mcp.Description("Name of the Kubernetes context to switch to"),

@@ -18,6 +18,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithDescription("List available API resources in the cluster"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	apiResourcesOpts = append(apiResourcesOpts, clusterContextParams...)
 	apiResourcesOpts = append(apiResourcesOpts,
@@ -46,6 +47,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithDescription("Check the health status of cluster components. Returns overall status, component health, and a node list (capped by nodesLimit). Per-node conditions are omitted by default; set includeNodeConditions=true to include them."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	clusterHealthOpts = append(clusterHealthOpts, clusterContextParams...)
 	clusterHealthOpts = append(clusterHealthOpts,
