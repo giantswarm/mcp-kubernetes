@@ -528,6 +528,8 @@ func runServe(config ServeConfig) error {
 	var serverContextOptions []server.Option
 	serverContextOptions = append(serverContextOptions, server.WithK8sClient(k8sClient))
 	serverContextOptions = append(serverContextOptions, server.WithInstrumentationProvider(instrumentationProvider))
+	serverContextOptions = append(serverContextOptions, server.WithNonDestructiveMode(config.NonDestructiveMode))
+	serverContextOptions = append(serverContextOptions, server.WithDryRun(config.DryRun))
 
 	// Set in-cluster mode flag
 	if config.InCluster {

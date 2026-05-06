@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `--non-destructive` and `--dry-run` CLI flags now correctly propagate to the server context. Previously, the values were only applied to the Kubernetes client layer, so the runtime safety check in `CheckMutatingOperation` always read the default values regardless of CLI input.
+
 ## [0.1.73] - 2026-05-05
 
 ### Changed
