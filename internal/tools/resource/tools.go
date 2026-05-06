@@ -103,6 +103,7 @@ Namespace Handling:
 - The tool automatically determines resource scope via Kubernetes API discovery`),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	getResourceOpts = append(getResourceOpts, clusterContextParams...)
 	getResourceOpts = append(getResourceOpts,
@@ -146,6 +147,7 @@ Examples:
 Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios.`),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	listResourceOpts = append(listResourceOpts, clusterContextParams...)
 	listResourceOpts = append(listResourceOpts,
@@ -214,6 +216,7 @@ Namespace Handling:
 - The tool automatically determines resource scope via Kubernetes API discovery`),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	describeResourceOpts = append(describeResourceOpts, clusterContextParams...)
 	describeResourceOpts = append(describeResourceOpts,
@@ -249,6 +252,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	createResourceOpts = append(createResourceOpts, clusterContextParams...)
 	createResourceOpts = append(createResourceOpts,
@@ -272,6 +276,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	applyResourceOpts = append(applyResourceOpts, clusterContextParams...)
 	applyResourceOpts = append(applyResourceOpts,
@@ -300,6 +305,7 @@ Namespace Handling:
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	deleteResourceOpts = append(deleteResourceOpts, clusterContextParams...)
 	deleteResourceOpts = append(deleteResourceOpts,
@@ -335,6 +341,7 @@ Namespace Handling:
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	patchResourceOpts = append(patchResourceOpts, clusterContextParams...)
 	patchResourceOpts = append(patchResourceOpts,
@@ -374,6 +381,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	scaleResourceOpts = append(scaleResourceOpts, clusterContextParams...)
 	scaleResourceOpts = append(scaleResourceOpts,

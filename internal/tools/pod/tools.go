@@ -18,6 +18,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithDescription("Get logs from a pod container"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	logsOpts = append(logsOpts, clusterContextParams...)
 	logsOpts = append(logsOpts,
@@ -61,6 +62,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithSchemaAdditionalProperties(false),
 	}
 	execOpts = append(execOpts, clusterContextParams...)
 	execOpts = append(execOpts,
@@ -98,6 +100,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithDestructiveHintAnnotation(false),
 			mcp.WithIdempotentHintAnnotation(false),
 			mcp.WithOpenWorldHintAnnotation(false),
+			mcp.WithSchemaAdditionalProperties(false),
 		}
 		portForwardOpts = append(portForwardOpts, clusterContextParams...)
 		portForwardOpts = append(portForwardOpts,
@@ -112,6 +115,9 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithString("resourceName",
 				mcp.Required(),
 				mcp.Description("Name of the pod or service to port-forward to"),
+			),
+			mcp.WithString("podName",
+				mcp.Description("Deprecated: use 'resourceName' instead. Retained for backward compatibility with older clients; if set and 'resourceName' is empty, the value is used as the pod name."),
 			),
 			mcp.WithArray("ports",
 				mcp.Required(),
@@ -128,7 +134,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithDescription("List all active port forwarding sessions"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithOpenWorldHintAnnotation(false),
-			mcp.WithInputSchema[tools.EmptyRequest](),
+			mcp.WithSchemaAdditionalProperties(false),
 		)
 
 		s.AddTool(listSessionsTool, tools.WrapWithAuditLogging("list_port_forward_sessions", handleListPortForwardSessions, sc))
@@ -140,6 +146,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(false),
 			mcp.WithOpenWorldHintAnnotation(false),
+			mcp.WithSchemaAdditionalProperties(false),
 			mcp.WithString("sessionID",
 				mcp.Required(),
 				mcp.Description("ID of the port forwarding session to stop"),
@@ -155,7 +162,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(true),
 			mcp.WithOpenWorldHintAnnotation(false),
-			mcp.WithInputSchema[tools.EmptyRequest](),
+			mcp.WithSchemaAdditionalProperties(false),
 		)
 
 		s.AddTool(stopAllSessionsTool, tools.WrapWithAuditLogging("stop_all_port_forward_sessions", handleStopAllPortForwardSessions, sc))
