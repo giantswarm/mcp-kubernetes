@@ -22,8 +22,11 @@ func checkMutatingOperation(sc *server.ServerContext, operation string) *mcp.Cal
 	return tools.CheckMutatingOperation(sc, operation)
 }
 
-// Resource type constant for default resource type in port-forward operations.
-const defaultResourceTypePod = "pod"
+// Resource type constants for port-forward operations.
+const (
+	defaultResourceTypePod     = "pod"
+	defaultResourceTypeService = "service"
+)
 
 // PortForwardResponse represents the structured response for port forwarding operations
 type PortForwardResponse struct {
@@ -315,7 +318,7 @@ func handlePortForward(ctx context.Context, request mcp.CallToolRequest, sc *ser
 		}
 		sessionID = fmt.Sprintf("%s/%s:%s", namespace, resourceName, strings.Join(ports, ","))
 
-	case "service":
+	case defaultResourceTypeService:
 		session, err = k8sClient.PortForwardToService(setupCtx, kubeContext, namespace, resourceName, ports, opts)
 		if err != nil {
 			return mcp.NewToolResultError(tools.FormatK8sError("Failed to setup port forwarding to service", err, client.User())), nil

@@ -8,6 +8,10 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 )
 
+// pathMCPSession is the normalized path label used for MCP session endpoints
+// to keep metric cardinality bounded.
+const pathMCPSession = "/mcp/:session"
+
 // responseWriter wraps http.ResponseWriter to capture the status code.
 type responseWriter struct {
 	http.ResponseWriter
@@ -113,7 +117,7 @@ var (
 func normalizePath(path string) string {
 	// Handle MCP session endpoints (e.g., /mcp/abc123xyz)
 	if sessionIDPattern.MatchString(path) {
-		return "/mcp/:session"
+		return pathMCPSession
 	}
 
 	// Replace UUIDs with :uuid

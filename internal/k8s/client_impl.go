@@ -630,7 +630,7 @@ func (c *kubernetesClient) isOperationAllowed(operation string) error {
 
 	// Check if operation is destructive and non-destructive mode is enabled
 	if c.nonDestructiveMode {
-		destructiveOps := []string{"delete", "patch", "scale", "create", "apply"}
+		destructiveOps := []string{OperationDelete, OperationPatch, OperationScale, OperationCreate, OperationApply}
 		for _, destructiveOp := range destructiveOps {
 			if destructiveOp == operation {
 				if !c.dryRun {
@@ -767,7 +767,7 @@ func (c *kubernetesClient) getInClusterNamespace() string {
 	data, err := os.ReadFile(DefaultNamespacePath)
 	if err != nil {
 		// Fallback to default namespace if we can't read the file
-		return "default"
+		return DefaultNamespace
 	}
 	return string(data)
 }

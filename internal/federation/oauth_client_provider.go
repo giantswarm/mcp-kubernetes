@@ -18,6 +18,13 @@ import (
 // nolint:gosec // G101: This is a key name, not a credential
 const UserExtraOAuthTokenKey = "oauth_token"
 
+// In-cluster Kubernetes API server defaults used when constructing
+// OAuthClientProvider instances from in-cluster configuration.
+const (
+	defaultClusterHost = "https://kubernetes.default.svc"
+	defaultCACertFile  = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+)
+
 // OAuthClientProvider implements ClientProvider for OAuth downstream authentication.
 // It creates per-user Kubernetes clients using the user's OAuth bearer token,
 // ensuring all API operations are performed with the user's RBAC permissions.
@@ -107,8 +114,8 @@ type OAuthClientProviderConfig struct {
 // DefaultOAuthClientProviderConfig returns a configuration with sensible defaults.
 func DefaultOAuthClientProviderConfig() *OAuthClientProviderConfig {
 	return &OAuthClientProviderConfig{
-		ClusterHost: "https://kubernetes.default.svc",
-		CACertFile:  "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+		ClusterHost: defaultClusterHost,
+		CACertFile:  defaultCACertFile,
 		QPS:         50,
 		Burst:       100,
 		Timeout:     30 * time.Second,
@@ -151,7 +158,7 @@ func NewOAuthClientProviderFromInCluster() (*OAuthClientProvider, error) {
 
 	config := &OAuthClientProviderConfig{
 		ClusterHost: inClusterConfig.Host,
-		CACertFile:  "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+		CACertFile:  defaultCACertFile,
 		QPS:         50,
 		Burst:       100,
 		Timeout:     30 * time.Second,

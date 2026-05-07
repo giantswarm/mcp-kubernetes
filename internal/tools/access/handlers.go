@@ -14,6 +14,16 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
+// Display and sanitized evaluation error message constants used by access
+// check handlers.
+const (
+	clusterNameLocal              = "local"
+	evalErrResourceNotRecognized  = "resource type not recognized"
+	evalErrPolicyEvaluationFailed = "policy evaluation failed"
+	evalErrPermissionTimedOut     = "permission check timed out"
+	evalErrInternal               = "internal evaluation error"
+)
+
 // CanIResponse represents the response from the can_i tool.
 type CanIResponse struct {
 	// Allowed indicates whether the requested action is permitted.
@@ -170,7 +180,7 @@ func isValidationError(err error) bool {
 // clusterDisplayName returns a display name for the cluster.
 func clusterDisplayName(clusterName string) string {
 	if clusterName == "" {
-		return "local"
+		return clusterNameLocal
 	}
 	return clusterName
 }
@@ -197,13 +207,13 @@ func sanitizeEvaluationError(evalError string) string {
 	// These patterns are based on common Kubernetes API server responses
 	switch {
 	case containsAny(evalError, "unable to find", "not found", "no matches"):
-		return "resource type not recognized"
+		return evalErrResourceNotRecognized
 	case containsAny(evalError, "webhook", "admission"):
-		return "policy evaluation failed"
+		return evalErrPolicyEvaluationFailed
 	case containsAny(evalError, "timeout", "deadline"):
-		return "permission check timed out"
+		return evalErrPermissionTimedOut
 	case containsAny(evalError, "internal error", "server error"):
-		return "internal evaluation error"
+		return evalErrInternal
 	default:
 		// For unrecognized errors, return a generic message
 		// rather than potentially leaking sensitive information

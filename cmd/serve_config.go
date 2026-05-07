@@ -20,8 +20,9 @@ const (
 
 // URI scheme constants for URL validation
 const (
-	schemeHTTPS = "https"
-	schemeHTTP  = "http"
+	schemeHTTPS      = "https"
+	schemeHTTP       = "http"
+	schemeJavaScript = "javascript"
 )
 
 // ServeConfig holds all configuration for the serve command.
@@ -470,7 +471,7 @@ func validateTrustedSchemes(schemes []string) error {
 			slog.Warn("trustedPublicRegistrationSchemes includes a web scheme - this allows unauthenticated registration for web clients which may be a security risk",
 				"scheme", scheme,
 				"recommendation", "Consider using a registration token for web clients instead")
-		case "javascript", "data", "file", "ftp":
+		case schemeJavaScript, "data", "file", "ftp":
 			return fmt.Errorf("trusted scheme %q is not allowed - these schemes pose security risks (XSS, local file access)", scheme)
 		}
 	}

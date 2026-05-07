@@ -16,6 +16,19 @@ import (
 // defaultHealthCheckPath is the standard Kubernetes health endpoint.
 const defaultHealthCheckPath = "/healthz"
 
+// Error message and endpoint type constants used by error classification and
+// endpoint type inference helpers.
+const (
+	tlsErrCertExpired         = "certificate has expired"
+	tlsErrUnknownAuthority    = "unknown authority"
+	tlsErrSignedByUnknownAuth = "certificate signed by unknown authority"
+	tlsErrHostnameMismatch    = "certificate hostname mismatch"
+	tlsErrHandshakeFailed     = "TLS handshake failed"
+	timeoutPattern            = "timeout"
+	endpointTypePrivate       = "private"
+	endpointTypePublic        = "public"
+)
+
 // ErrInvalidHealthCheckPath indicates that the health check path is invalid.
 var ErrInvalidHealthCheckPath = errors.New("invalid health check path")
 
@@ -464,11 +477,11 @@ func isTLSError(err error) bool {
 		"tls:",
 		"x509:",
 		"certificate signed by",
-		"certificate has expired",
+		tlsErrCertExpired,
 		"certificate is not valid",
 		"certificate is valid for",
 		"handshake failure",
-		"unknown authority",
+		tlsErrUnknownAuthority,
 		"bad certificate",
 		"unsupported protocol",
 	}
@@ -497,7 +510,7 @@ func isTimeoutError(err error) bool {
 	// Check error message for timeout patterns
 	errStr := err.Error()
 	timeoutPatterns := []string{
-		"timeout",
+		timeoutPattern,
 		"timed out",
 		"deadline exceeded",
 		"i/o timeout",
@@ -522,18 +535,18 @@ func extractTLSReason(err error) string {
 
 	// Map common TLS errors to user-friendly messages
 	switch {
-	case strings.Contains(errStr, "unknown authority"):
-		return "certificate signed by unknown authority"
+	case strings.Contains(errStr, tlsErrUnknownAuthority):
+		return tlsErrSignedByUnknownAuth
 	case strings.Contains(errStr, "has expired"):
-		return "certificate has expired"
+		return tlsErrCertExpired
 	case strings.Contains(errStr, "not valid yet"):
 		return "certificate is not yet valid"
 	case strings.Contains(errStr, "doesn't contain any IP SANs"):
 		return "certificate doesn't match server IP"
 	case strings.Contains(errStr, "doesn't match"):
-		return "certificate hostname mismatch"
+		return tlsErrHostnameMismatch
 	case strings.Contains(errStr, "handshake failure"):
-		return "TLS handshake failed"
+		return tlsErrHandshakeFailed
 	case strings.Contains(errStr, "protocol version"):
 		return "TLS protocol version mismatch"
 	default:
@@ -572,9 +585,9 @@ func GetEndpointType(host string) string {
 	ip := net.ParseIP(hostPart)
 	if ip != nil {
 		if isPrivateIP(ip) {
-			return "private"
+			return endpointTypePrivate
 		}
-		return "public"
+		return endpointTypePublic
 	}
 
 	// It's a hostname - check for common private DNS patterns
@@ -588,11 +601,11 @@ func GetEndpointType(host string) string {
 
 	for _, pattern := range privateHostnamePatterns {
 		if strings.Contains(hostPart, pattern) {
-			return "private"
+			return endpointTypePrivate
 		}
 	}
 
-	return "public"
+	return endpointTypePublic
 }
 
 // isPrivateIP checks if an IP address is in a private range.

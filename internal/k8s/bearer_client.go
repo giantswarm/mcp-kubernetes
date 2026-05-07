@@ -255,7 +255,7 @@ func (c *bearerTokenClient) isOperationAllowed(operation string) error {
 	}
 
 	if c.nonDestructiveMode {
-		destructiveOps := []string{"delete", "patch", "scale", "create", "apply"}
+		destructiveOps := []string{OperationDelete, OperationPatch, OperationScale, OperationCreate, OperationApply}
 		for _, destructiveOp := range destructiveOps {
 			if destructiveOp == operation {
 				if !c.dryRun {
@@ -304,7 +304,7 @@ func (c *bearerTokenClient) debugLog(msg string, args ...any) {
 func (c *bearerTokenClient) getInClusterNamespace() string {
 	data, err := os.ReadFile(DefaultNamespacePath)
 	if err != nil {
-		return "default"
+		return DefaultNamespace
 	}
 	return string(data)
 }

@@ -7,31 +7,42 @@ import (
 // RedactedValue is the placeholder used for masked secret data.
 const RedactedValue = "***REDACTED***"
 
+// Common Kubernetes secret type strings and pattern names. Defined as
+// constants so they can be referenced by both the secretTypes map and the
+// sensitiveAnnotations map without re-declaring literals.
+const (
+	secretTypeServiceAccountToken = "kubernetes.io/service-account-token" //nolint:gosec // G101: Kubernetes secret type identifier, not a credential
+	secretTypeTLS                 = "kubernetes.io/tls"                   //nolint:gosec // G101: Kubernetes secret type identifier, not a credential
+	secretTypeOpaque              = "Opaque"
+	configMapPatternPassword      = "password"
+	configMapPatternSecret        = "secret"
+)
+
 // secretTypes lists Kubernetes secret types that should always be masked.
 var secretTypes = map[string]bool{
-	"kubernetes.io/service-account-token": true,
-	"kubernetes.io/dockercfg":             true,
-	"kubernetes.io/dockerconfigjson":      true,
-	"kubernetes.io/basic-auth":            true,
-	"kubernetes.io/ssh-auth":              true,
-	"kubernetes.io/tls":                   true,
-	"bootstrap.kubernetes.io/token":       true,
-	"helm.sh/release.v1":                  true, // Helm release secrets
-	"Opaque":                              true, // Generic secrets
+	secretTypeServiceAccountToken:    true,
+	"kubernetes.io/dockercfg":        true,
+	"kubernetes.io/dockerconfigjson": true,
+	"kubernetes.io/basic-auth":       true,
+	"kubernetes.io/ssh-auth":         true,
+	secretTypeTLS:                    true,
+	"bootstrap.kubernetes.io/token":  true,
+	"helm.sh/release.v1":             true, // Helm release secrets
+	secretTypeOpaque:                 true, // Generic secrets
 }
 
 // sensitiveAnnotations lists annotations that contain sensitive data.
 var sensitiveAnnotations = map[string]bool{
-	"kubernetes.io/service-account.uid":   true,
-	"kubernetes.io/service-account.name":  true,
-	"kubernetes.io/service-account-token": true,
+	"kubernetes.io/service-account.uid":  true,
+	"kubernetes.io/service-account.name": true,
+	secretTypeServiceAccountToken:        true,
 }
 
 // sensitiveConfigMapPatterns are name patterns that indicate a ConfigMap may contain secrets.
 var sensitiveConfigMapPatterns = []string{
 	"credentials",
-	"password",
-	"secret",
+	configMapPatternPassword,
+	configMapPatternSecret,
 	"auth",
 	"token",
 	"kubeconfig",
@@ -194,7 +205,7 @@ func ContainsSensitiveData(obj map[string]interface{}) bool {
 	kind = strings.ToLower(kind)
 
 	switch kind {
-	case "secret":
+	case configMapPatternSecret:
 		return true
 	case "configmap":
 		// Some ConfigMaps contain sensitive data based on naming patterns

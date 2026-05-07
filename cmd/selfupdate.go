@@ -11,6 +11,7 @@ import (
 // githubRepoSlug specifies the GitHub repository (owner/repo) to check for updates.
 const (
 	githubRepoSlug = "giantswarm/mcp-kubernetes" // GitHub repository path
+	devVersion     = "dev"
 )
 
 // newSelfUpdateCmd creates the Cobra command for the self-update functionality.
@@ -31,7 +32,7 @@ func runSelfUpdate(cmd *cobra.Command, args []string) error {
 	currentVersion := rootCmd.Version
 	// Self-update is typically disabled for development versions (e.g., "dev")
 	// as they are not standard releases and might not follow semantic versioning.
-	if currentVersion == "" || currentVersion == "dev" {
+	if currentVersion == "" || currentVersion == devVersion {
 		return fmt.Errorf("cannot self-update a development version")
 	}
 

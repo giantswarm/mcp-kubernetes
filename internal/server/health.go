@@ -12,6 +12,9 @@ const (
 	healthStatusOK           = "ok"
 	healthStatusNotReady     = "not ready"
 	healthStatusShuttingDown = "shutting down"
+
+	// Mode label values reported by the health endpoint.
+	modeCAPI = "capi"
 )
 
 // HealthChecker provides health check endpoints for Kubernetes probes.
@@ -197,7 +200,7 @@ func (h *HealthChecker) determineMode() string {
 	}
 
 	if h.serverContext.FederationEnabled() {
-		return "capi"
+		return modeCAPI
 	}
 
 	if h.serverContext.InClusterMode() {

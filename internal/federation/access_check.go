@@ -8,16 +8,25 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// Kubernetes API verbs used in access checks. Defined as constants so that
+// other packages can reference them without re-declaring string literals.
+const (
+	verbGet    = "get"
+	verbCreate = "create"
+	verbPatch  = "patch"
+	verbDelete = "delete"
+)
+
 // ValidKubernetesVerbs is the set of valid Kubernetes API verbs that can be used
 // in access checks. This is exported for use in validation and UI components.
 var ValidKubernetesVerbs = map[string]bool{
-	"get":              true,
+	verbGet:            true,
 	"list":             true,
 	"watch":            true,
-	"create":           true,
+	verbCreate:         true,
 	"update":           true,
-	"patch":            true,
-	"delete":           true,
+	verbPatch:          true,
+	verbDelete:         true,
 	"deletecollection": true,
 	"impersonate":      true,
 	"bind":             true,

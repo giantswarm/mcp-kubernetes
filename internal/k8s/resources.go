@@ -523,7 +523,7 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 
 	// Handle different scalable resource types
 	switch strings.ToLower(resourceType) {
-	case "deployment", "deployments":
+	case "deployment", resourceDeployments:
 		scale, err := clientset.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get deployment scale: %w", err)

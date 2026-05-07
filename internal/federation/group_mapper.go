@@ -220,12 +220,23 @@ func (gm *GroupMapper) String() string {
 //
 // Any other "system:*" prefixed target group that is NOT on this denylist will
 // still trigger a warning log at startup (see NewGroupMapper).
+// Privileged Kubernetes system group names that group mappings must never
+// target. Defined as constants so they can be referenced from validation
+// errors without re-declaring string literals.
+const (
+	systemGroupMasters               = "system:masters"
+	systemGroupNodes                 = "system:nodes"
+	systemGroupKubeControllerManager = "system:kube-controller-manager"
+	systemGroupKubeScheduler         = "system:kube-scheduler"
+	systemGroupKubeProxy             = "system:kube-proxy"
+)
+
 var deniedTargetGroups = map[string]struct{}{
-	"system:masters":                 {},
-	"system:nodes":                   {},
-	"system:kube-controller-manager": {},
-	"system:kube-scheduler":          {},
-	"system:kube-proxy":              {},
+	systemGroupMasters:               {},
+	systemGroupNodes:                 {},
+	systemGroupKubeControllerManager: {},
+	systemGroupKubeScheduler:         {},
+	systemGroupKubeProxy:             {},
 }
 
 // validateGroupMappings validates the group mapping configuration.

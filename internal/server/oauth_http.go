@@ -516,7 +516,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			Enabled:         true,
 			ServiceName:     "mcp-kubernetes",
 			ServiceVersion:  config.ServiceVersion,
-			MetricsExporter: "prometheus",
+			MetricsExporter: instrumentation.ExporterPrometheus,
 		},
 
 		// TrustedAudiences for SSO token forwarding from upstream aggregators

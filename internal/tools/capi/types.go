@@ -7,6 +7,16 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 )
 
+// CAPI cluster phase values mirrored from
+// sigs.k8s.io/cluster-api/api/v1beta1.ClusterPhase. Defined locally so health
+// determination logic can compare phases without importing CAPI types.
+const (
+	clusterPhaseProvisioning = "Provisioning"
+	clusterPhaseProvisioned  = "Provisioned"
+	clusterPhaseDeleting     = "Deleting"
+	clusterPhaseFailed       = "Failed"
+)
+
 // ClusterListOutput represents the output for the capi_list_clusters tool.
 type ClusterListOutput struct {
 	// Clusters contains the list of cluster summaries.
@@ -361,12 +371,12 @@ func buildNodesHealth(c *federation.ClusterSummary) ComponentHealth {
 // determineOverallHealth determines the overall health status based on components.
 func determineOverallHealth(c *federation.ClusterSummary, comp ClusterHealthComponents) (string, string) {
 	// If the cluster is deleting, it's neither healthy nor unhealthy
-	if c.Status == "Deleting" {
+	if c.Status == clusterPhaseDeleting {
 		return HealthStatusUnknown, "Cluster is being deleted"
 	}
 
 	// If provisioning, report as degraded
-	if c.Status == "Provisioning" {
+	if c.Status == clusterPhaseProvisioning {
 		return HealthStatusDegraded, "Cluster is still provisioning"
 	}
 
@@ -423,16 +433,16 @@ func buildHealthChecks(c *federation.ClusterSummary) []HealthCheck {
 	// Cluster phase check
 	phaseCheck := HealthCheck{Name: "cluster-phase"}
 	switch c.Status {
-	case "Provisioned":
+	case clusterPhaseProvisioned:
 		phaseCheck.Status = CheckStatusPass
 		phaseCheck.Message = "Cluster is provisioned"
-	case "Provisioning":
+	case clusterPhaseProvisioning:
 		phaseCheck.Status = CheckStatusWarn
 		phaseCheck.Message = "Cluster is still provisioning"
-	case "Deleting":
+	case clusterPhaseDeleting:
 		phaseCheck.Status = CheckStatusWarn
 		phaseCheck.Message = "Cluster is being deleted"
-	case "Failed":
+	case clusterPhaseFailed:
 		phaseCheck.Status = CheckStatusFail
 		phaseCheck.Message = "Cluster is in failed state"
 	default:

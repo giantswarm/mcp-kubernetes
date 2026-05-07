@@ -448,7 +448,7 @@ func scaleResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, 
 
 	// Validate this is a scalable resource
 	switch strings.ToLower(resourceType) {
-	case "deployment", "deployments", "deploy",
+	case "deployment", resourceDeployments, "deploy",
 		"replicaset", "replicasets", "rs",
 		"statefulset", "statefulsets", "sts":
 		// OK, these are scalable
@@ -802,7 +802,7 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 	if err != nil {
 		health.Status = clusterHealthUnhealthy
 		health.Components = append(health.Components, ComponentHealth{
-			Name:    "API Server",
+			Name:    componentAPIServer,
 			Status:  clusterHealthUnhealthy,
 			Message: fmt.Sprintf("Failed to get server version: %s", err.Error()),
 		})
@@ -810,7 +810,7 @@ func getClusterHealth(ctx context.Context, clientset kubernetes.Interface, disco
 	}
 
 	health.Components = append(health.Components, ComponentHealth{
-		Name:    "API Server",
+		Name:    componentAPIServer,
 		Status:  clusterHealthHealthy,
 		Message: fmt.Sprintf("Version: %s", version.String()),
 	})
@@ -1045,10 +1045,10 @@ func parseGroupVersionShared(groupVersion string) (GroupVersion, error) {
 // calculateOverallHealthShared determines the overall cluster health.
 func calculateOverallHealthShared(components []ComponentHealth, nodes []NodeHealth) string {
 	criticalComponents := map[string]bool{
-		"etcd":                    true,
-		"kube-apiserver":          true,
-		"kube-controller-manager": true,
-		"kube-scheduler":          true,
+		componentEtcd:                  true,
+		componentKubeAPIServer:         true,
+		componentKubeControllerManager: true,
+		componentKubeScheduler:         true,
 	}
 
 	for _, component := range components {

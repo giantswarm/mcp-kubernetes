@@ -2,6 +2,13 @@ package output
 
 import "time"
 
+// Excluded field paths used by slim mode. Defined as constants so they can be
+// referenced by tests without re-declaring string literals.
+const (
+	FieldManagedFields            = "metadata.managedFields"
+	FieldLastAppliedConfiguration = "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration"
+)
+
 // Default limits for output processing.
 // These are tuned for typical LLM context windows and API response sizes.
 const (
@@ -75,9 +82,9 @@ func DefaultConfig() *Config {
 func DefaultExcludedFields() []string {
 	return []string{
 		// Managed fields are verbose and rarely useful for troubleshooting
-		"metadata.managedFields",
+		FieldManagedFields,
 		// Last-applied-configuration duplicates the entire manifest
-		"metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
+		FieldLastAppliedConfiguration,
 		// Revision annotations are internal bookkeeping
 		"metadata.annotations.deployment.kubernetes.io/revision",
 		// Transition times add noise without helping diagnosis

@@ -66,7 +66,7 @@ type Config struct {
 func DefaultConfig() Config {
 	config := Config{
 		ServiceName:        getEnvOrDefault("OTEL_SERVICE_NAME", "mcp-kubernetes"),
-		ServiceVersion:     "unknown",
+		ServiceVersion:     StatusUnknown,
 		ServiceInstanceID:  getEnvOrDefault("OTEL_SERVICE_INSTANCE_ID", ""),
 		K8sNamespace:       getEnvOrDefault("K8S_NAMESPACE", getEnvOrDefault("POD_NAMESPACE", "")),
 		K8sPodName:         getEnvOrDefault("K8S_POD_NAME", getEnvOrDefault("HOSTNAME", "")),

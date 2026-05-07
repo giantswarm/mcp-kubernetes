@@ -11,6 +11,15 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
+// Canonical argument keys used by MCP tool handlers.
+const (
+	argName         = "name"
+	argPodName      = "podName"
+	argPattern      = "pattern"
+	argResourceName = "resourceName"
+	argSessionID    = "sessionID"
+)
+
 // ToolHandler is the signature for MCP tool handler functions that take ServerContext.
 type ToolHandler func(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error)
 
@@ -103,7 +112,7 @@ func extractAuditInfoFromArgs(invocation *instrumentation.ToolInvocation, args m
 // Different tools use different parameter names for the resource name.
 func extractResourceName(args map[string]interface{}) string {
 	// Try common parameter names for resource name
-	nameKeys := []string{"name", "podName", "resourceName", "pattern", "sessionID"}
+	nameKeys := []string{argName, argPodName, argResourceName, argPattern, argSessionID}
 	for _, key := range nameKeys {
 		if name, ok := args[key].(string); ok && name != "" {
 			return name

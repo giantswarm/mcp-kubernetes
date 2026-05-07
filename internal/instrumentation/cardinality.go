@@ -164,7 +164,7 @@ func ClassifyClusterName(name string) string {
 //	ExtractUserDomain("")                   // "unknown"
 func ExtractUserDomain(email string) string {
 	if email == "" {
-		return "unknown"
+		return StatusUnknown
 	}
 
 	parts := strings.Split(email, "@")
@@ -172,7 +172,7 @@ func ExtractUserDomain(email string) string {
 		return parts[1]
 	}
 
-	return "unknown"
+	return StatusUnknown
 }
 
 // ImpersonationResult constants for metrics.

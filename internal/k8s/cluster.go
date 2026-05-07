@@ -179,7 +179,7 @@ func (c *kubernetesClient) GetClusterHealth(ctx context.Context, kubeContext str
 	if err != nil {
 		health.Status = clusterHealthUnhealthy
 		health.Components = append(health.Components, ComponentHealth{
-			Name:    "API Server",
+			Name:    componentAPIServer,
 			Status:  clusterHealthUnhealthy,
 			Message: fmt.Sprintf("Failed to get server version: %v", err),
 		})
@@ -188,7 +188,7 @@ func (c *kubernetesClient) GetClusterHealth(ctx context.Context, kubeContext str
 
 	// API Server is healthy if we can get version
 	health.Components = append(health.Components, ComponentHealth{
-		Name:    "API Server",
+		Name:    componentAPIServer,
 		Status:  clusterHealthHealthy,
 		Message: fmt.Sprintf("Version: %s", version.String()),
 	})
@@ -293,10 +293,10 @@ type GroupVersion struct {
 func (c *kubernetesClient) calculateOverallHealth(components []ComponentHealth, nodes []NodeHealth) string {
 	// Check if any critical components are unhealthy
 	criticalComponents := map[string]bool{
-		"etcd":                    true,
-		"kube-apiserver":          true,
-		"kube-controller-manager": true,
-		"kube-scheduler":          true,
+		componentEtcd:                  true,
+		componentKubeAPIServer:         true,
+		componentKubeControllerManager: true,
+		componentKubeScheduler:         true,
 	}
 
 	for _, component := range components {

@@ -150,12 +150,12 @@ func BuildResponseMeta(namespaced bool, requestedNS, effectiveNS, resourceType s
 		EffectiveNamespace: effectiveNS,
 	}
 	if namespaced {
-		meta.ResourceScope = "namespaced"
+		meta.ResourceScope = ListScopeNamespaced
 		if allNamespaces {
-			meta.Hint = "Listing across all namespaces"
+			meta.Hint = OperationListAll
 		}
 	} else {
-		meta.ResourceScope = "cluster"
+		meta.ResourceScope = ListScopeCluster
 		if requestedNS != "" {
 			meta.Hint = resourceType + " is cluster-scoped; namespace parameter was ignored"
 		}

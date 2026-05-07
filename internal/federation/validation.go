@@ -39,6 +39,13 @@ const (
 	MaxClusterNameLength = 253
 )
 
+// Validation field name constants used in ValidationError values.
+const (
+	fieldEmail          = "email"
+	fieldExtraHeaderKey = "extra header key"
+	fieldClusterName    = "cluster name"
+)
+
 // Validation errors.
 var (
 	// ErrUserInfoRequired indicates that user information is required but was not provided.
@@ -192,7 +199,7 @@ func ValidateUserInfo(user *UserInfo) error {
 func validateEmail(email string) error {
 	if len(email) > MaxEmailLength {
 		return &ValidationError{
-			Field:  "email",
+			Field:  fieldEmail,
 			Value:  truncateForError(email, 20),
 			Reason: fmt.Sprintf("email too long (max %d characters)", MaxEmailLength),
 			Err:    ErrInvalidEmail,
@@ -201,7 +208,7 @@ func validateEmail(email string) error {
 
 	if containsControlCharacters(email) {
 		return &ValidationError{
-			Field:  "email",
+			Field:  fieldEmail,
 			Value:  truncateForError(email, 20),
 			Reason: "email contains invalid control characters",
 			Err:    ErrInvalidEmail,
@@ -210,7 +217,7 @@ func validateEmail(email string) error {
 
 	if !validEmailRegex.MatchString(email) {
 		return &ValidationError{
-			Field:  "email",
+			Field:  fieldEmail,
 			Value:  truncateForError(email, 20),
 			Reason: "email format is invalid",
 			Err:    ErrInvalidEmail,
@@ -255,7 +262,7 @@ func validateGroupName(group string, index int) error {
 func validateExtraHeader(key string, values []string) error {
 	if key == "" {
 		return &ValidationError{
-			Field:  "extra header key",
+			Field:  fieldExtraHeaderKey,
 			Reason: "header key cannot be empty",
 			Err:    ErrInvalidExtraHeader,
 		}
@@ -263,7 +270,7 @@ func validateExtraHeader(key string, values []string) error {
 
 	if len(key) > MaxExtraKeyLength {
 		return &ValidationError{
-			Field:  "extra header key",
+			Field:  fieldExtraHeaderKey,
 			Value:  truncateForError(key, 20),
 			Reason: fmt.Sprintf("header key too long (max %d characters)", MaxExtraKeyLength),
 			Err:    ErrInvalidExtraHeader,
@@ -272,7 +279,7 @@ func validateExtraHeader(key string, values []string) error {
 
 	if !validHeaderKeyRegex.MatchString(key) {
 		return &ValidationError{
-			Field:  "extra header key",
+			Field:  fieldExtraHeaderKey,
 			Value:  truncateForError(key, 20),
 			Reason: "header key contains invalid characters (only alphanumeric, hyphen, underscore allowed)",
 			Err:    ErrInvalidExtraHeader,
@@ -306,7 +313,7 @@ func validateExtraHeader(key string, values []string) error {
 func ValidateClusterName(name string) error {
 	if name == "" {
 		return &ValidationError{
-			Field:  "cluster name",
+			Field:  fieldClusterName,
 			Reason: "cluster name cannot be empty",
 			Err:    ErrInvalidClusterName,
 		}
@@ -314,7 +321,7 @@ func ValidateClusterName(name string) error {
 
 	if len(name) > MaxClusterNameLength {
 		return &ValidationError{
-			Field:  "cluster name",
+			Field:  fieldClusterName,
 			Value:  truncateForError(name, 20),
 			Reason: fmt.Sprintf("cluster name too long (max %d characters)", MaxClusterNameLength),
 			Err:    ErrInvalidClusterName,
@@ -324,7 +331,7 @@ func ValidateClusterName(name string) error {
 	// Check for path traversal attempts
 	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		return &ValidationError{
-			Field:  "cluster name",
+			Field:  fieldClusterName,
 			Value:  truncateForError(name, 20),
 			Reason: "cluster name contains invalid path characters",
 			Err:    ErrInvalidClusterName,
@@ -333,7 +340,7 @@ func ValidateClusterName(name string) error {
 
 	if !validClusterNameRegex.MatchString(name) {
 		return &ValidationError{
-			Field:  "cluster name",
+			Field:  fieldClusterName,
 			Value:  truncateForError(name, 20),
 			Reason: "cluster name must consist of lowercase alphanumeric characters or hyphens, start with alphanumeric, and end with alphanumeric",
 			Err:    ErrInvalidClusterName,

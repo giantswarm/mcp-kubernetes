@@ -9,6 +9,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// Resource kind constants used by resource-summary extraction.
+const (
+	kindDeployment = "deployment"
+	kindConfigMap  = "configmap"
+)
+
 // ResourceSummary represents a compact view of a Kubernetes resource
 type ResourceSummary struct {
 	Name              string            `json:"name"`
@@ -164,7 +170,7 @@ func extractResourceSpecificInfo(obj *unstructured.Unstructured, summary *Resour
 	switch kind {
 	case "pod":
 		extractPodInfo(obj, summary)
-	case "deployment":
+	case kindDeployment:
 		extractDeploymentInfo(obj, summary)
 	case "service":
 		extractServiceInfo(obj, summary)
@@ -174,7 +180,7 @@ func extractResourceSpecificInfo(obj *unstructured.Unstructured, summary *Resour
 		extractStatefulSetInfo(obj, summary)
 	case "daemonset":
 		extractDaemonSetInfo(obj, summary)
-	case "configmap":
+	case kindConfigMap:
 		extractConfigMapInfo(obj, summary)
 	case "secret":
 		extractSecretInfo(obj, summary)

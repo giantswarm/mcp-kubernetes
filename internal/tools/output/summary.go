@@ -16,6 +16,9 @@ const (
 	statusSucceeded      = "Succeeded"
 	statusFailed         = "Failed"
 	statusRunning        = "Running"
+
+	// conditionStatusTrue is the "True" value of Kubernetes condition status.
+	conditionStatusTrue = "True"
 )
 
 // ResourceSummary provides aggregated counts for large query results.
@@ -266,7 +269,7 @@ func extractNodeStatus(obj map[string]interface{}) string {
 		condStatus, _ := condMap["status"].(string)
 
 		if condType == statusReady {
-			if condStatus == "True" {
+			if condStatus == conditionStatusTrue {
 				return statusReady
 			}
 			return statusNotReady
@@ -294,7 +297,7 @@ func extractJobStatus(obj map[string]interface{}) string {
 			condType, _ := condMap["type"].(string)
 			condStatus, _ := condMap["status"].(string)
 
-			if condStatus == "True" {
+			if condStatus == conditionStatusTrue {
 				switch condType {
 				case "Complete":
 					return statusSucceeded

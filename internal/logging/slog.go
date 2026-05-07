@@ -23,6 +23,9 @@ const (
 	KeyError        = "error"
 	KeyHost         = "host"
 	KeyTool         = "tool"
+
+	// hostEmpty is returned by SanitizeHost when the input is empty.
+	hostEmpty = "<empty>"
 )
 
 // Status values for consistent logging.
@@ -145,7 +148,7 @@ func UserHash(email string) slog.Attr {
 //   - "" -> "<empty>"
 func SanitizeHost(host string) string {
 	if host == "" {
-		return "<empty>"
+		return hostEmpty
 	}
 
 	// Helper to redact both IPv4 and IPv6
@@ -184,7 +187,7 @@ func SanitizeHost(host string) string {
 // as even partial token prefixes (like JWT headers) can aid attacks.
 func SanitizeToken(token string) string {
 	if token == "" {
-		return "<empty>"
+		return hostEmpty
 	}
 	return fmt.Sprintf("[token:%d chars]", len(token))
 }

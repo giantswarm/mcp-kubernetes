@@ -1,5 +1,20 @@
 package instrumentation
 
+// MCP OAuth metric names exposed by the mcp-oauth library when instrumentation
+// is enabled. Defined as constants so tests and dashboards can reference them
+// without re-declaring string literals.
+const (
+	MetricOAuthRateLimitExceededTotal    = "oauth_rate_limit_exceeded_total"
+	MetricOAuthRedirectURIRejectedTotal  = "oauth_redirect_uri_security_rejected_total"
+	MetricOAuthCodeReuseDetectedTotal    = "oauth_code_reuse_detected_total"
+	MetricOAuthTokenReuseDetectedTotal   = "oauth_token_reuse_detected_total" //nolint:gosec // G101: metric name, not a credential
+	MetricOAuthPKCEValidationFailedTotal = "oauth_pkce_validation_failed_total"
+	MetricOAuthClientRegisteredTotal     = "oauth_client_registered_total"
+	MetricOAuthCIMDFetchTotal            = "oauth_cimd_fetch_total"
+	MetricStorageClientsCount            = "storage_clients_count"
+	MetricStorageTokensCount             = "storage_tokens_count"
+)
+
 // ExpectedMCPOAuthMetrics returns the list of metric names that the mcp-oauth
 // library exposes when instrumentation is enabled.
 //
@@ -45,24 +60,24 @@ package instrumentation
 func ExpectedMCPOAuthMetrics() []string {
 	return []string{
 		// Rate limiting and security
-		"oauth_rate_limit_exceeded_total",
-		"oauth_redirect_uri_security_rejected_total",
+		MetricOAuthRateLimitExceededTotal,
+		MetricOAuthRedirectURIRejectedTotal,
 
 		// Replay attack detection
-		"oauth_code_reuse_detected_total",
-		"oauth_token_reuse_detected_total",
+		MetricOAuthCodeReuseDetectedTotal,
+		MetricOAuthTokenReuseDetectedTotal,
 
 		// PKCE validation
-		"oauth_pkce_validation_failed_total",
+		MetricOAuthPKCEValidationFailedTotal,
 
 		// Client registration
-		"oauth_client_registered_total",
+		MetricOAuthClientRegisteredTotal,
 
 		// CIMD (Client ID Metadata Documents)
-		"oauth_cimd_fetch_total",
+		MetricOAuthCIMDFetchTotal,
 
 		// Storage metrics
-		"storage_clients_count",
-		"storage_tokens_count",
+		MetricStorageClientsCount,
+		MetricStorageTokensCount,
 	}
 }

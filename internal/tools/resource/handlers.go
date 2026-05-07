@@ -21,6 +21,12 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 )
 
+// Patch type and JSON field constants used by resource handlers.
+const (
+	patchTypeMerge = "merge"
+	jsonFieldKind  = "kind"
+)
+
 // recordK8sOperation records metrics for a Kubernetes operation.
 // Delegates to ServerContext which handles nil checks internally.
 func recordK8sOperation(ctx context.Context, sc *server.ServerContext, clusterName, operation, resourceType, namespace, status string, duration time.Duration) {
@@ -662,7 +668,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	switch patchTypeStr {
 	case "strategic":
 		patchType = types.StrategicMergePatchType
-	case "merge":
+	case patchTypeMerge:
 		patchType = types.MergePatchType
 	case "json":
 		patchType = types.JSONPatchType
@@ -793,7 +799,7 @@ func handleSummaryResponse(items []runtime.Object, processor *output.Processor, 
 
 	// Build response with summary
 	response := map[string]interface{}{
-		"kind":           resourceType + "Summary",
+		jsonFieldKind:    resourceType + "Summary",
 		"total":          summary.Total,
 		"sample":         summary.Sample,
 		"hasMore":        summary.HasMore,
