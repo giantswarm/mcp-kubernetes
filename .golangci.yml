@@ -1,0 +1,15 @@
+# Tunes goconst to flag genuine production-code duplication only.
+#
+# Rationale: golangci-lint v2.12.2 embeds goconst v1.10.0, whose stricter
+# defaults (min-len 3, min-occurrences 3) flag hundreds of test fixtures
+# (e.g. repeated literals across table-driven tests) that are not real
+# duplication. Tuning to min-len 5, min-occurrences 5 and ignoring tests
+# keeps the linter useful in production code without churn from fixtures.
+# See giantswarm/devctl#1802 for the upstream regression context.
+version: "2"
+linters:
+  settings:
+    goconst:
+      min-len: 5
+      min-occurrences: 5
+      ignore-tests: true
