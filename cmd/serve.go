@@ -16,6 +16,9 @@ import (
 	"github.com/spf13/cobra"
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
+	tklogging "github.com/giantswarm/mcp-toolkit/logging"
+	"github.com/giantswarm/mcp-toolkit/middleware/responsecap"
+	"github.com/giantswarm/mcp-toolkit/middleware/timeout"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -467,13 +470,16 @@ func validateEncryptionKey(key []byte) error {
 
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
-	// Configure default slog logger level based on debug mode
-	// This ensures all slog.Debug() calls throughout the codebase respect the --debug flag
+	// Configure the default slog logger via the toolkit's logging.New: JSON
+	// format auto-selects when running in a Kubernetes pod
+	// (KUBERNETES_SERVICE_HOST set), text otherwise. The IP / token / email
+	// redaction helpers in internal/logging stay independent — they're called
+	// explicitly at log sites and don't go through ReplaceAttr.
+	logLevel := slog.LevelInfo
 	if config.DebugMode {
-		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		})))
+		logLevel = slog.LevelDebug
 	}
+	slog.SetDefault(tklogging.New(tklogging.Options{Level: logLevel}))
 
 	// Create Kubernetes client configuration with structured logging
 	var k8sLogger = logging.NewSlogAdapter(slog.Default())
@@ -906,11 +912,13 @@ func runServe(config ServeConfig) error {
 		)
 	})
 
-	mcpSrv := mcpserver.NewMCPServer("mcp-kubernetes", rootCmd.Version,
+	mcpSrv := mcpserver.NewMCPServer(serviceName, rootCmd.Version,
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithHooks(hooks),
 		mcpserver.WithInputSchemaValidation(),
 		mcpserver.WithToolFilter(tools.HideDeprecatedAliasesFilter),
+		mcpserver.WithToolHandlerMiddleware(timeout.New(30*time.Second)),
+		mcpserver.WithToolHandlerMiddleware(responsecap.New(responsecap.Options{})),
 	)
 
 	// Register all tool categories
