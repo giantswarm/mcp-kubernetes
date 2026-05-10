@@ -305,6 +305,55 @@ func TestRemoveField_DotsInKeys(t *testing.T) {
 	}
 }
 
+// TestSlimResource_TypedStringMaps pins the bug fix for typed string-keyed
+// maps. unstructured.GetAnnotations / GetLabels return map[string]string,
+// not map[string]interface{}. Before the fix, deepCopyValue and the
+// recursive remover both bailed out on map[string]string, so paths like
+// "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration"
+// silently no-op'd whenever the convenience metadata exposed by the
+// describe handler was processed.
+func TestSlimResource_TypedStringMaps(t *testing.T) {
+	in := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]string{
+				"kubectl.kubernetes.io/last-applied-configuration": "{...}",
+				"meta.helm.sh/release-name":                        "demo",
+			},
+			"labels": map[string]string{
+				"app.kubernetes.io/name": "demo",
+				"keep":                   "x",
+			},
+		},
+	}
+
+	out := SlimResource(in, []string{
+		"metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
+		"metadata.labels.app.kubernetes.io/name",
+	})
+
+	md := out["metadata"].(map[string]interface{})
+	ann := md["annotations"].(map[string]interface{})
+	if _, ok := ann["kubectl.kubernetes.io/last-applied-configuration"]; ok {
+		t.Errorf("expected last-applied-configuration to be stripped from typed string annotations")
+	}
+	if _, ok := ann["meta.helm.sh/release-name"]; !ok {
+		t.Errorf("expected unrelated annotation to be preserved")
+	}
+	lbl := md["labels"].(map[string]interface{})
+	if _, ok := lbl["app.kubernetes.io/name"]; ok {
+		t.Errorf("expected app.kubernetes.io/name to be stripped from typed string labels")
+	}
+	if _, ok := lbl["keep"]; !ok {
+		t.Errorf("expected unrelated label to be preserved")
+	}
+
+	origMd := in["metadata"].(map[string]interface{})
+	origAnn := origMd["annotations"].(map[string]string)
+	if _, ok := origAnn["kubectl.kubernetes.io/last-applied-configuration"]; !ok {
+		t.Errorf("original input must not be mutated")
+	}
+}
+
 func TestDeepCopyMap(t *testing.T) {
 	original := map[string]interface{}{
 		"string": "value",

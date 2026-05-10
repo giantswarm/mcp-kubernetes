@@ -169,10 +169,27 @@ func deepCopyMap(m map[string]interface{}) map[string]interface{} {
 }
 
 // deepCopyValue creates a deep copy of a value.
+//
+// map[string]string is normalised into map[string]interface{} so the
+// recursive remove/slim logic (which only navigates map[string]interface{})
+// can also strip nested keys from typed string maps. This matters in
+// practice because unstructured.GetAnnotations / GetLabels return
+// map[string]string, and the describe handler exposes those via the
+// convenience metadata map. Without this normalisation, paths like
+// metadata.annotations.kubectl.kubernetes.io/last-applied-configuration
+// silently no-op on the convenience map even though they work on the
+// resource's own metadata. JSON marshaling treats both map shapes
+// identically, so callers see no difference downstream.
 func deepCopyValue(v interface{}) interface{} {
 	switch val := v.(type) {
 	case map[string]interface{}:
 		return deepCopyMap(val)
+	case map[string]string:
+		result := make(map[string]interface{}, len(val))
+		for k, s := range val {
+			result[k] = s
+		}
+		return result
 	case []interface{}:
 		result := make([]interface{}, len(val))
 		for i, item := range val {
