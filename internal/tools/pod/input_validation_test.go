@@ -2,7 +2,6 @@ package pod
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -10,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/mcptest"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
 
@@ -31,7 +31,7 @@ func TestInputSchemaValidation_LogsAcceptsOutputArg(t *testing.T) {
 
 	require.NoError(t, RegisterPodTools(srv, sc))
 
-	resp := callTool(t, srv, "kubernetes_logs", map[string]any{
+	resp := mcptest.CallTool(t, srv, "kubernetes_logs", map[string]any{
 		"namespace": "default",
 		"podName":   "test",
 		"output":    "slim",
@@ -49,20 +49,4 @@ func TestInputSchemaValidation_LogsAcceptsOutputArg(t *testing.T) {
 		require.NotContains(t, tc.Text, "&{[output]}",
 			"raw additionalProperties reject value must never reach the caller; got: %s", tc.Text)
 	}
-}
-
-func callTool(t *testing.T, srv *mcpserver.MCPServer, toolName string, args map[string]any) mcp.JSONRPCMessage {
-	t.Helper()
-	payload := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name":      toolName,
-			"arguments": args,
-		},
-	}
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	return srv.HandleMessage(context.Background(), raw)
 }

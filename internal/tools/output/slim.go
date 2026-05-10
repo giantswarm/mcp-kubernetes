@@ -52,6 +52,13 @@ func SlimResources(objects []map[string]interface{}, excludedFields []string) []
 // suffix that exists as a literal key. This is required because Kubernetes
 // label and annotation keys very commonly contain dots
 // (e.g. "kubernetes.io/foo", "deployment.kubernetes.io/revision").
+//
+// Precedence: when both a literal dotted key (e.g. "a.b") and a nested
+// traversal (obj["a"]["b"]) would resolve, the longer literal-key match
+// wins. Real Kubernetes resource shapes never make this ambiguous —
+// annotations / labels are flat string maps and never contain nested
+// objects — but the rule is load-bearing for the dot-key fix and is
+// pinned by TestRemoveField_DotKeyPrecedence in slim_test.go.
 func removeField(obj map[string]interface{}, path string) {
 	if obj == nil || path == "" {
 		return

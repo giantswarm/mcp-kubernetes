@@ -14,7 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
-	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
 
@@ -269,11 +268,10 @@ func TestDescribeResource_ConvenienceMetadataIsSlimmed(t *testing.T) {
 	cfg := processor.Config()
 	require.True(t, cfg.SlimOutput, "precondition: SlimOutput must be on")
 
-	// Mirror the wrap-then-slim that handleDescribeResource performs.
-	envelope := map[string]any{"metadata": in}
-	envelope = slimOnce(envelope, cfg.ExcludedFields)
-	got, ok := envelope["metadata"].(map[string]any)
-	require.True(t, ok)
+	// Exercise the same helper handleDescribeResource uses on the
+	// convenience metadata map.
+	got := slimMetadataMap(in, cfg.ExcludedFields)
+	require.NotNil(t, got)
 
 	for _, stripped := range []string{"uid", "resourceVersion", "managedFields"} {
 		_, has := got[stripped]
@@ -300,12 +298,6 @@ func serverContextWithSlim(t *testing.T) *server.ServerContext {
 	)
 	require.NoError(t, err)
 	return sc
-}
-
-// slimOnce mirrors the wrap-then-slim approach handleDescribeResource uses on
-// the convenience metadata map.
-func slimOnce(envelope map[string]any, excluded []string) map[string]any {
-	return output.SlimResource(envelope, excluded)
 }
 
 func TestDescribeResource_EventsLimitOutOfRangeRejected(t *testing.T) {

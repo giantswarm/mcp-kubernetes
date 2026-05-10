@@ -104,31 +104,27 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
-// getOutputProcessor creates an output processor from server context configuration.
+// getOutputProcessor creates an output processor from server context
+// configuration, using the server-configured slim setting. Equivalent to
+// getOutputProcessorForFormat(sc, "").
 func getOutputProcessor(sc *server.ServerContext) *output.Processor {
-	outputCfg := sc.OutputConfig()
-	cfg := &output.Config{
-		MaxItems:         outputCfg.MaxItems,
-		MaxClusters:      outputCfg.MaxClusters,
-		MaxResponseBytes: outputCfg.MaxResponseBytes,
-		SlimOutput:       outputCfg.SlimOutput,
-		MaskSecrets:      outputCfg.MaskSecrets,
-		SummaryThreshold: outputCfg.SummaryThreshold,
-	}
-	return output.NewProcessor(cfg)
+	return getOutputProcessorForFormat(sc, "")
 }
 
 // getOutputProcessorForFormat builds an output processor that honours the
 // per-call output format, while preserving server-level secret masking.
 //
-// "slim" (default) and "normal" map to the current server configuration,
+// "slim" (default), "normal", and "" map to the current server configuration,
 // so the processor behaves as it always has. "wide" forces SlimOutput=false
-// so the full manifest is returned, mirroring how kubernetes_list interprets
-// the same parameter.
+// so the full manifest is returned. Secret masking is always driven by the
+// server-level MaskSecrets setting and is never disabled by output format —
+// every read tool is expected to honour that contract uniformly (see
+// docs/read-tools-arguments.md).
 func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) *output.Processor {
 	outputCfg := sc.OutputConfig()
 	slim := outputCfg.SlimOutput
-	if outputFormat == "wide" {
+	switch outputFormat {
+	case "wide":
 		slim = false
 	}
 	cfg := &output.Config{
@@ -140,6 +136,34 @@ func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) 
 		SummaryThreshold: outputCfg.SummaryThreshold,
 	}
 	return output.NewProcessor(cfg)
+}
+
+// slimMetadataMap applies "metadata.X"-anchored exclusion paths to a flat,
+// metadata-shaped map (the convenience top-level metadata returned by
+// kubernetes_describe, which duplicates labels / annotations / uid /
+// resourceVersion / creationTimestamp / kind / apiVersion).
+//
+// The DefaultExcludedFields list is anchored at "metadata.…", so we wrap the
+// map in a synthetic {"metadata": ...} envelope before handing it to
+// SlimResource and unwrap after. Excluded paths that don't start with
+// "metadata." are silently no-ops on this map, which is the correct
+// behaviour: the convenience map only carries metadata-shaped fields.
+//
+// excludedFields comes from processor.Config().ExcludedFields, which is
+// populated by output.NewProcessor → Config.Validate() when SlimOutput is
+// enabled — callers therefore don't need to pass DefaultExcludedFields()
+// explicitly.
+func slimMetadataMap(m map[string]any, excludedFields []string) map[string]any {
+	if len(m) == 0 {
+		return m
+	}
+	envelope := map[string]any{"metadata": m}
+	envelope = output.SlimResource(envelope, excludedFields)
+	inner, ok := envelope["metadata"].(map[string]any)
+	if !ok {
+		return m
+	}
+	return inner
 }
 
 // handleListResources handles kubectl list operations
@@ -190,11 +214,9 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// Summary mode parameter for fleet-scale operations
 	summaryMode, _ := args["summary"].(bool)
 
-	// Output format parameter (normal, wide, slim)
+	// Output format parameter (slim/normal/wide). Empty falls through to the
+	// server-configured slim setting via getOutputProcessorForFormat.
 	outputFormat, _ := args["output"].(string)
-	if outputFormat == "" {
-		outputFormat = "slim" // Default to slim output for reduced context usage
-	}
 
 	// Pagination parameters with sensible defaults
 	var limit int64 = 20 // Default page size
@@ -264,29 +286,30 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, k8sDuration)
 
-	// Get output processor for slim output and secret masking
-	processor := getOutputProcessor(sc)
+	// Build output processor honouring the per-call format. SlimOutput is
+	// flipped off for output=wide; secret masking always runs regardless of
+	// format so the documented contract holds across every read tool.
+	processor := getOutputProcessorForFormat(sc, outputFormat)
 
 	// Handle summary mode - return aggregated counts instead of full items
 	if summaryMode {
 		return handleSummaryResponse(paginatedResponse.Items, processor, resourceType)
 	}
 
-	// Apply output processing (slim output, secret masking) based on output format
-	if outputFormat == "slim" || outputFormat == "normal" {
-		processedItems, result, err := output.ProcessRuntimeObjects(processor, paginatedResponse.Items)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources: %v", err)), nil
-		}
-		paginatedResponse.Items = processedItems
+	// Always run items through the processor: slim/normal apply field
+	// stripping, wide skips it, but every format applies secret masking and
+	// the MaxItems safety cap.
+	processedItems, result, err := output.ProcessRuntimeObjects(processor, paginatedResponse.Items)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources: %v", err)), nil
+	}
+	paginatedResponse.Items = processedItems
 
-		// Log truncation warnings
-		if result.Metadata.Truncated {
-			slog.Info("response truncated",
-				logging.ResourceType(resourceType),
-				slog.Int("final_count", result.Metadata.FinalCount),
-				slog.Int("original_count", result.Metadata.OriginalCount))
-		}
+	if result.Metadata.Truncated {
+		slog.Info("response truncated",
+			logging.ResourceType(resourceType),
+			slog.Int("final_count", result.Metadata.FinalCount),
+			slog.Int("original_count", result.Metadata.OriginalCount))
 	}
 
 	if fullOutput {
@@ -392,16 +415,10 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	// annotations,uid,resourceVersion,creationTimestamp,kind,apiVersion}; run
 	// it through the slim processor so the duplicate uid / resourceVersion /
 	// creationTimestamp / managedFields / last-applied-configuration do not
-	// show up unstripped beside the slim resource. The default excluded paths
-	// are anchored at "metadata.X", so we wrap the convenience map in a
-	// synthetic {"metadata": ...} envelope before slimming and unwrap after.
+	// show up unstripped beside the slim resource.
 	processedMetadata := description.Metadata
-	if outputFormat != "wide" && processor.Config().SlimOutput && len(description.Metadata) > 0 {
-		envelope := map[string]any{"metadata": description.Metadata}
-		envelope = output.SlimResource(envelope, processor.Config().ExcludedFields)
-		if inner, ok := envelope["metadata"].(map[string]any); ok {
-			processedMetadata = inner
-		}
+	if outputFormat != "wide" && processor.Config().SlimOutput {
+		processedMetadata = slimMetadataMap(description.Metadata, processor.Config().ExcludedFields)
 	}
 
 	result := buildDescribeOutput(processedResource, processedMetadata, description.Meta, description.Events, eventsLimit)
@@ -458,7 +475,7 @@ func buildDescribeOutput(
 		if err := json.Unmarshal(raw, &m); err != nil {
 			continue
 		}
-		slimmed = append(slimmed, output.SlimResource(m, eventSlimFields()))
+		slimmed = append(slimmed, output.SlimResource(m, eventSlimFields))
 	}
 	out.Events = slimmed
 	out.ReturnedEvents = len(slimmed)
@@ -482,19 +499,21 @@ func buildDescribeOutput(
 // (kyverno-scan, controller-runtime) populate eventTime instead of
 // firstTimestamp/lastTimestamp, so removing it would leave those events
 // without any timestamp at all. The 30-byte cost per event is worth it.
-func eventSlimFields() []string {
-	return []string{
-		"metadata.managedFields",
-		"metadata.uid",
-		"metadata.resourceVersion",
-		"metadata.creationTimestamp",
-		"metadata.namespace",
-		"metadata.selfLink",
-		"involvedObject.uid",
-		"involvedObject.resourceVersion",
-		"involvedObject.apiVersion",
-		"reportingInstance",
-	}
+//
+// The list is invariant, so it lives at package scope rather than being
+// re-allocated on every describe call. SlimResource never mutates its
+// excludedFields argument, so sharing the slice across calls is safe.
+var eventSlimFields = []string{
+	"metadata.managedFields",
+	"metadata.uid",
+	"metadata.resourceVersion",
+	"metadata.creationTimestamp",
+	"metadata.namespace",
+	"metadata.selfLink",
+	"involvedObject.uid",
+	"involvedObject.resourceVersion",
+	"involvedObject.apiVersion",
+	"reportingInstance",
 }
 
 // effectiveEventTime returns the best available timestamp for sorting:

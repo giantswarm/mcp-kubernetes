@@ -305,6 +305,35 @@ func TestRemoveField_DotsInKeys(t *testing.T) {
 	}
 }
 
+// TestRemoveField_DotKeyPrecedence pins the precedence rule documented on
+// removeField: when both a literal dotted key (e.g. "a.b") and a nested
+// traversal (obj["a"]["b"]) would resolve a path, the longer literal match
+// wins. Real Kubernetes data never makes this ambiguous (annotations /
+// labels are flat string maps), but the rule is load-bearing for the
+// dot-key fix and worth pinning so a future refactor can't quietly swap to
+// shortest-match without a failing test.
+func TestRemoveField_DotKeyPrecedence(t *testing.T) {
+	obj := map[string]interface{}{
+		"foo.bar": "literal-wins",
+		"foo": map[string]interface{}{
+			"bar": "nested-loses",
+		},
+	}
+
+	removeField(obj, "foo.bar")
+
+	if _, ok := obj["foo.bar"]; ok {
+		t.Errorf("literal dotted key %q must be removed by greedy match", "foo.bar")
+	}
+	nested, ok := obj["foo"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected obj[\"foo\"] to remain a map, got %T", obj["foo"])
+	}
+	if got, ok := nested["bar"]; !ok || got != "nested-loses" {
+		t.Errorf("nested obj[\"foo\"][\"bar\"] must be untouched, got ok=%v val=%v", ok, got)
+	}
+}
+
 // TestSlimResource_TypedStringMaps pins the bug fix for typed string-keyed
 // maps. unstructured.GetAnnotations / GetLabels return map[string]string,
 // not map[string]interface{}. Before the fix, deepCopyValue and the
