@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Enable JSON-Schema input validation for every tool (per [SEP-1303](https://modelcontextprotocol.io/seps/1303-input-validation-errors-as-tool-execution-errors)). Calls with unknown property names, wrong types, or missing required fields now return a structured tool execution error instead of being silently dropped — for example, sending `cursor` instead of `continue` to `kubernetes_list` is rejected with a message the model can self-correct from ([#36458](https://github.com/giantswarm/giantswarm/issues/36458)). The `port_forward` tool retains a `podName` parameter as a deprecated alias for `resourceName`.
+- `kubernetes_get`, `kubernetes_describe`, and `kubernetes_logs` now accept the same `output` argument (`slim` / `normal` / `wide`) as `kubernetes_list`, so workflow authors and LLM agents can use a single, symmetric argument shape across all four read tools. On `kubernetes_get` and `kubernetes_describe`, `output: wide` returns the full manifest (skipping slim-output field stripping); on `kubernetes_logs` it is accepted as a no-op for symmetry. Calls that previously failed with the opaque `input schema validation failed: <root>: &{[output]}` error now succeed. New `docs/read-tools-arguments.md` documents the full argument matrix for the four read tools ([#409](https://github.com/giantswarm/mcp-kubernetes/issues/409)).
 
 ### Changed
 

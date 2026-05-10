@@ -60,6 +60,10 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
+	// Output format mirrors kubernetes_list: slim (default) and normal go through
+	// the server-configured slim processor; wide returns the full manifest.
+	outputFormat, _ := args["output"].(string)
+
 	// Get the appropriate k8s client (local or federated)
 	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
 	if errMsg != "" {
@@ -79,7 +83,7 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
-	processor := getOutputProcessor(sc)
+	processor := getOutputProcessorForFormat(sc, outputFormat)
 	processedObj, err := output.ProcessSingleRuntimeObject(processor, getResponse.Resource)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
@@ -108,6 +112,30 @@ func getOutputProcessor(sc *server.ServerContext) *output.Processor {
 		MaxClusters:      outputCfg.MaxClusters,
 		MaxResponseBytes: outputCfg.MaxResponseBytes,
 		SlimOutput:       outputCfg.SlimOutput,
+		MaskSecrets:      outputCfg.MaskSecrets,
+		SummaryThreshold: outputCfg.SummaryThreshold,
+	}
+	return output.NewProcessor(cfg)
+}
+
+// getOutputProcessorForFormat builds an output processor that honours the
+// per-call output format, while preserving server-level secret masking.
+//
+// "slim" (default) and "normal" map to the current server configuration,
+// so the processor behaves as it always has. "wide" forces SlimOutput=false
+// so the full manifest is returned, mirroring how kubernetes_list interprets
+// the same parameter.
+func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) *output.Processor {
+	outputCfg := sc.OutputConfig()
+	slim := outputCfg.SlimOutput
+	if outputFormat == "wide" {
+		slim = false
+	}
+	cfg := &output.Config{
+		MaxItems:         outputCfg.MaxItems,
+		MaxClusters:      outputCfg.MaxClusters,
+		MaxResponseBytes: outputCfg.MaxResponseBytes,
+		SlimOutput:       slim,
 		MaskSecrets:      outputCfg.MaskSecrets,
 		SummaryThreshold: outputCfg.SummaryThreshold,
 	}
@@ -331,6 +359,10 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		eventsLimit = val
 	}
 
+	// Output format mirrors kubernetes_list: slim (default) and normal go through
+	// the server-configured slim processor; wide returns the full manifest.
+	outputFormat, _ := args["output"].(string)
+
 	// Get the appropriate k8s client (local or federated)
 	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
 	if errMsg != "" {
@@ -350,7 +382,7 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
-	processor := getOutputProcessor(sc)
+	processor := getOutputProcessorForFormat(sc, outputFormat)
 	processedResource, err := output.ProcessSingleRuntimeObject(processor, description.Resource)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil

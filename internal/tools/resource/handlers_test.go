@@ -684,3 +684,39 @@ func TestPatchResourceDefaultNamespace(t *testing.T) {
 			"kubernetes_patch should not require explicit namespace")
 	}
 }
+
+// TestGetOutputProcessorForFormat verifies that the per-call output format
+// is honoured: slim/normal/empty preserve the server-configured slim setting,
+// while wide forces slim off so callers can opt back into the full manifest.
+func TestGetOutputProcessorForFormat(t *testing.T) {
+	ctx := context.Background()
+
+	sc, err := server.NewServerContext(ctx,
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		outputFormat string
+		wantSlim     bool
+	}{
+		{name: "empty defaults to server slim setting", outputFormat: "", wantSlim: true},
+		{name: "slim keeps slim enabled", outputFormat: "slim", wantSlim: true},
+		{name: "normal keeps slim enabled", outputFormat: "normal", wantSlim: true},
+		{name: "wide disables slim", outputFormat: "wide", wantSlim: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := getOutputProcessorForFormat(sc, tt.outputFormat)
+			require.NotNil(t, processor)
+			assert.Equal(t, tt.wantSlim, processor.Config().SlimOutput,
+				"SlimOutput for output=%q", tt.outputFormat)
+			// Secret masking must always remain on regardless of output format.
+			assert.True(t, processor.Config().MaskSecrets,
+				"MaskSecrets must stay enabled for output=%q", tt.outputFormat)
+		})
+	}
+}

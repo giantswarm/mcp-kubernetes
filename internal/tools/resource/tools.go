@@ -122,6 +122,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Required(),
 			mcp.Description("Name of the resource to get"),
 		),
+		mcp.WithString("output",
+			mcp.Description("Output format: 'slim' (default, removes verbose fields like metadata.managedFields and last-applied-configuration), 'normal' (same as slim), 'wide' (full manifest with no field stripping). Secret data is always masked regardless of output."),
+			mcp.Enum("slim", "normal", "wide"),
+		),
 	)
 	getResourceTool := mcp.NewTool("kubernetes_get", getResourceOpts...)
 
@@ -239,6 +243,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Min(1),
 			mcp.Max(MaxEventsLimit),
 			mcp.Description(fmt.Sprintf("Maximum number of events to return, sorted newest-first by lastTimestamp. Default: %d. Range: [1, %d]. Use totalEvents/eventsTruncated in the response to detect clipping.", DefaultEventsLimit, MaxEventsLimit)),
+		),
+		mcp.WithString("output",
+			mcp.Description("Output format: 'slim' (default, removes verbose fields like metadata.managedFields and last-applied-configuration), 'normal' (same as slim), 'wide' (full manifest with no field stripping). Secret data is always masked regardless of output. Event-list shaping is controlled by eventsLimit, not by this parameter."),
+			mcp.Enum("slim", "normal", "wide"),
 		),
 	)
 	describeResourceTool := mcp.NewTool("kubernetes_describe", describeResourceOpts...)
