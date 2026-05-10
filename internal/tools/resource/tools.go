@@ -122,6 +122,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Required(),
 			mcp.Description("Name of the resource to get"),
 		),
+		mcp.WithString("output",
+			mcp.Description("Output format: 'slim' (default; blacklist exclusion + per-Kind shaping — HelmRelease drops spec.values / status.history, Deployment / StatefulSet / DaemonSet collapse long container env lists), 'normal' (blacklist exclusion only — managedFields, last-applied-configuration, transition timestamps), 'wide' / 'full' (no field stripping, full manifest). Secret data is always masked regardless of output. See docs/slim-output-tuning.md."),
+			mcp.Enum("slim", "normal", "wide", "full"),
+		),
 	)
 	getResourceTool := mcp.NewTool("kubernetes_get", getResourceOpts...)
 
@@ -198,8 +202,8 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 			mcp.Description("Return aggregated counts (by status, namespace) instead of full objects. Useful for fleet-scale operations with many results. Default: false"),
 		),
 		mcp.WithString("output",
-			mcp.Description("Output format: 'slim' (default, removes verbose fields), 'normal' (standard output), 'wide' (includes all fields)"),
-			mcp.Enum("slim", "normal", "wide"),
+			mcp.Description("Output format: 'slim' (default; blacklist exclusion + per-Kind shaping), 'normal' (blacklist exclusion only), 'wide' / 'full' (no field stripping). Secret data is always masked regardless of output. See docs/slim-output-tuning.md for the full per-Kind shape table."),
+			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
 	listResourceTool := mcp.NewTool("kubernetes_list", listResourceOpts...)
@@ -239,6 +243,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Min(1),
 			mcp.Max(MaxEventsLimit),
 			mcp.Description(fmt.Sprintf("Maximum number of events to return, sorted newest-first by lastTimestamp. Default: %d. Range: [1, %d]. Use totalEvents/eventsTruncated in the response to detect clipping.", DefaultEventsLimit, MaxEventsLimit)),
+		),
+		mcp.WithString("output",
+			mcp.Description("Output format: 'slim' (default; blacklist exclusion + per-Kind shaping for the resource — HelmRelease drops spec.values / status.history, workload templates collapse long env lists), 'normal' (blacklist exclusion only), 'wide' / 'full' (no field stripping). Secret data is always masked regardless of output. Event-list shaping is controlled by eventsLimit, not by this parameter."),
+			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
 	describeResourceTool := mcp.NewTool("kubernetes_describe", describeResourceOpts...)

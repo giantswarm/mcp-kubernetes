@@ -1,6 +1,7 @@
 package output
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -219,6 +220,170 @@ func TestRemoveField_EdgeCases(t *testing.T) {
 	}
 }
 
+// TestRemoveField_DotsInKeys pins the round-3 fix for dotted Kubernetes
+// label / annotation keys. The original implementation split the path on
+// every "." and so silently failed to strip
+// "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration"
+// even though that exact string was in the default excluded fields list.
+// The greedy-join logic should now find and remove it.
+func TestRemoveField_DotsInKeys(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		obj        map[string]interface{}
+		mustBeGone []string
+		mustRemain []string
+	}{
+		{
+			name: "annotation with dots and slash",
+			path: "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
+			obj: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": map[string]interface{}{
+						"kubectl.kubernetes.io/last-applied-configuration": "{...}",
+						"keep.me": "yes",
+					},
+				},
+			},
+			mustBeGone: []string{"kubectl.kubernetes.io/last-applied-configuration"},
+			mustRemain: []string{"keep.me"},
+		},
+		{
+			name: "deployment.kubernetes.io/revision annotation",
+			path: "metadata.annotations.deployment.kubernetes.io/revision",
+			obj: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": map[string]interface{}{
+						"deployment.kubernetes.io/revision": "42",
+						"meta.helm.sh/release-name":         "mychart",
+					},
+				},
+			},
+			mustBeGone: []string{"deployment.kubernetes.io/revision"},
+			mustRemain: []string{"meta.helm.sh/release-name"},
+		},
+		{
+			name: "label with dots",
+			path: "metadata.labels.app.kubernetes.io/name",
+			obj: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						"app.kubernetes.io/name": "demo",
+						"keep":                   "x",
+					},
+				},
+			},
+			mustBeGone: []string{"app.kubernetes.io/name"},
+			mustRemain: []string{"keep"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			removeField(tt.obj, tt.path)
+
+			leaf := tt.obj["metadata"].(map[string]interface{})
+			// The leaf could be either annotations or labels - figure out from path.
+			var sub map[string]interface{}
+			switch {
+			case leaf["annotations"] != nil:
+				sub = leaf["annotations"].(map[string]interface{})
+			case leaf["labels"] != nil:
+				sub = leaf["labels"].(map[string]interface{})
+			}
+
+			for _, k := range tt.mustBeGone {
+				if _, ok := sub[k]; ok {
+					t.Errorf("expected key %q to be removed, but it is still present", k)
+				}
+			}
+			for _, k := range tt.mustRemain {
+				if _, ok := sub[k]; !ok {
+					t.Errorf("expected key %q to remain, but it was removed", k)
+				}
+			}
+		})
+	}
+}
+
+// TestRemoveField_DotKeyPrecedence pins the precedence rule documented on
+// removeField: when both a literal dotted key (e.g. "a.b") and a nested
+// traversal (obj["a"]["b"]) would resolve a path, the longer literal match
+// wins. Real Kubernetes data never makes this ambiguous (annotations /
+// labels are flat string maps), but the rule is load-bearing for the
+// dot-key fix and worth pinning so a future refactor can't quietly swap to
+// shortest-match without a failing test.
+func TestRemoveField_DotKeyPrecedence(t *testing.T) {
+	obj := map[string]interface{}{
+		"foo.bar": "literal-wins",
+		"foo": map[string]interface{}{
+			"bar": "nested-loses",
+		},
+	}
+
+	removeField(obj, "foo.bar")
+
+	if _, ok := obj["foo.bar"]; ok {
+		t.Errorf("literal dotted key %q must be removed by greedy match", "foo.bar")
+	}
+	nested, ok := obj["foo"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected obj[\"foo\"] to remain a map, got %T", obj["foo"])
+	}
+	if got, ok := nested["bar"]; !ok || got != "nested-loses" {
+		t.Errorf("nested obj[\"foo\"][\"bar\"] must be untouched, got ok=%v val=%v", ok, got)
+	}
+}
+
+// TestSlimResource_TypedStringMaps pins the bug fix for typed string-keyed
+// maps. unstructured.GetAnnotations / GetLabels return map[string]string,
+// not map[string]interface{}. Before the fix, deepCopyValue and the
+// recursive remover both bailed out on map[string]string, so paths like
+// "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration"
+// silently no-op'd whenever the convenience metadata exposed by the
+// describe handler was processed.
+func TestSlimResource_TypedStringMaps(t *testing.T) {
+	in := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]string{
+				"kubectl.kubernetes.io/last-applied-configuration": "{...}",
+				"meta.helm.sh/release-name":                        "demo",
+			},
+			"labels": map[string]string{
+				"app.kubernetes.io/name": "demo",
+				"keep":                   "x",
+			},
+		},
+	}
+
+	out := SlimResource(in, []string{
+		"metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
+		"metadata.labels.app.kubernetes.io/name",
+	})
+
+	md := out["metadata"].(map[string]interface{})
+	ann := md["annotations"].(map[string]interface{})
+	if _, ok := ann["kubectl.kubernetes.io/last-applied-configuration"]; ok {
+		t.Errorf("expected last-applied-configuration to be stripped from typed string annotations")
+	}
+	if _, ok := ann["meta.helm.sh/release-name"]; !ok {
+		t.Errorf("expected unrelated annotation to be preserved")
+	}
+	lbl := md["labels"].(map[string]interface{})
+	if _, ok := lbl["app.kubernetes.io/name"]; ok {
+		t.Errorf("expected app.kubernetes.io/name to be stripped from typed string labels")
+	}
+	if _, ok := lbl["keep"]; !ok {
+		t.Errorf("expected unrelated label to be preserved")
+	}
+
+	origMd := in["metadata"].(map[string]interface{})
+	origAnn := origMd["annotations"].(map[string]string)
+	if _, ok := origAnn["kubectl.kubernetes.io/last-applied-configuration"]; !ok {
+		t.Errorf("original input must not be mutated")
+	}
+}
+
 func TestDeepCopyMap(t *testing.T) {
 	original := map[string]interface{}{
 		"string": "value",
@@ -287,12 +452,31 @@ func TestEstimateFieldSize(t *testing.T) {
 	}
 }
 
-// Helper to check if a field exists at a path
+// fieldExists walks the supplied dotted path through obj using only direct
+// map navigation, intentionally avoiding production helpers like
+// getFieldValue / removeField. The point is to assert against the
+// transformed structure independently of the implementation under test, so
+// a future bug in path resolution can't mask itself by being symmetric on
+// both sides of the assertion.
+//
+// Paths are split on "." with no support for bracket / wildcard syntax;
+// the tests that need wildcard semantics navigate the result map directly.
 func fieldExists(obj map[string]interface{}, path string) bool {
 	if path == "" || obj == nil {
 		return false
 	}
-
-	value := getFieldValue(obj, path)
-	return value != nil
+	parts := strings.Split(path, ".")
+	current := interface{}(obj)
+	for _, part := range parts {
+		m, ok := current.(map[string]interface{})
+		if !ok {
+			return false
+		}
+		next, present := m[part]
+		if !present {
+			return false
+		}
+		current = next
+	}
+	return current != nil
 }

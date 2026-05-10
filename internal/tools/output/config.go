@@ -44,6 +44,14 @@ type Config struct {
 	// Default: true
 	SlimOutput bool `json:"slimOutput" yaml:"slimOutput"`
 
+	// KindShaping enables Kind-aware shapers on top of the generic
+	// SlimOutput field exclusion. When true, known-large blobs are
+	// collapsed per Kind (HelmRelease drops spec.values and status.history;
+	// Deployment/StatefulSet/DaemonSet collapse a long container env list
+	// to a name-only summary). Default: true. Disable to fall back to the
+	// blacklist-only "normal" output.
+	KindShaping bool `json:"kindShaping" yaml:"kindShaping"`
+
 	// MaskSecrets replaces secret data with "***REDACTED***".
 	// Default: true (security critical - should rarely be disabled)
 	MaskSecrets bool `json:"maskSecrets" yaml:"maskSecrets"`
@@ -64,6 +72,7 @@ func DefaultConfig() *Config {
 		MaxClusters:      DefaultMaxClusters,
 		MaxResponseBytes: DefaultMaxResponseBytes,
 		SlimOutput:       true,
+		KindShaping:      true,
 		MaskSecrets:      true,
 		SummaryThreshold: 500,
 		ExcludedFields:   DefaultExcludedFields(),
@@ -72,30 +81,63 @@ func DefaultConfig() *Config {
 
 // DefaultExcludedFields returns the default list of fields to exclude in slim mode.
 // These are verbose fields that typically don't help AI agents understand resources.
+//
+// The list was tuned against live workloads (deployment, statefulset,
+// daemonset, node, secret) — see docs/slim-output-tuning.md for the
+// methodology and the rationale behind each entry.
 func DefaultExcludedFields() []string {
 	return []string{
-		// Managed fields are verbose and rarely useful for troubleshooting
+		// Managed fields are verbose and rarely useful for troubleshooting.
 		"metadata.managedFields",
-		// Last-applied-configuration duplicates the entire manifest
+		// Last-applied-configuration duplicates the entire manifest.
 		"metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
-		// Revision annotations are internal bookkeeping
+		// Revision annotations are internal bookkeeping.
 		"metadata.annotations.deployment.kubernetes.io/revision",
-		// Transition times add noise without helping diagnosis
+		// Transition / update times add noise without helping diagnosis.
+		// lastUpdateTime is the deployment-status equivalent of the others.
 		"status.conditions[*].lastTransitionTime",
 		"status.conditions[*].lastProbeTime",
 		"status.conditions[*].lastHeartbeatTime",
-		// Owner references can be looked up if needed
+		"status.conditions[*].lastUpdateTime",
+		// Owner references can be looked up if needed.
 		"metadata.ownerReferences",
-		// Finalizers are rarely relevant for troubleshooting
+		// Finalizers are rarely relevant for troubleshooting.
 		"metadata.finalizers",
-		// Generation is usually not needed
+		// Generation is usually not needed.
 		"metadata.generation",
-		// Resource version changes constantly
+		// Resource version changes constantly.
 		"metadata.resourceVersion",
-		// UID is rarely needed for troubleshooting
+		// UID is rarely needed for troubleshooting.
 		"metadata.uid",
-		// Self link is deprecated
+		// Self link is deprecated.
 		"metadata.selfLink",
+		// Pod/template creationTimestamp is always null on PodSpec templates
+		// (deployment.spec.template.metadata.creationTimestamp). Strip it to
+		// avoid one always-null line per pod template.
+		"spec.template.metadata.creationTimestamp",
+		// Nodes carry a list of every container image cached on the node —
+		// typically the dominant component of a node response and almost
+		// never useful for diagnosing pod scheduling or node health.
+		"status.images",
+		// PodSpec defaults — almost always ClusterFirst / default-scheduler /
+		// the deprecated serviceAccount alias. They never help an LLM agent
+		// reason about *this* workload and account for ~40 B per response on
+		// every Deployment / StatefulSet / DaemonSet. Tuned in round 2 of the
+		// live-cluster bench (see docs/slim-output-tuning.md).
+		"spec.template.spec.dnsPolicy",
+		"spec.template.spec.schedulerName",
+		"spec.template.spec.serviceAccount",
+		// Per-container terminationMessage* almost always the defaults
+		// /dev/termination-log + File. ~24 B per container, multiplied across
+		// busy DaemonSets / multi-container Pods.
+		"spec.template.spec.containers[*].terminationMessagePath",
+		"spec.template.spec.containers[*].terminationMessagePolicy",
+		// Helm release-coordinate annotations duplicate metadata.namespace
+		// and the helm.sh/chart label. Saves ~85 B on every Helm-managed
+		// resource (round 4 of the live-cluster bench). Drop in normal too —
+		// these are pure tool bookkeeping, not workload-state.
+		"metadata.annotations.meta.helm.sh/release-name",
+		"metadata.annotations.meta.helm.sh/release-namespace",
 	}
 }
 
