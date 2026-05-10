@@ -115,24 +115,41 @@ func getOutputProcessor(sc *server.ServerContext) *output.Processor {
 // getOutputProcessorForFormat builds an output processor that honours the
 // per-call output format, while preserving server-level secret masking.
 //
-// "slim" (default), "normal", and "" map to the current server configuration,
-// so the processor behaves as it always has. "wide" forces SlimOutput=false
-// so the full manifest is returned. Secret masking is always driven by the
-// server-level MaskSecrets setting and is never disabled by output format —
-// every read tool is expected to honour that contract uniformly (see
-// docs/read-tools-arguments.md).
+// Format semantics (matches docs/read-tools-arguments.md):
+//
+//   - "wide" / "full": SlimOutput=false, KindShaping=false.
+//     Returns the full manifest, with only secret masking applied.
+//   - "normal": SlimOutput=true, KindShaping=false.
+//     Generic blacklist exclusion (managedFields, last-applied-configuration,
+//     transition timestamps, ...) but no Kind-aware shaping.
+//   - "slim" (and empty/default): SlimOutput=true, KindShaping=true.
+//     Blacklist exclusion + per-Kind shaping (HelmRelease drops spec.values
+//     and status.history; Deployment / StatefulSet / DaemonSet collapse long
+//     container env lists). This is the LLM-friendly default per #410.
+//
+// Secret masking is always driven by the server-level MaskSecrets setting
+// and is never disabled by output format — every read tool honours that
+// contract uniformly.
 func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) *output.Processor {
 	outputCfg := sc.OutputConfig()
 	slim := outputCfg.SlimOutput
+	kindShaping := slim
 	switch outputFormat {
-	case "wide":
+	case "wide", "full":
 		slim = false
+		kindShaping = false
+	case "normal":
+		kindShaping = false
+	case "slim", "":
+		// keep slim from server config; kindShaping mirrors slim so a
+		// server with SlimOutput=false still returns wide for slim.
 	}
 	cfg := &output.Config{
 		MaxItems:         outputCfg.MaxItems,
 		MaxClusters:      outputCfg.MaxClusters,
 		MaxResponseBytes: outputCfg.MaxResponseBytes,
 		SlimOutput:       slim,
+		KindShaping:      kindShaping,
 		MaskSecrets:      outputCfg.MaskSecrets,
 		SummaryThreshold: outputCfg.SummaryThreshold,
 	}

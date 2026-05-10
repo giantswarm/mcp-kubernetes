@@ -685,9 +685,18 @@ func TestPatchResourceDefaultNamespace(t *testing.T) {
 	}
 }
 
-// TestGetOutputProcessorForFormat verifies that the per-call output format
-// is honoured: slim/normal/empty preserve the server-configured slim setting,
-// while wide forces slim off so callers can opt back into the full manifest.
+// TestGetOutputProcessorForFormat verifies the contract documented on
+// getOutputProcessorForFormat:
+//
+//   - slim (and empty/default): SlimOutput=true + KindShaping=true. The LLM-
+//     friendly default per #410.
+//   - normal: SlimOutput=true, KindShaping=false. Blacklist-only behaviour
+//     for callers that want managedFields stripped but every other field
+//     (including HelmRelease spec.values) intact.
+//   - wide / full: SlimOutput=false, KindShaping=false. Full manifest, only
+//     secret masking applied.
+//
+// Secret masking must always be on regardless of format.
 func TestGetOutputProcessorForFormat(t *testing.T) {
 	ctx := context.Background()
 
@@ -698,24 +707,28 @@ func TestGetOutputProcessorForFormat(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name         string
-		outputFormat string
-		wantSlim     bool
+		name            string
+		outputFormat    string
+		wantSlim        bool
+		wantKindShaping bool
 	}{
-		{name: "empty defaults to server slim setting", outputFormat: "", wantSlim: true},
-		{name: "slim keeps slim enabled", outputFormat: "slim", wantSlim: true},
-		{name: "normal keeps slim enabled", outputFormat: "normal", wantSlim: true},
-		{name: "wide disables slim", outputFormat: "wide", wantSlim: false},
+		{name: "empty defaults to slim + kind shaping", outputFormat: "", wantSlim: true, wantKindShaping: true},
+		{name: "slim enables both slim and kind shaping", outputFormat: "slim", wantSlim: true, wantKindShaping: true},
+		{name: "normal disables kind shaping but keeps slim", outputFormat: "normal", wantSlim: true, wantKindShaping: false},
+		{name: "wide disables both slim and kind shaping", outputFormat: "wide", wantSlim: false, wantKindShaping: false},
+		{name: "full is an alias for wide", outputFormat: "full", wantSlim: false, wantKindShaping: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			processor := getOutputProcessorForFormat(sc, tt.outputFormat)
 			require.NotNil(t, processor)
-			assert.Equal(t, tt.wantSlim, processor.Config().SlimOutput,
+			cfg := processor.Config()
+			assert.Equal(t, tt.wantSlim, cfg.SlimOutput,
 				"SlimOutput for output=%q", tt.outputFormat)
-			// Secret masking must always remain on regardless of output format.
-			assert.True(t, processor.Config().MaskSecrets,
+			assert.Equal(t, tt.wantKindShaping, cfg.KindShaping,
+				"KindShaping for output=%q", tt.outputFormat)
+			assert.True(t, cfg.MaskSecrets,
 				"MaskSecrets must stay enabled for output=%q", tt.outputFormat)
 		})
 	}

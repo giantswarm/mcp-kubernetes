@@ -52,7 +52,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		),
 		mcp.WithString("output",
 			mcp.Description("Accepted for symmetry with kubernetes_list / _get / _describe; currently a no-op for log content. Use tailLines and sinceTime to shape log volume."),
-			mcp.Enum("slim", "normal", "wide"),
+			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
 	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)

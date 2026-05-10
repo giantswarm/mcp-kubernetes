@@ -44,6 +44,14 @@ type Config struct {
 	// Default: true
 	SlimOutput bool `json:"slimOutput" yaml:"slimOutput"`
 
+	// KindShaping enables Kind-aware shapers on top of the generic
+	// SlimOutput field exclusion. When true, known-large blobs are
+	// collapsed per Kind (HelmRelease drops spec.values and status.history;
+	// Deployment/StatefulSet/DaemonSet collapse a long container env list
+	// to a name-only summary). Default: true. Disable to fall back to the
+	// blacklist-only "normal" output.
+	KindShaping bool `json:"kindShaping" yaml:"kindShaping"`
+
 	// MaskSecrets replaces secret data with "***REDACTED***".
 	// Default: true (security critical - should rarely be disabled)
 	MaskSecrets bool `json:"maskSecrets" yaml:"maskSecrets"`
@@ -64,6 +72,7 @@ func DefaultConfig() *Config {
 		MaxClusters:      DefaultMaxClusters,
 		MaxResponseBytes: DefaultMaxResponseBytes,
 		SlimOutput:       true,
+		KindShaping:      true,
 		MaskSecrets:      true,
 		SummaryThreshold: 500,
 		ExcludedFields:   DefaultExcludedFields(),
@@ -110,6 +119,25 @@ func DefaultExcludedFields() []string {
 		// typically the dominant component of a node response and almost
 		// never useful for diagnosing pod scheduling or node health.
 		"status.images",
+		// PodSpec defaults — almost always ClusterFirst / default-scheduler /
+		// the deprecated serviceAccount alias. They never help an LLM agent
+		// reason about *this* workload and account for ~40 B per response on
+		// every Deployment / StatefulSet / DaemonSet. Tuned in round 2 of the
+		// live-cluster bench (see docs/slim-output-tuning.md).
+		"spec.template.spec.dnsPolicy",
+		"spec.template.spec.schedulerName",
+		"spec.template.spec.serviceAccount",
+		// Per-container terminationMessage* almost always the defaults
+		// /dev/termination-log + File. ~24 B per container, multiplied across
+		// busy DaemonSets / multi-container Pods.
+		"spec.template.spec.containers[*].terminationMessagePath",
+		"spec.template.spec.containers[*].terminationMessagePolicy",
+		// Helm release-coordinate annotations duplicate metadata.namespace
+		// and the helm.sh/chart label. Saves ~85 B on every Helm-managed
+		// resource (round 4 of the live-cluster bench). Drop in normal too —
+		// these are pure tool bookkeeping, not workload-state.
+		"metadata.annotations.meta.helm.sh/release-name",
+		"metadata.annotations.meta.helm.sh/release-namespace",
 	}
 }
 

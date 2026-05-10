@@ -213,7 +213,7 @@ func extractEventInfo(obj *unstructured.Unstructured, summary *ResourceSummary) 
 		summary.Extra["reason"] = v
 	}
 	// Cap message length for summary mode. Empirically (issue #411 bench
-	// against gazelle), kyverno PolicyViolation events run 250–500 chars
+	// against a live cluster), kyverno PolicyViolation events run 250–500 chars
 	// and dominate the summary response size. The first ~240 chars carry
 	// the actionable signal ("policy X fail: ... validation error: ...");
 	// the trailing rule path can be re-fetched with kubernetes_get if

@@ -206,10 +206,15 @@ func TestSizeBench_Resource(t *testing.T) {
 	}
 
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "## Slim vs wide reduction")
+	fmt.Fprintln(&b, "## Per-format reduction")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Tool | Workload | wide | slim | reduction |")
-	fmt.Fprintln(&b, "|---|---|---:|---:|---:|")
+	fmt.Fprintln(&b, "Three columns matter:")
+	fmt.Fprintln(&b, "- `wide vs slim` — total response shrinkage from full manifest to the LLM-friendly default.")
+	fmt.Fprintln(&b, "- `wide vs normal` — what the generic blacklist (managedFields, last-applied-configuration, ...) buys on its own.")
+	fmt.Fprintln(&b, "- `normal vs slim` — the *per-Kind shaping* delta. For HelmRelease this is `spec.values` + `status.history`; for workload templates it is the env-collapse threshold.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Tool | Workload | wide | normal | slim | wide→slim | wide→normal | normal→slim |")
+	fmt.Fprintln(&b, "|---|---|---:|---:|---:|---:|---:|---:|")
 	type key struct{ tool, workload string }
 	bytesByFormat := map[key]map[string]int{}
 	for _, r := range rows {
@@ -219,16 +224,19 @@ func TestSizeBench_Resource(t *testing.T) {
 		}
 		bytesByFormat[k][r.Format] = r.Bytes
 	}
+	pct := func(from, to int) string {
+		if from <= 0 {
+			return "n/a"
+		}
+		return fmt.Sprintf("%.1f%%", (float64(from-to)/float64(from))*100)
+	}
 	for k, m := range bytesByFormat {
 		wide := m["wide"]
+		normal := m["normal"]
 		slim := m["slim"]
-		var reduction string
-		if wide > 0 {
-			reduction = fmt.Sprintf("%.1f%%", (float64(wide-slim)/float64(wide))*100)
-		} else {
-			reduction = "n/a"
-		}
-		fmt.Fprintf(&b, "| %s | %s | %d | %d | %s |\n", k.tool, k.workload, wide, slim, reduction)
+		fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %s | %s | %s |\n",
+			k.tool, k.workload, wide, normal, slim,
+			pct(wide, slim), pct(wide, normal), pct(normal, slim))
 	}
 
 	report := b.String()

@@ -64,6 +64,14 @@ func (p *Processor) processInternal(items []map[string]interface{}, limit int) *
 		result.Metadata.SlimApplied = true
 	}
 
+	// Apply Kind-aware shaping after generic slim. Shapers rely on
+	// bookkeeping fields already being gone and only run when SlimOutput
+	// is on (KindShaping by itself with SlimOutput=false would be a "wide"
+	// output with surprise per-Kind drops, which the contract forbids).
+	if p.config.SlimOutput && p.config.KindShaping {
+		processed = ShapeResources(processed)
+	}
+
 	// Apply truncation last (so warnings reflect final count)
 	truncated, warning := TruncateResponse(processed, limit)
 	if warning != nil {
@@ -108,6 +116,14 @@ func (p *Processor) ProcessSingle(item map[string]interface{}) map[string]interf
 	// Apply slim output (remove verbose fields)
 	if p.config.SlimOutput {
 		processed = SlimResource(processed, p.config.ExcludedFields)
+	}
+
+	// Apply Kind-aware shaping (HelmRelease drops spec.values /
+	// status.history; workload templates collapse long env lists). Only
+	// runs alongside SlimOutput so callers asking for the full manifest
+	// (output: wide) still get every field.
+	if p.config.SlimOutput && p.config.KindShaping {
+		processed = ShapeResource(processed)
 	}
 
 	return processed

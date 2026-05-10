@@ -166,6 +166,60 @@ dominates) and on `kubernetes_describe` of busy controllers (per-event slim
 is the dominant win there). Secret data stays masked across all three
 formats.
 
+## Per-Kind shaping (issue #410)
+
+In addition to the path-based blacklist above, `output: slim` runs a
+**Kind-aware shaper** on the resource (off by default in `output: normal`).
+This handles wasteful patterns the blacklist cannot express:
+
+- `helm.toolkit.fluxcd.io/HelmRelease` — drop `spec.values`, `status.history`,
+  `status.lastAppliedConfigDigest`, `status.lastAttemptedConfigDigest`,
+  `status.lastAttemptedRevisionDigest`, `status.observedPostRenderersDigest`.
+  Conditions, `status.lastAttemptedRevision`, chart references, and
+  `spec.valuesFrom` are preserved.
+- `apps/Deployment | StatefulSet | DaemonSet`:
+  - `spec.progressDeadlineSeconds` and `spec.revisionHistoryLimit` —
+    rollout-controller defaults.
+  - `spec.template.spec.restartPolicy` and
+    `spec.template.spec.terminationGracePeriodSeconds` — PodSpec defaults.
+  - For each container: `env` collapses to an `envCount` integer when its
+    length exceeds 8 entries (issue #410's literal request).
+  - For each container: well-known **probe defaults** are pruned from
+    `livenessProbe` / `readinessProbe` / `startupProbe` (`failureThreshold:3`,
+    `successThreshold:1`, `periodSeconds:10`, `timeoutSeconds:1`,
+    `initialDelaySeconds:0`). The probe action (httpGet / tcpSocket /
+    exec / grpc) and any non-default thresholds are preserved.
+
+The shaping was tuned across **five iterative live-cluster bench rounds** against
+a sample set of three Flux HelmReleases (backstage, muster, mcp-kubernetes)
+and four Deployments (backstage, mcp-kubernetes, karpenter, grafana). Each
+round dumped the slim payloads, ranked the largest residual subtrees with
+`jq`, picked the most-wasteful field with no diagnostic value, and
+re-measured. The cumulative reduction on the largest workload sample
+(a Deployment with 39 env entries) was **wide → slim 77.3%**
+(31.6 KB → 7.2 KB). Smaller workloads landed in the 60-70% band.
+
+Anything customised with non-default values (e.g. an explicit
+`timeoutSeconds: 5`, a non-default `restartPolicy`, a long but
+under-threshold env list) is preserved verbatim. Callers that need the
+full shape can always pass `output: wide` (or `output: full`) — secret
+masking still applies.
+
+## Helm/Flux bookkeeping annotations
+
+`metadata.annotations.meta.helm.sh/release-name` and
+`metadata.annotations.meta.helm.sh/release-namespace` are stripped on
+every Helm-managed resource (~85 B per response). They duplicate
+`metadata.namespace` and the `helm.sh/chart` label and are pure tool
+bookkeeping, so they're stripped under both `slim` and `normal`.
+
+The bench runs through `internal/tools/resource/sizebench_test.go` (build
+tag `clusterbench`) and is parameterised by environment variables
+(`CLUSTERBENCH_CONTEXT`, `CLUSTERBENCH_WORKLOADS`, `CLUSTERBENCH_REPORT`,
+`CLUSTERBENCH_DUMP_DIR`), so it can be re-run against any cluster the
+caller has access to without baking specific installations into the
+repository.
+
 ## Secret-masking sanity
 
 The bench specifically pinned that `secret.data.*` is replaced with
