@@ -10,6 +10,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -138,6 +139,105 @@ func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) 
 	return output.NewProcessor(cfg)
 }
 
+// processorWithExtraExcluded returns a new Processor whose ExcludedFields
+// list is the original cloned-and-extended with extra. Secret masking and
+// every other config knob is preserved. Used by handleListResources to
+// layer per-resourceType slim rules (e.g. Event-specific bookkeeping
+// strips) on top of DefaultExcludedFields, without mutating the
+// server-level config.
+func processorWithExtraExcluded(p *output.Processor, extra []string) *output.Processor {
+	cfg := p.Config().Clone()
+	cfg.ExcludedFields = append(cfg.ExcludedFields, extra...)
+	return output.NewProcessor(cfg)
+}
+
+// extraExcludedForResourceType returns slim-mode exclusion paths that only
+// make sense for a specific resourceType. Returns nil when no extras
+// apply (the default for non-events resources).
+//
+// resourceType matching mirrors how the kubectl API server's REST mapper
+// resolves shortnames: we accept "events", "event", and "ev". Case is
+// folded.
+func extraExcludedForResourceType(resourceType string) []string {
+	switch normalizeResourceType(resourceType) {
+	case "event", "events", "ev":
+		return eventListSlimFields
+	}
+	return nil
+}
+
+// compactItemsForResourceType applies value-conditional cleanup to slim-mode
+// list items. Today only Events have a per-kind compactor: kubernetes
+// always reports exactly one of (eventTime, firstTimestamp, lastTimestamp)
+// as populated and the other two as null/empty, and `source: {}` is the
+// permanent shape on events.k8s.io/v1 events. Stripping these only when
+// they're null avoids fighting the (legitimate) signal-bearing copies.
+//
+// Items must be *unstructured.Unstructured (which is what
+// ProcessRuntimeObjects returns). Non-unstructured items are skipped.
+func compactItemsForResourceType(items []runtime.Object, resourceType string) {
+	switch normalizeResourceType(resourceType) {
+	case "event", "events", "ev":
+		for _, it := range items {
+			u, ok := it.(*unstructured.Unstructured)
+			if !ok {
+				continue
+			}
+			compactEventItem(u.Object)
+		}
+	}
+}
+
+// compactEventItem trims null timestamp siblings and empty source from a
+// single event item map. See compactItemsForResourceType for why this lives
+// outside the path-based exclusion list.
+func compactEventItem(item map[string]any) {
+	for _, k := range []string{"eventTime", "firstTimestamp", "lastTimestamp"} {
+		if v, ok := item[k]; ok && v == nil {
+			delete(item, k)
+		}
+	}
+	if src, ok := item["source"].(map[string]any); ok && len(src) == 0 {
+		delete(item, "source")
+	}
+}
+
+// eventListSlimFields is the list-handler analogue of eventSlimFields. It
+// strips the same per-event bookkeeping the describe handler strips
+// (managedFields, uid, resourceVersion, selfLink, the involvedObject
+// uid/resourceVersion/apiVersion duplication, and the empty
+// reportingInstance), but deliberately preserves metadata.creationTimestamp
+// and metadata.namespace because the list-summary code path
+// (summarizeResource → obj.GetCreationTimestamp / GetNamespace) reads
+// them to populate `age` and `namespace`. Stripping those breaks summary
+// output for cross-namespace event listings without any byte saving on
+// the much larger fullOutput path.
+var eventListSlimFields = []string{
+	"metadata.managedFields",
+	"metadata.uid",
+	"metadata.resourceVersion",
+	"metadata.selfLink",
+	"involvedObject.uid",
+	"involvedObject.resourceVersion",
+	"involvedObject.apiVersion",
+	"reportingInstance",
+}
+
+// normalizeResourceType lower-cases a resourceType for switch comparison.
+// Stays a free function (rather than inline strings.ToLower) so future
+// shortname/aliasing rules have one place to land.
+func normalizeResourceType(resourceType string) string {
+	out := make([]byte, len(resourceType))
+	for i := 0; i < len(resourceType); i++ {
+		c := resourceType[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out[i] = c
+	}
+	return string(out)
+}
+
 // slimMetadataMap applies "metadata.X"-anchored exclusion paths to a flat,
 // metadata-shaped map (the convenience top-level metadata returned by
 // kubernetes_describe, which duplicates labels / annotations / uid /
@@ -218,6 +318,15 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// server-configured slim setting via getOutputProcessorForFormat.
 	outputFormat, _ := args["output"].(string)
 
+	// Per-resourceType slim extensions. The list path historically only
+	// applies DefaultExcludedFields to items, but Events benefit from the
+	// same per-event strip already used by handleDescribeResource — see
+	// eventSlimFields in this file. Without this the LLM-default slim/list
+	// of events still ships involvedObject.uid/resourceVersion/apiVersion,
+	// reportingInstance, and the per-event metadata.creationTimestamp/
+	// namespace/selfLink — pure bookkeeping that issue #411 calls out.
+	extraExcluded := extraExcludedForResourceType(resourceType)
+
 	// Pagination parameters with sensible defaults
 	var limit int64 = 20 // Default page size
 	if limitVal, ok := args["limit"]; ok {
@@ -290,6 +399,9 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// flipped off for output=wide; secret masking always runs regardless of
 	// format so the documented contract holds across every read tool.
 	processor := getOutputProcessorForFormat(sc, outputFormat)
+	if len(extraExcluded) > 0 && processor.Config().SlimOutput {
+		processor = processorWithExtraExcluded(processor, extraExcluded)
+	}
 
 	// Handle summary mode - return aggregated counts instead of full items
 	if summaryMode {
@@ -304,6 +416,15 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources: %v", err)), nil
 	}
 	paginatedResponse.Items = processedItems
+
+	// Per-resourceType post-compaction. Used for value-conditional cleanup
+	// that the path-based ExcludedFields mechanism cannot express — e.g.
+	// dropping eventTime / firstTimestamp / lastTimestamp on Events when
+	// they are null (every event populates exactly one of the three; the
+	// other two are dead bytes).
+	if processor.Config().SlimOutput {
+		compactItemsForResourceType(paginatedResponse.Items, resourceType)
+	}
 
 	if result.Metadata.Truncated {
 		slog.Info("response truncated",
