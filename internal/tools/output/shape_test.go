@@ -134,6 +134,58 @@ func TestShapeResource_DeploymentEnvCollapse(t *testing.T) {
 	}
 }
 
+// TestShapeResource_AppliesToInitAndEphemeralContainers pins that the
+// workload shaper walks initContainers and ephemeralContainers in addition
+// to the primary containers slice. Sidecar-heavy apps commonly run init
+// containers with the same long env walls as the main container, and
+// ephemeral debug containers can also carry a non-default env list.
+func TestShapeResource_AppliesToInitAndEphemeralContainers(t *testing.T) {
+	makeBigEnv := func(prefix string) []interface{} {
+		out := make([]interface{}, envCollapseThreshold+5)
+		for i := range out {
+			out[i] = map[string]interface{}{
+				"name":  prefix + "_VAR",
+				"value": "bulk-value",
+			}
+		}
+		return out
+	}
+
+	in := map[string]interface{}{
+		"apiVersion": "apps/v1",
+		"kind":       "Deployment",
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{"name": "app", "env": makeBigEnv("APP")},
+					},
+					"initContainers": []interface{}{
+						map[string]interface{}{"name": "init", "env": makeBigEnv("INIT")},
+					},
+					"ephemeralContainers": []interface{}{
+						map[string]interface{}{"name": "debug", "env": makeBigEnv("DEBUG")},
+					},
+				},
+			},
+		},
+	}
+
+	got := ShapeResource(in)
+	podSpec := got["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})
+
+	for _, key := range []string{"containers", "initContainers", "ephemeralContainers"} {
+		slice, ok := podSpec[key].([]interface{})
+		require.True(t, ok, "%s slice must remain present", key)
+		require.Len(t, slice, 1)
+		c := slice[0].(map[string]interface{})
+
+		_, hasEnv := c["env"]
+		assert.False(t, hasEnv, "%s[0].env must be collapsed when over threshold", key)
+		assert.Equal(t, envCollapseThreshold+5, c["envCount"], "%s[0].envCount must record original length", key)
+	}
+}
+
 // TestShapeResource_DeploymentDefaultsStripped pins the round-2 strips on
 // the workload shaper: spec.progressDeadlineSeconds, spec.revisionHistoryLimit,
 // spec.template.spec.restartPolicy, and spec.template.spec.terminationGracePeriodSeconds

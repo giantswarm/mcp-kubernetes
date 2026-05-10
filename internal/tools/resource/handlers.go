@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -105,13 +106,6 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
-// getOutputProcessor creates an output processor from server context
-// configuration, using the server-configured slim setting. Equivalent to
-// getOutputProcessorForFormat(sc, "").
-func getOutputProcessor(sc *server.ServerContext) *output.Processor {
-	return getOutputProcessorForFormat(sc, "")
-}
-
 // getOutputProcessorForFormat builds an output processor that honours the
 // per-call output format, while preserving server-level secret masking.
 //
@@ -168,19 +162,35 @@ func processorWithExtraExcluded(p *output.Processor, extra []string) *output.Pro
 	return output.NewProcessor(cfg)
 }
 
+// listKindRules bundles the per-resourceType slim-mode customisations
+// applied to list responses: extraExcluded paths to layer onto the
+// generic DefaultExcludedFields, and a compact callback for value-
+// conditional cleanup (e.g. dropping null timestamp siblings on Events).
+// Either field may be empty / nil.
+type listKindRules struct {
+	extraExcluded []string
+	compact       func(map[string]any)
+}
+
+// listKindRulesByType maps the lower-cased resourceType (and accepted
+// shortnames, mirroring how the kubectl REST mapper resolves them) to its
+// list-mode customisation. Adding a new per-Kind rule to the list path
+// means adding a single entry here — keeps `extraExcludedForResourceType`
+// and `compactItemsForResourceType` in lockstep.
+var listKindRulesByType = func() map[string]listKindRules {
+	eventRules := listKindRules{extraExcluded: eventListSlimFields, compact: compactEventItem}
+	return map[string]listKindRules{
+		"event":  eventRules,
+		"events": eventRules,
+		"ev":     eventRules,
+	}
+}()
+
 // extraExcludedForResourceType returns slim-mode exclusion paths that only
 // make sense for a specific resourceType. Returns nil when no extras
 // apply (the default for non-events resources).
-//
-// resourceType matching mirrors how the kubectl API server's REST mapper
-// resolves shortnames: we accept "events", "event", and "ev". Case is
-// folded.
 func extraExcludedForResourceType(resourceType string) []string {
-	switch normalizeResourceType(resourceType) {
-	case "event", "events", "ev":
-		return eventListSlimFields
-	}
-	return nil
+	return listKindRulesByType[normalizeResourceType(resourceType)].extraExcluded
 }
 
 // compactItemsForResourceType applies value-conditional cleanup to slim-mode
@@ -193,15 +203,16 @@ func extraExcludedForResourceType(resourceType string) []string {
 // Items must be *unstructured.Unstructured (which is what
 // ProcessRuntimeObjects returns). Non-unstructured items are skipped.
 func compactItemsForResourceType(items []runtime.Object, resourceType string) {
-	switch normalizeResourceType(resourceType) {
-	case "event", "events", "ev":
-		for _, it := range items {
-			u, ok := it.(*unstructured.Unstructured)
-			if !ok {
-				continue
-			}
-			compactEventItem(u.Object)
+	rules, ok := listKindRulesByType[normalizeResourceType(resourceType)]
+	if !ok || rules.compact == nil {
+		return
+	}
+	for _, it := range items {
+		u, ok := it.(*unstructured.Unstructured)
+		if !ok {
+			continue
 		}
+		rules.compact(u.Object)
 	}
 }
 
@@ -244,15 +255,7 @@ var eventListSlimFields = []string{
 // Stays a free function (rather than inline strings.ToLower) so future
 // shortname/aliasing rules have one place to land.
 func normalizeResourceType(resourceType string) string {
-	out := make([]byte, len(resourceType))
-	for i := 0; i < len(resourceType); i++ {
-		c := resourceType[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		out[i] = c
-	}
-	return string(out)
+	return strings.ToLower(resourceType)
 }
 
 // slimMetadataMap applies "metadata.X"-anchored exclusion paths to a flat,
@@ -929,7 +932,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
-	processor := getOutputProcessor(sc)
+	processor := getOutputProcessorForFormat(sc, "")
 	processedObj, err := output.ProcessSingleRuntimeObject(processor, patchResponse.Resource)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil

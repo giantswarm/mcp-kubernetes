@@ -6,10 +6,14 @@ and `kubernetes_describe`.
 
 ## Methodology
 
-The default list was tuned in three rounds against a real Kubernetes cluster
-using a build-tagged Go test harness (`internal/tools/resource/sizebench_test.go`
-and `internal/tools/pod/sizebench_test.go`, build tag `clusterbench`). Each
-round:
+The default list was tuned in **five iterative live-cluster bench rounds**
+against a real Kubernetes cluster using a build-tagged Go test harness
+(`internal/tools/resource/sizebench_test.go` and
+`internal/tools/pod/sizebench_test.go`, build tag `clusterbench`). The
+inline `// round-N` comments in `internal/tools/output/config.go`,
+`internal/tools/output/shape.go`, and
+`internal/tools/resource/handlers.go` reference the same numbering.
+Each round:
 
 1. drove `kubernetes_get` and `kubernetes_describe` against five
    representative workloads — a deployment, a statefulset, a daemonset, a
@@ -89,7 +93,7 @@ we just stripped.
 
 ## Bug found and fixed: dotted annotation/label keys
 
-While round-3 tuning of built-in resource shapes, the bench surfaced a
+While tuning built-in resource shapes (round 3), the bench surfaced a
 long-standing bug in `internal/tools/output/slim.go:removeField`. The
 function split paths on `.` and treated each segment as a separate map key.
 Kubernetes label and annotation keys very commonly contain dots

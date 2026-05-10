@@ -4,10 +4,20 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
+
+// eventMessageMaxRunes caps event.message length in summary mode. Empirically
+// (issue #411 bench against a live cluster), kyverno PolicyViolation events
+// run 250–500 chars and dominate summary response size. The first ~240 runes
+// carry the actionable signal ("policy X fail: ... validation error: ..."); the
+// trailing rule path can be re-fetched with kubernetes_get if needed.
+// Truncation is annotated with `messageTruncated` so callers (and the LLM)
+// can tell the message was cut.
+const eventMessageMaxRunes = 240
 
 // ResourceSummary represents a compact view of a Kubernetes resource
 type ResourceSummary struct {
@@ -212,20 +222,15 @@ func extractEventInfo(obj *unstructured.Unstructured, summary *ResourceSummary) 
 	if v, found, _ := unstructured.NestedString(obj.Object, "reason"); found && v != "" {
 		summary.Extra["reason"] = v
 	}
-	// Cap message length for summary mode. Empirically (issue #411 bench
-	// against a live cluster), kyverno PolicyViolation events run 250–500 chars
-	// and dominate the summary response size. The first ~240 chars carry
-	// the actionable signal ("policy X fail: ... validation error: ...");
-	// the trailing rule path can be re-fetched with kubernetes_get if
-	// needed. Truncation is annotated with `messageTruncated` so callers
-	// (and the LLM) can tell the message was cut.
+	// Cap message length for summary mode. Truncation is rune-aware so
+	// non-ASCII messages (kyverno often emits arrows / accented chars in
+	// validation errors) never end on a mid-rune boundary, which would
+	// produce invalid UTF-8 in the JSON response.
 	if v, found, _ := unstructured.NestedString(obj.Object, "message"); found && v != "" {
-		const maxMsg = 240
-		if len(v) > maxMsg {
-			summary.Extra["message"] = v[:maxMsg] + "…"
+		msg, truncated := truncateRunes(v, eventMessageMaxRunes)
+		summary.Extra["message"] = msg
+		if truncated {
 			summary.Extra["messageTruncated"] = true
-		} else {
-			summary.Extra["message"] = v
 		}
 	}
 	if c, found, _ := unstructured.NestedInt64(obj.Object, "count"); found && c > 0 {
@@ -442,6 +447,24 @@ func extractNodeInfo(obj *unstructured.Unstructured, summary *ResourceSummary) {
 			}
 		}
 	}
+}
+
+// truncateRunes returns s capped to maxRunes runes, suffixed with "…" when
+// truncation occurred. Counting in runes (not bytes) keeps the result valid
+// UTF-8 even when s contains multi-byte characters such as arrows or
+// accented characters that kyverno-style validation errors commonly include.
+func truncateRunes(s string, maxRunes int) (truncated string, didTruncate bool) {
+	if utf8.RuneCountInString(s) <= maxRunes {
+		return s, false
+	}
+	runes := 0
+	for i := range s {
+		if runes == maxRunes {
+			return s[:i] + "…", true
+		}
+		runes++
+	}
+	return s, false
 }
 
 // formatAge formats a time duration as a human-readable age string

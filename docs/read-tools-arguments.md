@@ -36,7 +36,7 @@ target a specific cluster or kube-context.
 
 | Argument             | `_list`  | `_get`   | `_describe` | `_logs`            | Notes                                                                                                                         |
 |----------------------|:--------:|:--------:|:-----------:|:------------------:|-------------------------------------------------------------------------------------------------------------------------------|
-| `output`             | optional | optional |  optional   | optional (no-op)   | Enum `slim` (default) / `normal` / `wide`. `wide` returns the full manifest. On `_logs` it is accepted but currently a no-op. |
+| `output`             | optional | optional |  optional   | optional (no-op)   | Enum `slim` (default) / `normal` / `wide` / `full`. `slim` applies blacklist exclusion + Kind-aware shaping; `normal` is blacklist-only (no Kind shaping); `wide` / `full` return the full manifest. On `_logs` it is accepted but currently a no-op. |
 | `fullOutput`         | optional |    -     |     -       |        -           | Return full resource manifests instead of compact summary.                                                                    |
 | `includeLabels`      | optional |    -     |     -       |        -           | Include labels in compact summary output.                                                                                     |
 | `includeAnnotations` | optional |    -     |     -       |        -           | Include annotations in compact summary output.                                                                                |
@@ -61,16 +61,22 @@ The `output` argument is intentionally accepted by all four read tools so
 callers can use the same key consistently:
 
 - `slim` (default for `_list`; explicit on `_get` / `_describe` / `_logs`):
-  apply the server-configured slim processor, which strips low-value fields
-  such as `metadata.managedFields`, `metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]`,
+  apply the server-configured slim processor (generic blacklist exclusion of
+  fields such as `metadata.managedFields`,
+  `metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]`,
   status transition timestamps, owner references, `status.images` on Nodes,
-  and similar bookkeeping. The full default list and the methodology used
-  to tune it against a real installation are in
-  [slim-output-tuning.md](slim-output-tuning.md).
-- `normal`: same as `slim` for the read tools — kept as an alias for
-  symmetry with `kubectl get -o normal` style usage.
-- `wide`: bypass slim processing and return the full manifest. Secret
-  data is still masked.
+  Helm release-coordinate annotations, …) **plus Kind-aware shaping**:
+  HelmRelease drops `spec.values` / `status.history` / digest fields,
+  Deployment / StatefulSet / DaemonSet collapse long container `env` lists
+  to an `envCount` integer and prune well-known probe defaults. The full
+  default list and the methodology used to tune it against a real
+  installation are in [slim-output-tuning.md](slim-output-tuning.md).
+- `normal`: blacklist-only behaviour. The same generic field exclusion as
+  `slim`, but **Kind-aware shaping is disabled** so callers can still see a
+  typed `env` list, the rendered HelmRelease values map, and other fields
+  that `slim` collapses or drops per Kind.
+- `wide` (alias: `full`): bypass slim processing entirely and return the
+  full manifest. Secret data is still masked.
 
 For `kubernetes_logs` the parameter is currently a no-op (log output is plain
 text and not affected by manifest field stripping). Use `tailLines` and

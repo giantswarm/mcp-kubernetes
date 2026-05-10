@@ -1,6 +1,7 @@
 package output
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -451,12 +452,31 @@ func TestEstimateFieldSize(t *testing.T) {
 	}
 }
 
-// Helper to check if a field exists at a path
+// fieldExists walks the supplied dotted path through obj using only direct
+// map navigation, intentionally avoiding production helpers like
+// getFieldValue / removeField. The point is to assert against the
+// transformed structure independently of the implementation under test, so
+// a future bug in path resolution can't mask itself by being symmetric on
+// both sides of the assertion.
+//
+// Paths are split on "." with no support for bracket / wildcard syntax;
+// the tests that need wildcard semantics navigate the result map directly.
 func fieldExists(obj map[string]interface{}, path string) bool {
 	if path == "" || obj == nil {
 		return false
 	}
-
-	value := getFieldValue(obj, path)
-	return value != nil
+	parts := strings.Split(path, ".")
+	current := interface{}(obj)
+	for _, part := range parts {
+		m, ok := current.(map[string]interface{})
+		if !ok {
+			return false
+		}
+		next, present := m[part]
+		if !present {
+			return false
+		}
+		current = next
+	}
+	return current != nil
 }

@@ -61,16 +61,23 @@ func ShapeResource(obj map[string]interface{}) map[string]interface{} {
 }
 
 // ShapeResources applies ShapeResource to every item in objects, returning
-// the transformed slice. The input slice is reused; callers that need the
-// original list intact should clone first.
+// a freshly-allocated slice. The input slice is left untouched, mirroring
+// SlimResources' contract — the two functions run back-to-back inside the
+// processor pipeline and must agree on slice ownership so future callers
+// don't get surprised.
+//
+// Note: ShapeResource itself still mutates each map (the input maps are
+// already deep copies produced by SlimResource by the time they reach
+// us in the standard pipeline).
 func ShapeResources(objects []map[string]interface{}) []map[string]interface{} {
 	if len(objects) == 0 {
 		return objects
 	}
+	result := make([]map[string]interface{}, len(objects))
 	for i, o := range objects {
-		objects[i] = ShapeResource(o)
+		result[i] = ShapeResource(o)
 	}
-	return objects
+	return result
 }
 
 // lookupKey extracts the (group, kind) shaper key from a resource map. It
@@ -153,25 +160,25 @@ func shapeWorkloadTemplate(obj map[string]interface{}) map[string]interface{} {
 			}
 		}
 	}
-	containers := getContainerSlice(obj)
-	if len(containers) == 0 {
-		return obj
-	}
-	for _, raw := range containers {
-		c, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
+	for _, c := range getTemplateContainers(obj) {
 		collapseContainerEnv(c)
 		pruneProbeDefaults(c)
 	}
 	return obj
 }
 
-// getContainerSlice fetches spec.template.spec.containers, or nil if the
-// path doesn't resolve to a slice (which is the case for non-template
-// kinds and for templates carrying an empty / malformed spec).
-func getContainerSlice(obj map[string]interface{}) []interface{} {
+// templateContainerKeys are the PodSpec fields that hold container slices.
+// initContainers and ephemeralContainers benefit from the same env-collapse
+// and probe-default pruning as the main containers slice — sidecar-heavy
+// apps commonly run init/ephemeral containers with the same long env walls
+// as their primary container.
+var templateContainerKeys = []string{"containers", "initContainers", "ephemeralContainers"}
+
+// getTemplateContainers returns every container map found under
+// spec.template.spec.{containers, initContainers, ephemeralContainers}.
+// Non-map entries inside any slice are skipped; the result is always a
+// flat slice ready for shaping.
+func getTemplateContainers(obj map[string]interface{}) []map[string]interface{} {
 	spec, ok := obj["spec"].(map[string]interface{})
 	if !ok {
 		return nil
@@ -184,8 +191,16 @@ func getContainerSlice(obj map[string]interface{}) []interface{} {
 	if !ok {
 		return nil
 	}
-	containers, _ := templateSpec["containers"].([]interface{})
-	return containers
+	var out []map[string]interface{}
+	for _, key := range templateContainerKeys {
+		raw, _ := templateSpec[key].([]interface{})
+		for _, item := range raw {
+			if c, ok := item.(map[string]interface{}); ok {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
 }
 
 // probeDefaults are the API-server-assigned defaults for Probe scalars.
@@ -198,13 +213,17 @@ func getContainerSlice(obj map[string]interface{}) []interface{} {
 // initialDelaySeconds defaults to 0 but it's almost always set explicitly
 // for HTTP probes; we still prune it when it equals 0 because the JSON
 // will print "initialDelaySeconds": 0 unhelpfully.
+//
+// Probe.terminationGracePeriodSeconds is intentionally NOT in this map: it
+// has no API-server-assigned default at the probe level (it inherits from
+// the PodSpec at runtime), so any explicit value the user set carries
+// signal and must be preserved.
 var probeDefaults = map[string]float64{
-	"failureThreshold":              3,
-	"successThreshold":              1,
-	"periodSeconds":                 10,
-	"timeoutSeconds":                1,
-	"initialDelaySeconds":           0,
-	"terminationGracePeriodSeconds": 30,
+	"failureThreshold":    3,
+	"successThreshold":    1,
+	"periodSeconds":       10,
+	"timeoutSeconds":      1,
+	"initialDelaySeconds": 0,
 }
 
 // pruneProbeDefaults removes well-known default scalars from livenessProbe,
@@ -219,26 +238,31 @@ func pruneProbeDefaults(c map[string]interface{}) {
 			continue
 		}
 		for field, def := range probeDefaults {
-			if v, ok := probe[field]; ok && asNumber(v) == def {
+			v, present := probe[field]
+			if !present {
+				continue
+			}
+			if n, ok := asNumber(v); ok && n == def {
 				delete(probe, field)
 			}
 		}
 	}
 }
 
-// asNumber returns v as a float64 when it is a JSON-decoded number, or
-// NaN-equivalent (-1) otherwise. Used by pruneProbeDefaults to compare
-// any numeric type to the API default without panicking on non-numbers.
-func asNumber(v interface{}) float64 {
+// asNumber returns v as a float64 when it is a JSON-decoded number. Used by
+// pruneProbeDefaults to compare any numeric type to the API default without
+// panicking on non-numbers; the second return is false when v is not a
+// number, which keeps non-default (or oddly-typed) values preserved.
+func asNumber(v interface{}) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
-		return n
+		return n, true
 	case int64:
-		return float64(n)
+		return float64(n), true
 	case int:
-		return float64(n)
+		return float64(n), true
 	}
-	return -1
+	return 0, false
 }
 
 // collapseContainerEnv replaces a container's env with just an envCount
