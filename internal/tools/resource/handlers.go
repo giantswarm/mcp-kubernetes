@@ -388,7 +388,23 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
 	}
 
-	result := buildDescribeOutput(processedResource, description.Metadata, description.Meta, description.Events, eventsLimit)
+	// The convenience metadata map duplicates resource.metadata.{labels,
+	// annotations,uid,resourceVersion,creationTimestamp,kind,apiVersion}; run
+	// it through the slim processor so the duplicate uid / resourceVersion /
+	// creationTimestamp / managedFields / last-applied-configuration do not
+	// show up unstripped beside the slim resource. The default excluded paths
+	// are anchored at "metadata.X", so we wrap the convenience map in a
+	// synthetic {"metadata": ...} envelope before slimming and unwrap after.
+	processedMetadata := description.Metadata
+	if outputFormat != "wide" && processor.Config().SlimOutput && len(description.Metadata) > 0 {
+		envelope := map[string]any{"metadata": description.Metadata}
+		envelope = output.SlimResource(envelope, processor.Config().ExcludedFields)
+		if inner, ok := envelope["metadata"].(map[string]any); ok {
+			processedMetadata = inner
+		}
+	}
+
+	result := buildDescribeOutput(processedResource, processedMetadata, description.Meta, description.Events, eventsLimit)
 
 	jsonData, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -442,7 +458,7 @@ func buildDescribeOutput(
 		if err := json.Unmarshal(raw, &m); err != nil {
 			continue
 		}
-		slimmed = append(slimmed, output.SlimResource(m, []string{"metadata.managedFields"}))
+		slimmed = append(slimmed, output.SlimResource(m, eventSlimFields()))
 	}
 	out.Events = slimmed
 	out.ReturnedEvents = len(slimmed)
@@ -450,6 +466,35 @@ func buildDescribeOutput(
 	// so callers cannot read EventsTruncated=false while ReturnedEvents<TotalEvents.
 	out.EventsTruncated = out.TotalEvents > out.ReturnedEvents
 	return out
+}
+
+// eventSlimFields lists the per-event paths stripped from the describe
+// response. The defaults below were tuned against live workloads: each
+// event previously carried ~340 bytes of bookkeeping (uid, resourceVersion,
+// the event's own metadata.creationTimestamp, the involvedObject duplication
+// of uid/apiVersion/resourceVersion, an always-empty reportingInstance).
+// Keeping them out shrinks describe responses for busy controllers by
+// several KB without losing any diagnostic signal —
+// firstTimestamp/lastTimestamp/eventTime/count/reason/message/
+// involvedObject.{kind,name,namespace} all stay.
+//
+// Note: eventTime is intentionally NOT stripped. Newer event reporters
+// (kyverno-scan, controller-runtime) populate eventTime instead of
+// firstTimestamp/lastTimestamp, so removing it would leave those events
+// without any timestamp at all. The 30-byte cost per event is worth it.
+func eventSlimFields() []string {
+	return []string{
+		"metadata.managedFields",
+		"metadata.uid",
+		"metadata.resourceVersion",
+		"metadata.creationTimestamp",
+		"metadata.namespace",
+		"metadata.selfLink",
+		"involvedObject.uid",
+		"involvedObject.resourceVersion",
+		"involvedObject.apiVersion",
+		"reportingInstance",
+	}
 }
 
 // effectiveEventTime returns the best available timestamp for sorting:

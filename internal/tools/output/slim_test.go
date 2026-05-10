@@ -219,6 +219,92 @@ func TestRemoveField_EdgeCases(t *testing.T) {
 	}
 }
 
+// TestRemoveField_DotsInKeys pins the round-3 fix for dotted Kubernetes
+// label / annotation keys. The original implementation split the path on
+// every "." and so silently failed to strip
+// "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration"
+// even though that exact string was in the default excluded fields list.
+// The greedy-join logic should now find and remove it.
+func TestRemoveField_DotsInKeys(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		obj        map[string]interface{}
+		mustBeGone []string
+		mustRemain []string
+	}{
+		{
+			name: "annotation with dots and slash",
+			path: "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
+			obj: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": map[string]interface{}{
+						"kubectl.kubernetes.io/last-applied-configuration": "{...}",
+						"keep.me": "yes",
+					},
+				},
+			},
+			mustBeGone: []string{"kubectl.kubernetes.io/last-applied-configuration"},
+			mustRemain: []string{"keep.me"},
+		},
+		{
+			name: "deployment.kubernetes.io/revision annotation",
+			path: "metadata.annotations.deployment.kubernetes.io/revision",
+			obj: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": map[string]interface{}{
+						"deployment.kubernetes.io/revision": "42",
+						"meta.helm.sh/release-name":         "mychart",
+					},
+				},
+			},
+			mustBeGone: []string{"deployment.kubernetes.io/revision"},
+			mustRemain: []string{"meta.helm.sh/release-name"},
+		},
+		{
+			name: "label with dots",
+			path: "metadata.labels.app.kubernetes.io/name",
+			obj: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						"app.kubernetes.io/name": "demo",
+						"keep":                   "x",
+					},
+				},
+			},
+			mustBeGone: []string{"app.kubernetes.io/name"},
+			mustRemain: []string{"keep"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			removeField(tt.obj, tt.path)
+
+			leaf := tt.obj["metadata"].(map[string]interface{})
+			// The leaf could be either annotations or labels - figure out from path.
+			var sub map[string]interface{}
+			switch {
+			case leaf["annotations"] != nil:
+				sub = leaf["annotations"].(map[string]interface{})
+			case leaf["labels"] != nil:
+				sub = leaf["labels"].(map[string]interface{})
+			}
+
+			for _, k := range tt.mustBeGone {
+				if _, ok := sub[k]; ok {
+					t.Errorf("expected key %q to be removed, but it is still present", k)
+				}
+			}
+			for _, k := range tt.mustRemain {
+				if _, ok := sub[k]; !ok {
+					t.Errorf("expected key %q to remain, but it was removed", k)
+				}
+			}
+		})
+	}
+}
+
 func TestDeepCopyMap(t *testing.T) {
 	original := map[string]interface{}{
 		"string": "value",

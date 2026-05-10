@@ -72,30 +72,44 @@ func DefaultConfig() *Config {
 
 // DefaultExcludedFields returns the default list of fields to exclude in slim mode.
 // These are verbose fields that typically don't help AI agents understand resources.
+//
+// The list was tuned against live workloads (deployment, statefulset,
+// daemonset, node, secret) — see docs/slim-output-tuning.md for the
+// methodology and the rationale behind each entry.
 func DefaultExcludedFields() []string {
 	return []string{
-		// Managed fields are verbose and rarely useful for troubleshooting
+		// Managed fields are verbose and rarely useful for troubleshooting.
 		"metadata.managedFields",
-		// Last-applied-configuration duplicates the entire manifest
+		// Last-applied-configuration duplicates the entire manifest.
 		"metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
-		// Revision annotations are internal bookkeeping
+		// Revision annotations are internal bookkeeping.
 		"metadata.annotations.deployment.kubernetes.io/revision",
-		// Transition times add noise without helping diagnosis
+		// Transition / update times add noise without helping diagnosis.
+		// lastUpdateTime is the deployment-status equivalent of the others.
 		"status.conditions[*].lastTransitionTime",
 		"status.conditions[*].lastProbeTime",
 		"status.conditions[*].lastHeartbeatTime",
-		// Owner references can be looked up if needed
+		"status.conditions[*].lastUpdateTime",
+		// Owner references can be looked up if needed.
 		"metadata.ownerReferences",
-		// Finalizers are rarely relevant for troubleshooting
+		// Finalizers are rarely relevant for troubleshooting.
 		"metadata.finalizers",
-		// Generation is usually not needed
+		// Generation is usually not needed.
 		"metadata.generation",
-		// Resource version changes constantly
+		// Resource version changes constantly.
 		"metadata.resourceVersion",
-		// UID is rarely needed for troubleshooting
+		// UID is rarely needed for troubleshooting.
 		"metadata.uid",
-		// Self link is deprecated
+		// Self link is deprecated.
 		"metadata.selfLink",
+		// Pod/template creationTimestamp is always null on PodSpec templates
+		// (deployment.spec.template.metadata.creationTimestamp). Strip it to
+		// avoid one always-null line per pod template.
+		"spec.template.metadata.creationTimestamp",
+		// Nodes carry a list of every container image cached on the node —
+		// typically the dominant component of a node response and almost
+		// never useful for diagnosing pod scheduling or node health.
+		"status.images",
 	}
 }
 

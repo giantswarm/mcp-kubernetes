@@ -45,6 +45,13 @@ func SlimResources(objects []map[string]interface{}, excludedFields []string) []
 // Examples:
 //   - "metadata.managedFields" -> removes obj["metadata"]["managedFields"]
 //   - "status.conditions[*].lastTransitionTime" -> removes field from all array elements
+//
+// Keys with literal dots are also supported via greedy matching: a path like
+// "metadata.annotations.kubectl.kubernetes.io/last-applied-configuration"
+// will, after navigating into metadata.annotations, try the longest joined
+// suffix that exists as a literal key. This is required because Kubernetes
+// label and annotation keys very commonly contain dots
+// (e.g. "kubernetes.io/foo", "deployment.kubernetes.io/revision").
 func removeField(obj map[string]interface{}, path string) {
 	if obj == nil || path == "" {
 		return
@@ -95,7 +102,34 @@ func removeFieldRecursive(obj map[string]interface{}, parts []string) {
 		return
 	}
 
-	// Navigate deeper
+	// Greedy match: try the longest joined suffix that exists as a literal
+	// key in the current map before falling back to single-segment lookup.
+	// This lets paths like "...annotations.kubernetes.io/foo" find an
+	// annotation literally named "kubernetes.io/foo". We never join across
+	// an array wildcard because that segment has its own semantics.
+	wildcardIdx := indexOfArrayWildcard(parts)
+	maxJoin := len(parts)
+	if wildcardIdx >= 0 {
+		maxJoin = wildcardIdx
+	}
+	for end := maxJoin; end > 1; end-- {
+		joined := strings.Join(parts[:end], ".")
+		val, ok := obj[joined]
+		if !ok {
+			continue
+		}
+		if end == len(parts) {
+			delete(obj, joined)
+			return
+		}
+		// Joined key matched but path continues — recurse into its value.
+		if subMap, ok := val.(map[string]interface{}); ok {
+			removeFieldRecursive(subMap, parts[end:])
+			return
+		}
+	}
+
+	// Fall back to navigating one segment at a time.
 	nextVal, ok := obj[current]
 	if !ok {
 		return
@@ -107,6 +141,17 @@ func removeFieldRecursive(obj map[string]interface{}, parts []string) {
 	}
 
 	removeFieldRecursive(nextMap, remaining)
+}
+
+// indexOfArrayWildcard returns the index of the first part ending in "[*]",
+// or -1 if none is present. Greedy joining must not cross array boundaries.
+func indexOfArrayWildcard(parts []string) int {
+	for i, p := range parts {
+		if strings.HasSuffix(p, "[*]") {
+			return i
+		}
+	}
+	return -1
 }
 
 // deepCopyMap creates a deep copy of a map.

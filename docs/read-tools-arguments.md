@@ -63,7 +63,10 @@ callers can use the same key consistently:
 - `slim` (default for `_list`; explicit on `_get` / `_describe` / `_logs`):
   apply the server-configured slim processor, which strips low-value fields
   such as `metadata.managedFields`, `metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]`,
-  status transition timestamps, owner references, and similar bookkeeping.
+  status transition timestamps, owner references, `status.images` on Nodes,
+  and similar bookkeeping. The full default list and the methodology used
+  to tune it against a real installation are in
+  [slim-output-tuning.md](slim-output-tuning.md).
 - `normal`: same as `slim` for the read tools — kept as an alias for
   symmetry with `kubectl get -o normal` style usage.
 - `wide`: bypass slim processing and return the full manifest. Secret

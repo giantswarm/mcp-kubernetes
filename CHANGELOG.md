@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tuned the default `slim` field-exclusion list against a live cluster covering deployment, statefulset, daemonset, node, and Secret workloads (methodology in `docs/slim-output-tuning.md`). New defaults strip `status.images` on Nodes (the single largest unhelpful field on a typical node), `status.conditions[*].lastUpdateTime`, and `spec.template.metadata.creationTimestamp`. `kubernetes_describe` additionally slims per-event bookkeeping (`metadata.uid` / `resourceVersion` / `creationTimestamp` / `namespace`, `involvedObject.uid` / `resourceVersion` / `apiVersion`, empty `reportingInstance`) and the convenience top-level `metadata` map. Measured slim-vs-wide reductions across the five tuned workloads ranged 40–82%. `eventTime` is intentionally preserved so kyverno- and controller-runtime-style events keep their only timestamp.
+
+### Fixed
+
+- `output.SlimResource` now correctly removes annotation and label keys that contain literal dots. Previously paths like `metadata.annotations.kubectl.kubernetes.io/last-applied-configuration` and `metadata.annotations.deployment.kubernetes.io/revision` were silently no-ops because the path resolver split on `.` without considering that Kubernetes label / annotation keys very commonly contain dots themselves. The resolver now uses greedy suffix matching at each navigation step (without crossing `[*]` array-wildcard boundaries), so the existing default excluded paths actually do what they claim to.
+
+### Changed
+
 - Mutating tools (`kubernetes_create`, `kubernetes_apply`, `kubernetes_delete`, `kubernetes_patch`, `kubernetes_scale`, `kubernetes_exec`, `port_forward` and the related session-management tools) are no longer registered with the MCP server when they cannot be invoked under the current configuration. This shrinks the tool list seen by clients in non-destructive mode and prevents models from attempting destructive operations that would always be rejected. Mutating tools become visible again when `--non-destructive=false`, when `--dry-run` is set, or when the operation verb is in `AllowedOperations`. Resolves [#4296](https://github.com/giantswarm/roadmap/issues/4296).
 
 ### Fixed

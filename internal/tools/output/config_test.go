@@ -47,10 +47,15 @@ func TestDefaultExcludedFields(t *testing.T) {
 		t.Fatal("DefaultExcludedFields returned empty slice")
 	}
 
-	// Verify expected fields are present
+	// Verify expected fields are present. The list below pins both the
+	// long-standing entries and the additions tuned against live workloads
+	// (see docs/slim-output-tuning.md).
 	expectedFields := []string{
 		"metadata.managedFields",
 		"metadata.annotations.kubectl.kubernetes.io/last-applied-configuration",
+		"status.conditions[*].lastUpdateTime",
+		"status.images",
+		"spec.template.metadata.creationTimestamp",
 	}
 
 	for _, expected := range expectedFields {
