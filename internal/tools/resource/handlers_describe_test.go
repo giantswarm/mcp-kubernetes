@@ -155,6 +155,65 @@ func TestBuildDescribeOutput_StripsManagedFields(t *testing.T) {
 	assert.False(t, hasManagedFields, "metadata.managedFields must be stripped from each event")
 }
 
+// TestBuildDescribeOutput_StripsPerEventBookkeeping pins the round-1 / round-3
+// optimisations: per-event uid, resourceVersion, creationTimestamp, namespace,
+// involvedObject.{uid,resourceVersion,apiVersion} and reportingInstance must
+// be stripped to save ~340 bytes per event on busy controllers like cilium.
+// eventTime is intentionally NOT stripped — kyverno-style events use it as
+// their only timestamp.
+func TestBuildDescribeOutput_StripsPerEventBookkeeping(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	ev := corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "ev-1",
+			Namespace:       "default",
+			UID:             "ev-uid",
+			ResourceVersion: "12345",
+			ManagedFields: []metav1.ManagedFieldsEntry{
+				{Manager: "kubelet", Operation: metav1.ManagedFieldsOperationUpdate},
+			},
+		},
+		InvolvedObject: corev1.ObjectReference{
+			APIVersion:      "apps/v1",
+			Kind:            "DaemonSet",
+			Name:            "cilium",
+			Namespace:       "kube-system",
+			UID:             "obj-uid",
+			ResourceVersion: "67890",
+		},
+		EventTime:         metav1.NewMicroTime(now),
+		ReportingInstance: "",
+		Reason:            "PolicyViolation",
+		Type:              corev1.EventTypeWarning,
+	}
+
+	out := buildDescribeOutput(nil, nil, nil, []corev1.Event{ev}, 10)
+	require.Len(t, out.Events, 1)
+	got := out.Events[0]
+
+	meta, _ := got["metadata"].(map[string]any)
+	for _, k := range []string{"uid", "resourceVersion", "creationTimestamp", "namespace", "selfLink", "managedFields"} {
+		_, has := meta[k]
+		assert.Falsef(t, has, "metadata.%s must be stripped from event", k)
+	}
+	assert.Equal(t, "ev-1", meta["name"], "event metadata.name must be preserved as the unique event id")
+
+	involved, _ := got["involvedObject"].(map[string]any)
+	for _, k := range []string{"uid", "resourceVersion", "apiVersion"} {
+		_, has := involved[k]
+		assert.Falsef(t, has, "involvedObject.%s must be stripped from event", k)
+	}
+	assert.Equal(t, "DaemonSet", involved["kind"])
+	assert.Equal(t, "cilium", involved["name"])
+	assert.Equal(t, "kube-system", involved["namespace"])
+
+	_, hasReportingInstance := got["reportingInstance"]
+	assert.False(t, hasReportingInstance, "reportingInstance must be stripped (typically empty)")
+
+	_, hasEventTime := got["eventTime"]
+	assert.True(t, hasEventTime, "eventTime must be preserved — kyverno-style events have no other timestamp")
+}
+
 func TestBuildDescribeOutput_NoEvents(t *testing.T) {
 	out := buildDescribeOutput(nil, nil, nil, nil, DefaultEventsLimit)
 
@@ -182,6 +241,63 @@ func TestBuildDescribeOutput_AlwaysEmitsCountFields(t *testing.T) {
 		assert.True(t, present, "%q must be present in the marshaled output", field)
 	}
 	assert.Equal(t, false, decoded["eventsTruncated"])
+}
+
+// TestDescribeResource_ConvenienceMetadataIsSlimmed pins the round-2
+// optimisation: the convenience metadata map duplicates resource.metadata.X
+// fields and previously was returned untouched. We now slim it (uid /
+// resourceVersion / managedFields / etc) to keep the duplicate from
+// re-introducing the bytes we just stripped from resource.metadata.
+func TestDescribeResource_ConvenienceMetadataIsSlimmed(t *testing.T) {
+	mf := []map[string]any{{"manager": "kubectl"}}
+	annotations := map[string]any{
+		"kubectl.kubernetes.io/last-applied-configuration": "{...long blob...}",
+		"keep.me": "yes",
+	}
+
+	in := map[string]any{
+		"uid":             "abc-123",
+		"resourceVersion": "99999",
+		"managedFields":   mf,
+		"annotations":     annotations,
+		"labels":          map[string]any{"app": "demo"},
+		"kind":            "Deployment",
+		"apiVersion":      "apps/v1",
+	}
+	processor := getOutputProcessorForFormat(serverContextWithSlim(t), "slim")
+	cfg := processor.Config()
+	require.True(t, cfg.SlimOutput, "precondition: SlimOutput must be on")
+
+	// Exercise the same helper handleDescribeResource uses on the
+	// convenience metadata map.
+	got := slimMetadataMap(in, cfg.ExcludedFields)
+	require.NotNil(t, got)
+
+	for _, stripped := range []string{"uid", "resourceVersion", "managedFields"} {
+		_, has := got[stripped]
+		assert.Falsef(t, has, "convenience metadata.%s must be slimmed", stripped)
+	}
+
+	// Annotations are kept but the last-applied-configuration entry is dropped.
+	keptAnn, _ := got["annotations"].(map[string]any)
+	require.NotNil(t, keptAnn)
+	_, hasLAC := keptAnn["kubectl.kubernetes.io/last-applied-configuration"]
+	assert.False(t, hasLAC, "last-applied-configuration must be slimmed from convenience metadata.annotations")
+	assert.Equal(t, "yes", keptAnn["keep.me"], "non-bookkeeping annotations must be preserved")
+
+	// Labels and kind/apiVersion remain — they're useful diagnostic fields.
+	assert.Equal(t, "Deployment", got["kind"])
+	assert.NotNil(t, got["labels"])
+}
+
+func serverContextWithSlim(t *testing.T) *server.ServerContext {
+	t.Helper()
+	sc, err := server.NewServerContext(context.Background(),
+		server.WithK8sClient(&testdata.MockK8sClient{}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+	return sc
 }
 
 func TestDescribeResource_EventsLimitOutOfRangeRejected(t *testing.T) {

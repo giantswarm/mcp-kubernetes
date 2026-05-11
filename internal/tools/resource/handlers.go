@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -60,6 +62,10 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
+	// Output format mirrors kubernetes_list: slim (default) and normal go through
+	// the server-configured slim processor; wide returns the full manifest.
+	outputFormat, _ := args["output"].(string)
+
 	// Get the appropriate k8s client (local or federated)
 	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
 	if errMsg != "" {
@@ -79,7 +85,7 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
-	processor := getOutputProcessor(sc)
+	processor := getOutputProcessorForFormat(sc, outputFormat)
 	processedObj, err := output.ProcessSingleRuntimeObject(processor, getResponse.Resource)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
@@ -100,18 +106,184 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
-// getOutputProcessor creates an output processor from server context configuration.
-func getOutputProcessor(sc *server.ServerContext) *output.Processor {
+// getOutputProcessorForFormat builds an output processor that honours the
+// per-call output format, while preserving server-level secret masking.
+//
+// Format semantics (matches docs/read-tools-arguments.md):
+//
+//   - "wide" / "full": SlimOutput=false, KindShaping=false.
+//     Returns the full manifest, with only secret masking applied.
+//   - "normal": SlimOutput=true, KindShaping=false.
+//     Generic blacklist exclusion (managedFields, last-applied-configuration,
+//     transition timestamps, ...) but no Kind-aware shaping.
+//   - "slim" (and empty/default): SlimOutput=true, KindShaping=true.
+//     Blacklist exclusion + per-Kind shaping (HelmRelease drops spec.values
+//     and status.history; Deployment / StatefulSet / DaemonSet collapse long
+//     container env lists). This is the LLM-friendly default per #410.
+//
+// Secret masking is always driven by the server-level MaskSecrets setting
+// and is never disabled by output format — every read tool honours that
+// contract uniformly.
+func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) *output.Processor {
 	outputCfg := sc.OutputConfig()
+	slim := outputCfg.SlimOutput
+	kindShaping := slim
+	switch outputFormat {
+	case "wide", "full":
+		slim = false
+		kindShaping = false
+	case "normal":
+		kindShaping = false
+	case "slim", "":
+		// keep slim from server config; kindShaping mirrors slim so a
+		// server with SlimOutput=false still returns wide for slim.
+	}
 	cfg := &output.Config{
 		MaxItems:         outputCfg.MaxItems,
 		MaxClusters:      outputCfg.MaxClusters,
 		MaxResponseBytes: outputCfg.MaxResponseBytes,
-		SlimOutput:       outputCfg.SlimOutput,
+		SlimOutput:       slim,
+		KindShaping:      kindShaping,
 		MaskSecrets:      outputCfg.MaskSecrets,
 		SummaryThreshold: outputCfg.SummaryThreshold,
 	}
 	return output.NewProcessor(cfg)
+}
+
+// processorWithExtraExcluded returns a new Processor whose ExcludedFields
+// list is the original cloned-and-extended with extra. Secret masking and
+// every other config knob is preserved. Used by handleListResources to
+// layer per-resourceType slim rules (e.g. Event-specific bookkeeping
+// strips) on top of DefaultExcludedFields, without mutating the
+// server-level config.
+func processorWithExtraExcluded(p *output.Processor, extra []string) *output.Processor {
+	cfg := p.Config().Clone()
+	cfg.ExcludedFields = append(cfg.ExcludedFields, extra...)
+	return output.NewProcessor(cfg)
+}
+
+// listKindRules bundles the per-resourceType slim-mode customisations
+// applied to list responses: extraExcluded paths to layer onto the
+// generic DefaultExcludedFields, and a compact callback for value-
+// conditional cleanup (e.g. dropping null timestamp siblings on Events).
+// Either field may be empty / nil.
+type listKindRules struct {
+	extraExcluded []string
+	compact       func(map[string]any)
+}
+
+// listKindRulesByType maps the lower-cased resourceType (and accepted
+// shortnames, mirroring how the kubectl REST mapper resolves them) to its
+// list-mode customisation. Adding a new per-Kind rule to the list path
+// means adding a single entry here — keeps `extraExcludedForResourceType`
+// and `compactItemsForResourceType` in lockstep.
+var listKindRulesByType = func() map[string]listKindRules {
+	eventRules := listKindRules{extraExcluded: eventListSlimFields, compact: compactEventItem}
+	return map[string]listKindRules{
+		"event":  eventRules,
+		"events": eventRules,
+		"ev":     eventRules,
+	}
+}()
+
+// extraExcludedForResourceType returns slim-mode exclusion paths that only
+// make sense for a specific resourceType. Returns nil when no extras
+// apply (the default for non-events resources).
+func extraExcludedForResourceType(resourceType string) []string {
+	return listKindRulesByType[normalizeResourceType(resourceType)].extraExcluded
+}
+
+// compactItemsForResourceType applies value-conditional cleanup to slim-mode
+// list items. Today only Events have a per-kind compactor: kubernetes
+// always reports exactly one of (eventTime, firstTimestamp, lastTimestamp)
+// as populated and the other two as null/empty, and `source: {}` is the
+// permanent shape on events.k8s.io/v1 events. Stripping these only when
+// they're null avoids fighting the (legitimate) signal-bearing copies.
+//
+// Items must be *unstructured.Unstructured (which is what
+// ProcessRuntimeObjects returns). Non-unstructured items are skipped.
+func compactItemsForResourceType(items []runtime.Object, resourceType string) {
+	rules, ok := listKindRulesByType[normalizeResourceType(resourceType)]
+	if !ok || rules.compact == nil {
+		return
+	}
+	for _, it := range items {
+		u, ok := it.(*unstructured.Unstructured)
+		if !ok {
+			continue
+		}
+		rules.compact(u.Object)
+	}
+}
+
+// compactEventItem trims null timestamp siblings and empty source from a
+// single event item map. See compactItemsForResourceType for why this lives
+// outside the path-based exclusion list.
+func compactEventItem(item map[string]any) {
+	for _, k := range []string{"eventTime", "firstTimestamp", "lastTimestamp"} {
+		if v, ok := item[k]; ok && v == nil {
+			delete(item, k)
+		}
+	}
+	if src, ok := item["source"].(map[string]any); ok && len(src) == 0 {
+		delete(item, "source")
+	}
+}
+
+// eventListSlimFields is the list-handler analogue of eventSlimFields. It
+// strips the same per-event bookkeeping the describe handler strips
+// (managedFields, uid, resourceVersion, selfLink, the involvedObject
+// uid/resourceVersion/apiVersion duplication, and the empty
+// reportingInstance), but deliberately preserves metadata.creationTimestamp
+// and metadata.namespace because the list-summary code path
+// (summarizeResource → obj.GetCreationTimestamp / GetNamespace) reads
+// them to populate `age` and `namespace`. Stripping those breaks summary
+// output for cross-namespace event listings without any byte saving on
+// the much larger fullOutput path.
+var eventListSlimFields = []string{
+	"metadata.managedFields",
+	"metadata.uid",
+	"metadata.resourceVersion",
+	"metadata.selfLink",
+	"involvedObject.uid",
+	"involvedObject.resourceVersion",
+	"involvedObject.apiVersion",
+	"reportingInstance",
+}
+
+// normalizeResourceType lower-cases a resourceType for switch comparison.
+// Stays a free function (rather than inline strings.ToLower) so future
+// shortname/aliasing rules have one place to land.
+func normalizeResourceType(resourceType string) string {
+	return strings.ToLower(resourceType)
+}
+
+// slimMetadataMap applies "metadata.X"-anchored exclusion paths to a flat,
+// metadata-shaped map (the convenience top-level metadata returned by
+// kubernetes_describe, which duplicates labels / annotations / uid /
+// resourceVersion / creationTimestamp / kind / apiVersion).
+//
+// The DefaultExcludedFields list is anchored at "metadata.…", so we wrap the
+// map in a synthetic {"metadata": ...} envelope before handing it to
+// SlimResource and unwrap after. Excluded paths that don't start with
+// "metadata." are silently no-ops on this map, which is the correct
+// behaviour: the convenience map only carries metadata-shaped fields.
+//
+// excludedFields comes from processor.Config().ExcludedFields, which is
+// populated by output.NewProcessor → Config.Validate() when SlimOutput is
+// enabled — callers therefore don't need to pass DefaultExcludedFields()
+// explicitly.
+func slimMetadataMap(m map[string]any, excludedFields []string) map[string]any {
+	if len(m) == 0 {
+		return m
+	}
+	envelope := map[string]any{"metadata": m}
+	envelope = output.SlimResource(envelope, excludedFields)
+	inner, ok := envelope["metadata"].(map[string]any)
+	if !ok {
+		return m
+	}
+	return inner
 }
 
 // handleListResources handles kubectl list operations
@@ -162,11 +334,18 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// Summary mode parameter for fleet-scale operations
 	summaryMode, _ := args["summary"].(bool)
 
-	// Output format parameter (normal, wide, slim)
+	// Output format parameter (slim/normal/wide). Empty falls through to the
+	// server-configured slim setting via getOutputProcessorForFormat.
 	outputFormat, _ := args["output"].(string)
-	if outputFormat == "" {
-		outputFormat = "slim" // Default to slim output for reduced context usage
-	}
+
+	// Per-resourceType slim extensions. The list path historically only
+	// applies DefaultExcludedFields to items, but Events benefit from the
+	// same per-event strip already used by handleDescribeResource — see
+	// eventSlimFields in this file. Without this the LLM-default slim/list
+	// of events still ships involvedObject.uid/resourceVersion/apiVersion,
+	// reportingInstance, and the per-event metadata.creationTimestamp/
+	// namespace/selfLink — pure bookkeeping that issue #411 calls out.
+	extraExcluded := extraExcludedForResourceType(resourceType)
 
 	// Pagination parameters with sensible defaults
 	var limit int64 = 20 // Default page size
@@ -236,29 +415,42 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, k8sDuration)
 
-	// Get output processor for slim output and secret masking
-	processor := getOutputProcessor(sc)
+	// Build output processor honouring the per-call format. SlimOutput is
+	// flipped off for output=wide; secret masking always runs regardless of
+	// format so the documented contract holds across every read tool.
+	processor := getOutputProcessorForFormat(sc, outputFormat)
+	if len(extraExcluded) > 0 && processor.Config().SlimOutput {
+		processor = processorWithExtraExcluded(processor, extraExcluded)
+	}
 
 	// Handle summary mode - return aggregated counts instead of full items
 	if summaryMode {
 		return handleSummaryResponse(paginatedResponse.Items, processor, resourceType)
 	}
 
-	// Apply output processing (slim output, secret masking) based on output format
-	if outputFormat == "slim" || outputFormat == "normal" {
-		processedItems, result, err := output.ProcessRuntimeObjects(processor, paginatedResponse.Items)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources: %v", err)), nil
-		}
-		paginatedResponse.Items = processedItems
+	// Always run items through the processor: slim/normal apply field
+	// stripping, wide skips it, but every format applies secret masking and
+	// the MaxItems safety cap.
+	processedItems, result, err := output.ProcessRuntimeObjects(processor, paginatedResponse.Items)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resources: %v", err)), nil
+	}
+	paginatedResponse.Items = processedItems
 
-		// Log truncation warnings
-		if result.Metadata.Truncated {
-			slog.Info("response truncated",
-				logging.ResourceType(resourceType),
-				slog.Int("final_count", result.Metadata.FinalCount),
-				slog.Int("original_count", result.Metadata.OriginalCount))
-		}
+	// Per-resourceType post-compaction. Used for value-conditional cleanup
+	// that the path-based ExcludedFields mechanism cannot express — e.g.
+	// dropping eventTime / firstTimestamp / lastTimestamp on Events when
+	// they are null (every event populates exactly one of the three; the
+	// other two are dead bytes).
+	if processor.Config().SlimOutput {
+		compactItemsForResourceType(paginatedResponse.Items, resourceType)
+	}
+
+	if result.Metadata.Truncated {
+		slog.Info("response truncated",
+			logging.ResourceType(resourceType),
+			slog.Int("final_count", result.Metadata.FinalCount),
+			slog.Int("original_count", result.Metadata.OriginalCount))
 	}
 
 	if fullOutput {
@@ -331,6 +523,10 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		eventsLimit = val
 	}
 
+	// Output format mirrors kubernetes_list: slim (default) and normal go through
+	// the server-configured slim processor; wide returns the full manifest.
+	outputFormat, _ := args["output"].(string)
+
 	// Get the appropriate k8s client (local or federated)
 	client, errMsg := tools.GetClusterClient(ctx, sc, clusterName)
 	if errMsg != "" {
@@ -350,13 +546,23 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationGet, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
-	processor := getOutputProcessor(sc)
+	processor := getOutputProcessorForFormat(sc, outputFormat)
 	processedResource, err := output.ProcessSingleRuntimeObject(processor, description.Resource)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil
 	}
 
-	result := buildDescribeOutput(processedResource, description.Metadata, description.Meta, description.Events, eventsLimit)
+	// The convenience metadata map duplicates resource.metadata.{labels,
+	// annotations,uid,resourceVersion,creationTimestamp,kind,apiVersion}; run
+	// it through the slim processor so the duplicate uid / resourceVersion /
+	// creationTimestamp / managedFields / last-applied-configuration do not
+	// show up unstripped beside the slim resource.
+	processedMetadata := description.Metadata
+	if outputFormat != "wide" && processor.Config().SlimOutput {
+		processedMetadata = slimMetadataMap(description.Metadata, processor.Config().ExcludedFields)
+	}
+
+	result := buildDescribeOutput(processedResource, processedMetadata, description.Meta, description.Events, eventsLimit)
 
 	jsonData, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -410,7 +616,7 @@ func buildDescribeOutput(
 		if err := json.Unmarshal(raw, &m); err != nil {
 			continue
 		}
-		slimmed = append(slimmed, output.SlimResource(m, []string{"metadata.managedFields"}))
+		slimmed = append(slimmed, output.SlimResource(m, eventSlimFields))
 	}
 	out.Events = slimmed
 	out.ReturnedEvents = len(slimmed)
@@ -418,6 +624,37 @@ func buildDescribeOutput(
 	// so callers cannot read EventsTruncated=false while ReturnedEvents<TotalEvents.
 	out.EventsTruncated = out.TotalEvents > out.ReturnedEvents
 	return out
+}
+
+// eventSlimFields lists the per-event paths stripped from the describe
+// response. The defaults below were tuned against live workloads: each
+// event previously carried ~340 bytes of bookkeeping (uid, resourceVersion,
+// the event's own metadata.creationTimestamp, the involvedObject duplication
+// of uid/apiVersion/resourceVersion, an always-empty reportingInstance).
+// Keeping them out shrinks describe responses for busy controllers by
+// several KB without losing any diagnostic signal —
+// firstTimestamp/lastTimestamp/eventTime/count/reason/message/
+// involvedObject.{kind,name,namespace} all stay.
+//
+// Note: eventTime is intentionally NOT stripped. Newer event reporters
+// (kyverno-scan, controller-runtime) populate eventTime instead of
+// firstTimestamp/lastTimestamp, so removing it would leave those events
+// without any timestamp at all. The 30-byte cost per event is worth it.
+//
+// The list is invariant, so it lives at package scope rather than being
+// re-allocated on every describe call. SlimResource never mutates its
+// excludedFields argument, so sharing the slice across calls is safe.
+var eventSlimFields = []string{
+	"metadata.managedFields",
+	"metadata.uid",
+	"metadata.resourceVersion",
+	"metadata.creationTimestamp",
+	"metadata.namespace",
+	"metadata.selfLink",
+	"involvedObject.uid",
+	"involvedObject.resourceVersion",
+	"involvedObject.apiVersion",
+	"reportingInstance",
 }
 
 // effectiveEventTime returns the best available timestamp for sorting:
@@ -695,7 +932,7 @@ func handlePatchResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationPatch, resourceType, namespace, instrumentation.StatusSuccess, duration)
 
 	// Apply output processing (slim output, secret masking)
-	processor := getOutputProcessor(sc)
+	processor := getOutputProcessorForFormat(sc, "")
 	processedObj, err := output.ProcessSingleRuntimeObject(processor, patchResponse.Resource)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process resource: %v", err)), nil

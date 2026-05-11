@@ -4,10 +4,20 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
+
+// eventMessageMaxRunes caps event.message length in summary mode. Empirically
+// (issue #411 bench against a live cluster), kyverno PolicyViolation events
+// run 250–500 chars and dominate summary response size. The first ~240 runes
+// carry the actionable signal ("policy X fail: ... validation error: ..."); the
+// trailing rule path can be re-fetched with kubernetes_get if needed.
+// Truncation is annotated with `messageTruncated` so callers (and the LLM)
+// can tell the message was cut.
+const eventMessageMaxRunes = 240
 
 // ResourceSummary represents a compact view of a Kubernetes resource
 type ResourceSummary struct {
@@ -188,6 +198,64 @@ func extractResourceSpecificInfo(obj *unstructured.Unstructured, summary *Resour
 		extractCronJobInfo(obj, summary)
 	case "node":
 		extractNodeInfo(obj, summary)
+	case "event":
+		extractEventInfo(obj, summary)
+	}
+}
+
+// extractEventInfo populates the summary fields that actually carry an
+// event's signal: type, reason, message, count, the most-recent observed
+// time, and the involved object reference. Without this, the default
+// fullOutput=false summary on `kubernetes_list resourceType=events`
+// returns only generic name/namespace/kind/apiVersion/creationTimestamp/age
+// — none of which are useful for the "what's wrong here?" workflow that
+// is the point of listing events. See issue #411 for the original
+// motivation.
+func extractEventInfo(obj *unstructured.Unstructured, summary *ResourceSummary) {
+	// Status field doubles as event severity (`Normal` / `Warning`); this
+	// mirrors how `kubectl get events` puts the type in the leftmost
+	// column. Callers that group / filter on `summary.Status` get the same
+	// affordance for events as they do for pods.
+	if t, found, _ := unstructured.NestedString(obj.Object, "type"); found {
+		summary.Status = t
+	}
+	if v, found, _ := unstructured.NestedString(obj.Object, "reason"); found && v != "" {
+		summary.Extra["reason"] = v
+	}
+	// Cap message length for summary mode. Truncation is rune-aware so
+	// non-ASCII messages (kyverno often emits arrows / accented chars in
+	// validation errors) never end on a mid-rune boundary, which would
+	// produce invalid UTF-8 in the JSON response.
+	if v, found, _ := unstructured.NestedString(obj.Object, "message"); found && v != "" {
+		msg, truncated := truncateRunes(v, eventMessageMaxRunes)
+		summary.Extra["message"] = msg
+		if truncated {
+			summary.Extra["messageTruncated"] = true
+		}
+	}
+	if c, found, _ := unstructured.NestedInt64(obj.Object, "count"); found && c > 0 {
+		summary.Extra["count"] = c
+	}
+	// Pick the best populated time. Newer event reporters populate
+	// eventTime; classic core/v1 events populate firstTimestamp /
+	// lastTimestamp. Surfacing whichever exists matches the LLM's mental
+	// model of "when did this happen".
+	for _, k := range []string{"lastTimestamp", "eventTime", "firstTimestamp"} {
+		if v, found, _ := unstructured.NestedString(obj.Object, k); found && v != "" {
+			summary.Extra["lastSeen"] = v
+			break
+		}
+	}
+	// involvedObject.{kind,name,namespace} is what the LLM needs to know
+	// which app the event names. Skip the bookkeeping (uid, resourceVersion).
+	io := map[string]any{}
+	for _, k := range []string{"kind", "name", "namespace", "fieldPath"} {
+		if v, found, _ := unstructured.NestedString(obj.Object, "involvedObject", k); found && v != "" {
+			io[k] = v
+		}
+	}
+	if len(io) > 0 {
+		summary.Extra["involvedObject"] = io
 	}
 }
 
@@ -379,6 +447,24 @@ func extractNodeInfo(obj *unstructured.Unstructured, summary *ResourceSummary) {
 			}
 		}
 	}
+}
+
+// truncateRunes returns s capped to maxRunes runes, suffixed with "…" when
+// truncation occurred. Counting in runes (not bytes) keeps the result valid
+// UTF-8 even when s contains multi-byte characters such as arrows or
+// accented characters that kyverno-style validation errors commonly include.
+func truncateRunes(s string, maxRunes int) (truncated string, didTruncate bool) {
+	if utf8.RuneCountInString(s) <= maxRunes {
+		return s, false
+	}
+	runes := 0
+	for i := range s {
+		if runes == maxRunes {
+			return s[:i] + "…", true
+		}
+		runes++
+	}
+	return s, false
 }
 
 // formatAge formats a time duration as a human-readable age string

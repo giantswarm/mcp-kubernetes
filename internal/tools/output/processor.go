@@ -58,10 +58,17 @@ func (p *Processor) processInternal(items []map[string]interface{}, limit int) *
 		result.Metadata.SecretsMasked = true
 	}
 
-	// Apply slim output (remove verbose fields)
+	// Apply slim output (remove verbose fields), then layer Kind-aware
+	// shaping on top. KindShaping is gated on SlimOutput because it
+	// relies on bookkeeping fields already being gone, and a "wide"
+	// output (SlimOutput=false) with surprise per-Kind drops would
+	// violate the documented contract.
 	if p.config.SlimOutput {
 		processed = SlimResources(processed, p.config.ExcludedFields)
 		result.Metadata.SlimApplied = true
+		if p.config.KindShaping {
+			processed = ShapeResources(processed)
+		}
 	}
 
 	// Apply truncation last (so warnings reflect final count)
@@ -105,9 +112,15 @@ func (p *Processor) ProcessSingle(item map[string]interface{}) map[string]interf
 		processed = MaskSecrets(processed)
 	}
 
-	// Apply slim output (remove verbose fields)
+	// Apply slim output, then layer Kind-aware shaping (HelmRelease drops
+	// spec.values / status.history; workload templates collapse long env
+	// lists). KindShaping only runs alongside SlimOutput so callers
+	// asking for the full manifest (output: wide) still get every field.
 	if p.config.SlimOutput {
 		processed = SlimResource(processed, p.config.ExcludedFields)
+		if p.config.KindShaping {
+			processed = ShapeResource(processed)
+		}
 	}
 
 	return processed

@@ -50,6 +50,10 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		mcp.WithString("sinceTime",
 			mcp.Description("Only return log lines after this RFC3339 timestamp (e.g. 2026-04-29T10:00:00Z). Optional."),
 		),
+		mcp.WithString("output",
+			mcp.Description("Accepted for symmetry with kubernetes_list / _get / _describe; currently a no-op for log content. Use tailLines and sinceTime to shape log volume."),
+			mcp.Enum("slim", "normal", "wide", "full"),
+		),
 	)
 	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)
 
