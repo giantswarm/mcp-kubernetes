@@ -15,9 +15,9 @@ const (
 	testTraceID     = "abc123def456"
 	testSpanID      = "span789"
 	testNamespace   = "production"
-	testToolGet     = "kubernetes_get"
-	testToolDelete  = "kubernetes_delete"
-	testToolList    = "kubernetes_list"
+	testToolGet     = "get"
+	testToolDelete  = "delete"
+	testToolList    = "list"
 	testResourcePod = "pods"
 )
 

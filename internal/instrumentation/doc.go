@@ -84,7 +84,7 @@
 //
 // The ToolInvocation type provides structured audit logging for MCP tool calls:
 //
-//	ti := instrumentation.NewToolInvocation("kubernetes_delete").
+//	ti := instrumentation.NewToolInvocation("delete").
 //		WithUser(email, groups).
 //		WithCluster(clusterName).
 //		WithResource(namespace, resourceType, resourceName).

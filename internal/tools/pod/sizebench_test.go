@@ -66,7 +66,7 @@ func responseSize(t *testing.T, result *mcp.CallToolResult) int {
 	return len(tc.Text)
 }
 
-// TestSizeBench_Pod walks five pods and runs kubernetes_logs with output =
+// TestSizeBench_Pod walks five pods and runs the logs tool with output =
 // slim/normal/wide and a few tailLines values. The output arg should not
 // affect log size; tailLines should.
 func TestSizeBench_Pod(t *testing.T) {

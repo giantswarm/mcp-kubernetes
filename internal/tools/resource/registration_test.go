@@ -14,16 +14,16 @@ import (
 
 var (
 	readOnlyResourceTools = []string{
-		"kubernetes_get",
-		"kubernetes_list",
-		"kubernetes_describe",
+		"get",
+		"list",
+		"describe",
 	}
 	mutatingResourceTools = []string{
-		"kubernetes_create",
-		"kubernetes_apply",
-		"kubernetes_delete",
-		"kubernetes_patch",
-		"kubernetes_scale",
+		"create",
+		"apply",
+		"delete",
+		"patch",
+		"scale",
 	}
 )
 
@@ -96,9 +96,9 @@ func TestRegisterResourceTools_Whitelist_RegistersWhitelisted(t *testing.T) {
 	for _, name := range readOnlyResourceTools {
 		assert.Contains(t, tools, name, "read-only tool %q should be registered", name)
 	}
-	assert.Contains(t, tools, "kubernetes_create", "kubernetes_create should be registered when 'create' is whitelisted")
+	assert.Contains(t, tools, "create", "create should be registered when 'create' is whitelisted")
 
-	for _, name := range []string{"kubernetes_apply", "kubernetes_delete", "kubernetes_patch", "kubernetes_scale"} {
+	for _, name := range []string{"apply", "delete", "patch", "scale"} {
 		assert.NotContains(t, tools, name, "tool %q should be hidden when not whitelisted", name)
 	}
 }

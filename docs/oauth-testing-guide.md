@@ -320,7 +320,7 @@ curl -X POST http://localhost:8080/mcp \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "kubernetes_list",
+      "name": "list",
       "arguments": {
         "namespace": "default",
         "resourceType": "pods"

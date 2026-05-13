@@ -314,12 +314,12 @@ func TestWithToolLogger(t *testing.T) {
 	handler := slog.NewJSONHandler(&buf, nil)
 	logger := slog.New(handler)
 
-	toolLogger := WithTool(logger, "kubernetes_list")
+	toolLogger := WithTool(logger, "list")
 	toolLogger.Info("test message")
 
 	output := buf.String()
 	assert.Contains(t, output, "tool")
-	assert.Contains(t, output, "kubernetes_list")
+	assert.Contains(t, output, "\"tool\":\"list\"")
 }
 
 func TestWithClusterLogger(t *testing.T) {

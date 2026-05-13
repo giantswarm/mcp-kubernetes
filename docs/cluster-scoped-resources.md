@@ -19,7 +19,7 @@ The `mcp-kubernetes` server follows kubectl's namespace behavior:
 
 ## Tool Examples
 
-### kubernetes_list
+### list
 
 ```json
 // Lists pods in "default" namespace
@@ -38,7 +38,7 @@ The `mcp-kubernetes` server follows kubectl's namespace behavior:
 {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}
 ```
 
-### kubernetes_get
+### get
 
 ```json
 // Get a pod in default namespace
@@ -54,7 +54,7 @@ The `mcp-kubernetes` server follows kubectl's namespace behavior:
 {"resourceType": "clusterroles", "name": "admin"}
 ```
 
-### kubernetes_describe
+### describe
 
 ```json
 // Describe a deployment
@@ -64,7 +64,7 @@ The `mcp-kubernetes` server follows kubectl's namespace behavior:
 {"resourceType": "nodes", "name": "control-plane-1"}
 ```
 
-### kubernetes_delete
+### delete
 
 ```json
 // Delete a pod
@@ -74,7 +74,7 @@ The `mcp-kubernetes` server follows kubectl's namespace behavior:
 {"resourceType": "persistentvolumes", "name": "pv-001"}
 ```
 
-### kubernetes_patch
+### patch
 
 ```json
 // Patch a deployment
@@ -101,12 +101,12 @@ All resource operations include a `_meta` field that provides transparency about
 ```
 
 This metadata is included in responses from:
-- `kubernetes_get` - wrapped response with resource and `_meta`
-- `kubernetes_list` - paginated response includes `_meta`
-- `kubernetes_describe` - description includes `_meta`
-- `kubernetes_delete` - response with message and `_meta`
-- `kubernetes_patch` - response with patched resource and `_meta`
-- `kubernetes_scale` - response with message, replicas count, and `_meta`
+- `get` - wrapped response with resource and `_meta`
+- `list` - paginated response includes `_meta`
+- `describe` - description includes `_meta`
+- `delete` - response with message and `_meta`
+- `patch` - response with patched resource and `_meta`
+- `scale` - response with message, replicas count, and `_meta`
 
 This helps agents understand:
 - Whether the resource is namespaced or cluster-scoped

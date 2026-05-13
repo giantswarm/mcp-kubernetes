@@ -113,7 +113,7 @@ func responseSize(t *testing.T, result *mcp.CallToolResult) int {
 	return len(tc.Text)
 }
 
-// TestSizeBench_Resource drives kubernetes_get and kubernetes_describe on
+// TestSizeBench_Resource drives the get and describe tools on
 // the workloads from CLUSTERBENCH_WORKLOADS with output=slim/normal/wide
 // and writes a markdown report.
 func TestSizeBench_Resource(t *testing.T) {
@@ -137,8 +137,8 @@ func TestSizeBench_Resource(t *testing.T) {
 		name    string
 		handler func(ctx context.Context, req mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error)
 	}{
-		{name: "kubernetes_get", handler: handleGetResource},
-		{name: "kubernetes_describe", handler: handleDescribeResource},
+		{name: "get", handler: handleGetResource},
+		{name: "describe", handler: handleDescribeResource},
 	}
 
 	for _, w := range workloads {

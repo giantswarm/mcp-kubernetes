@@ -1,6 +1,6 @@
 # Client-Side Filtering
 
-The `kubernetes_list` tool supports client-side filtering to enable advanced filtering scenarios that aren't supported by Kubernetes native field selectors.
+The `list` tool supports client-side filtering to enable advanced filtering scenarios that aren't supported by Kubernetes native field selectors.
 
 ## Overview
 
@@ -10,7 +10,7 @@ Client-side filtering solves this by filtering resources after they are retrieve
 
 ## Usage
 
-Add a `filter` parameter to your `kubernetes_list` call with a JSON object specifying the filter criteria:
+Add a `filter` parameter to your `list` call with a JSON object specifying the filter criteria:
 
 ```json
 {

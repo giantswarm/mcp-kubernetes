@@ -18,28 +18,28 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		return nil
 	}
 
-	// kubernetes_context_list tool
-	listContextsTool := mcp.NewTool("kubernetes_context_list",
+	// context_list tool
+	listContextsTool := mcp.NewTool("context_list",
 		mcp.WithDescription("List all available Kubernetes contexts"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	)
 
-	s.AddTool(listContextsTool, tools.WrapWithAuditLogging("kubernetes_context_list", handleListContexts, sc))
+	s.AddTool(listContextsTool, tools.WrapWithAuditLogging("context_list", handleListContexts, sc))
 
-	// kubernetes_context_get_current tool
-	getCurrentContextTool := mcp.NewTool("kubernetes_context_get_current",
+	// context_get_current tool
+	getCurrentContextTool := mcp.NewTool("context_get_current",
 		mcp.WithDescription("Get the current Kubernetes context"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	)
 
-	s.AddTool(getCurrentContextTool, tools.WrapWithAuditLogging("kubernetes_context_get_current", handleGetCurrentContext, sc))
+	s.AddTool(getCurrentContextTool, tools.WrapWithAuditLogging("context_get_current", handleGetCurrentContext, sc))
 
-	// kubernetes_context_use tool
-	useContextTool := mcp.NewTool("kubernetes_context_use",
+	// context_use tool
+	useContextTool := mcp.NewTool("context_use",
 		mcp.WithDescription("Switch to a different Kubernetes context"),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -52,7 +52,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		),
 	)
 
-	s.AddTool(useContextTool, tools.WrapWithAuditLogging("kubernetes_context_use", handleUseContext, sc))
+	s.AddTool(useContextTool, tools.WrapWithAuditLogging("context_use", handleUseContext, sc))
 
 	return nil
 }

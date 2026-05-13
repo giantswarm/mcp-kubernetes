@@ -22,13 +22,13 @@ var (
 	// readOnlyPodTools are pod tools that are always registered regardless of
 	// non-destructive mode.
 	readOnlyPodTools = []string{
-		"kubernetes_logs",
+		"logs",
 	}
 	// mutatingPodTools are pod tools gated by IsMutatingOperationAllowed —
 	// registered only when non-destructive mode is off, dry-run is on, or the
 	// operation is whitelisted.
 	mutatingPodTools = []string{
-		"kubernetes_exec",
+		"exec",
 	}
 )
 
@@ -122,7 +122,7 @@ func TestRegisterPodTools_Whitelist_RegistersWhitelisted(t *testing.T) {
 	for _, name := range readOnlyPodTools {
 		assert.Contains(t, tools, name)
 	}
-	assert.Contains(t, tools, "kubernetes_exec", "exec should be registered when whitelisted")
+	assert.Contains(t, tools, "exec", "exec should be registered when whitelisted")
 
 	// port-forward is not whitelisted, so the whole port-forward family stays hidden.
 	for _, name := range portForwardTools {

@@ -192,7 +192,7 @@ Response:
        "jsonrpc": "2.0",
        "method": "tools/call",
        "params": {
-         "name": "kubernetes_list",
+         "name": "list",
          "arguments": {
            "namespace": "default",
            "resourceType": "pods"

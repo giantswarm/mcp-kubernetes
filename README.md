@@ -281,29 +281,42 @@ The endpoint path is configurable via `mcpKubernetes.httpEndpoint` in the Helm v
 The MCP server provides the following tools:
 
 ### Resource Management
-- `k8s_get_resource` - Get a specific resource
-- `k8s_list_resources` - List resources with pagination
-- `k8s_describe_resource` - Get detailed resource information
-- `k8s_create_resource` - Create a new resource
-- `k8s_apply_resource` - Apply resource configuration
-- `k8s_delete_resource` - Delete a resource
-- `k8s_patch_resource` - Patch a resource
-- `k8s_scale_resource` - Scale deployments, replicasets, statefulsets
+- `get` - Get a specific resource
+- `list` - List resources with pagination
+- `describe` - Get detailed resource information
+- `create` - Create a new resource
+- `apply` - Apply resource configuration
+- `delete` - Delete a resource
+- `patch` - Patch a resource
+- `scale` - Scale deployments, replicasets, statefulsets
 
 ### Pod Operations
-- `k8s_get_pod_logs` - Get logs from pod containers
-- `k8s_exec_pod` - Execute commands in pod containers
-- `k8s_port_forward_pod` - Set up port forwarding to pods
-- `k8s_port_forward_service` - Set up port forwarding to services
+- `logs` - Get logs from pod containers
+- `exec` - Execute commands in pod containers
+
+### Port Forwarding
+- `port_forward` - Set up port forwarding to a pod or service
+- `list_port_forward_sessions` - List active port-forward sessions
+- `stop_port_forward_session` - Stop a specific port-forward session
+- `stop_all_port_forward_sessions` - Stop all port-forward sessions
 
 ### Context Management
-- `k8s_list_contexts` - List available Kubernetes contexts
-- `k8s_get_current_context` - Get the current context
-- `k8s_switch_context` - Switch to a different context
+- `context_list` - List available Kubernetes contexts
+- `context_get_current` - Get the current context
+- `context_use` - Switch to a different context
 
 ### Cluster Information
-- `k8s_get_api_resources` - Get available API resources
-- `k8s_get_cluster_health` - Get cluster health information
+- `api_resources` - Get available API resources
+- `cluster_health` - Get cluster health information
+
+### Access Control
+- `can_i` - Check whether the current user can perform an action on a resource
+
+### Cluster API (CAPI)
+- `capi_list_clusters` - List Cluster API workload clusters
+- `capi_get_cluster` - Get a Cluster API workload cluster
+- `capi_resolve_cluster` - Resolve a CAPI cluster reference
+- `capi_cluster_health` - Get health information for a CAPI workload cluster
 
 ## Development
 
