@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	mcpoauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/handler"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -591,7 +591,7 @@ func TestHandleCanI_Allowed(t *testing.T) {
 		Email:  "test@example.com",
 		Groups: []string{"developers"},
 	}
-	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+	ctx = handler.ContextWithUserInfo(ctx, userInfo)
 
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessResult: &federation.AccessCheckResult{
@@ -639,7 +639,7 @@ func TestHandleCanI_Denied(t *testing.T) {
 		Email:  "dev@example.com",
 		Groups: []string{"developers"},
 	}
-	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+	ctx = handler.ContextWithUserInfo(ctx, userInfo)
 
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessResult: &federation.AccessCheckResult{
@@ -683,7 +683,7 @@ func TestHandleCanI_WithCluster(t *testing.T) {
 		Email:  "test@example.com",
 		Groups: []string{"developers"},
 	}
-	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+	ctx = handler.ContextWithUserInfo(ctx, userInfo)
 
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessResult: &federation.AccessCheckResult{
@@ -723,7 +723,7 @@ func TestHandleCanI_WithEvaluationError(t *testing.T) {
 		Email:  "test@example.com",
 		Groups: []string{"developers"},
 	}
-	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+	ctx = handler.ContextWithUserInfo(ctx, userInfo)
 
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessResult: &federation.AccessCheckResult{
@@ -769,7 +769,7 @@ func TestHandleCanI_ValidationError(t *testing.T) {
 		Email:  "test@example.com",
 		Groups: []string{"developers"},
 	}
-	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+	ctx = handler.ContextWithUserInfo(ctx, userInfo)
 
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessErr: federation.ErrInvalidAccessCheck,
@@ -801,7 +801,7 @@ func TestHandleCanI_NonValidationError(t *testing.T) {
 		Email:  "test@example.com",
 		Groups: []string{"developers"},
 	}
-	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+	ctx = handler.ContextWithUserInfo(ctx, userInfo)
 
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessErr: federation.ErrAccessCheckFailed,
@@ -834,7 +834,7 @@ func TestHandleCanI_AllOptionalParams(t *testing.T) {
 		Email:  "test@example.com",
 		Groups: []string{"developers"},
 	}
-	ctx = mcpoauth.ContextWithUserInfo(ctx, userInfo)
+	ctx = handler.ContextWithUserInfo(ctx, userInfo)
 
 	mockManager := &testdata.MockFederationManager{
 		CheckAccessResult: &federation.AccessCheckResult{

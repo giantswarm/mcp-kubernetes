@@ -12,6 +12,8 @@ import (
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/handler"
+	oauthinstrumentation "github.com/giantswarm/mcp-oauth/instrumentation"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
@@ -313,7 +315,7 @@ type RedirectURISecurityConfig struct {
 type OAuthHTTPServer struct {
 	mcpServer               *mcpserver.MCPServer
 	oauthServer             *oauth.Server
-	oauthHandler            *oauth.Handler
+	oauthHandler            *handler.Handler
 	tokenStore              storage.TokenStore
 	httpServer              *http.Server
 	serverType              string // "streamable-http"
@@ -510,15 +512,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
 		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
 
-		// Instrumentation for mcp-oauth internal metrics (CIMD, rate limiting, etc.)
-		// Uses Prometheus exporter to expose metrics alongside mcp-kubernetes metrics
-		Instrumentation: oauthserver.InstrumentationConfig{
-			Enabled:         true,
-			ServiceName:     "mcp-kubernetes",
-			ServiceVersion:  config.ServiceVersion,
-			MetricsExporter: "prometheus",
-		},
-
 		// TrustedAudiences for SSO token forwarding from upstream aggregators
 		// Allows accepting tokens issued to other clients (e.g., muster)
 		TrustedAudiences: config.TrustedAudiences,
@@ -547,18 +540,20 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		serverConfig.Interstitial = config.Interstitial
 	}
 
-	// Create OAuth server
-	server, err := oauth.NewServer(
-		provider,
-		tokenStore,  // TokenStore
-		clientStore, // ClientStore
-		flowStore,   // FlowStore
-		serverConfig,
-		logger,
-	)
+	var opts []oauth.ServerOption
+
+	// Instrumentation for mcp-oauth internal metrics (CIMD, rate limiting, etc.)
+	// Uses Prometheus exporter to expose metrics alongside mcp-kubernetes metrics.
+	inst, err := oauthinstrumentation.New(oauthinstrumentation.Config{
+		Enabled:         true,
+		ServiceName:     "mcp-kubernetes",
+		ServiceVersion:  config.ServiceVersion,
+		MetricsExporter: "prometheus",
+	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
+		return nil, nil, fmt.Errorf("failed to create instrumentation: %w", err)
 	}
+	opts = append(opts, oauth.WithInstrumentation(inst))
 
 	// Set up encryption if key provided (only for memory storage; Valkey encryption is set above)
 	if len(config.EncryptionKey) > 0 && config.Storage.Type != OAuthStorageTypeValkey {
@@ -566,23 +561,23 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
 		}
-		server.SetEncryptor(encryptor)
+		opts = append(opts, oauth.WithEncryptor(encryptor))
 		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
 	}
 
 	// Set up audit logging (always enabled for security)
 	auditor := security.NewAuditor(logger, true)
-	server.SetAuditor(auditor)
+	opts = append(opts, oauth.WithAuditor(auditor))
 	logger.Info("Security audit logging enabled")
 
 	// Set up IP-based rate limiting
 	ipRateLimiter := security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)
-	server.SetRateLimiter(ipRateLimiter)
+	opts = append(opts, oauth.WithRateLimiter(ipRateLimiter))
 	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
 
 	// Set up user-based rate limiting
 	userRateLimiter := security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)
-	server.SetUserRateLimiter(userRateLimiter)
+	opts = append(opts, oauth.WithUserRateLimiter(userRateLimiter))
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
 
 	// Set up client registration rate limiting with configured maxClientsPerIP
@@ -593,10 +588,24 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		security.DefaultMaxRegistrationEntries,
 		logger,
 	)
-	server.SetClientRegistrationRateLimiter(clientRegRL)
+	opts = append(opts, oauth.WithClientRegistrationRateLimiter(clientRegRL))
 	logger.Info("Client registration rate limiting enabled",
 		"maxClientsPerIP", maxClientsPerIP,
 		"window", security.DefaultRegistrationWindow)
+
+	// Create OAuth server
+	server, err := oauth.NewServer(
+		provider,
+		tokenStore,  // TokenStore
+		clientStore, // ClientStore
+		flowStore,   // FlowStore
+		serverConfig,
+		logger,
+		opts...,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
+	}
 
 	return server, tokenStore, nil
 }
@@ -609,7 +618,7 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 	}
 
 	// Create HTTP handler
-	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
+	oauthHandler := handler.New(oauthServer, oauthServer.Logger)
 
 	return &OAuthHTTPServer{
 		mcpServer:               mcpServer,
@@ -631,7 +640,7 @@ func CreateOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 // NewOAuthHTTPServerWithServer creates a new OAuth-enabled HTTP server with an existing OAuth server
 func NewOAuthHTTPServerWithServer(mcpServer *mcpserver.MCPServer, serverType string, oauthServer *oauth.Server, tokenStore storage.TokenStore, disableStreaming bool) (*OAuthHTTPServer, error) {
 	// Create HTTP handler
-	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
+	oauthHandler := handler.New(oauthServer, oauthServer.Logger)
 
 	return &OAuthHTTPServer{
 		mcpServer:        mcpServer,
@@ -800,7 +809,7 @@ func (s *OAuthHTTPServer) GetOAuthServer() *oauth.Server {
 }
 
 // GetOAuthHandler returns the OAuth handler for testing or direct access
-func (s *OAuthHTTPServer) GetOAuthHandler() *oauth.Handler {
+func (s *OAuthHTTPServer) GetOAuthHandler() *handler.Handler {
 	return s.oauthHandler
 }
 
@@ -873,7 +882,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		// Get user info from context (set by ValidateToken middleware)
 		// This confirms the token has been validated
-		userInfo, ok := oauth.UserInfoFromContext(ctx)
+		userInfo, ok := handler.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil {
 			slog.Debug("AccessTokenInjector: no user info in context")
 			recordMetric(ctx, "no_user")
