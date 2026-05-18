@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	mcpoauth "github.com/giantswarm/mcp-oauth"
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +55,7 @@ func TestWrapWithAuditLogging_ExtractsUserInfo(t *testing.T) {
 		Email:  "user@example.com",
 		Groups: []string{"admin", "developers"},
 	}
-	ctx := mcpoauth.ContextWithUserInfo(context.Background(), userInfo)
+	ctx := oauthhandler.ContextWithUserInfo(context.Background(), userInfo)
 
 	request := createTestRequest(nil)
 	_, err := wrapped(ctx, request)

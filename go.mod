@@ -6,7 +6,7 @@ toolchain go1.26.3
 
 require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
-	github.com/giantswarm/mcp-oauth v0.2.119
+	github.com/giantswarm/mcp-oauth v0.2.140
 	github.com/mark3labs/mcp-go v0.54.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/cobra v1.10.2
@@ -43,12 +43,12 @@ require (
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-fed/httpsig v1.1.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.1 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.1 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
@@ -76,7 +76,7 @@ require (
 	github.com/spf13/cast v1.9.2 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
-	github.com/valkey-io/valkey-go v1.0.74 // indirect
+	github.com/valkey-io/valkey-go v1.0.75 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.9.1 // indirect

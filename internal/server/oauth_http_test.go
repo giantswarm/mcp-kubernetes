@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	mcpoauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
@@ -527,7 +527,7 @@ func TestAccessTokenInjectorMiddleware_SSOToken(t *testing.T) {
 		Email:       "test@example.com",
 		TokenSource: providers.TokenSourceSSO,
 	}
-	ctx := mcpoauth.ContextWithUserInfo(req.Context(), userInfo)
+	ctx := handler.ContextWithUserInfo(req.Context(), userInfo)
 	req = req.WithContext(ctx)
 
 	// Execute the middleware
@@ -626,7 +626,7 @@ func TestAccessTokenInjectorMiddleware_NoBearerToken(t *testing.T) {
 		Email:       "test@example.com",
 		TokenSource: providers.TokenSourceSSO,
 	}
-	ctx := mcpoauth.ContextWithUserInfo(req.Context(), userInfo)
+	ctx := handler.ContextWithUserInfo(req.Context(), userInfo)
 	req = req.WithContext(ctx)
 
 	rr := httptest.NewRecorder()
@@ -663,7 +663,7 @@ func TestAccessTokenInjectorMiddleware_NilTokenStoreWithOAuthToken(t *testing.T)
 		Email:       "oauth-user@example.com",
 		TokenSource: providers.TokenSourceOAuth, // OAuth, not SSO
 	}
-	ctx := mcpoauth.ContextWithUserInfo(req.Context(), userInfo)
+	ctx := handler.ContextWithUserInfo(req.Context(), userInfo)
 	req = req.WithContext(ctx)
 
 	rr := httptest.NewRecorder()

@@ -3,7 +3,7 @@ package oauth
 import (
 	"context"
 
-	mcpoauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
 )
@@ -60,7 +60,7 @@ func GetIDTokenFromContext(ctx context.Context) (string, bool) {
 //	}
 //	// Use user.Email, user.Groups, user.ID, etc.
 func UserInfoFromContext(ctx context.Context) (*UserInfo, bool) {
-	return mcpoauth.UserInfoFromContext(ctx)
+	return handler.UserInfoFromContext(ctx)
 }
 
 // HasUserInfo checks if the context contains authenticated user information.

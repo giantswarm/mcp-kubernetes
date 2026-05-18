@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	mcpoauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/handler"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +24,7 @@ func contextWithUserInfo(email string, groups []string) context.Context {
 		Email:  email,
 		Groups: groups,
 	}
-	return mcpoauth.ContextWithUserInfo(context.Background(), userInfo)
+	return handler.ContextWithUserInfo(context.Background(), userInfo)
 }
 
 func TestListClustersWithOptions(t *testing.T) {
@@ -1292,7 +1292,7 @@ func TestGetUserFromContext_EmptyEmail(t *testing.T) {
 		Email:  "", // Empty email
 		Groups: []string{"developers"},
 	}
-	ctx := mcpoauth.ContextWithUserInfo(context.Background(), userInfo)
+	ctx := handler.ContextWithUserInfo(context.Background(), userInfo)
 
 	user, err := getUserFromContext(ctx)
 	assert.Nil(t, user)
