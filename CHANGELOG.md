@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bump `giantswarm/architect` orb to `8.1.0` and migrate all three image pushes from the deprecated `push-to-registries-multiarch` job to `push-to-registries` with `multiarch: true`. Picks up the v8.1.0 QEMU/binfmt auto-registration, hardened buildx bootstrap, and standard OCI image labels.
+
 ### Added
 
 - Enable JSON-Schema input validation for every tool (per [SEP-1303](https://modelcontextprotocol.io/seps/1303-input-validation-errors-as-tool-execution-errors)). Calls with unknown property names, wrong types, or missing required fields now return a structured tool execution error instead of being silently dropped — for example, sending `cursor` instead of `continue` to `kubernetes_list` is rejected with a message the model can self-correct from ([#36458](https://github.com/giantswarm/giantswarm/issues/36458)). The `port_forward` tool retains a `podName` parameter as a deprecated alias for `resourceName`.
