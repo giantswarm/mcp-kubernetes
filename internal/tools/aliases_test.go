@@ -77,6 +77,38 @@ func TestMaybeAddDeprecatedAlias_HandlerCalledViaAlias(t *testing.T) {
 	assert.True(t, called, "calling the alias should invoke the primary's handler")
 }
 
+func TestIsDeprecatedAlias(t *testing.T) {
+	assert.True(t, IsDeprecatedAlias("kubernetes_get"), "kubernetes_get should be recognised as a deprecated alias")
+	assert.True(t, IsDeprecatedAlias("kubernetes_context_use"), "kubernetes_context_use should be recognised as a deprecated alias")
+	assert.False(t, IsDeprecatedAlias("get"), "bare primary name should not be flagged as an alias")
+	assert.False(t, IsDeprecatedAlias("port_forward"), "tools never aliased should not be flagged")
+	assert.False(t, IsDeprecatedAlias(""), "empty string should not be flagged")
+}
+
+func TestHideDeprecatedAliasesFilter(t *testing.T) {
+	input := []mcp.Tool{
+		{Name: "get", Description: "Get a resource"},
+		{Name: "kubernetes_get", Description: "[DEPRECATED] Use `get` instead."},
+		{Name: "port_forward", Description: "Port-forward to a pod"},
+		{Name: "kubernetes_context_use", Description: "[DEPRECATED] Use `context_use` instead."},
+		{Name: "context_use", Description: "Switch context"},
+	}
+
+	filtered := HideDeprecatedAliasesFilter(context.Background(), input)
+
+	names := make([]string, 0, len(filtered))
+	for _, t := range filtered {
+		names = append(names, t.Name)
+	}
+	assert.ElementsMatch(t, []string{"get", "port_forward", "context_use"}, names,
+		"filter should keep primaries and tools without aliases, drop deprecated aliases")
+}
+
+func TestHideDeprecatedAliasesFilter_EmptyInput(t *testing.T) {
+	assert.Empty(t, HideDeprecatedAliasesFilter(context.Background(), nil))
+	assert.Empty(t, HideDeprecatedAliasesFilter(context.Background(), []mcp.Tool{}))
+}
+
 func TestDeprecatedAliasMap_AllPrefixedConsistently(t *testing.T) {
 	for primary, alias := range deprecatedAliasFor {
 		assert.True(t, strings.HasPrefix(alias, "kubernetes_"),

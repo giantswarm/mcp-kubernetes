@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -8,6 +9,41 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
+
+// deprecatedAliasNames is the inverted view of deprecatedAliasFor: a set of
+// every alias name. Built once at init() so IsDeprecatedAlias is a cheap map
+// lookup.
+var deprecatedAliasNames = func() map[string]struct{} {
+	out := make(map[string]struct{}, len(deprecatedAliasFor))
+	for _, alias := range deprecatedAliasFor {
+		out[alias] = struct{}{}
+	}
+	return out
+}()
+
+// IsDeprecatedAlias reports whether name is a deprecated backward-compat alias
+// registered by MaybeAddDeprecatedAlias.
+func IsDeprecatedAlias(name string) bool {
+	_, ok := deprecatedAliasNames[name]
+	return ok
+}
+
+// HideDeprecatedAliasesFilter is a mcpserver.ToolFilterFunc that strips
+// deprecated aliases out of the tools/list response. The aliases remain
+// fully invokable via tools/call (the mcp-go filter chain only runs on list),
+// so existing clients calling kubernetes_<name> keep working, but new
+// clients can't discover the deprecated names. Pair this with
+// MaybeAddDeprecatedAlias on the registration side.
+func HideDeprecatedAliasesFilter(_ context.Context, tools []mcp.Tool) []mcp.Tool {
+	out := tools[:0]
+	for _, t := range tools {
+		if IsDeprecatedAlias(t.Name) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
 
 // deprecatedAliasFor maps a current (bare) tool name to the deprecated
 // `kubernetes_`-prefixed name kept as a backward-compatibility alias.
