@@ -41,6 +41,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	apiResourcesTool := mcp.NewTool("api_resources", apiResourcesOpts...)
 
 	s.AddTool(apiResourcesTool, tools.WrapWithAuditLogging("api_resources", handleGetAPIResources, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "api_resources", handleGetAPIResources, apiResourcesOpts...)
 
 	// cluster_health tool
 	clusterHealthOpts := []mcp.ToolOption{
@@ -63,6 +64,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	clusterHealthTool := mcp.NewTool("cluster_health", clusterHealthOpts...)
 
 	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("cluster_health", handleGetClusterHealth, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "cluster_health", handleGetClusterHealth, clusterHealthOpts...)
 
 	return nil
 }

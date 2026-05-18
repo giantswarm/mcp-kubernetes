@@ -19,27 +19,27 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	}
 
 	// context_list tool
-	listContextsTool := mcp.NewTool("context_list",
+	listContextsOpts := []mcp.ToolOption{
 		mcp.WithDescription("List all available Kubernetes contexts"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
-	)
-
-	s.AddTool(listContextsTool, tools.WrapWithAuditLogging("context_list", handleListContexts, sc))
+	}
+	s.AddTool(mcp.NewTool("context_list", listContextsOpts...), tools.WrapWithAuditLogging("context_list", handleListContexts, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "context_list", handleListContexts, listContextsOpts...)
 
 	// context_get_current tool
-	getCurrentContextTool := mcp.NewTool("context_get_current",
+	getCurrentContextOpts := []mcp.ToolOption{
 		mcp.WithDescription("Get the current Kubernetes context"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
-	)
-
-	s.AddTool(getCurrentContextTool, tools.WrapWithAuditLogging("context_get_current", handleGetCurrentContext, sc))
+	}
+	s.AddTool(mcp.NewTool("context_get_current", getCurrentContextOpts...), tools.WrapWithAuditLogging("context_get_current", handleGetCurrentContext, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "context_get_current", handleGetCurrentContext, getCurrentContextOpts...)
 
 	// context_use tool
-	useContextTool := mcp.NewTool("context_use",
+	useContextOpts := []mcp.ToolOption{
 		mcp.WithDescription("Switch to a different Kubernetes context"),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -50,9 +50,9 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 			mcp.Required(),
 			mcp.Description("Name of the Kubernetes context to switch to"),
 		),
-	)
-
-	s.AddTool(useContextTool, tools.WrapWithAuditLogging("context_use", handleUseContext, sc))
+	}
+	s.AddTool(mcp.NewTool("context_use", useContextOpts...), tools.WrapWithAuditLogging("context_use", handleUseContext, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "context_use", handleUseContext, useContextOpts...)
 
 	return nil
 }

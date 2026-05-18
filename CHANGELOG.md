@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:** Removed the `kubernetes_` prefix from MCP tool names. The 15 affected tools (`get`, `list`, `describe`, `create`, `apply`, `delete`, `patch`, `scale`, `logs`, `exec`, `api_resources`, `cluster_health`, `context_list`, `context_get_current`, `context_use`) are now registered under their bare names, matching the existing `port_forward` family. No deprecated aliases are kept — clients must update their tool references. Prometheus metric names (`mcp_kubernetes_*`, `kubernetes_pod_operations_total`, `kubernetes_pod_operation_duration_seconds`) are unaffected.
+- Renamed 15 MCP tools to drop the `kubernetes_` prefix: `get`, `list`, `describe`, `create`, `apply`, `delete`, `patch`, `scale`, `logs`, `exec`, `api_resources`, `cluster_health`, `context_list`, `context_get_current`, `context_use`. They now match the existing `port_forward` family. The previous `kubernetes_<name>` names continue to work as deprecated aliases (visible in the tool list with a `[DEPRECATED]` description pointing to the new name) so existing clients keep working without changes. The aliases will be removed in a future release; please migrate at your convenience. Prometheus metric names (`mcp_kubernetes_*`, `kubernetes_pod_operations_total`, `kubernetes_pod_operation_duration_seconds`) are unaffected.
 
 ### Added
 

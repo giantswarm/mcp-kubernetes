@@ -278,7 +278,7 @@ The endpoint path is configurable via `mcpKubernetes.httpEndpoint` in the Helm v
 
 ## Available Tools
 
-The MCP server provides the following tools:
+The MCP server provides the following tools. The 15 tools that previously had a `kubernetes_` prefix are also exposed under their old `kubernetes_<name>` names as deprecated aliases for backward compatibility; please migrate to the bare names below.
 
 ### Resource Management
 - `get` - Get a specific resource

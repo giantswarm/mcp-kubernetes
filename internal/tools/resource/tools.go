@@ -130,6 +130,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	getResourceTool := mcp.NewTool("get", getResourceOpts...)
 
 	s.AddTool(getResourceTool, tools.WrapWithAuditLogging("get", handleGetResource, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "get", handleGetResource, getResourceOpts...)
 
 	// list tool
 	listResourceOpts := []mcp.ToolOption{
@@ -209,6 +210,7 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 	listResourceTool := mcp.NewTool("list", listResourceOpts...)
 
 	s.AddTool(listResourceTool, tools.WrapWithAuditLogging("list", handleListResources, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "list", handleListResources, listResourceOpts...)
 
 	// describe tool
 	describeResourceOpts := []mcp.ToolOption{
@@ -252,6 +254,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 	describeResourceTool := mcp.NewTool("describe", describeResourceOpts...)
 
 	s.AddTool(describeResourceTool, tools.WrapWithAuditLogging("describe", handleDescribeResource, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "describe", handleDescribeResource, describeResourceOpts...)
 
 	// create tool
 	createResourceOpts := []mcp.ToolOption{
@@ -427,4 +430,5 @@ func addMutatingTool(
 		return
 	}
 	s.AddTool(mcp.NewTool(name, opts...), tools.WrapWithAuditLogging(name, handler, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, name, handler, opts...)
 }

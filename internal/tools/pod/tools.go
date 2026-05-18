@@ -58,6 +58,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	logsTool := mcp.NewTool("logs", logsOpts...)
 
 	s.AddTool(logsTool, tools.WrapWithAuditLogging("logs", handleGetLogs, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "logs", handleGetLogs, logsOpts...)
 
 	// exec tool
 	if tools.IsMutatingOperationAllowed(sc, "exec") {
@@ -94,6 +95,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		execTool := mcp.NewTool("exec", execOpts...)
 
 		s.AddTool(execTool, tools.WrapWithAuditLogging("exec", handleExec, sc))
+		tools.MaybeAddDeprecatedAlias(s, sc, "exec", handleExec, execOpts...)
 	}
 
 	// Port forwarding tools are only registered when NOT running in in-cluster mode

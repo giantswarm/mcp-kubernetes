@@ -83,6 +83,33 @@ func TestRegisterResourceTools_DryRun_RegistersAll(t *testing.T) {
 	}
 }
 
+func TestRegisterResourceTools_RegistersDeprecatedAliases(t *testing.T) {
+	tools := registerResourceToolsWith(t,
+		server.WithNonDestructiveMode(false),
+	)
+
+	for _, primary := range append(readOnlyResourceTools, mutatingResourceTools...) {
+		alias := "kubernetes_" + primary
+		entry, ok := tools[alias]
+		require.True(t, ok, "deprecated alias %q should be registered alongside %q", alias, primary)
+		assert.Contains(t, entry.Tool.Description, "[DEPRECATED]",
+			"alias %q description should advertise its deprecation", alias)
+	}
+}
+
+func TestRegisterResourceTools_AliasesGatedWithPrimaries(t *testing.T) {
+	tools := registerResourceToolsWith(t,
+		server.WithNonDestructiveMode(true),
+		server.WithDryRun(false),
+	)
+
+	for _, primary := range mutatingResourceTools {
+		alias := "kubernetes_" + primary
+		assert.NotContains(t, tools, alias,
+			"alias %q should be hidden in non-destructive mode along with its primary", alias)
+	}
+}
+
 func TestRegisterResourceTools_Whitelist_RegistersWhitelisted(t *testing.T) {
 	customConfig := server.NewDefaultConfig()
 	customConfig.NonDestructiveMode = true
