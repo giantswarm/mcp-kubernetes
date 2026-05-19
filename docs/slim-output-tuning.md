@@ -1,8 +1,8 @@
 # Slim-output tuning notes
 
 This page records the methodology behind the default `excludedFields` list
-used by `output: slim` (the default) on `kubernetes_get`, `kubernetes_list`,
-and `kubernetes_describe`.
+used by `output: slim` (the default) on `get`, `list`,
+and `describe`.
 
 ## Methodology
 
@@ -15,11 +15,11 @@ inline `// round-N` comments in `internal/tools/output/config.go`,
 `internal/tools/resource/handlers.go` reference the same numbering.
 Each round:
 
-1. drove `kubernetes_get` and `kubernetes_describe` against five
+1. drove `get` and `describe` against five
    representative workloads — a deployment, a statefulset, a daemonset, a
    node, and a Secret — across all three values of `output` (`slim`,
    `normal`, `wide`);
-2. drove `kubernetes_logs` against five running pods with three `tailLines`
+2. drove `logs` against five running pods with three `tailLines`
    values across the same three `output` values to confirm `output` is a
    no-op for log content;
 3. measured the JSON byte size of the response that would have been returned
@@ -60,7 +60,7 @@ includes the rationale and the rough impact pattern observed in tuning.
 | `spec.template.metadata.creationTimestamp` | Always `null` on PodSpec templates. | ~40 B / pod template |
 | `status.images` | List of every container image cached on a Node. **Single biggest win**: this list is typically the dominant component of a Node response. | several KB / node |
 
-## Per-event slim list (kubernetes_describe)
+## Per-event slim list (describe)
 
 `buildDescribeOutput` additionally strips the following from each event in
 the response (`internal/tools/resource/handlers.go:eventSlimFields`). On a
@@ -79,9 +79,9 @@ controller-runtime) populate `eventTime` instead of
 `firstTimestamp`/`lastTimestamp`, so removing it would leave those events
 without any timestamp at all. The 30-byte cost per event is worth it.
 
-## Convenience metadata slim (kubernetes_describe)
+## Convenience metadata slim (describe)
 
-`kubernetes_describe` returns a convenience top-level `metadata` map that
+`describe` returns a convenience top-level `metadata` map that
 duplicates `resource.metadata.{labels, annotations, uid, resourceVersion,
 creationTimestamp, kind, apiVersion}` for callers that want a quick lookup
 without parsing the whole resource. The describe handler now wraps the
@@ -166,7 +166,7 @@ needs.
 Across the five tuned workload shapes (deployment, statefulset, daemonset,
 node, secret), measured slim-vs-wide reductions ranged from roughly 40% to
 over 80%, with the largest reductions on Nodes (the `status.images` strip
-dominates) and on `kubernetes_describe` of busy controllers (per-event slim
+dominates) and on `describe` of busy controllers (per-event slim
 is the dominant win there). Secret data stays masked across all three
 formats.
 
@@ -227,6 +227,6 @@ repository.
 ## Secret-masking sanity
 
 The bench specifically pinned that `secret.data.*` is replaced with
-`***REDACTED***` for all three values of `output` on both `kubernetes_get`
-and `kubernetes_describe`. Secret masking is independent of `output` and
+`***REDACTED***` for all three values of `output` on both `get`
+and `describe`. Secret masking is independent of `output` and
 follows the server-level `MaskSecrets` config (default `true`).

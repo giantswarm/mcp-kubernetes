@@ -14,9 +14,9 @@ import (
 )
 
 // TestInputSchemaValidation_LogsAcceptsOutputArg pins the fix for
-// giantswarm/mcp-kubernetes#409 on the pod side: kubernetes_logs must accept
-// the `output` argument for argument-shape symmetry with kubernetes_list /
-// _get / _describe, even though it is currently a no-op for log content.
+// giantswarm/mcp-kubernetes#409 on the pod side: the logs tool must accept
+// the `output` argument for argument-shape symmetry with list / get /
+// describe, even though it is currently a no-op for log content.
 func TestInputSchemaValidation_LogsAcceptsOutputArg(t *testing.T) {
 	srv := mcpserver.NewMCPServer("test", "0.0.0",
 		mcpserver.WithToolCapabilities(true),
@@ -31,7 +31,7 @@ func TestInputSchemaValidation_LogsAcceptsOutputArg(t *testing.T) {
 
 	require.NoError(t, RegisterPodTools(srv, sc))
 
-	resp := mcptest.CallTool(t, srv, "kubernetes_logs", map[string]any{
+	resp := mcptest.CallTool(t, srv, "logs", map[string]any{
 		"namespace": "default",
 		"podName":   "test",
 		"output":    "slim",

@@ -4,17 +4,17 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 )
 
-// Default and maximum values for the kubernetes_describe eventsLimit param.
+// Default and maximum values for the describe tool's eventsLimit param.
 const (
 	// DefaultEventsLimit is the default cap on the number of events returned
-	// by kubernetes_describe.
+	// by the describe tool.
 	DefaultEventsLimit = 50
 
 	// MaxEventsLimit is the absolute maximum allowed for eventsLimit.
 	MaxEventsLimit = 1000
 )
 
-// DescribeOutput is the response shape for kubernetes_describe.
+// DescribeOutput is the response shape for the describe tool.
 //
 // The structure mirrors the original map-based response: Resource, Metadata,
 // and Meta come from k8s.ResourceDescription, while Events is the slimmed,

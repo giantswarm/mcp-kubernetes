@@ -62,7 +62,7 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 		return mcp.NewToolResultError("name is required"), nil
 	}
 
-	// Output format mirrors kubernetes_list: slim (default) and normal go through
+	// Output format mirrors the list tool: slim (default) and normal go through
 	// the server-configured slim processor; wide returns the full manifest.
 	outputFormat, _ := args["output"].(string)
 
@@ -260,7 +260,7 @@ func normalizeResourceType(resourceType string) string {
 
 // slimMetadataMap applies "metadata.X"-anchored exclusion paths to a flat,
 // metadata-shaped map (the convenience top-level metadata returned by
-// kubernetes_describe, which duplicates labels / annotations / uid /
+// the describe tool, which duplicates labels / annotations / uid /
 // resourceVersion / creationTimestamp / kind / apiVersion).
 //
 // The DefaultExcludedFields list is anchored at "metadata.…", so we wrap the
@@ -523,7 +523,7 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		eventsLimit = val
 	}
 
-	// Output format mirrors kubernetes_list: slim (default) and normal go through
+	// Output format mirrors the list tool: slim (default) and normal go through
 	// the server-configured slim processor; wide returns the full manifest.
 	outputFormat, _ := args["output"].(string)
 

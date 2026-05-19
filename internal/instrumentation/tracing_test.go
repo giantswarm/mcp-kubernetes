@@ -18,8 +18,8 @@ const (
 	tracingTestDomain     = "giantswarm.io"
 	tracingTestCluster    = "prod-wc-01"
 	tracingTestNamespace  = "production"
-	tracingTestToolGet    = "kubernetes_get"
-	tracingTestToolDelete = "kubernetes_delete"
+	tracingTestToolGet    = "get"
+	tracingTestToolDelete = "delete"
 )
 
 func TestSpanAttributeBuilder(t *testing.T) {

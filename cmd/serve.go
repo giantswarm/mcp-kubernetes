@@ -23,6 +23,7 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/capi"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
 	contexttools "github.com/giantswarm/mcp-kubernetes/internal/tools/context"
@@ -850,6 +851,7 @@ func runServe(config ServeConfig) error {
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithHooks(hooks),
 		mcpserver.WithInputSchemaValidation(),
+		mcpserver.WithToolFilter(tools.HideDeprecatedAliasesFilter),
 	)
 
 	// Register all tool categories

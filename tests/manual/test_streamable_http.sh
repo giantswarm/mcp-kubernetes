@@ -128,14 +128,14 @@ test_tools_list() {
     fi
 }
 
-# Test call tool (kubernetes_list)
+# Test call tool (list)
 test_call_tool() {
     local url="${1:-http://localhost:8080}"
     local token="${2:-}"
     local session_id="${3:-}"
 
     echo ""
-    echo "=== Test 5: Call kubernetes_list tool ==="
+    echo "=== Test 5: Call list tool ==="
 
     response=$(curl -s -X POST "$url/mcp" \
         -H "Content-Type: application/json" \
@@ -143,7 +143,7 @@ test_call_tool() {
         ${token:+-H "Authorization: Bearer $token"} \
         ${session_id:+-H "Mcp-Session-Id: $session_id"} \
         --max-time 30 \
-        -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"kubernetes_list","arguments":{"namespace":"default","resourceType":"pods"}},"id":3}')
+        -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list","arguments":{"namespace":"default","resourceType":"pods"}},"id":3}')
 
     echo "Response (first 1000 chars): ${response:0:1000}"
 

@@ -93,7 +93,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 	// Get cluster/context parameters based on server mode
 	clusterContextParams := tools.AddClusterContextParams(sc)
 
-	// kubernetes_get tool
+	// get tool
 	getResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription(`Get a specific Kubernetes resource by name.
 
@@ -127,11 +127,12 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
-	getResourceTool := mcp.NewTool("kubernetes_get", getResourceOpts...)
+	getResourceTool := mcp.NewTool("get", getResourceOpts...)
 
-	s.AddTool(getResourceTool, tools.WrapWithAuditLogging("kubernetes_get", handleGetResource, sc))
+	s.AddTool(getResourceTool, tools.WrapWithAuditLogging("get", handleGetResource, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "get", handleGetResource, getResourceOpts...)
 
-	// kubernetes_list tool
+	// list tool
 	listResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription(`List Kubernetes resources with optional filtering.
 
@@ -206,11 +207,12 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
-	listResourceTool := mcp.NewTool("kubernetes_list", listResourceOpts...)
+	listResourceTool := mcp.NewTool("list", listResourceOpts...)
 
-	s.AddTool(listResourceTool, tools.WrapWithAuditLogging("kubernetes_list", handleListResources, sc))
+	s.AddTool(listResourceTool, tools.WrapWithAuditLogging("list", handleListResources, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "list", handleListResources, listResourceOpts...)
 
-	// kubernetes_describe tool
+	// describe tool
 	describeResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription(`Get detailed information about a Kubernetes resource including events.
 
@@ -249,11 +251,12 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
-	describeResourceTool := mcp.NewTool("kubernetes_describe", describeResourceOpts...)
+	describeResourceTool := mcp.NewTool("describe", describeResourceOpts...)
 
-	s.AddTool(describeResourceTool, tools.WrapWithAuditLogging("kubernetes_describe", handleDescribeResource, sc))
+	s.AddTool(describeResourceTool, tools.WrapWithAuditLogging("describe", handleDescribeResource, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "describe", handleDescribeResource, describeResourceOpts...)
 
-	// kubernetes_create tool
+	// create tool
 	createResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Create a new Kubernetes resource from a manifest"),
 		mcp.WithReadOnlyHintAnnotation(false),
@@ -273,9 +276,9 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Kubernetes manifest as JSON object"),
 		),
 	)
-	addMutatingTool(s, sc, "create", "kubernetes_create", handleCreateResource, createResourceOpts...)
+	addMutatingTool(s, sc, "create", "create", handleCreateResource, createResourceOpts...)
 
-	// kubernetes_apply tool
+	// apply tool
 	applyResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Apply a Kubernetes manifest (create or update)"),
 		mcp.WithReadOnlyHintAnnotation(false),
@@ -295,9 +298,9 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Kubernetes manifest as JSON object"),
 		),
 	)
-	addMutatingTool(s, sc, "apply", "kubernetes_apply", handleApplyResource, applyResourceOpts...)
+	addMutatingTool(s, sc, "apply", "apply", handleApplyResource, applyResourceOpts...)
 
-	// kubernetes_delete tool
+	// delete tool
 	deleteResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription(`Delete a Kubernetes resource.
 
@@ -329,9 +332,9 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Name of the resource to delete"),
 		),
 	)
-	addMutatingTool(s, sc, "delete", "kubernetes_delete", handleDeleteResource, deleteResourceOpts...)
+	addMutatingTool(s, sc, "delete", "delete", handleDeleteResource, deleteResourceOpts...)
 
-	// kubernetes_patch tool
+	// patch tool
 	patchResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription(`Patch a Kubernetes resource with specific changes.
 
@@ -372,9 +375,9 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Patch data as JSON object"),
 		),
 	)
-	addMutatingTool(s, sc, "patch", "kubernetes_patch", handlePatchResource, patchResourceOpts...)
+	addMutatingTool(s, sc, "patch", "patch", handlePatchResource, patchResourceOpts...)
 
-	// kubernetes_scale tool
+	// scale tool
 	scaleResourceOpts := []mcp.ToolOption{
 		mcp.WithDescription("Scale a Kubernetes resource (deployment, replicaset, etc.)"),
 		mcp.WithReadOnlyHintAnnotation(false),
@@ -405,7 +408,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Number of replicas to scale to"),
 		),
 	)
-	addMutatingTool(s, sc, "scale", "kubernetes_scale", handleScaleResource, scaleResourceOpts...)
+	addMutatingTool(s, sc, "scale", "scale", handleScaleResource, scaleResourceOpts...)
 
 	return nil
 }
@@ -415,7 +418,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 // are not exposed at all, so MCP clients never see them in the tool list.
 //
 // op is the verb checked against AllowedOperations (e.g., "create", "delete").
-// name is the public MCP tool name (e.g., "kubernetes_create").
+// name is the public MCP tool name (e.g., "create").
 func addMutatingTool(
 	s *mcpserver.MCPServer,
 	sc *server.ServerContext,
@@ -427,4 +430,5 @@ func addMutatingTool(
 		return
 	}
 	s.AddTool(mcp.NewTool(name, opts...), tools.WrapWithAuditLogging(name, handler, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, name, handler, opts...)
 }

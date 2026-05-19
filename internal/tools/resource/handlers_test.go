@@ -567,7 +567,7 @@ func TestExplicitNamespaceUsed(t *testing.T) {
 	}
 }
 
-// TestGetResourceDefaultNamespace verifies that kubernetes_get uses default namespace
+// TestGetResourceDefaultNamespace verifies that the get tool uses default namespace
 // when no namespace is provided.
 func TestGetResourceDefaultNamespace(t *testing.T) {
 	ctx := context.Background()
@@ -591,11 +591,11 @@ func TestGetResourceDefaultNamespace(t *testing.T) {
 	if result.IsError {
 		errorText := getErrorText(t, result)
 		assert.NotContains(t, errorText, "namespace is required",
-			"kubernetes_get should not require explicit namespace")
+			"get should not require explicit namespace")
 	}
 }
 
-// TestDescribeResourceDefaultNamespace verifies that kubernetes_describe uses default namespace
+// TestDescribeResourceDefaultNamespace verifies that the describe tool uses default namespace
 // when no namespace is provided.
 func TestDescribeResourceDefaultNamespace(t *testing.T) {
 	ctx := context.Background()
@@ -619,11 +619,11 @@ func TestDescribeResourceDefaultNamespace(t *testing.T) {
 	if result.IsError {
 		errorText := getErrorText(t, result)
 		assert.NotContains(t, errorText, "namespace is required",
-			"kubernetes_describe should not require explicit namespace")
+			"describe should not require explicit namespace")
 	}
 }
 
-// TestDeleteResourceDefaultNamespace verifies that kubernetes_delete uses default namespace
+// TestDeleteResourceDefaultNamespace verifies that the delete tool uses default namespace
 // when no namespace is provided.
 func TestDeleteResourceDefaultNamespace(t *testing.T) {
 	ctx := context.Background()
@@ -649,11 +649,11 @@ func TestDeleteResourceDefaultNamespace(t *testing.T) {
 	if result.IsError {
 		errorText := getErrorText(t, result)
 		assert.NotContains(t, errorText, "namespace is required",
-			"kubernetes_delete should not require explicit namespace")
+			"delete should not require explicit namespace")
 	}
 }
 
-// TestPatchResourceDefaultNamespace verifies that kubernetes_patch uses default namespace
+// TestPatchResourceDefaultNamespace verifies that the patch tool uses default namespace
 // when no namespace is provided.
 func TestPatchResourceDefaultNamespace(t *testing.T) {
 	ctx := context.Background()
@@ -681,7 +681,7 @@ func TestPatchResourceDefaultNamespace(t *testing.T) {
 	if result.IsError {
 		errorText := getErrorText(t, result)
 		assert.NotContains(t, errorText, "namespace is required",
-			"kubernetes_patch should not require explicit namespace")
+			"patch should not require explicit namespace")
 	}
 }
 

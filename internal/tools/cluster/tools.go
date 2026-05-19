@@ -13,7 +13,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	// Get cluster/context parameters based on server mode
 	clusterContextParams := tools.AddClusterContextParams(sc)
 
-	// kubernetes_api_resources tool
+	// api_resources tool
 	apiResourcesOpts := []mcp.ToolOption{
 		mcp.WithDescription("List available API resources in the cluster"),
 		mcp.WithReadOnlyHintAnnotation(true),
@@ -38,11 +38,12 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 			mcp.Description("Number of items to skip (optional, for simple offset-based pagination)"),
 		),
 	)
-	apiResourcesTool := mcp.NewTool("kubernetes_api_resources", apiResourcesOpts...)
+	apiResourcesTool := mcp.NewTool("api_resources", apiResourcesOpts...)
 
-	s.AddTool(apiResourcesTool, tools.WrapWithAuditLogging("kubernetes_api_resources", handleGetAPIResources, sc))
+	s.AddTool(apiResourcesTool, tools.WrapWithAuditLogging("api_resources", handleGetAPIResources, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "api_resources", handleGetAPIResources, apiResourcesOpts...)
 
-	// kubernetes_cluster_health tool
+	// cluster_health tool
 	clusterHealthOpts := []mcp.ToolOption{
 		mcp.WithDescription("Check the health status of cluster components. Returns overall status, component health, and a node list (capped by nodesLimit). Per-node conditions are omitted by default; set includeNodeConditions=true to include them."),
 		mcp.WithReadOnlyHintAnnotation(true),
@@ -60,9 +61,10 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 			mcp.Description("Include the full per-node conditions array in the response (default: false). The Ready field on each node already conveys overall readiness."),
 		),
 	)
-	clusterHealthTool := mcp.NewTool("kubernetes_cluster_health", clusterHealthOpts...)
+	clusterHealthTool := mcp.NewTool("cluster_health", clusterHealthOpts...)
 
-	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("kubernetes_cluster_health", handleGetClusterHealth, sc))
+	s.AddTool(clusterHealthTool, tools.WrapWithAuditLogging("cluster_health", handleGetClusterHealth, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "cluster_health", handleGetClusterHealth, clusterHealthOpts...)
 
 	return nil
 }

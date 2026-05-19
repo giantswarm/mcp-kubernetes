@@ -13,7 +13,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// Get cluster/context parameters based on server mode
 	clusterContextParams := tools.AddClusterContextParams(sc)
 
-	// kubernetes_logs tool
+	// logs tool
 	logsOpts := []mcp.ToolOption{
 		mcp.WithDescription("Get logs from a pod container"),
 		mcp.WithReadOnlyHintAnnotation(true),
@@ -51,15 +51,16 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 			mcp.Description("Only return log lines after this RFC3339 timestamp (e.g. 2026-04-29T10:00:00Z). Optional."),
 		),
 		mcp.WithString("output",
-			mcp.Description("Accepted for symmetry with kubernetes_list / _get / _describe; currently a no-op for log content. Use tailLines and sinceTime to shape log volume."),
+			mcp.Description("Accepted for symmetry with list / get / describe; currently a no-op for log content. Use tailLines and sinceTime to shape log volume."),
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
-	logsTool := mcp.NewTool("kubernetes_logs", logsOpts...)
+	logsTool := mcp.NewTool("logs", logsOpts...)
 
-	s.AddTool(logsTool, tools.WrapWithAuditLogging("kubernetes_logs", handleGetLogs, sc))
+	s.AddTool(logsTool, tools.WrapWithAuditLogging("logs", handleGetLogs, sc))
+	tools.MaybeAddDeprecatedAlias(s, sc, "logs", handleGetLogs, logsOpts...)
 
-	// kubernetes_exec tool
+	// exec tool
 	if tools.IsMutatingOperationAllowed(sc, "exec") {
 		execOpts := []mcp.ToolOption{
 			mcp.WithDescription("Execute a command inside a pod container"),
@@ -91,9 +92,10 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 				mcp.Description("Allocate a TTY for the exec session (default: false)"),
 			),
 		)
-		execTool := mcp.NewTool("kubernetes_exec", execOpts...)
+		execTool := mcp.NewTool("exec", execOpts...)
 
-		s.AddTool(execTool, tools.WrapWithAuditLogging("kubernetes_exec", handleExec, sc))
+		s.AddTool(execTool, tools.WrapWithAuditLogging("exec", handleExec, sc))
+		tools.MaybeAddDeprecatedAlias(s, sc, "exec", handleExec, execOpts...)
 	}
 
 	// Port forwarding tools are only registered when NOT running in in-cluster mode

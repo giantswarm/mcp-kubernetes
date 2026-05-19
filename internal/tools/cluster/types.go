@@ -6,7 +6,7 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 )
 
-// Default and maximum values for the kubernetes_cluster_health nodesLimit param.
+// Default and maximum values for the cluster_health tool's nodesLimit param.
 const (
 	// DefaultNodesLimit is the default cap on the number of nodes returned.
 	DefaultNodesLimit = 20
@@ -15,7 +15,7 @@ const (
 	MaxNodesLimit = 1000
 )
 
-// ClusterHealthOutput is the response shape for kubernetes_cluster_health.
+// ClusterHealthOutput is the response shape for the cluster_health tool.
 // It wraps k8s.ClusterHealth so the tool layer can apply truncation and
 // expose summary counters without changing the k8s.ClusterManager interface.
 type ClusterHealthOutput struct {

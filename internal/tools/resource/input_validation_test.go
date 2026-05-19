@@ -15,12 +15,12 @@ import (
 
 // TestInputSchemaValidation_RejectsUnknownProperty pins the literal motivating
 // scenario from giantswarm/giantswarm#36458: a caller that sends `cursor`
-// instead of `continue` to kubernetes_list must receive a tool execution error
+// instead of `continue` to the list tool must receive a tool execution error
 // referencing the unknown property, so the model can self-correct.
 //
 // This is an end-to-end check that:
 //  1. WithInputSchemaValidation is wired into the server, and
-//  2. WithSchemaAdditionalProperties(false) is set on the kubernetes_list
+//  2. WithSchemaAdditionalProperties(false) is set on the list tool
 //     schema so unknown properties are rejected.
 func TestInputSchemaValidation_RejectsUnknownProperty(t *testing.T) {
 	srv := mcpserver.NewMCPServer("test", "0.0.0",
@@ -36,7 +36,7 @@ func TestInputSchemaValidation_RejectsUnknownProperty(t *testing.T) {
 
 	require.NoError(t, RegisterResourceTools(srv, sc))
 
-	resp := callTool(t, srv, "kubernetes_list", map[string]any{
+	resp := callTool(t, srv, "list", map[string]any{
 		"resourceType": "pods",
 		"cursor":       "some-token",
 	})
@@ -71,7 +71,7 @@ func TestInputSchemaValidation_AcceptsKnownProperty(t *testing.T) {
 
 	require.NoError(t, RegisterResourceTools(srv, sc))
 
-	resp := callTool(t, srv, "kubernetes_list", map[string]any{
+	resp := callTool(t, srv, "list", map[string]any{
 		"resourceType": "pods",
 		"continue":     "some-token",
 	})
@@ -85,7 +85,7 @@ func TestInputSchemaValidation_AcceptsKnownProperty(t *testing.T) {
 
 // TestInputSchemaValidation_OutputArgAcceptedOnSiblingTools pins the fix for
 // giantswarm/mcp-kubernetes#409: workflow authors mix `output: slim` into
-// kubernetes_get and kubernetes_describe calls because kubernetes_list takes
+// get and describe calls because list takes
 // the same argument. Schema validation must accept those calls so the LLM
 // agent doesn't see an opaque `&{[output]}` rejection that flips an entire
 // workflow to isError=true.
@@ -109,8 +109,8 @@ func TestInputSchemaValidation_OutputArgAcceptedOnSiblingTools(t *testing.T) {
 		args     map[string]any
 	}{
 		{
-			name:     "kubernetes_get accepts output=slim",
-			toolName: "kubernetes_get",
+			name:     "get accepts output=slim",
+			toolName: "get",
 			args: map[string]any{
 				"resourceType": "configmap",
 				"name":         "test",
@@ -118,8 +118,8 @@ func TestInputSchemaValidation_OutputArgAcceptedOnSiblingTools(t *testing.T) {
 			},
 		},
 		{
-			name:     "kubernetes_get accepts output=normal",
-			toolName: "kubernetes_get",
+			name:     "get accepts output=normal",
+			toolName: "get",
 			args: map[string]any{
 				"resourceType": "configmap",
 				"name":         "test",
@@ -127,8 +127,8 @@ func TestInputSchemaValidation_OutputArgAcceptedOnSiblingTools(t *testing.T) {
 			},
 		},
 		{
-			name:     "kubernetes_get accepts output=wide",
-			toolName: "kubernetes_get",
+			name:     "get accepts output=wide",
+			toolName: "get",
 			args: map[string]any{
 				"resourceType": "configmap",
 				"name":         "test",
@@ -136,8 +136,8 @@ func TestInputSchemaValidation_OutputArgAcceptedOnSiblingTools(t *testing.T) {
 			},
 		},
 		{
-			name:     "kubernetes_describe accepts output=slim",
-			toolName: "kubernetes_describe",
+			name:     "describe accepts output=slim",
+			toolName: "describe",
 			args: map[string]any{
 				"resourceType": "configmap",
 				"name":         "test",
@@ -185,7 +185,7 @@ func TestInputSchemaValidation_OutputArgRejectsBogusValue(t *testing.T) {
 
 	require.NoError(t, RegisterResourceTools(srv, sc))
 
-	resp := callTool(t, srv, "kubernetes_get", map[string]any{
+	resp := callTool(t, srv, "get", map[string]any{
 		"resourceType": "configmap",
 		"name":         "test",
 		"output":       "bogus",

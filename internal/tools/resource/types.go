@@ -14,7 +14,7 @@ import (
 // (issue #411 bench against a live cluster), kyverno PolicyViolation events
 // run 250–500 chars and dominate summary response size. The first ~240 runes
 // carry the actionable signal ("policy X fail: ... validation error: ..."); the
-// trailing rule path can be re-fetched with kubernetes_get if needed.
+// trailing rule path can be re-fetched with the get tool if needed.
 // Truncation is annotated with `messageTruncated` so callers (and the LLM)
 // can tell the message was cut.
 const eventMessageMaxRunes = 240
@@ -206,7 +206,7 @@ func extractResourceSpecificInfo(obj *unstructured.Unstructured, summary *Resour
 // extractEventInfo populates the summary fields that actually carry an
 // event's signal: type, reason, message, count, the most-recent observed
 // time, and the involved object reference. Without this, the default
-// fullOutput=false summary on `kubernetes_list resourceType=events`
+// fullOutput=false summary on `list resourceType=events`
 // returns only generic name/namespace/kind/apiVersion/creationTimestamp/age
 // — none of which are useful for the "what's wrong here?" workflow that
 // is the point of listing events. See issue #411 for the original

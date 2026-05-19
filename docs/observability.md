@@ -761,7 +761,7 @@ For multi-cluster operations, additional attributes are included:
 
 Spans follow a consistent naming convention:
 
-- `tool.<tool_name>`: MCP tool invocations (e.g., `tool.kubernetes_get`)
+- `tool.<tool_name>`: MCP tool invocations (e.g., `tool.get`)
 - `k8s.<operation>`: Kubernetes API calls (e.g., `k8s.get`, `k8s.list`)
 - `federation.<operation>`: Federation operations (e.g., `federation.GetClient`)
 
@@ -794,14 +794,14 @@ This allows correlation between:
 
 **Jaeger:**
 ```
-service:mcp-kubernetes operation:tool.kubernetes_get
+service:mcp-kubernetes operation:tool.get
 service:mcp-kubernetes mcp.cluster_type=production
 service:mcp-kubernetes mcp.user.domain=giantswarm.io
 ```
 
 **Grafana Tempo:**
 ```
-{ span.mcp.cluster_type = "production" && span.mcp.tool = "kubernetes_delete" }
+{ span.mcp.cluster_type = "production" && span.mcp.tool = "delete" }
 ```
 
 ## Health Endpoints
@@ -914,7 +914,7 @@ Every tool invocation produces a structured log entry:
 {
   "level": "info",
   "msg": "tool_executed",
-  "tool": "kubernetes_delete",
+  "tool": "delete",
   "user_domain": "giantswarm.io",
   "group_count": 3,
   "cluster_type": "production",
@@ -950,7 +950,7 @@ For compliance/audit purposes, a separate log stream can include full details:
 {
   "level": "info",
   "msg": "tool_audit",
-  "tool": "kubernetes_delete",
+  "tool": "delete",
   "user": "jane@giantswarm.io",
   "groups": ["github:org:giantswarm", "platform-team"],
   "cluster": "prod-wc-01",
@@ -979,7 +979,7 @@ For compliance/audit purposes, a separate log stream can include full details:
 {app="mcp-kubernetes"} |= "tool_failed" | json | cluster_type="production"
 
 # Delete operations (security audit)
-{app="mcp-kubernetes"} | json | tool="kubernetes_delete"
+{app="mcp-kubernetes"} | json | tool="delete"
 
 # Correlate logs with trace ID
 {app="mcp-kubernetes"} | json | trace_id="abc123def456"

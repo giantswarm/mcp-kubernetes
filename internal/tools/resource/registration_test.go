@@ -14,16 +14,16 @@ import (
 
 var (
 	readOnlyResourceTools = []string{
-		"kubernetes_get",
-		"kubernetes_list",
-		"kubernetes_describe",
+		"get",
+		"list",
+		"describe",
 	}
 	mutatingResourceTools = []string{
-		"kubernetes_create",
-		"kubernetes_apply",
-		"kubernetes_delete",
-		"kubernetes_patch",
-		"kubernetes_scale",
+		"create",
+		"apply",
+		"delete",
+		"patch",
+		"scale",
 	}
 )
 
@@ -83,6 +83,33 @@ func TestRegisterResourceTools_DryRun_RegistersAll(t *testing.T) {
 	}
 }
 
+func TestRegisterResourceTools_RegistersDeprecatedAliases(t *testing.T) {
+	tools := registerResourceToolsWith(t,
+		server.WithNonDestructiveMode(false),
+	)
+
+	for _, primary := range append(readOnlyResourceTools, mutatingResourceTools...) {
+		alias := "kubernetes_" + primary
+		entry, ok := tools[alias]
+		require.True(t, ok, "deprecated alias %q should be registered alongside %q", alias, primary)
+		assert.Contains(t, entry.Tool.Description, "[DEPRECATED]",
+			"alias %q description should advertise its deprecation", alias)
+	}
+}
+
+func TestRegisterResourceTools_AliasesGatedWithPrimaries(t *testing.T) {
+	tools := registerResourceToolsWith(t,
+		server.WithNonDestructiveMode(true),
+		server.WithDryRun(false),
+	)
+
+	for _, primary := range mutatingResourceTools {
+		alias := "kubernetes_" + primary
+		assert.NotContains(t, tools, alias,
+			"alias %q should be hidden in non-destructive mode along with its primary", alias)
+	}
+}
+
 func TestRegisterResourceTools_Whitelist_RegistersWhitelisted(t *testing.T) {
 	customConfig := server.NewDefaultConfig()
 	customConfig.NonDestructiveMode = true
@@ -96,9 +123,9 @@ func TestRegisterResourceTools_Whitelist_RegistersWhitelisted(t *testing.T) {
 	for _, name := range readOnlyResourceTools {
 		assert.Contains(t, tools, name, "read-only tool %q should be registered", name)
 	}
-	assert.Contains(t, tools, "kubernetes_create", "kubernetes_create should be registered when 'create' is whitelisted")
+	assert.Contains(t, tools, "create", "create should be registered when 'create' is whitelisted")
 
-	for _, name := range []string{"kubernetes_apply", "kubernetes_delete", "kubernetes_patch", "kubernetes_scale"} {
+	for _, name := range []string{"apply", "delete", "patch", "scale"} {
 		assert.NotContains(t, tools, name, "tool %q should be hidden when not whitelisted", name)
 	}
 }
