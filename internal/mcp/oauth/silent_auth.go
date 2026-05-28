@@ -75,9 +75,8 @@ const (
 )
 
 // IsSilentAuthError returns true if the error indicates silent authentication failed
-// and interactive login is required. This checks for:
-//   - *SilentAuthError type (including wrapped errors)
-//   - Error strings containing known silent auth error codes
+// and interactive login is required. Recognizes the typed *SilentAuthError (including
+// wrapped via errors.As) and the ErrSilentAuthFailed sentinel.
 //
 // Use this function to detect when to fall back from silent to interactive login.
 //
