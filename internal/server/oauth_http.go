@@ -430,20 +430,20 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			valkeyConfig.KeyPrefix = valkey.DefaultKeyPrefix
 		}
 
-		valkeyStore, err := valkey.New(valkeyConfig)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
-		}
-
-		// Set up encryption for Valkey store if key is provided
+		var valkeyOpts []valkey.Option
 		if len(config.EncryptionKey) > 0 {
 			encryptor, err := security.NewEncryptor(config.EncryptionKey)
 			if err != nil {
-				// Close the Valkey store on error to release resources
-				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to create encryptor for Valkey storage: %w", err)
 			}
-			valkeyStore.SetEncryptor(encryptor)
+			valkeyOpts = append(valkeyOpts, valkey.WithEncryptor(encryptor))
+		}
+
+		valkeyStore, err := valkey.New(valkeyConfig, valkeyOpts...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
+		}
+		if len(config.EncryptionKey) > 0 {
 			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
 		}
 
@@ -455,7 +455,16 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 	case OAuthStorageTypeMemory, "":
 		// Use memory storage (default)
-		memStore := memory.New()
+		var memOpts []memory.Option
+		if len(config.EncryptionKey) > 0 {
+			encryptor, err := security.NewEncryptor(config.EncryptionKey)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create encryptor for memory storage: %w", err)
+			}
+			memOpts = append(memOpts, memory.WithEncryptor(encryptor))
+			logger.Info("Token encryption at rest enabled for memory storage (AES-256-GCM)")
+		}
+		memStore := memory.New(memOpts...)
 		tokenStore = memStore
 		clientStore = memStore
 		flowStore = memStore
@@ -554,16 +563,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		return nil, nil, fmt.Errorf("failed to create instrumentation: %w", err)
 	}
 	opts = append(opts, oauth.WithInstrumentation(inst))
-
-	// Set up encryption if key provided (only for memory storage; Valkey encryption is set above)
-	if len(config.EncryptionKey) > 0 && config.Storage.Type != OAuthStorageTypeValkey {
-		encryptor, err := security.NewEncryptor(config.EncryptionKey)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
-		}
-		opts = append(opts, oauth.WithEncryptor(encryptor))
-		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
-	}
 
 	// Set up audit logging (always enabled for security)
 	auditor := security.NewAuditor(logger, true)
