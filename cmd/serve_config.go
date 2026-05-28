@@ -313,7 +313,7 @@ type OAuthServeConfig struct {
 	SSOAllowPrivateIPs bool
 
 	// TrustedIssuers lists external JWT issuers whose tokens are accepted at /mcp.
-	// Populated via the TRUSTED_ISSUERS environment variable (JSON array).
+	// Populated via the OAUTH_TRUSTED_ISSUERS environment variable (JSON array).
 	TrustedIssuers []server.TrustedIssuerConfig
 
 	// Storage configuration

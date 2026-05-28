@@ -232,16 +232,16 @@ level=DEBUG msg="Validating token audience"
 
 ## Trusted External Issuers (M2M)
 
-`TRUSTED_ISSUERS` is a separate mechanism for machine-to-machine flows where an autonomous agent (e.g., a muster-issued machine token) calls `/mcp` directly, without a human SSO session.
+`OAUTH_TRUSTED_ISSUERS` is a separate mechanism for machine-to-machine flows where an autonomous agent (e.g., a muster-issued machine token) calls `/mcp` directly, without a human SSO session.
 
-Unlike `OAUTH_TRUSTED_AUDIENCES` (which validates forwarded _human_ ID tokens against the primary IdP's JWKS), `TRUSTED_ISSUERS` validates tokens from a _different_ issuer entirely, using that issuer's own JWKS.
+Unlike `OAUTH_TRUSTED_AUDIENCES` (which validates forwarded _human_ ID tokens against the primary IdP's JWKS), `OAUTH_TRUSTED_ISSUERS` validates tokens from a _different_ issuer entirely, using that issuer's own JWKS.
 
 ### Configuration
 
-Set the `TRUSTED_ISSUERS` environment variable to a JSON array:
+Set the `OAUTH_TRUSTED_ISSUERS` environment variable to a JSON array:
 
 ```bash
-export TRUSTED_ISSUERS='[
+export OAUTH_TRUSTED_ISSUERS='[
   {
     "issuer": "https://muster.example.com",
     "jwksURL": "https://muster.example.com/.well-known/jwks.json",

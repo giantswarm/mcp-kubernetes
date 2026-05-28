@@ -222,7 +222,7 @@ spec:
             {{- end }}
             {{- /* Trusted external issuers for M2M JWT acceptance */ -}}
             {{- if .Values.mcpKubernetes.oauth.trustedIssuers }}
-            - name: TRUSTED_ISSUERS
+            - name: OAUTH_TRUSTED_ISSUERS
               value: {{ .Values.mcpKubernetes.oauth.trustedIssuers | toJson | quote }}
             {{- end }}
             {{- /* SSO Security (mcp-oauth v0.2.40+) */ -}}
