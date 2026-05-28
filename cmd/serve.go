@@ -907,7 +907,6 @@ func runServe(config ServeConfig) error {
 				}
 			}
 
-			// Load trusted issuers from environment variable (JSON array)
 			if len(config.OAuth.TrustedIssuers) == 0 {
 				if envVal := os.Getenv("OAUTH_TRUSTED_ISSUERS"); envVal != "" {
 					if err := json.Unmarshal([]byte(envVal), &config.OAuth.TrustedIssuers); err != nil {

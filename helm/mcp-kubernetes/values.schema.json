@@ -563,7 +563,7 @@
                   },
                   "allowedAudiences": {
                     "type": "array",
-                    "description": "Accepted `aud` values. Empty means any audience is accepted.",
+                    "description": "Accepted `aud` values. Should be set to the kubernetes-mcp BASE_URL in production — an empty list accepts tokens for any audience, enabling cross-service token reuse.",
                     "items": {
                       "type": "string"
                     }
