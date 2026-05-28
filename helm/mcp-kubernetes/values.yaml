@@ -506,6 +506,24 @@ mcpKubernetes:
     # Default: [] (only accept tokens issued directly to this server's client_id)
     trustedAudiences: []
 
+    # Trusted external JWT issuers for M2M authentication (mcp-oauth v0.2.175+)
+    # Enables autonomous agents (e.g., muster-issued machine tokens) to call /mcp
+    # directly without going through a human SSO flow.
+    #
+    # Each entry:
+    #   issuer:             expected `iss` claim in the JWT
+    #   jwksURL:            JWKS endpoint for signature verification
+    #   allowedAudiences:   accepted `aud` values (empty = accept any)
+    #   allowPrivateIPJWKS: set true when the JWKS endpoint is on a private network
+    #
+    # Example:
+    #   - issuer: "https://muster.example.com"
+    #     jwksURL: "https://muster.example.com/.well-known/jwks.json"
+    #     allowedAudiences: ["https://kubernetes.mcp.example.com"]
+    #
+    # Default: [] (no external issuers trusted)
+    trustedIssuers: []
+
     # SSO Security Configuration (mcp-oauth v0.2.40+)
     sso:
       # Allow JWKS endpoints to resolve to private IP addresses during SSO token validation.

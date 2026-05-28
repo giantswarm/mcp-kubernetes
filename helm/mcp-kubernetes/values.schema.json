@@ -545,6 +545,38 @@
               "default": [],
               "examples": [["muster-client", "my-aggregator-client"]]
             },
+            "trustedIssuers": {
+              "type": "array",
+              "description": "Trusted external JWT issuers for M2M authentication. Each entry allows Bearer JWTs from that issuer to be accepted at /mcp without a human SSO flow.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["issuer", "jwksURL"],
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "description": "Expected `iss` claim value in the JWT."
+                  },
+                  "jwksURL": {
+                    "type": "string",
+                    "description": "JWKS endpoint used to verify JWT signatures."
+                  },
+                  "allowedAudiences": {
+                    "type": "array",
+                    "description": "Accepted `aud` values. Empty means any audience is accepted.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "allowPrivateIPJWKS": {
+                    "type": "boolean",
+                    "description": "Allow the JWKS endpoint to resolve to a private/loopback IP. Required when the issuer runs on an internal network.",
+                    "default": false
+                  }
+                }
+              },
+              "default": []
+            },
             "sso": {
               "type": "object",
               "description": "SSO security configuration (mcp-oauth v0.2.40+)",

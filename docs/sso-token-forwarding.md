@@ -230,6 +230,75 @@ level=DEBUG msg="Validating token audience"
   trusted_audiences=["muster-client"]
 ```
 
+## Trusted External Issuers (M2M)
+
+`TRUSTED_ISSUERS` is a separate mechanism for machine-to-machine flows where an autonomous agent (e.g., a muster-issued machine token) calls `/mcp` directly, without a human SSO session.
+
+Unlike `OAUTH_TRUSTED_AUDIENCES` (which validates forwarded _human_ ID tokens against the primary IdP's JWKS), `TRUSTED_ISSUERS` validates tokens from a _different_ issuer entirely, using that issuer's own JWKS.
+
+### Configuration
+
+Set the `TRUSTED_ISSUERS` environment variable to a JSON array:
+
+```bash
+export TRUSTED_ISSUERS='[
+  {
+    "issuer": "https://muster.example.com",
+    "jwksURL": "https://muster.example.com/.well-known/jwks.json",
+    "allowedAudiences": ["https://kubernetes.mcp.example.com"]
+  }
+]'
+```
+
+### Helm Values
+
+```yaml
+mcpKubernetes:
+  oauth:
+    trustedIssuers:
+      - issuer: "https://muster.example.com"
+        jwksURL: "https://muster.example.com/.well-known/jwks.json"
+        allowedAudiences:
+          - "https://kubernetes.mcp.example.com"
+```
+
+### Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `issuer` | yes | Expected `iss` claim in the JWT |
+| `jwksURL` | yes | JWKS endpoint for signature verification |
+| `allowedAudiences` | no | Accepted `aud` values; empty accepts any |
+| `allowPrivateIPJWKS` | no | Allow JWKS endpoint on a private network |
+
+### How It Works
+
+```
+Autonomous agent (e.g., muster-issued machine token)
+   │
+   │  GET /mcp
+   │  Authorization: Bearer <muster-signed JWT>
+   ▼
+mcp-kubernetes
+   │  1. Extract `iss` from JWT (unverified, for routing)
+   │  2. Look up matching TrustedIssuer entry
+   │  3. Fetch JWKS from entry's jwksURL
+   │  4. Verify JWT signature
+   │  5. Check `aud` against allowedAudiences
+   │  6. Extract email / groups from JWT claims
+   ▼
+Kubernetes API with Impersonate-User: <email from JWT>
+```
+
+### Security notes
+
+- Only issuers explicitly listed in `trustedIssuers` are accepted.
+- The token's signature is always verified via the issuer's JWKS.
+- `allowedAudiences` should be set to the kubernetes-mcp `BASE_URL` to prevent token reuse across services.
+- `allowPrivateIPJWKS` reduces SSRF protection; only enable for internal issuers on private networks.
+
+**Availability:** Requires mcp-oauth v0.2.175 or later.
+
 ## Related Documentation
 
 - [OAuth Configuration](oauth.md) - Full OAuth setup guide
