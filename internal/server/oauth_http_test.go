@@ -288,6 +288,27 @@ func TestCreateOAuthServerWithInterstitial(t *testing.T) {
 	assert.NotNil(t, oauthServer.Config.Interstitial)
 }
 
+func TestCreateOAuthServerWithTrustedIssuers(t *testing.T) {
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		TrustedIssuers: []TrustedIssuerConfig{
+			{
+				Issuer:           "https://muster.example.com",
+				JwksURL:          "https://muster.example.com/.well-known/jwks.json",
+				AllowedAudiences: []string{"https://mcp.example.com"},
+			},
+		},
+	}
+
+	oauthServer, _, err := createOAuthServer(config)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, oauthServer)
+}
+
 // TestCreateOAuthServerWithDexProvider tests Dex provider creation.
 //
 // Integration Test Requirements:

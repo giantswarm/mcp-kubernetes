@@ -68,10 +68,10 @@ var ErrSilentAuthFailed = mcpoauth.ErrSilentAuthFailed
 //   - interaction_required: IdP needs user interaction for other reasons
 //   - account_selection_required: Multiple accounts available, user must select one
 const (
-	ErrorCodeLoginRequired            = mcpoauth.ErrorCodeLoginRequired
-	ErrorCodeConsentRequired          = mcpoauth.ErrorCodeConsentRequired
-	ErrorCodeInteractionRequired      = mcpoauth.ErrorCodeInteractionRequired
-	ErrorCodeAccountSelectionRequired = mcpoauth.ErrorCodeAccountSelectionRequired
+	ErrorCodeLoginRequired            = "login_required"
+	ErrorCodeConsentRequired          = "consent_required"
+	ErrorCodeInteractionRequired      = "interaction_required"
+	ErrorCodeAccountSelectionRequired = "account_selection_required"
 )
 
 // IsSilentAuthError returns true if the error indicates silent authentication failed

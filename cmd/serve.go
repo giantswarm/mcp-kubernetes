@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -906,6 +907,15 @@ func runServe(config ServeConfig) error {
 				}
 			}
 
+			// Load trusted issuers from environment variable (JSON array)
+			if len(config.OAuth.TrustedIssuers) == 0 {
+				if envVal := os.Getenv("TRUSTED_ISSUERS"); envVal != "" {
+					if err := json.Unmarshal([]byte(envVal), &config.OAuth.TrustedIssuers); err != nil {
+						return fmt.Errorf("TRUSTED_ISSUERS: invalid JSON: %w", err)
+					}
+				}
+			}
+
 			// Validate OAuth configuration
 			if config.OAuth.BaseURL == "" {
 				return fmt.Errorf("--oauth-base-url is required when --enable-oauth is set")
@@ -1067,6 +1077,7 @@ func runServe(config ServeConfig) error {
 				// Trusted audiences for SSO token forwarding from upstream aggregators
 				TrustedAudiences:   config.OAuth.TrustedAudiences,
 				SSOAllowPrivateIPs: config.OAuth.SSOAllowPrivateIPs,
+				TrustedIssuers:     config.OAuth.TrustedIssuers,
 			}, serverContext, config.Metrics)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)

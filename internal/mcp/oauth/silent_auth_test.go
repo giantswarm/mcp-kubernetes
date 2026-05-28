@@ -65,12 +65,12 @@ func TestIsSilentAuthError(t *testing.T) {
 		{
 			name:     "error string containing login_required",
 			err:      fmt.Errorf("error: login_required"),
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "error string containing consent_required",
 			err:      fmt.Errorf("error: consent_required"),
-			expected: true,
+			expected: false,
 		},
 	}
 

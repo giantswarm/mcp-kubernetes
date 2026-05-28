@@ -284,6 +284,24 @@ type OAuthConfig struct {
 	// WARNING: Reduces SSRF protection. Only enable for internal deployments.
 	// Default: false (blocked for security)
 	SSOAllowPrivateIPs bool
+
+	// TrustedIssuers lists external JWT issuers whose tokens are accepted at /mcp.
+	// Each entry's JWKS is used to verify the Bearer JWT's signature when its `iss`
+	// matches. AllowedAudiences restricts the accepted `aud` values; when empty,
+	// any audience is accepted.
+	TrustedIssuers []TrustedIssuerConfig
+}
+
+// TrustedIssuerConfig holds the configuration for a single trusted external JWT issuer.
+type TrustedIssuerConfig struct {
+	// Issuer is the expected `iss` claim value in the JWT.
+	Issuer string `json:"issuer"`
+	// JwksURL is the JWKS endpoint used to verify signatures.
+	JwksURL string `json:"jwksURL"`
+	// AllowedAudiences restricts accepted `aud` values. Empty means any audience.
+	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
+	// AllowPrivateIPJWKS permits JWKS endpoints on private/loopback addresses.
+	AllowPrivateIPJWKS bool `json:"allowPrivateIPJWKS,omitempty"`
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -430,21 +448,19 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			valkeyConfig.KeyPrefix = valkey.DefaultKeyPrefix
 		}
 
-		valkeyStore, err := valkey.New(valkeyConfig)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
-		}
-
-		// Set up encryption for Valkey store if key is provided
+		var valkeyOpts []valkey.Option
 		if len(config.EncryptionKey) > 0 {
 			encryptor, err := security.NewEncryptor(config.EncryptionKey)
 			if err != nil {
-				// Close the Valkey store on error to release resources
-				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to create encryptor for Valkey storage: %w", err)
 			}
-			valkeyStore.SetEncryptor(encryptor)
+			valkeyOpts = append(valkeyOpts, valkey.WithEncryptor(encryptor))
 			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
+		}
+
+		valkeyStore, err := valkey.New(valkeyConfig, valkeyOpts...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
 		}
 
 		// Valkey store implements all required interfaces
@@ -454,8 +470,15 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		logger.Info("Using Valkey storage backend", "address", config.Storage.Valkey.URL, "tls", config.Storage.Valkey.TLSEnabled)
 
 	case OAuthStorageTypeMemory, "":
-		// Use memory storage (default)
-		memStore := memory.New()
+		var memOpts []memory.Option
+		if len(config.EncryptionKey) > 0 {
+			encryptor, err := security.NewEncryptor(config.EncryptionKey)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+			}
+			memOpts = append(memOpts, memory.WithEncryptor(encryptor))
+		}
+		memStore := memory.New(memOpts...)
 		tokenStore = memStore
 		clientStore = memStore
 		flowStore = memStore
@@ -555,16 +578,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	}
 	opts = append(opts, oauth.WithInstrumentation(inst))
 
-	// Set up encryption if key provided (only for memory storage; Valkey encryption is set above)
-	if len(config.EncryptionKey) > 0 && config.Storage.Type != OAuthStorageTypeValkey {
-		encryptor, err := security.NewEncryptor(config.EncryptionKey)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
-		}
-		opts = append(opts, oauth.WithEncryptor(encryptor))
-		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
-	}
-
 	// Set up audit logging (always enabled for security)
 	auditor := security.NewAuditor(logger, true)
 	opts = append(opts, oauth.WithAuditor(auditor))
@@ -592,6 +605,21 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	logger.Info("Client registration rate limiting enabled",
 		"maxClientsPerIP", maxClientsPerIP,
 		"window", security.DefaultRegistrationWindow)
+
+	if len(config.TrustedIssuers) > 0 {
+		issuers := make([]oauthserver.TrustedIssuer, len(config.TrustedIssuers))
+		for i, ti := range config.TrustedIssuers {
+			issuers[i] = oauthserver.TrustedIssuer{
+				Issuer:             ti.Issuer,
+				JwksURL:            ti.JwksURL,
+				AllowedAudiences:   ti.AllowedAudiences,
+				AllowPrivateIPJWKS: ti.AllowPrivateIPJWKS,
+			}
+		}
+		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
+		logger.Info("Trusted issuers configured for M2M JWT acceptance",
+			"count", len(issuers))
+	}
 
 	// Create OAuth server
 	server, err := oauth.NewServer(
