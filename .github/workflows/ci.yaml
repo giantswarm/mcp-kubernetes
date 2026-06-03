@@ -21,7 +21,15 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.26.3'  # Match the version used in auto-release
+          # Track whatever go.mod's toolchain directive pins so this stays
+          # in lockstep with the actual build toolchain. Previously
+          # hard-coded to '1.26.3' to match the (now-deleted) goreleaser
+          # auto-release.yaml. Drift between this version and go.mod's
+          # toolchain was masking govulncheck failures: go.mod said 1.26.4
+          # (which has the recent stdlib CVE fixes), CI was running 1.26.3
+          # under GOTOOLCHAIN=local, so govulncheck flagged the unfixed
+          # stdlib.
+          go-version-file: go.mod
           cache: true  # Cache Go modules and build cache
 
       - name: Install Python for yamllint
