@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#445](https://github.com/giantswarm/mcp-kubernetes/issues/445)) ([82bba35](https://github.com/giantswarm/mcp-kubernetes/commit/82bba3527a20a905ada431ffe8ced0ccb7853bd0))
+
+
+### Changed
+
+* align files according to platform standards ([#443](https://github.com/giantswarm/mcp-kubernetes/issues/443)) ([1a68f07](https://github.com/giantswarm/mcp-kubernetes/commit/1a68f07c390228ae626ee5a4582fdb350a2e8d7c))
+* **deps:** update actions/checkout action to v6.0.3 ([#446](https://github.com/giantswarm/mcp-kubernetes/issues/446)) ([670c8d3](https://github.com/giantswarm/mcp-kubernetes/commit/670c8d3eca982278e284e595a4ff92327d3a500a))
+* **deps:** update go toolchain directive to v1.26.4 ([#447](https://github.com/giantswarm/mcp-kubernetes/issues/447)) ([d5eef20](https://github.com/giantswarm/mcp-kubernetes/commit/d5eef2020c994161d9cf3192ddf1dfcf7ed33165))
+* **deps:** update golang docker tag to v1.26.4 ([#448](https://github.com/giantswarm/mcp-kubernetes/issues/448)) ([d04c238](https://github.com/giantswarm/mcp-kubernetes/commit/d04c23862a7a5a4ae2f0347251549f5a52670e62))
+* migrate to push-based release flow ([#450](https://github.com/giantswarm/mcp-kubernetes/issues/450)) ([b5f22a4](https://github.com/giantswarm/mcp-kubernetes/commit/b5f22a42a42c31a21403a60ff34cb38167f0833f))
+
 ## [Unreleased]
 
 ### Added
