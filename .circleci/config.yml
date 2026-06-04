@@ -9,20 +9,12 @@ workflows:
         name: go-build-mcp-kubernetes
         binary: mcp-kubernetes
         context: architect
-        # Six binaries shipped to the GitHub Release via upload-release-assets
-        # below. Matches the matrix the previous .goreleaser.yaml produced
-        # (deleted in #450); the migration to auto-release.yaml inadvertently
-        # dropped to the architect default (linux/amd64 only).
         # yamllint disable-line rule:line-length
         architectures: "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64"
         filters:
           tags:
             only: /^v.*/
 
-    # Tag releases: attach the six per-platform binaries built above to the
-    # GitHub Release created by .github/workflows/auto-release.yaml. Restores
-    # the binary-distribution channel users of v0.1.120 and earlier got via
-    # the goreleaser flow. Branches: ignored — only fires on tag push.
     - architect/upload-release-assets:
         context: architect
         name: upload-release-assets
