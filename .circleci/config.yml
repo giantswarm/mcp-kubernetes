@@ -9,9 +9,23 @@ workflows:
         name: go-build-mcp-kubernetes
         binary: mcp-kubernetes
         context: architect
+        # yamllint disable-line rule:line-length
+        architectures: "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64"
         filters:
           tags:
             only: /^v.*/
+
+    - architect/upload-release-assets:
+        context: architect
+        name: upload-release-assets
+        binary: mcp-kubernetes
+        requires:
+        - go-build-mcp-kubernetes
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore: /.*/
 
     # Branch builds: multi-arch image to gsoci for PR validation. v9's
     # push-to-registries always uses buildx and derives the platforms from
@@ -19,6 +33,13 @@ workflows:
     - architect/push-to-registries:
         context: architect
         name: push-to-registries
+        # Cap docker buildx to the two linux platforms. Without this, the orb
+        # auto-derives --platform from go-build's .platforms file, which now
+        # contains all six binary targets (darwin/* and windows/* included).
+        # buildx then tries to produce darwin and windows manifests under
+        # QEMU emulation and hangs past the 10-minute no_output_timeout.
+        # Match the muster / mcp-prometheus / 10 other repos pattern.
+        platforms: "linux/amd64,linux/arm64"
         requires:
         - go-build-mcp-kubernetes
         filters:
@@ -33,6 +54,8 @@ workflows:
         context: architect
         name: push-to-registries-release
         split-china-push: true
+        # See note on the branch-build job above -- same reason.
+        platforms: "linux/amd64,linux/arm64"
         requires:
         - go-build-mcp-kubernetes
         filters:
