@@ -41,6 +41,13 @@ workflows:
     - architect/push-to-registries:
         context: architect
         name: push-to-registries
+        # Cap docker buildx to the two linux platforms. Without this, the orb
+        # auto-derives --platform from go-build's .platforms file, which now
+        # contains all six binary targets (darwin/* and windows/* included).
+        # buildx then tries to produce darwin and windows manifests under
+        # QEMU emulation and hangs past the 10-minute no_output_timeout.
+        # Match the muster / mcp-prometheus / 10 other repos pattern.
+        platforms: "linux/amd64,linux/arm64"
         requires:
         - go-build-mcp-kubernetes
         filters:
@@ -55,6 +62,8 @@ workflows:
         context: architect
         name: push-to-registries-release
         split-china-push: true
+        # See note on the branch-build job above -- same reason.
+        platforms: "linux/amd64,linux/arm64"
         requires:
         - go-build-mcp-kubernetes
         filters:
