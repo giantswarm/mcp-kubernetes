@@ -70,3 +70,6 @@ bin/mcp-kubernetes
 
 # app-test-suite tests
 tests/ats/*.xml
+
+# graphify knowledge graph (regenerable, rebuilt by the post-commit hook)
+graphify-out/
