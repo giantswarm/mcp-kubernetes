@@ -3,7 +3,7 @@
 # (pkg/gen/input/circleci) or the gen.ci config in giantswarm/github, not here.
 version: 2.1
 orbs:
-  architect: giantswarm/architect@9.1.0
+  architect: giantswarm/architect@9.2.0
 
 workflows:
   build:
