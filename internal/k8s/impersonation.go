@@ -19,9 +19,6 @@ type ImpersonationIdentity struct {
 	// AllowedTargetClusters from the matched TrustedIssuerConfig.
 	// Empty means any cluster is permitted.
 	AllowedTargetClusters []string
-
-	// Actor is reserved for the RFC 8693 OBO path (Phase 2).
-	Actor string
 }
 
 // ImpersonationClientFactory creates Kubernetes clients that authenticate as

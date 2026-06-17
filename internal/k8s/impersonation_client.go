@@ -22,6 +22,7 @@ import (
 // it in the audit log.
 type InClusterImpersonationFactory struct {
 	clusterHost          string
+	namespace            string
 	qpsLimit             float32
 	burstLimit           int
 	timeout              time.Duration
@@ -57,8 +58,14 @@ func NewInClusterImpersonationFactory(config *ClientConfig) (*InClusterImpersona
 		timeout = DefaultTimeout * time.Second
 	}
 
+	namespace := DefaultNamespace
+	if data, err := os.ReadFile(DefaultNamespacePath); err == nil {
+		namespace = string(data)
+	}
+
 	return &InClusterImpersonationFactory{
 		clusterHost:          inClusterConfig.Host,
+		namespace:            namespace,
 		qpsLimit:             qpsLimit,
 		burstLimit:           burstLimit,
 		timeout:              timeout,
@@ -97,6 +104,7 @@ func (f *InClusterImpersonationFactory) CreateImpersonationClient(identity Imper
 
 	return &impersonationClient{
 		restConfig:           cfg,
+		namespace:            f.namespace,
 		nonDestructiveMode:   f.nonDestructiveMode,
 		dryRun:               f.dryRun,
 		allowedOperations:    f.allowedOperations,
@@ -109,6 +117,7 @@ func (f *InClusterImpersonationFactory) CreateImpersonationClient(identity Imper
 // Impersonate-* headers derived from ImpersonationIdentity.
 type impersonationClient struct {
 	restConfig *rest.Config
+	namespace  string
 
 	clientsetLazy       lazyValue[kubernetes.Interface]
 	dynamicClientLazy   lazyValue[dynamic.Interface]
@@ -174,11 +183,7 @@ func (c *impersonationClient) isNamespaceRestricted(namespace string) error {
 }
 
 func (c *impersonationClient) getInClusterNamespace() string {
-	data, err := os.ReadFile(DefaultNamespacePath)
-	if err != nil {
-		return "default"
-	}
-	return string(data)
+	return c.namespace
 }
 
 // ========== ContextManager ==========
