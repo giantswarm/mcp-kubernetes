@@ -577,6 +577,8 @@ func runServe(config ServeConfig) error {
 		if !config.InCluster {
 			return fmt.Errorf("trusted issuers require in-cluster mode (--in-cluster)")
 		}
+		seenIssuers := make(map[string]struct{}, len(config.OAuth.TrustedIssuers))
+		seenAliases := make(map[string]struct{}, len(config.OAuth.TrustedIssuers))
 		for _, ti := range config.OAuth.TrustedIssuers {
 			if ti.Issuer == "" {
 				return fmt.Errorf("trusted issuer entry has empty issuer URL")
@@ -589,10 +591,19 @@ func runServe(config ServeConfig) error {
 					"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
 					ti.Issuer, ti.Alias)
 			}
-			if _, hasSub := ti.AllowedClaims["sub"]; !hasSub {
-				return fmt.Errorf("trusted issuer %q: allowedClaims.sub is required to prevent "+
-					"any service account from the issuer being impersonated", ti.Issuer)
+			subPattern, hasSub := ti.AllowedClaims["sub"]
+			if !hasSub || subPattern == "" || subPattern == "*" {
+				return fmt.Errorf("trusted issuer %q: allowedClaims.sub must be a non-empty pattern "+
+					"that is not bare '*' (prevents any service account from being impersonated)", ti.Issuer)
 			}
+			if _, seen := seenIssuers[ti.Issuer]; seen {
+				return fmt.Errorf("duplicate trusted issuer URL %q", ti.Issuer)
+			}
+			seenIssuers[ti.Issuer] = struct{}{}
+			if _, seen := seenAliases[ti.Alias]; seen {
+				return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
+			}
+			seenAliases[ti.Alias] = struct{}{}
 		}
 		impersonationFactory, err := k8s.NewInClusterImpersonationFactory(k8sConfig)
 		if err != nil {
