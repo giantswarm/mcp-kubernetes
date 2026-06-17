@@ -924,11 +924,11 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
-			ID:            humanSub,
-			Issuer:        testIssuer,
-			TokenSource:   providers.TokenSourceTrustedIssuer,
-			ActorSubject:  actorSub,
-			ActorIssuer:   agentSAIssuer,
+			ID:           humanSub,
+			Issuer:       testIssuer,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
+			ActorSubject: actorSub,
+			ActorIssuer:  agentSAIssuer,
 		}
 		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 	}
