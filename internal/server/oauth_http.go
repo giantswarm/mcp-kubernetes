@@ -305,7 +305,8 @@ func isDNS1123Label(s string) bool {
 // Only a trailing * wildcard is supported (prefix match).
 func matchesSubGlob(pattern, s string) bool {
 	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(s, pattern[:len(pattern)-1])
+		prefix := pattern[:len(pattern)-1]
+		return prefix != "" && strings.HasPrefix(s, prefix)
 	}
 	return pattern == s
 }
@@ -490,12 +491,14 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 				return nil, nil, fmt.Errorf("failed to create encryptor for Valkey storage: %w", err)
 			}
 			valkeyOpts = append(valkeyOpts, valkey.WithEncryptor(encryptor))
-			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
 		}
 
 		valkeyStore, err := valkey.New(valkeyConfig, valkeyOpts...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
+		}
+		if len(config.EncryptionKey) > 0 {
+			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
 		}
 
 		// Valkey store implements all required interfaces

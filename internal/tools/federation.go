@@ -189,7 +189,13 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 		}, ""
 	}
 
-	// No cluster specified - use local client
+	// No cluster specified - use local client (management cluster).
+	// M2M identities with AllowedTargetClusters restrictions cannot access the MC.
+	if identity, ok := server.ImpersonationIdentityFromContext(ctx); ok {
+		if len(identity.AllowedTargetClusters) > 0 {
+			return nil, "management cluster access is not permitted for this identity (restricted to specific workload clusters)"
+		}
+	}
 	k8sClient, err := sc.K8sClientForContext(ctx)
 	if err != nil {
 		// Authentication failed in strict mode
