@@ -513,3 +513,104 @@ subjects:
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+M2M Impersonation RBAC
+
+For each trusted issuer with an alias, this creates:
+  - A <alias> Namespace for the impersonated ServiceAccounts
+  - A Role + RoleBinding in that namespace granting `impersonate serviceaccounts`
+  - A ClusterRole + ClusterRoleBinding for groups and user-extra impersonation,
+    scoped to the per-alias SA group and known extra keys/values
+
+This RBAC is load-bearing: without it the kube-apiserver rejects the Impersonate-*
+headers sent by mcp-kubernetes's in-cluster SA. The impersonated SAs themselves
+need not exist — only the namespace and these bindings are required.
+
+Workload-cluster bindings (granting the impersonated subject actual permissions
+such as `list pods`) are NOT provisioned from this chart; they must be created
+per-cluster via shared-configs or equivalent.
+*/}}
+{{- if and .Values.serviceAccount.create .Values.rbac.create .Values.mcpKubernetes.oauth.enabled }}
+{{- range .Values.mcpKubernetes.oauth.trustedIssuers }}
+{{- if .alias }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .alias }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+    mcp-kubernetes.giantswarm.io/m2m-alias: {{ .alias | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-impersonate
+  namespace: {{ .alias }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/m2m-alias: {{ .alias | quote }}
+    mcp-kubernetes.giantswarm.io/m2m-issuer: {{ .issuer | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-impersonate
+  namespace: {{ .alias }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-impersonate
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-{{ .alias }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/m2m-alias: {{ .alias | quote }}
+    mcp-kubernetes.giantswarm.io/m2m-issuer: {{ .issuer | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+    resourceNames: ["system:serviceaccounts:{{ .alias }}"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["userextras/agent"]
+    verbs: ["impersonate"]
+    resourceNames: ["mcp-kubernetes"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["userextras/issuer"]
+    verbs: ["impersonate"]
+    resourceNames: [{{ .issuer | quote }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-{{ .alias }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-{{ .alias }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

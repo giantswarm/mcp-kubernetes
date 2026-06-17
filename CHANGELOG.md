@@ -5,10 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#445](https://github.com/giantswarm/mcp-kubernetes/issues/445)) ([82bba35](https://github.com/giantswarm/mcp-kubernetes/commit/82bba3527a20a905ada431ffe8ced0ccb7853bd0))
+
+
+### Changed
+
+* align files according to platform standards ([#443](https://github.com/giantswarm/mcp-kubernetes/issues/443)) ([1a68f07](https://github.com/giantswarm/mcp-kubernetes/commit/1a68f07c390228ae626ee5a4582fdb350a2e8d7c))
+* **deps:** update actions/checkout action to v6.0.3 ([#446](https://github.com/giantswarm/mcp-kubernetes/issues/446)) ([670c8d3](https://github.com/giantswarm/mcp-kubernetes/commit/670c8d3eca982278e284e595a4ff92327d3a500a))
+* **deps:** update go toolchain directive to v1.26.4 ([#447](https://github.com/giantswarm/mcp-kubernetes/issues/447)) ([d5eef20](https://github.com/giantswarm/mcp-kubernetes/commit/d5eef2020c994161d9cf3192ddf1dfcf7ed33165))
+* **deps:** update golang docker tag to v1.26.4 ([#448](https://github.com/giantswarm/mcp-kubernetes/issues/448)) ([d04c238](https://github.com/giantswarm/mcp-kubernetes/commit/d04c23862a7a5a4ae2f0347251549f5a52670e62))
+* migrate to push-based release flow ([#450](https://github.com/giantswarm/mcp-kubernetes/issues/450)) ([b5f22a4](https://github.com/giantswarm/mcp-kubernetes/commit/b5f22a42a42c31a21403a60ff34cb38167f0833f))
+
 ## [Unreleased]
 
 ### Added
 
+- `OAUTH_TRUSTED_ISSUERS` environment variable (JSON array of `{issuer, jwksURL, alias, allowedAudiences, allowedTargetClusters, allowedClaims, acceptedTypHeaders, allowPrivateIPJWKS}` objects) to accept Bearer JWTs issued by external identity providers at the `/mcp` endpoint. When a token from a trusted issuer is validated, mcp-kubernetes impersonates `system:serviceaccount:<alias>:<saName>` on the kube-apiserver using its own in-cluster credentials, carrying `Impersonate-Extra-issuer` and `Impersonate-Extra-agent` for the audit log. The `alias` field is required and must be unique across issuers; it encodes the source cluster into the impersonated subject so each (issuer, SA) maps to a distinct RBAC subject.
+- `WithImpersonationFactory` option on `ServerContext` for routing external-issuer requests to an `ImpersonationClientFactory` instead of the bearer-token passthrough path.
+- `InClusterImpersonationFactory` in `internal/k8s` creating per-identity Kubernetes clients using the server's in-cluster SA credentials and `rest.ImpersonationConfig`.
+- Helm: per trusted-issuer `<alias>` Namespace, namespaced Role granting `impersonate serviceaccounts` in that namespace, and a ClusterRole granting `impersonate groups` (restricted to `system:serviceaccounts:<alias>`) and `impersonate userextras/agent` + `userextras/issuer`. Generated when `serviceAccount.create` and `rbac.create` are both true and the issuer has an `alias` set.
+- Helm `trustedIssuers` schema: `alias` (required, DNS-label pattern), `allowedTargetClusters`, `allowedClaims`, `acceptedTypHeaders` fields added.
 - Enable JSON-Schema input validation for every tool (per [SEP-1303](https://modelcontextprotocol.io/seps/1303-input-validation-errors-as-tool-execution-errors)). Calls with unknown property names, wrong types, or missing required fields now return a structured tool execution error instead of being silently dropped — for example, sending `cursor` instead of `continue` to `list` is rejected with a message the model can self-correct from ([#36458](https://github.com/giantswarm/giantswarm/issues/36458)). The `port_forward` tool retains a `podName` parameter as a deprecated alias for `resourceName`.
 - `get`, `describe`, and `logs` now accept the same `output` argument (`slim` / `normal` / `wide`) as `list`, so workflow authors and LLM agents can use a single, symmetric argument shape across all four read tools. On `get` and `describe`, `output: wide` returns the full manifest (skipping slim-output field stripping); on `logs` it is accepted as a no-op for symmetry. Calls that previously failed with the opaque `input schema validation failed: <root>: &{[output]}` error now succeed. New `docs/read-tools-arguments.md` documents the full argument matrix for the four read tools ([#409](https://github.com/giantswarm/mcp-kubernetes/issues/409)).
 

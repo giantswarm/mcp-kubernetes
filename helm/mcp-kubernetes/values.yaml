@@ -506,6 +506,39 @@ mcpKubernetes:
     # Default: [] (only accept tokens issued directly to this server's client_id)
     trustedAudiences: []
 
+    # Trusted external JWT issuers for M2M authentication (mcp-oauth v0.2.175+)
+    # Enables autonomous agents (e.g., kagent pods with projected SA tokens) to call /mcp
+    # directly without a human SSO flow. mcp-kubernetes validates the token via JWKS, then
+    # impersonates the SA identity on the kube-apiserver using its own in-cluster credentials.
+    #
+    # Required per entry:
+    #   issuer:             expected `iss` claim in the JWT (exact match, no wildcards)
+    #   jwksURL:            JWKS endpoint for signature verification
+    #   alias:              stable short id for this issuer cluster (e.g. "glean");
+    #                       used to build system:serviceaccount:<alias>:<saName>
+    #
+    # Optional per entry:
+    #   allowedAudiences:       accepted `aud` values (empty = accept any)
+    #   allowedTargetClusters:  workload clusters this issuer may target (empty = all)
+    #   allowedClaims:          required claim key/value pairs (e.g. sub prefix check)
+    #   acceptedTypHeaders:     accepted `typ` header values (empty = any)
+    #   allowPrivateIPJWKS:     true when the JWKS endpoint is on a private network
+    #
+    # Each alias generates: a <alias> namespace, a namespaced Role granting
+    # `impersonate serviceaccounts` in that namespace, and a ClusterRole granting
+    # `impersonate groups/extras` scoped to the alias. Per-alias RBAC is only
+    # generated when serviceAccount.create and rbac.create are both true.
+    #
+    # Example:
+    #   - issuer: "https://oidc.example.com/glean"
+    #     jwksURL: "https://oidc.example.com/glean/.well-known/jwks.json"
+    #     alias: "glean"
+    #     allowedAudiences: ["https://mcp.example.com"]
+    #     allowedTargetClusters: ["cluster-a", "cluster-b"]
+    #
+    # Default: [] (no external issuers trusted)
+    trustedIssuers: []
+
     # SSO Security Configuration (mcp-oauth v0.2.40+)
     sso:
       # Allow JWKS endpoints to resolve to private IP addresses during SSO token validation.
