@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
+
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	oauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/handler"
@@ -25,6 +28,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
+	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	mcpoauth "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
@@ -284,6 +288,52 @@ type OAuthConfig struct {
 	// WARNING: Reduces SSRF protection. Only enable for internal deployments.
 	// Default: false (blocked for security)
 	SSOAllowPrivateIPs bool
+
+	// TrustedIssuers lists external JWT issuers whose tokens are accepted at /mcp.
+	// Each entry's JWKS is used to verify the Bearer JWT's signature when its `iss`
+	// matches. AllowedAudiences restricts the accepted `aud` values; when empty,
+	// any audience is accepted.
+	TrustedIssuers []TrustedIssuerConfig
+}
+
+// isDNS1123Label reports whether s is a valid Kubernetes DNS-1123 label.
+func isDNS1123Label(s string) bool {
+	return len(k8svalidation.IsDNS1123Label(s)) == 0
+}
+
+// matchesSubGlob reports whether s matches a sub-claim pattern.
+// Only a trailing * wildcard is supported (prefix match).
+func matchesSubGlob(pattern, s string) bool {
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(s, pattern[:len(pattern)-1])
+	}
+	return pattern == s
+}
+
+// TrustedIssuerConfig holds the configuration for a single trusted external JWT issuer.
+type TrustedIssuerConfig struct {
+	// Issuer is the expected `iss` claim value in the JWT.
+	Issuer string `json:"issuer"`
+	// JwksURL is the JWKS endpoint used to verify signatures.
+	JwksURL string `json:"jwksURL"`
+	// Alias is a required stable short identifier for this issuer (e.g. "glean", "mc-foo").
+	// It is encoded into the impersonated principal as the namespace component:
+	// system:serviceaccount:<alias>:<saName>
+	Alias string `json:"alias"`
+	// AllowedAudiences restricts accepted `aud` values. Empty means any audience.
+	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
+	// AllowedTargetClusters limits which management/workload cluster names this
+	// issuer's tokens may be impersonated onto. Empty means any cluster.
+	AllowedTargetClusters []string `json:"allowedTargetClusters,omitempty"`
+	// AllowedClaims constrains accepted tokens to those whose JWT claims match
+	// all entries exactly (e.g. {"sub": "system:serviceaccount:kagent:*"}).
+	// Wildcard suffix matching is supported for the "sub" claim only.
+	AllowedClaims map[string]string `json:"allowedClaims,omitempty"`
+	// AcceptedTypHeaders overrides the default RFC 9068 typ=at+jwt check.
+	// Set to ["", "JWT"] to accept Kubernetes ServiceAccount tokens.
+	AcceptedTypHeaders []string `json:"acceptedTypHeaders,omitempty"`
+	// AllowPrivateIPJWKS permits JWKS endpoints on private/loopback addresses.
+	AllowPrivateIPJWKS bool `json:"allowPrivateIPJWKS,omitempty"`
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -322,6 +372,9 @@ type OAuthHTTPServer struct {
 	disableStreaming        bool
 	instrumentationProvider *instrumentation.Provider
 	healthChecker           *HealthChecker
+	// trustedIssuersByIssuer maps issuer URL to TrustedIssuerConfig for O(1)
+	// lookup in the access-token injector middleware.
+	trustedIssuersByIssuer map[string]TrustedIssuerConfig
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -437,14 +490,12 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 				return nil, nil, fmt.Errorf("failed to create encryptor for Valkey storage: %w", err)
 			}
 			valkeyOpts = append(valkeyOpts, valkey.WithEncryptor(encryptor))
+			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
 		}
 
 		valkeyStore, err := valkey.New(valkeyConfig, valkeyOpts...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
-		}
-		if len(config.EncryptionKey) > 0 {
-			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
 		}
 
 		// Valkey store implements all required interfaces
@@ -454,15 +505,13 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		logger.Info("Using Valkey storage backend", "address", config.Storage.Valkey.URL, "tls", config.Storage.Valkey.TLSEnabled)
 
 	case OAuthStorageTypeMemory, "":
-		// Use memory storage (default)
 		var memOpts []memory.Option
 		if len(config.EncryptionKey) > 0 {
 			encryptor, err := security.NewEncryptor(config.EncryptionKey)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to create encryptor for memory storage: %w", err)
+				return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
 			}
 			memOpts = append(memOpts, memory.WithEncryptor(encryptor))
-			logger.Info("Token encryption at rest enabled for memory storage (AES-256-GCM)")
 		}
 		memStore := memory.New(memOpts...)
 		tokenStore = memStore
@@ -520,10 +569,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
 		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
 		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
-
-		// TrustedAudiences for SSO token forwarding from upstream aggregators
-		// Allows accepting tokens issued to other clients (e.g., muster)
-		TrustedAudiences: config.TrustedAudiences,
 
 		// AllowPrivateIPJWKS for JWKS fetching from internal IdPs (mcp-oauth v0.2.40+)
 		// Enables SSO token forwarding when IdP (e.g., Dex) is on a private network
@@ -592,6 +637,25 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		"maxClientsPerIP", maxClientsPerIP,
 		"window", security.DefaultRegistrationWindow)
 
+	if len(config.TrustedAudiences) > 0 {
+		opts = append(opts, oauthserver.WithTrustedAudiences(config.TrustedAudiences))
+	}
+
+	if len(config.TrustedIssuers) > 0 {
+		issuers := make([]oauthserver.TrustedIssuer, len(config.TrustedIssuers))
+		for i, ti := range config.TrustedIssuers {
+			issuers[i] = oauthserver.TrustedIssuer{
+				Issuer:             ti.Issuer,
+				JwksURL:            ti.JwksURL,
+				AllowedAudiences:   ti.AllowedAudiences,
+				AllowedClaims:      ti.AllowedClaims,
+				AcceptedTypHeaders: ti.AcceptedTypHeaders,
+				AllowPrivateIPJWKS: ti.AllowPrivateIPJWKS,
+			}
+		}
+		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
+	}
+
 	// Create OAuth server
 	server, err := oauth.NewServer(
 		provider,
@@ -616,6 +680,12 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
+	// Build issuer→config lookup map for the access-token injector middleware.
+	issuerMap := make(map[string]TrustedIssuerConfig, len(config.TrustedIssuers))
+	for _, ti := range config.TrustedIssuers {
+		issuerMap[ti.Issuer] = ti
+	}
+
 	// Create HTTP handler
 	oauthHandler := handler.New(oauthServer, oauthServer.Logger)
 
@@ -627,6 +697,7 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		serverType:              serverType,
 		disableStreaming:        config.DisableStreaming,
 		instrumentationProvider: config.InstrumentationProvider,
+		trustedIssuersByIssuer:  issuerMap,
 	}, nil
 }
 
@@ -705,9 +776,13 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 		// Create middleware to inject access token into request context for downstream K8s auth
 		accessTokenInjector := s.createAccessTokenInjectorMiddleware(httpServer)
 
+		// Fail fast when the validated UserInfo carries no email claim; without
+		// an email there is no Impersonate-User to send to the Kubernetes API.
+		requireIdentity := middleware.RequireIdentity(s.oauthServer.Auditor, s.oauthServer.Logger)
+
 		// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
-		// Then our injector adds the access token for downstream use
-		mux.Handle("/mcp", s.oauthHandler.ValidateToken(accessTokenInjector))
+		// Then enforce that UserInfo has an email before the injector / tool dispatch.
+		mux.Handle("/mcp", s.oauthHandler.ValidateToken(requireIdentity(accessTokenInjector)))
 
 		return nil
 	default:
@@ -895,6 +970,78 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			slog.Debug("AccessTokenInjector: no bearer token in Authorization header",
 				"user_id", userInfo.ID)
 			recordMetric(ctx, "no_token")
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// External-issuer path: token was validated against a TrustedIssuer entry.
+		// The Bearer's aud is the muster STS, not kube-apiserver — passthrough
+		// would be rejected. Derive an ImpersonationIdentity instead; the inner
+		// branch selects OBO (act claim present) or M2M (no act claim).
+		if userInfo.IsExternalIssuer() {
+			tiConfig, known := s.trustedIssuersByIssuer[userInfo.Issuer]
+			if !known {
+				slog.Warn("AccessTokenInjector: external-issuer token with unknown issuer, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: unknown trusted issuer", http.StatusForbidden)
+				return
+			}
+			if tiConfig.Alias == "" {
+				slog.Warn("AccessTokenInjector: trusted issuer has no alias configured",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "internal configuration error: issuer alias missing", http.StatusInternalServerError)
+				return
+			}
+			// Defense-in-depth: re-verify the sub claim at the impersonation boundary,
+			// independent of mcp-oauth's upstream check. Catches misconfigured entries
+			// (missing allowedClaims) and future library regressions before any
+			// impersonation call reaches the kube-apiserver.
+			if subPattern, ok := tiConfig.AllowedClaims["sub"]; !ok || subPattern == "" {
+				slog.Warn("AccessTokenInjector: trusted issuer has no allowedClaims.sub, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: issuer misconfiguration", http.StatusForbidden)
+				return
+			} else if !matchesSubGlob(subPattern, userInfo.ID) {
+				slog.Warn("AccessTokenInjector: sub claim does not match allowedClaims pattern, rejecting",
+					"issuer", userInfo.Issuer, "pattern", subPattern)
+				http.Error(w, "forbidden: sub claim does not match allowed pattern", http.StatusForbidden)
+				return
+			}
+
+			// M2M path (Phase 1B): sub=agent SA, no act claim.
+			// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
+			saName := userInfo.ID
+			if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
+				saName = parts[3]
+			}
+			if saName == "" {
+				slog.Warn("AccessTokenInjector: empty service account name in token sub, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: empty service account name", http.StatusForbidden)
+				return
+			}
+			if !isDNS1123Label(saName) {
+				slog.Warn("AccessTokenInjector: service account name is not a valid DNS-1123 label, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: invalid service account name", http.StatusForbidden)
+				return
+			}
+			qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
+			// Groups are pinned to the per-alias group; SA token group claims are not
+			// forwarded because they reflect the source namespace and would be rejected
+			// by the kube-apiserver impersonation RBAC.
+			identity := k8s.ImpersonationIdentity{
+				UserName: qualifiedUserName,
+				Groups:   []string{"system:serviceaccounts:" + tiConfig.Alias},
+				Extra: map[string][]string{
+					"issuer": {userInfo.Issuer},
+					"agent":  {"mcp-kubernetes"},
+				},
+				AllowedTargetClusters: tiConfig.AllowedTargetClusters,
+			}
+
+			ctx = ContextWithImpersonationIdentity(ctx, identity)
+			r = r.WithContext(ctx)
 			next.ServeHTTP(w, r)
 			return
 		}
