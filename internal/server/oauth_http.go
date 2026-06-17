@@ -776,9 +776,13 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 		// Create middleware to inject access token into request context for downstream K8s auth
 		accessTokenInjector := s.createAccessTokenInjectorMiddleware(httpServer)
 
+		// Fail fast when the validated UserInfo carries no email claim; without
+		// an email there is no Impersonate-User to send to the Kubernetes API.
+		requireIdentity := middleware.RequireIdentity(s.oauthServer.Auditor, s.oauthServer.Logger)
+
 		// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
-		// Then our injector adds the access token for downstream use
-		mux.Handle("/mcp", s.oauthHandler.ValidateToken(accessTokenInjector))
+		// Then enforce that UserInfo has an email before the injector / tool dispatch.
+		mux.Handle("/mcp", s.oauthHandler.ValidateToken(requireIdentity(accessTokenInjector)))
 
 		return nil
 	default:
