@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +32,9 @@ type InClusterImpersonationFactory struct {
 	allowedOperations    []string
 	restrictedNamespaces []string
 	logger               Logger
+	// cache stores one Client per (UserName+Actor) key; M2M identities are
+	// config-bounded so unbounded growth is not a concern.
+	cache sync.Map
 }
 
 // NewInClusterImpersonationFactory builds the factory from in-cluster config.
@@ -84,6 +88,21 @@ func (f *InClusterImpersonationFactory) CreateImpersonationClient(identity Imper
 		return nil, fmt.Errorf("impersonation identity requires a non-empty UserName")
 	}
 
+	cacheKey := identity.UserName + "\x00" + identity.Actor
+	if cached, ok := f.cache.Load(cacheKey); ok {
+		return cached.(Client), nil
+	}
+
+	extra := identity.Extra
+	if identity.Actor != "" {
+		merged := make(map[string][]string, len(extra)+1)
+		for k, v := range extra {
+			merged[k] = v
+		}
+		merged["actor"] = []string{identity.Actor}
+		extra = merged
+	}
+
 	cfg := &rest.Config{
 		Host: f.clusterHost,
 		TLSClientConfig: rest.TLSClientConfig{
@@ -98,11 +117,11 @@ func (f *InClusterImpersonationFactory) CreateImpersonationClient(identity Imper
 		Impersonate: rest.ImpersonationConfig{
 			UserName: identity.UserName,
 			Groups:   identity.Groups,
-			Extra:    identity.Extra,
+			Extra:    extra,
 		},
 	}
 
-	return &impersonationClient{
+	client := &impersonationClient{
 		restConfig:           cfg,
 		namespace:            f.namespace,
 		nonDestructiveMode:   f.nonDestructiveMode,
@@ -110,7 +129,9 @@ func (f *InClusterImpersonationFactory) CreateImpersonationClient(identity Imper
 		allowedOperations:    f.allowedOperations,
 		restrictedNamespaces: f.restrictedNamespaces,
 		logger:               f.logger,
-	}, nil
+	}
+	actual, _ := f.cache.LoadOrStore(cacheKey, Client(client))
+	return actual.(Client), nil
 }
 
 // impersonationClient implements Client using the server's in-cluster SA with
