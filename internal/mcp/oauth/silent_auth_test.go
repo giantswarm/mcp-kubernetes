@@ -62,6 +62,16 @@ func TestIsSilentAuthError(t *testing.T) {
 			err:      fmt.Errorf("something went wrong"),
 			expected: false,
 		},
+		{
+			name:     "error string containing login_required",
+			err:      fmt.Errorf("error: login_required"),
+			expected: false,
+		},
+		{
+			name:     "error string containing consent_required",
+			err:      fmt.Errorf("error: consent_required"),
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {

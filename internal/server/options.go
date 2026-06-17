@@ -141,6 +141,16 @@ func WithClientFactory(factory k8s.ClientFactory) Option {
 	}
 }
 
+// WithImpersonationFactory sets the factory used for external-issuer (M2M) requests.
+// When set, K8sClientForContext routes requests carrying an ImpersonationIdentity
+// to this factory instead of the bearer-token passthrough path.
+func WithImpersonationFactory(factory k8s.ImpersonationClientFactory) Option {
+	return func(sc *ServerContext) error {
+		sc.impersonationFactory = factory
+		return nil
+	}
+}
+
 // WithDownstreamOAuth enables downstream OAuth authentication.
 // When enabled and a client factory is set, the server will create per-user
 // Kubernetes clients using the user's OAuth token for authentication.

@@ -27,6 +27,11 @@ type ServerContext struct {
 	downstreamOAuth       bool
 	downstreamOAuthStrict bool
 
+	// impersonationFactory is used for external-issuer (M2M) tokens. When set,
+	// K8sClientForContext routes requests carrying an ImpersonationIdentity here
+	// instead of to the bearer-token passthrough path.
+	impersonationFactory k8s.ImpersonationClientFactory
+
 	// inCluster indicates whether the server is running inside a Kubernetes cluster
 	// using in-cluster authentication (service account token).
 	// When true, kubeconfig-based context switching is not available.
@@ -118,6 +123,27 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, e
 	// If downstream OAuth is not enabled, use the shared client
 	if !sc.downstreamOAuth || sc.clientFactory == nil {
 		return sc.k8sClient, nil
+	}
+
+	// External-issuer (M2M) path: the middleware resolved an ImpersonationIdentity.
+	// Use the in-cluster SA + impersonation instead of bearer-token passthrough.
+	if sc.impersonationFactory != nil {
+		if identity, ok := ImpersonationIdentityFromContext(ctx); ok {
+			client, err := sc.impersonationFactory.CreateImpersonationClient(identity)
+			if err != nil {
+				sc.logger.Warn("Failed to create impersonation client", "error", err)
+				if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+					sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
+				}
+				return nil, fmt.Errorf("%w: %v", ErrOAuthClientFailed, err)
+			}
+			sc.logger.Debug("Created impersonation client for M2M request",
+				"user", identity.UserName)
+			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)
+			}
+			return client, nil
+		}
 	}
 
 	// Try to get the ID token from context
