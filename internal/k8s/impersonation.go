@@ -19,6 +19,12 @@ type ImpersonationIdentity struct {
 	// AllowedTargetClusters from the matched TrustedIssuerConfig.
 	// Empty means any cluster is permitted.
 	AllowedTargetClusters []string
+
+	// Actor is the JWT sub of the intermediary making the request on behalf of
+	// UserName (RFC 8693 act claim). When non-empty it is injected into
+	// Impersonate-Extra-actor so the kube-apiserver audit log records both
+	// the target subject and the acting party.
+	Actor string
 }
 
 // ImpersonationClientFactory creates Kubernetes clients that authenticate as

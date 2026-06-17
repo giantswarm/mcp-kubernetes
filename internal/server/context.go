@@ -127,23 +127,24 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, e
 
 	// External-issuer (M2M) path: the middleware resolved an ImpersonationIdentity.
 	// Use the in-cluster SA + impersonation instead of bearer-token passthrough.
-	if sc.impersonationFactory != nil {
-		if identity, ok := ImpersonationIdentityFromContext(ctx); ok {
-			client, err := sc.impersonationFactory.CreateImpersonationClient(identity)
-			if err != nil {
-				sc.logger.Warn("Failed to create impersonation client", "error", err)
-				if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
-					sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
-				}
-				return nil, fmt.Errorf("%w: %v", ErrOAuthClientFailed, err)
-			}
-			sc.logger.Debug("Created impersonation client for M2M request",
-				"user", identity.UserName)
-			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
-				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)
-			}
-			return client, nil
+	if identity, ok := ImpersonationIdentityFromContext(ctx); ok {
+		if sc.impersonationFactory == nil {
+			return nil, fmt.Errorf("impersonation identity present but no factory configured: check WithImpersonationFactory option")
 		}
+		client, err := sc.impersonationFactory.CreateImpersonationClient(identity)
+		if err != nil {
+			sc.logger.Warn("Failed to create impersonation client", "error", err)
+			if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+				sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultDenied)
+			}
+			return nil, fmt.Errorf("%w: %v", ErrOAuthClientFailed, err)
+		}
+		sc.logger.Debug("Created impersonation client for M2M request",
+			"user", identity.UserName)
+		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
+			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)
+		}
+		return client, nil
 	}
 
 	// Try to get the ID token from context
