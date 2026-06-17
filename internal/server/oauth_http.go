@@ -1011,6 +1011,29 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				return
 			}
 
+			// OBO path (Phase 2): sub=human, act.sub=agent SA.
+			// Impersonate the human subject; record the agent SA as the actor so the
+			// kube-apiserver audit log shows "human X via agent Z".
+			if userInfo.IsDelegated() {
+				identity := k8s.ImpersonationIdentity{
+					UserName: userInfo.ID,
+					// No groups: user-only impersonation. kube-apiserver auto-adds
+					// system:authenticated. Human access is governed by RoleBindings
+					// to the user subject on each target cluster.
+					Extra: map[string][]string{
+						"issuer": {userInfo.Issuer},
+						"agent":  {"mcp-kubernetes"},
+					},
+					Actor:                 userInfo.ActorSubject,
+					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
+				}
+				ctx = ContextWithImpersonationIdentity(ctx, identity)
+				r = r.WithContext(ctx)
+				recordMetric(ctx, "obo_success")
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// M2M path (Phase 1B): sub=agent SA, no act claim.
 			// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
 			saName := userInfo.ID

@@ -524,17 +524,35 @@ mcpKubernetes:
     #   acceptedTypHeaders:     accepted `typ` header values (empty = any)
     #   allowPrivateIPJWKS:     true when the JWKS endpoint is on a private network
     #
+    # OBO (on-behalf-of) fields — only needed when agents carry a delegated human token
+    # (RFC 8693 act claim). Leave empty for pure M2M (autonomous agent) deployments.
+    #
+    #   allowedSubjects:  human subject values permitted for `impersonate users`.
+    #                     SECURITY: `impersonate users` is a crown-jewel verb. This list
+    #                     must stay narrow. Empty (default) = no `impersonate users` grant
+    #                     emitted at all. For large/dynamic human populations prefer
+    #                     out-of-band RoleBindings via shared-configs instead.
+    #   allowedActors:    agent SA sub values permitted as the OBO actor (act.sub claim).
+    #                     Scoped via resourceNames on userextras/actor. Empty = no grant.
+    #
     # Each alias generates: a <alias> namespace, a namespaced Role granting
     # `impersonate serviceaccounts` in that namespace, and a ClusterRole granting
     # `impersonate groups/extras` scoped to the alias. Per-alias RBAC is only
     # generated when serviceAccount.create and rbac.create are both true.
     #
-    # Example:
+    # Example (M2M only):
     #   - issuer: "https://oidc.example.com/glean"
     #     jwksURL: "https://oidc.example.com/glean/.well-known/jwks.json"
     #     alias: "glean"
     #     allowedAudiences: ["https://mcp.example.com"]
     #     allowedTargetClusters: ["cluster-a", "cluster-b"]
+    #
+    # Example (M2M + OBO):
+    #   - issuer: "https://oidc.example.com/glean"
+    #     jwksURL: "https://oidc.example.com/glean/.well-known/jwks.json"
+    #     alias: "glean"
+    #     allowedSubjects: ["alice@example.com", "bob@example.com"]
+    #     allowedActors: ["system:serviceaccount:kagent:my-agent"]
     #
     # Default: [] (no external issuers trusted)
     trustedIssuers: []

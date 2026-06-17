@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+* OBO (Phase 2): external-issuer tokens carrying an RFC 8693 `act` claim now take the OBO impersonation branch. `Impersonate-User` is set to the human subject; `Impersonate-Extra-actor` is set to the agent SA sub, so the kube-apiserver audit log records both parties. Tokens without an `act` claim continue to use the existing M2M path unchanged.
+* `trustedIssuers[].allowedSubjects` and `trustedIssuers[].allowedActors` Helm values gate the `impersonate users` and `userextras/actor` ClusterRole rules. Both default to empty (no grant); populate narrowly to keep the `impersonate users` blast radius bounded.
+
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 
 

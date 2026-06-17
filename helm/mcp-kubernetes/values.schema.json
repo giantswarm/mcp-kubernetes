@@ -598,6 +598,22 @@
                     "type": "boolean",
                     "description": "Allow the JWKS endpoint to resolve to a private/loopback IP. Required when the issuer runs on an internal network.",
                     "default": false
+                  },
+                  "allowedSubjects": {
+                    "type": "array",
+                    "description": "OBO (Phase 2): human subject values permitted for `impersonate users`. SECURITY: `impersonate users` is a crown-jewel verb — populate narrowly. Empty (default) emits no `impersonate users` grant at all. For large or frequently-changing human populations, use out-of-band RoleBindings via shared-configs instead.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  },
+                  "allowedActors": {
+                    "type": "array",
+                    "description": "OBO (Phase 2): agent SA sub values permitted as the OBO actor (act.sub claim). Scoped via resourceNames on userextras/actor. Empty (default) emits no userextras/actor grant.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
                   }
                 }
               },
