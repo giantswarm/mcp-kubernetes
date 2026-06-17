@@ -1004,66 +1004,36 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				return
 			}
 
-			var identity k8s.ImpersonationIdentity
-
-			if userInfo.Act != nil {
-				// OBO path: sub=human, act.sub=agent SA.
-				// Sets Impersonate-User=human, Impersonate-Extra-actor=agent SA.
-				// The kube-apiserver audit trail records "human X acted via agent Y".
-				identity = k8s.ImpersonationIdentity{
-					UserName: userInfo.ID,
-					Groups:   userInfo.Groups,
-					Extra: map[string][]string{
-						"issuer": {userInfo.Issuer},
-						"agent":  {"mcp-kubernetes"},
-					},
-					Actor:                 userInfo.Act.Sub,
-					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
-				}
-				slog.Debug("AccessTokenInjector: OBO token, setting impersonation identity",
-					"user_name", userInfo.ID,
-					"actor", userInfo.Act.Sub,
-					"actor_iss", userInfo.Act.Iss,
-					"issuer", userInfo.Issuer,
-					"alias", tiConfig.Alias)
-				recordMetric(ctx, "obo_impersonation")
-			} else {
-				// M2M path (Phase 1B): sub=agent SA, no act claim.
-				// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
-				saName := userInfo.ID
-				if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
-					saName = parts[3]
-				}
-				if saName == "" {
-					slog.Warn("AccessTokenInjector: empty service account name in token sub, rejecting",
-						"issuer", userInfo.Issuer)
-					http.Error(w, "forbidden: empty service account name", http.StatusForbidden)
-					return
-				}
-				if !isDNS1123Label(saName) {
-					slog.Warn("AccessTokenInjector: service account name is not a valid DNS-1123 label, rejecting",
-						"issuer", userInfo.Issuer)
-					http.Error(w, "forbidden: invalid service account name", http.StatusForbidden)
-					return
-				}
-				qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
-				// Groups are pinned to the per-alias group; SA token group claims are not
-				// forwarded because they reflect the source namespace and would be rejected
-				// by the kube-apiserver impersonation RBAC.
-				identity = k8s.ImpersonationIdentity{
-					UserName: qualifiedUserName,
-					Groups:   []string{"system:serviceaccounts:" + tiConfig.Alias},
-					Extra: map[string][]string{
-						"issuer": {userInfo.Issuer},
-						"agent":  {"mcp-kubernetes"},
-					},
-					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
-				}
-				slog.Debug("AccessTokenInjector: external-issuer M2M token, setting impersonation identity",
-					"user_name", qualifiedUserName,
-					"issuer", userInfo.Issuer,
-					"alias", tiConfig.Alias)
-				recordMetric(ctx, "m2m_impersonation")
+			// M2M path (Phase 1B): sub=agent SA, no act claim.
+			// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
+			saName := userInfo.ID
+			if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
+				saName = parts[3]
+			}
+			if saName == "" {
+				slog.Warn("AccessTokenInjector: empty service account name in token sub, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: empty service account name", http.StatusForbidden)
+				return
+			}
+			if !isDNS1123Label(saName) {
+				slog.Warn("AccessTokenInjector: service account name is not a valid DNS-1123 label, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: invalid service account name", http.StatusForbidden)
+				return
+			}
+			qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
+			// Groups are pinned to the per-alias group; SA token group claims are not
+			// forwarded because they reflect the source namespace and would be rejected
+			// by the kube-apiserver impersonation RBAC.
+			identity := k8s.ImpersonationIdentity{
+				UserName: qualifiedUserName,
+				Groups:   []string{"system:serviceaccounts:" + tiConfig.Alias},
+				Extra: map[string][]string{
+					"issuer": {userInfo.Issuer},
+					"agent":  {"mcp-kubernetes"},
+				},
+				AllowedTargetClusters: tiConfig.AllowedTargetClusters,
 			}
 
 			ctx = ContextWithImpersonationIdentity(ctx, identity)
