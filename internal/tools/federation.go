@@ -104,16 +104,39 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 
 	// If a cluster is specified, we need federation support
 	if clusterName != "" {
-		// Extract user info from OAuth context
-		oauthUser, ok := oauth.UserInfoFromContext(ctx)
-		if !ok || oauthUser == nil {
-			return nil, "authentication required: no user info in context"
-		}
+		var user *federation.UserInfo
 
-		// Convert OAuth user info to federation UserInfo
-		user := oauth.ToFederationUserInfo(oauthUser)
-		if user == nil {
-			return nil, "failed to convert user info for federation"
+		// For external-issuer (M2M) tokens the middleware sets an ImpersonationIdentity
+		// instead of an ID token. Use the qualified SA subject as Impersonate-User so
+		// workload-cluster clients carry the same identity as the local cluster path.
+		if identity, ok := server.ImpersonationIdentityFromContext(ctx); ok {
+			if len(identity.AllowedTargetClusters) > 0 {
+				allowed := false
+				for _, c := range identity.AllowedTargetClusters {
+					if c == clusterName {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					return nil, fmt.Sprintf("cluster %q is not in the allowed target clusters for this identity", clusterName)
+				}
+			}
+			user = &federation.UserInfo{
+				Email:  identity.UserName,
+				Groups: identity.Groups,
+				Extra:  identity.Extra,
+			}
+		} else {
+			// SSO / normal OAuth path: extract user info from context
+			oauthUser, ok := oauth.UserInfoFromContext(ctx)
+			if !ok || oauthUser == nil {
+				return nil, "authentication required: no user info in context"
+			}
+			user = oauth.ToFederationUserInfo(oauthUser)
+			if user == nil {
+				return nil, "failed to convert user info for federation"
+			}
 		}
 
 		// Get clients from federation manager for the target cluster

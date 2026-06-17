@@ -556,6 +556,23 @@ func runServe(config ServeConfig) error {
 			"strict_mode", true)
 	}
 
+	// Create impersonation factory when trusted issuers are configured.
+	// This enables machine-to-machine auth: external SA tokens are validated,
+	// then mcp-kubernetes impersonates the SA identity on the kube-apiserver
+	// using its own in-cluster credentials.
+	if len(config.OAuth.TrustedIssuers) > 0 {
+		if !config.InCluster {
+			return fmt.Errorf("trusted issuers require in-cluster mode (--in-cluster)")
+		}
+		impersonationFactory, err := k8s.NewInClusterImpersonationFactory(k8sConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create impersonation factory: %w", err)
+		}
+		serverContextOptions = append(serverContextOptions, server.WithImpersonationFactory(impersonationFactory))
+		slog.Info("trusted-issuer impersonation enabled",
+			"issuer_count", len(config.OAuth.TrustedIssuers))
+	}
+
 	// Load CAPI mode configuration from environment variables
 	if err := loadCAPIModeConfig(&config.CAPIMode); err != nil {
 		return fmt.Errorf("failed to load CAPI mode configuration: %w", err)

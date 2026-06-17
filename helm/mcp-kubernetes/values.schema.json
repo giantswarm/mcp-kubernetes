@@ -551,7 +551,7 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["issuer", "jwksURL"],
+                "required": ["issuer", "jwksURL", "alias"],
                 "properties": {
                   "issuer": {
                     "type": "string",
@@ -561,9 +561,35 @@
                     "type": "string",
                     "description": "JWKS endpoint used to verify JWT signatures."
                   },
+                  "alias": {
+                    "type": "string",
+                    "description": "Stable short identifier for this issuer (e.g. 'glean'). Used as the namespace suffix in the impersonated subject: system:serviceaccount:kagent-<alias>:<saName>. Must be unique across all trusted issuers.",
+                    "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+                  },
                   "allowedAudiences": {
                     "type": "array",
                     "description": "Accepted `aud` values. Should be set to the kubernetes-mcp BASE_URL in production — an empty list accepts tokens for any audience, enabling cross-service token reuse.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "allowedTargetClusters": {
+                    "type": "array",
+                    "description": "Optional list of workload cluster names this issuer's tokens may target. Empty list allows all clusters. Use to scope blast radius when federation is enabled.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "allowedClaims": {
+                    "type": "object",
+                    "description": "Optional map of required claim key/value pairs. Tokens lacking these claims are rejected.",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "acceptedTypHeaders": {
+                    "type": "array",
+                    "description": "Optional list of accepted `typ` header values. Empty list accepts any typ.",
                     "items": {
                       "type": "string"
                     }

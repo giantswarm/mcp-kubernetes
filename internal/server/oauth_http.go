@@ -25,6 +25,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
+	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	mcpoauth "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
@@ -298,8 +299,22 @@ type TrustedIssuerConfig struct {
 	Issuer string `json:"issuer"`
 	// JwksURL is the JWKS endpoint used to verify signatures.
 	JwksURL string `json:"jwksURL"`
+	// Alias is a required stable short identifier for this issuer (e.g. "glean", "mc-foo").
+	// It is encoded into the impersonated principal as the namespace component:
+	// system:serviceaccount:kagent-<alias>:<saName>
+	Alias string `json:"alias"`
 	// AllowedAudiences restricts accepted `aud` values. Empty means any audience.
 	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
+	// AllowedTargetClusters limits which management/workload cluster names this
+	// issuer's tokens may be impersonated onto. Empty means any cluster.
+	AllowedTargetClusters []string `json:"allowedTargetClusters,omitempty"`
+	// AllowedClaims constrains accepted tokens to those whose JWT claims match
+	// all entries exactly (e.g. {"sub": "system:serviceaccount:kagent:*"}).
+	// Wildcard suffix matching is supported for the "sub" claim only.
+	AllowedClaims map[string]string `json:"allowedClaims,omitempty"`
+	// AcceptedTypHeaders overrides the default RFC 9068 typ=at+jwt check.
+	// Set to ["", "JWT"] to accept Kubernetes ServiceAccount tokens.
+	AcceptedTypHeaders []string `json:"acceptedTypHeaders,omitempty"`
 	// AllowPrivateIPJWKS permits JWKS endpoints on private/loopback addresses.
 	AllowPrivateIPJWKS bool `json:"allowPrivateIPJWKS,omitempty"`
 }
@@ -340,6 +355,9 @@ type OAuthHTTPServer struct {
 	disableStreaming        bool
 	instrumentationProvider *instrumentation.Provider
 	healthChecker           *HealthChecker
+	// trustedIssuersByIssuer maps issuer URL to TrustedIssuerConfig for O(1)
+	// lookup in the access-token injector middleware.
+	trustedIssuersByIssuer map[string]TrustedIssuerConfig
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -535,10 +553,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
 		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
 
-		// TrustedAudiences for SSO token forwarding from upstream aggregators
-		// Allows accepting tokens issued to other clients (e.g., muster)
-		TrustedAudiences: config.TrustedAudiences,
-
 		// AllowPrivateIPJWKS for JWKS fetching from internal IdPs (mcp-oauth v0.2.40+)
 		// Enables SSO token forwarding when IdP (e.g., Dex) is on a private network
 		AllowPrivateIPJWKS: config.SSOAllowPrivateIPs,
@@ -606,6 +620,10 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		"maxClientsPerIP", maxClientsPerIP,
 		"window", security.DefaultRegistrationWindow)
 
+	if len(config.TrustedAudiences) > 0 {
+		opts = append(opts, oauthserver.WithTrustedAudiences(config.TrustedAudiences))
+	}
+
 	if len(config.TrustedIssuers) > 0 {
 		issuers := make([]oauthserver.TrustedIssuer, len(config.TrustedIssuers))
 		for i, ti := range config.TrustedIssuers {
@@ -613,6 +631,8 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 				Issuer:             ti.Issuer,
 				JwksURL:            ti.JwksURL,
 				AllowedAudiences:   ti.AllowedAudiences,
+				AllowedClaims:      ti.AllowedClaims,
+				AcceptedTypHeaders: ti.AcceptedTypHeaders,
 				AllowPrivateIPJWKS: ti.AllowPrivateIPJWKS,
 			}
 		}
@@ -645,6 +665,12 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
+	// Build issuer→config lookup map for the access-token injector middleware.
+	issuerMap := make(map[string]TrustedIssuerConfig, len(config.TrustedIssuers))
+	for _, ti := range config.TrustedIssuers {
+		issuerMap[ti.Issuer] = ti
+	}
+
 	// Create HTTP handler
 	oauthHandler := handler.New(oauthServer, oauthServer.Logger)
 
@@ -656,6 +682,7 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		serverType:              serverType,
 		disableStreaming:        config.DisableStreaming,
 		instrumentationProvider: config.InstrumentationProvider,
+		trustedIssuersByIssuer:  issuerMap,
 	}, nil
 }
 
@@ -924,6 +951,50 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			slog.Debug("AccessTokenInjector: no bearer token in Authorization header",
 				"user_id", userInfo.ID)
 			recordMetric(ctx, "no_token")
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// External-issuer (M2M) path: token was validated against a TrustedIssuer entry.
+		// The Bearer is a ServiceAccount token whose aud is the muster STS, not the
+		// kube-apiserver — passthrough would be rejected. Instead, derive an
+		// ImpersonationIdentity and store it in context; K8sClientForContext will use
+		// the server's own in-cluster SA + Impersonate-* headers.
+		if userInfo.IsExternalIssuer() {
+			tiConfig, known := s.trustedIssuersByIssuer[userInfo.Issuer]
+			if !known {
+				slog.Warn("AccessTokenInjector: external-issuer token with unknown issuer, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: unknown trusted issuer", http.StatusForbidden)
+				return
+			}
+			if tiConfig.Alias == "" {
+				slog.Warn("AccessTokenInjector: trusted issuer has no alias configured",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "internal configuration error: issuer alias missing", http.StatusInternalServerError)
+				return
+			}
+			// Build the issuer-qualified SA subject. The sub claim is
+			// system:serviceaccount:<namespace>:<name>; we encode the issuer
+			// alias as the namespace component to produce a unique RBAC subject.
+			saName := userInfo.ID
+			qualifiedUserName := "system:serviceaccount:kagent-" + tiConfig.Alias + ":" + saName
+			identity := k8s.ImpersonationIdentity{
+				UserName: qualifiedUserName,
+				Groups:   userInfo.Groups,
+				Extra: map[string][]string{
+					"issuer": {userInfo.Issuer},
+					"agent":  {"mcp-kubernetes"},
+				},
+				AllowedTargetClusters: tiConfig.AllowedTargetClusters,
+			}
+			slog.Debug("AccessTokenInjector: external-issuer M2M token, setting impersonation identity",
+				"user_name", qualifiedUserName,
+				"issuer", userInfo.Issuer,
+				"alias", tiConfig.Alias)
+			ctx = ContextWithImpersonationIdentity(ctx, identity)
+			r = r.WithContext(ctx)
+			recordMetric(ctx, "m2m_impersonation")
 			next.ServeHTTP(w, r)
 			return
 		}
