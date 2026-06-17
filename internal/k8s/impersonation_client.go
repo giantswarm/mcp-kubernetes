@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -152,31 +153,22 @@ func (c *impersonationClient) getDiscoveryClient() (discovery.DiscoveryInterface
 
 func (c *impersonationClient) isOperationAllowed(operation string) error {
 	if len(c.allowedOperations) > 0 {
-		for _, allowed := range c.allowedOperations {
-			if allowed == operation {
-				return nil
-			}
+		if !slices.Contains(c.allowedOperations, operation) {
+			return fmt.Errorf("operation %q is not allowed", operation)
 		}
-		return fmt.Errorf("operation %q is not allowed", operation)
+		return nil
 	}
 	if c.nonDestructiveMode {
-		for _, destructive := range []string{"delete", "patch", "scale", "create", "apply"} {
-			if destructive == operation {
-				if !c.dryRun {
-					return fmt.Errorf("destructive operation %q is not allowed in non-destructive mode", operation)
-				}
-				break
-			}
+		if slices.Contains([]string{"delete", "patch", "scale", "create", "apply"}, operation) && !c.dryRun {
+			return fmt.Errorf("destructive operation %q is not allowed in non-destructive mode", operation)
 		}
 	}
 	return nil
 }
 
 func (c *impersonationClient) isNamespaceRestricted(namespace string) error {
-	for _, restricted := range c.restrictedNamespaces {
-		if restricted == namespace {
-			return fmt.Errorf("access to namespace %q is restricted", namespace)
-		}
+	if slices.Contains(c.restrictedNamespaces, namespace) {
+		return fmt.Errorf("access to namespace %q is restricted", namespace)
 	}
 	return nil
 }

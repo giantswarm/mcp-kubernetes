@@ -302,7 +302,7 @@ type TrustedIssuerConfig struct {
 	JwksURL string `json:"jwksURL"`
 	// Alias is a required stable short identifier for this issuer (e.g. "glean", "mc-foo").
 	// It is encoded into the impersonated principal as the namespace component:
-	// system:serviceaccount:kagent-<alias>:<saName>
+	// system:serviceaccount:<alias>:<saName>
 	Alias string `json:"alias"`
 	// AllowedAudiences restricts accepted `aud` values. Empty means any audience.
 	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
@@ -638,8 +638,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			}
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
-		logger.Info("Trusted issuers configured for M2M JWT acceptance",
-			"count", len(issuers))
 	}
 
 	// Create OAuth server
@@ -982,7 +980,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
 				saName = parts[3]
 			}
-			qualifiedUserName := "system:serviceaccount:kagent-" + tiConfig.Alias + ":" + saName
+			qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
 			identity := k8s.ImpersonationIdentity{
 				UserName: qualifiedUserName,
 				Groups:   userInfo.Groups,

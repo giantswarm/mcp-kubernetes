@@ -759,3 +759,87 @@ func TestDexScopesWithKubernetesAuthenticator(t *testing.T) {
 		})
 	}
 }
+
+func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
+	const (
+		testIssuer = "https://oidc.example.com"
+		testAlias  = "glean"
+	)
+	issuerMap := map[string]TrustedIssuerConfig{
+		testIssuer: {
+			Issuer:                testIssuer,
+			JwksURL:               "https://oidc.example.com/.well-known/jwks.json",
+			Alias:                 testAlias,
+			AllowedTargetClusters: []string{"cluster-a"},
+		},
+	}
+
+	newReq := func(issuer, id string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer fake-m2m-token") //nolint:gosec // G101: test fixture
+		userInfo := &providers.UserInfo{
+			ID:          id,
+			Issuer:      issuer,
+			TokenSource: providers.TokenSourceTrustedIssuer,
+		}
+		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
+	}
+
+	t.Run("K8s SA sub yields <alias>:<name>", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:kagent:my-agent"))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, "system:serviceaccount:glean:my-agent", identity.UserName)
+		require.Equal(t, []string{"cluster-a"}, identity.AllowedTargetClusters)
+		require.Equal(t, []string{testIssuer}, identity.Extra["issuer"])
+		require.Equal(t, []string{"mcp-kubernetes"}, identity.Extra["agent"])
+	})
+
+	t.Run("non-K8s sub used verbatim", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(testIssuer, "pipeline-bot"))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, "system:serviceaccount:glean:pipeline-bot", identity.UserName)
+	})
+
+	t.Run("unknown issuer returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq("https://unknown.example.com", "system:serviceaccount:kagent:bot"))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("alias empty returns 500", func(t *testing.T) {
+		noAlias := map[string]TrustedIssuerConfig{
+			testIssuer: {Issuer: testIssuer, JwksURL: "https://oidc.example.com/.well-known/jwks.json"},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: noAlias}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:kagent:bot"))
+		require.Equal(t, http.StatusInternalServerError, rr.Code)
+	})
+}

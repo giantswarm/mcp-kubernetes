@@ -518,7 +518,7 @@ subjects:
 M2M Impersonation RBAC
 
 For each trusted issuer with an alias, this creates:
-  - A kagent-<alias> Namespace for the impersonated ServiceAccounts
+  - A <alias> Namespace for the impersonated ServiceAccounts
   - A Role + RoleBinding in that namespace granting `impersonate serviceaccounts`
   - A ClusterRole + ClusterRoleBinding for groups and user-extra impersonation,
     scoped to the per-alias SA group and known extra keys/values
@@ -538,16 +538,16 @@ per-cluster via shared-configs or equivalent.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: kagent-{{ .alias }}
+  name: {{ .alias }}
   labels:
-    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
     mcp-kubernetes.giantswarm.io/m2m-alias: {{ .alias | quote }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-impersonate
-  namespace: kagent-{{ .alias }}
+  namespace: {{ .alias }}
   labels:
     {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
   annotations:
@@ -562,7 +562,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-impersonate
-  namespace: kagent-{{ .alias }}
+  namespace: {{ .alias }}
   labels:
     {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
 roleRef:
@@ -587,7 +587,7 @@ rules:
   - apiGroups: [""]
     resources: ["groups"]
     verbs: ["impersonate"]
-    resourceNames: ["system:serviceaccounts:kagent-{{ .alias }}"]
+    resourceNames: ["system:serviceaccounts:{{ .alias }}"]
   - apiGroups: ["authentication.k8s.io"]
     resources: ["userextras/agent"]
     verbs: ["impersonate"]
