@@ -900,3 +900,102 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 }
+
+func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
+	const (
+		testIssuer    = "https://oidc.example.com"
+		testAlias     = "glean"
+		humanSubject  = "quentin@example.com"
+		agentSASub    = "system:serviceaccount:kagent:my-agent"
+		agentSAIssuer = "https://k8s.example.com"
+	)
+	issuerMap := map[string]TrustedIssuerConfig{
+		testIssuer: {
+			Issuer:                testIssuer,
+			JwksURL:               "https://oidc.example.com/.well-known/jwks.json",
+			Alias:                 testAlias,
+			AllowedTargetClusters: []string{"cluster-a"},
+			// matchesSubGlob supports prefix* patterns only; use exact match for human subjects.
+			AllowedClaims: map[string]string{"sub": humanSubject},
+		},
+	}
+
+	newOBOReq := func(humanSub, actorSub string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
+		userInfo := &providers.UserInfo{
+			ID:            humanSub,
+			Issuer:        testIssuer,
+			TokenSource:   providers.TokenSourceTrustedIssuer,
+			ActorSubject:  actorSub,
+			ActorIssuer:   agentSAIssuer,
+		}
+		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
+	}
+
+	t.Run("OBO token: human sub becomes UserName, agent becomes Actor, no Groups", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newOBOReq(humanSubject, agentSASub))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, humanSubject, identity.UserName)
+		require.Empty(t, identity.Groups, "OBO impersonates user-only; no groups must be set")
+		require.Equal(t, agentSASub, identity.Actor)
+		require.Equal(t, []string{testIssuer}, identity.Extra["issuer"])
+		require.Equal(t, []string{"mcp-kubernetes"}, identity.Extra["agent"])
+		require.Equal(t, []string{"cluster-a"}, identity.AllowedTargetClusters)
+	})
+
+	t.Run("M2M token (no act) still takes M2M path unchanged", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer fake-m2m-token") //nolint:gosec // G101: test fixture
+		userInfo := &providers.UserInfo{
+			ID:          "system:serviceaccount:kagent:bot",
+			Issuer:      testIssuer,
+			TokenSource: providers.TokenSourceTrustedIssuer,
+			// ActorSubject intentionally absent
+		}
+		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
+
+		m2mMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"},
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: m2mMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, req)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, "system:serviceaccount:glean:bot", identity.UserName)
+		require.Empty(t, identity.Actor, "M2M path must not set Actor")
+	})
+
+	t.Run("OBO human sub not matching allowedClaims.sub returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newOBOReq("attacker@evil.com", agentSASub))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+}
