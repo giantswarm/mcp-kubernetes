@@ -1,15 +1,21 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 )
 
+// serviceName can be overridden at build time via
+// -ldflags "-X github.com/giantswarm/mcp-kubernetes/cmd.serviceName=..."
+// (const cannot be -X-overridden).
+var serviceName = "mcp-kubernetes"
+
 // rootCmd represents the base command for the mcp-kubernetes application.
 // It is the entry point when the application is called without any subcommands.
 var rootCmd = &cobra.Command{
-	Use:   "mcp-kubernetes",
+	Use:   serviceName,
 	Short: "MCP server for Kubernetes operations",
 	Long: `mcp-kubernetes is a Model Context Protocol (MCP) server that provides
 tools for interacting with Kubernetes clusters. It offers various capabilities
@@ -34,7 +40,7 @@ func SetVersion(v string) {
 func Execute() {
 	// SetVersionTemplate defines a custom template for displaying the version.
 	// This is used when the --version flag is invoked.
-	rootCmd.SetVersionTemplate(`{{printf "mcp-kubernetes version %s\n" .Version}}`)
+	rootCmd.SetVersionTemplate(fmt.Sprintf("%s version {{.Version}}\n", serviceName))
 
 	// If no subcommand is provided, run the serve command by default
 	if len(os.Args) == 1 {
