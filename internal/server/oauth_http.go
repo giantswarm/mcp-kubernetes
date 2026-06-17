@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -974,10 +975,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				http.Error(w, "internal configuration error: issuer alias missing", http.StatusInternalServerError)
 				return
 			}
-			// Build the issuer-qualified SA subject. The sub claim is
-			// system:serviceaccount:<namespace>:<name>; we encode the issuer
-			// alias as the namespace component to produce a unique RBAC subject.
+			// Build the issuer-qualified SA subject.
+			// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
+			// Non-K8s sub (e.g. plain identifier): use as-is.
 			saName := userInfo.ID
+			if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
+				saName = parts[3]
+			}
 			qualifiedUserName := "system:serviceaccount:kagent-" + tiConfig.Alias + ":" + saName
 			identity := k8s.ImpersonationIdentity{
 				UserName: qualifiedUserName,

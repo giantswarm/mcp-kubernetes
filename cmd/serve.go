@@ -556,10 +556,14 @@ func runServe(config ServeConfig) error {
 			"strict_mode", true)
 	}
 
-	// Create impersonation factory when trusted issuers are configured.
-	// This enables machine-to-machine auth: external SA tokens are validated,
-	// then mcp-kubernetes impersonates the SA identity on the kube-apiserver
-	// using its own in-cluster credentials.
+	if len(config.OAuth.TrustedIssuers) == 0 {
+		if envVal := os.Getenv("OAUTH_TRUSTED_ISSUERS"); envVal != "" {
+			if err := json.Unmarshal([]byte(envVal), &config.OAuth.TrustedIssuers); err != nil {
+				return fmt.Errorf("OAUTH_TRUSTED_ISSUERS: invalid JSON: %w", err)
+			}
+		}
+	}
+
 	if len(config.OAuth.TrustedIssuers) > 0 {
 		if !config.InCluster {
 			return fmt.Errorf("trusted issuers require in-cluster mode (--in-cluster)")
@@ -921,14 +925,6 @@ func runServe(config ServeConfig) error {
 			if len(config.OAuth.TrustedAudiences) == 0 {
 				if envVal := os.Getenv("OAUTH_TRUSTED_AUDIENCES"); envVal != "" {
 					config.OAuth.TrustedAudiences = splitAndTrimAudiences(envVal)
-				}
-			}
-
-			if len(config.OAuth.TrustedIssuers) == 0 {
-				if envVal := os.Getenv("OAUTH_TRUSTED_ISSUERS"); envVal != "" {
-					if err := json.Unmarshal([]byte(envVal), &config.OAuth.TrustedIssuers); err != nil {
-						return fmt.Errorf("OAUTH_TRUSTED_ISSUERS: invalid JSON: %w", err)
-					}
 				}
 			}
 
