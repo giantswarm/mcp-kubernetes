@@ -6,7 +6,7 @@ package k8s
 // instead of a bearer-token passthrough client.
 type ImpersonationIdentity struct {
 	// UserName is the Kubernetes subject for Impersonate-User.
-	// Format: system:serviceaccount:kagent-<alias>:<saName>
+	// Format: system:serviceaccount:<alias>:<saName>
 	UserName string
 
 	// Groups forwarded from the validated token's groups claim.

@@ -515,7 +515,7 @@ mcpKubernetes:
     #   issuer:             expected `iss` claim in the JWT (exact match, no wildcards)
     #   jwksURL:            JWKS endpoint for signature verification
     #   alias:              stable short id for this issuer cluster (e.g. "glean");
-    #                       used to build system:serviceaccount:kagent-<alias>:<saName>
+    #                       used to build system:serviceaccount:<alias>:<saName>
     #
     # Optional per entry:
     #   allowedAudiences:       accepted `aud` values (empty = accept any)
@@ -524,7 +524,7 @@ mcpKubernetes:
     #   acceptedTypHeaders:     accepted `typ` header values (empty = any)
     #   allowPrivateIPJWKS:     true when the JWKS endpoint is on a private network
     #
-    # Each alias generates: a kagent-<alias> namespace, a namespaced Role granting
+    # Each alias generates: a <alias> namespace, a namespaced Role granting
     # `impersonate serviceaccounts` in that namespace, and a ClusterRole granting
     # `impersonate groups/extras` scoped to the alias. Per-alias RBAC is only
     # generated when serviceAccount.create and rbac.create are both true.

@@ -258,6 +258,7 @@ mcpKubernetes:
     trustedIssuers:
       - issuer: "https://muster.example.com"
         jwksURL: "https://muster.example.com/.well-known/jwks.json"
+        alias: "muster"
         allowedAudiences:
           - "https://kubernetes.mcp.example.com"
 ```
@@ -268,7 +269,7 @@ mcpKubernetes:
 |---|---|---|
 | `issuer` | yes | Expected `iss` claim in the JWT |
 | `jwksURL` | yes | JWKS endpoint for signature verification |
-| `alias` | yes | Short name used to derive the namespace (`kagent-<alias>`) and the impersonated SA subject |
+| `alias` | yes | Short name used to derive the namespace (`<alias>`) and the impersonated SA subject |
 | `allowedAudiences` | no | Accepted `aud` values; empty accepts any |
 | `allowedTargetClusters` | no | CAPI cluster names this issuer may access; empty allows any |
 | `allowPrivateIPJWKS` | no | Allow JWKS endpoint on a private network |
@@ -287,9 +288,9 @@ mcp-kubernetes
    │  3. Fetch JWKS from entry's jwksURL
    │  4. Verify JWT signature
    │  5. Check `aud` against allowedAudiences
-   │  6. Build qualified subject: system:serviceaccount:kagent-<alias>:<saName>
+   │  6. Build qualified subject: system:serviceaccount:<alias>:<saName>
    ▼
-Kubernetes API with Impersonate-User: system:serviceaccount:kagent-<alias>:<saName>
+Kubernetes API with Impersonate-User: system:serviceaccount:<alias>:<saName>
 ```
 
 ### Security notes

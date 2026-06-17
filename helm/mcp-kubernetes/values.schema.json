@@ -563,7 +563,7 @@
                   },
                   "alias": {
                     "type": "string",
-                    "description": "Stable short identifier for this issuer (e.g. 'glean'). Used as the namespace suffix in the impersonated subject: system:serviceaccount:kagent-<alias>:<saName>. Must be unique across all trusted issuers.",
+                    "description": "Stable short identifier for this issuer (e.g. 'glean'). Used as the namespace name and in the impersonated subject: system:serviceaccount:<alias>:<saName>. Must be unique across all trusted issuers.",
                     "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
                   },
                   "allowedAudiences": {

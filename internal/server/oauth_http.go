@@ -980,6 +980,12 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
 				saName = parts[3]
 			}
+			if saName == "" {
+				slog.Warn("AccessTokenInjector: empty service account name in token sub, rejecting",
+					"issuer", userInfo.Issuer)
+				http.Error(w, "forbidden: empty service account name", http.StatusForbidden)
+				return
+			}
 			qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
 			identity := k8s.ImpersonationIdentity{
 				UserName: qualifiedUserName,
