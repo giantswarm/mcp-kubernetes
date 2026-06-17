@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
+
 	oauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/handler"
 	oauthinstrumentation "github.com/giantswarm/mcp-oauth/instrumentation"
@@ -292,6 +294,20 @@ type OAuthConfig struct {
 	// matches. AllowedAudiences restricts the accepted `aud` values; when empty,
 	// any audience is accepted.
 	TrustedIssuers []TrustedIssuerConfig
+}
+
+// isDNS1123Label reports whether s is a valid Kubernetes DNS-1123 label.
+func isDNS1123Label(s string) bool {
+	return len(k8svalidation.IsDNS1123Label(s)) == 0
+}
+
+// matchesSubGlob reports whether s matches a sub-claim pattern.
+// Only a trailing * wildcard is supported (prefix match).
+func matchesSubGlob(pattern, s string) bool {
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(s, pattern[:len(pattern)-1])
+	}
+	return pattern == s
 }
 
 // TrustedIssuerConfig holds the configuration for a single trusted external JWT issuer.
@@ -954,11 +970,10 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// External-issuer (M2M) path: token was validated against a TrustedIssuer entry.
-		// The Bearer is a ServiceAccount token whose aud is the muster STS, not the
-		// kube-apiserver — passthrough would be rejected. Instead, derive an
-		// ImpersonationIdentity and store it in context; K8sClientForContext will use
-		// the server's own in-cluster SA + Impersonate-* headers.
+		// External-issuer path: token was validated against a TrustedIssuer entry.
+		// The Bearer's aud is the muster STS, not kube-apiserver — passthrough
+		// would be rejected. Derive an ImpersonationIdentity instead; the inner
+		// branch selects OBO (act claim present) or M2M (no act claim).
 		if userInfo.IsExternalIssuer() {
 			tiConfig, known := s.trustedIssuersByIssuer[userInfo.Issuer]
 			if !known {
@@ -973,36 +988,86 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				http.Error(w, "internal configuration error: issuer alias missing", http.StatusInternalServerError)
 				return
 			}
-			// Build the issuer-qualified SA subject.
-			// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
-			// Non-K8s sub (e.g. plain identifier): use as-is.
-			saName := userInfo.ID
-			if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
-				saName = parts[3]
-			}
-			if saName == "" {
-				slog.Warn("AccessTokenInjector: empty service account name in token sub, rejecting",
+			// Defense-in-depth: re-verify the sub claim at the impersonation boundary,
+			// independent of mcp-oauth's upstream check. Catches misconfigured entries
+			// (missing allowedClaims) and future library regressions before any
+			// impersonation call reaches the kube-apiserver.
+			if subPattern, ok := tiConfig.AllowedClaims["sub"]; !ok || subPattern == "" {
+				slog.Warn("AccessTokenInjector: trusted issuer has no allowedClaims.sub, rejecting",
 					"issuer", userInfo.Issuer)
-				http.Error(w, "forbidden: empty service account name", http.StatusForbidden)
+				http.Error(w, "forbidden: issuer misconfiguration", http.StatusForbidden)
+				return
+			} else if !matchesSubGlob(subPattern, userInfo.ID) {
+				slog.Warn("AccessTokenInjector: sub claim does not match allowedClaims pattern, rejecting",
+					"issuer", userInfo.Issuer, "pattern", subPattern)
+				http.Error(w, "forbidden: sub claim does not match allowed pattern", http.StatusForbidden)
 				return
 			}
-			qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
-			identity := k8s.ImpersonationIdentity{
-				UserName: qualifiedUserName,
-				Groups:   userInfo.Groups,
-				Extra: map[string][]string{
-					"issuer": {userInfo.Issuer},
-					"agent":  {"mcp-kubernetes"},
-				},
-				AllowedTargetClusters: tiConfig.AllowedTargetClusters,
+
+			var identity k8s.ImpersonationIdentity
+
+			if userInfo.Act != nil {
+				// OBO path: sub=human, act.sub=agent SA.
+				// Sets Impersonate-User=human, Impersonate-Extra-actor=agent SA.
+				// The kube-apiserver audit trail records "human X acted via agent Y".
+				identity = k8s.ImpersonationIdentity{
+					UserName: userInfo.ID,
+					Groups:   userInfo.Groups,
+					Extra: map[string][]string{
+						"issuer": {userInfo.Issuer},
+						"agent":  {"mcp-kubernetes"},
+					},
+					Actor:                 userInfo.Act.Sub,
+					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
+				}
+				slog.Debug("AccessTokenInjector: OBO token, setting impersonation identity",
+					"user_name", userInfo.ID,
+					"actor", userInfo.Act.Sub,
+					"actor_iss", userInfo.Act.Iss,
+					"issuer", userInfo.Issuer,
+					"alias", tiConfig.Alias)
+				recordMetric(ctx, "obo_impersonation")
+			} else {
+				// M2M path (Phase 1B): sub=agent SA, no act claim.
+				// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
+				saName := userInfo.ID
+				if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
+					saName = parts[3]
+				}
+				if saName == "" {
+					slog.Warn("AccessTokenInjector: empty service account name in token sub, rejecting",
+						"issuer", userInfo.Issuer)
+					http.Error(w, "forbidden: empty service account name", http.StatusForbidden)
+					return
+				}
+				if !isDNS1123Label(saName) {
+					slog.Warn("AccessTokenInjector: service account name is not a valid DNS-1123 label, rejecting",
+						"issuer", userInfo.Issuer)
+					http.Error(w, "forbidden: invalid service account name", http.StatusForbidden)
+					return
+				}
+				qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
+				// Groups are pinned to the per-alias group; SA token group claims are not
+				// forwarded because they reflect the source namespace and would be rejected
+				// by the kube-apiserver impersonation RBAC.
+				identity = k8s.ImpersonationIdentity{
+					UserName: qualifiedUserName,
+					Groups:   []string{"system:serviceaccounts:" + tiConfig.Alias},
+					Extra: map[string][]string{
+						"issuer": {userInfo.Issuer},
+						"agent":  {"mcp-kubernetes"},
+					},
+					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
+				}
+				slog.Debug("AccessTokenInjector: external-issuer M2M token, setting impersonation identity",
+					"user_name", qualifiedUserName,
+					"issuer", userInfo.Issuer,
+					"alias", tiConfig.Alias)
+				recordMetric(ctx, "m2m_impersonation")
 			}
-			slog.Debug("AccessTokenInjector: external-issuer M2M token, setting impersonation identity",
-				"user_name", qualifiedUserName,
-				"issuer", userInfo.Issuer,
-				"alias", tiConfig.Alias)
+
 			ctx = ContextWithImpersonationIdentity(ctx, identity)
 			r = r.WithContext(ctx)
-			recordMetric(ctx, "m2m_impersonation")
 			next.ServeHTTP(w, r)
 			return
 		}

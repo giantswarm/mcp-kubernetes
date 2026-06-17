@@ -531,7 +531,7 @@ Workload-cluster bindings (granting the impersonated subject actual permissions
 such as `list pods`) are NOT provisioned from this chart; they must be created
 per-cluster via shared-configs or equivalent.
 */}}
-{{- if and .Values.serviceAccount.create .Values.rbac.create }}
+{{- if and .Values.serviceAccount.create .Values.rbac.create .Values.mcpKubernetes.oauth.enabled }}
 {{- range .Values.mcpKubernetes.oauth.trustedIssuers }}
 {{- if .alias }}
 ---

@@ -771,6 +771,7 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 			JwksURL:               "https://oidc.example.com/.well-known/jwks.json",
 			Alias:                 testAlias,
 			AllowedTargetClusters: []string{"cluster-a"},
+			AllowedClaims:         map[string]string{"sub": "system:serviceaccount:kagent:*"},
 		},
 	}
 
@@ -800,6 +801,7 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, "system:serviceaccount:glean:my-agent", identity.UserName)
+		require.Equal(t, []string{"system:serviceaccounts:glean"}, identity.Groups)
 		require.Equal(t, []string{"cluster-a"}, identity.AllowedTargetClusters)
 		require.Equal(t, []string{testIssuer}, identity.Extra["issuer"])
 		require.Equal(t, []string{"mcp-kubernetes"}, identity.Extra["agent"])
@@ -811,7 +813,15 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 			capturedCtx = r.Context()
 			w.WriteHeader(http.StatusOK)
 		})
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		nonK8sMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": "pipeline-*"},
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: nonK8sMap}
 
 		rr := httptest.NewRecorder()
 		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(testIssuer, "pipeline-bot"))
@@ -820,6 +830,49 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, "system:serviceaccount:glean:pipeline-bot", identity.UserName)
+		require.Equal(t, []string{"system:serviceaccounts:glean"}, identity.Groups)
+	})
+
+	t.Run("missing allowedClaims sub returns 403", func(t *testing.T) {
+		noClaimsMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:  testIssuer,
+				JwksURL: "https://oidc.example.com/.well-known/jwks.json",
+				Alias:   testAlias,
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: noClaimsMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:kagent:bot"))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("sub not matching allowedClaims pattern returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:other-ns:attacker"))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("invalid DNS-1123 saName returns 403", func(t *testing.T) {
+		badSubMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": "*"},
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: badSubMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(testIssuer, "Bad_Name"))
+		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
 
 	t.Run("unknown issuer returns 403", func(t *testing.T) {
@@ -833,7 +886,11 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 
 	t.Run("alias empty returns 500", func(t *testing.T) {
 		noAlias := map[string]TrustedIssuerConfig{
-			testIssuer: {Issuer: testIssuer, JwksURL: "https://oidc.example.com/.well-known/jwks.json"},
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"},
+			},
 		}
 		s := &OAuthHTTPServer{trustedIssuersByIssuer: noAlias}
 		rr := httptest.NewRecorder()

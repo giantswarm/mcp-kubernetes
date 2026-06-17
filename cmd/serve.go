@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -38,6 +39,10 @@ const (
 	transportSSE            = "sse"
 	transportStreamableHTTP = "streamable-http"
 )
+
+func isDNS1123Label(s string) bool {
+	return len(k8svalidation.IsDNS1123Label(s)) == 0
+}
 
 // envValueTrue is the string value used to enable boolean environment variables.
 const envValueTrue = "true"
@@ -565,8 +570,29 @@ func runServe(config ServeConfig) error {
 	}
 
 	if len(config.OAuth.TrustedIssuers) > 0 {
+		if !config.DownstreamOAuth {
+			return fmt.Errorf("trusted issuers require downstream OAuth to be enabled (--downstream-oauth); " +
+				"without it the server falls back to its own SA client instead of impersonating the agent identity")
+		}
 		if !config.InCluster {
 			return fmt.Errorf("trusted issuers require in-cluster mode (--in-cluster)")
+		}
+		for _, ti := range config.OAuth.TrustedIssuers {
+			if ti.Issuer == "" {
+				return fmt.Errorf("trusted issuer entry has empty issuer URL")
+			}
+			if ti.JwksURL == "" {
+				return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
+			}
+			if !isDNS1123Label(ti.Alias) {
+				return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
+					"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
+					ti.Issuer, ti.Alias)
+			}
+			if _, hasSub := ti.AllowedClaims["sub"]; !hasSub {
+				return fmt.Errorf("trusted issuer %q: allowedClaims.sub is required to prevent "+
+					"any service account from the issuer being impersonated", ti.Issuer)
+			}
 		}
 		impersonationFactory, err := k8s.NewInClusterImpersonationFactory(k8sConfig)
 		if err != nil {
