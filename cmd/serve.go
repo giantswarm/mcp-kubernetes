@@ -470,14 +470,26 @@ func validateEncryptionKey(key []byte) error {
 
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
-	// logging.New selects JSON (KUBERNETES_SERVICE_HOST set) or text automatically.
+	// logging.Init selects JSON (KUBERNETES_SERVICE_HOST set) or text automatically;
+	// switches to OTel log bridge when OTEL_EXPORTER_OTLP_LOGS_ENDPOINT is set.
 	// internal/logging redaction helpers are explicit call-site wrappers, not
 	// ReplaceAttr hooks — unaffected by this.
 	logLevel := slog.LevelInfo
 	if config.DebugMode {
 		logLevel = slog.LevelDebug
 	}
-	slog.SetDefault(tklogging.New(tklogging.Options{Level: logLevel}))
+	logger, logShutdown, err := tklogging.Init(context.Background(), tklogging.WithLevel(logLevel))
+	if err != nil {
+		return fmt.Errorf("initialising logger: %w", err)
+	}
+	defer func() {
+		if shutdownErr := logShutdown(context.Background()); shutdownErr != nil {
+			if config.Transport != transportStdio {
+				slog.Error("log provider shutdown error", "error", shutdownErr)
+			}
+		}
+	}()
+	slog.SetDefault(logger)
 
 	// Create Kubernetes client configuration with structured logging
 	var k8sLogger = logging.NewSlogAdapter(slog.Default())
@@ -914,6 +926,7 @@ func runServe(config ServeConfig) error {
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithHooks(hooks),
 		mcpserver.WithInputSchemaValidation(),
+		mcpserver.WithStrictInputSchemaDefault(),
 		mcpserver.WithToolFilter(tools.HideDeprecatedAliasesFilter),
 		mcpserver.WithToolHandlerMiddleware(timeout.New(30*time.Second)),
 		mcpserver.WithToolHandlerMiddleware(responsecap.New(responsecap.Options{})),
