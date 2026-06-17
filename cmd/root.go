@@ -7,13 +7,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// serviceName is the cobra command name and the MCP server identifier
-// passed to mcpserver.NewMCPServer. Default is "mcp-kubernetes"; goreleaser
-// can override it at build time via -ldflags
-// "-X github.com/giantswarm/mcp-kubernetes/cmd.serviceName=...".
-// Const cannot be -X-overridden — keep this as a var so rebrands / fork
-// flavors flip a build flag instead of patching source. Same pattern
-// mcp-template / mcp-prometheus already use.
+// serviceName can be overridden at build time via
+// -ldflags "-X github.com/giantswarm/mcp-kubernetes/cmd.serviceName=..."
+// (const cannot be -X-overridden).
 var serviceName = "mcp-kubernetes"
 
 // rootCmd represents the base command for the mcp-kubernetes application.

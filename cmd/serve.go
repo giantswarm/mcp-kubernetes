@@ -470,11 +470,9 @@ func validateEncryptionKey(key []byte) error {
 
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
-	// Configure the default slog logger via the toolkit's logging.New: JSON
-	// format auto-selects when running in a Kubernetes pod
-	// (KUBERNETES_SERVICE_HOST set), text otherwise. The IP / token / email
-	// redaction helpers in internal/logging stay independent — they're called
-	// explicitly at log sites and don't go through ReplaceAttr.
+	// logging.New selects JSON (KUBERNETES_SERVICE_HOST set) or text automatically.
+	// internal/logging redaction helpers are explicit call-site wrappers, not
+	// ReplaceAttr hooks — unaffected by this.
 	logLevel := slog.LevelInfo
 	if config.DebugMode {
 		logLevel = slog.LevelDebug
