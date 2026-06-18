@@ -527,13 +527,21 @@ mcpKubernetes:
     # OBO (on-behalf-of) fields — only needed when agents carry a delegated human token
     # (RFC 8693 act claim). Leave empty for pure M2M (autonomous agent) deployments.
     #
-    #   allowedSubjects:  human subject values permitted for `impersonate users`.
-    #                     SECURITY: `impersonate users` is a crown-jewel verb. This list
-    #                     must stay narrow. Empty (default) = no `impersonate users` grant
-    #                     emitted at all. For large/dynamic human populations prefer
-    #                     out-of-band RoleBindings via shared-configs instead.
-    #   allowedActors:    agent SA sub values permitted as the OBO actor (act.sub claim).
-    #                     Scoped via resourceNames on userextras/actor. Empty = no grant.
+    #   allowedActors:  list of OBO actor entries. Each entry specifies an agent SA
+    #                   (act.sub claim) and the human subjects it may impersonate.
+    #
+    #     sub:              required. Agent SA sub, e.g. "system:serviceaccount:kagent:my-agent".
+    #     allowedSubjects:  optional. Human subject patterns the actor may impersonate.
+    #                       Supports a single leading (*@domain.com) or trailing
+    #                       (system:serviceaccount:ns:*) wildcard. Empty means any
+    #                       subject is allowed, still bounded by allowedClaims.sub.
+    #
+    #                   SECURITY: the chart emits an unrestricted `impersonate users`
+    #                   ClusterRole rule when allowedActors is set. K8s RBAC cannot
+    #                   couple impersonate-users to impersonate-actor (independent verbs)
+    #                   or express wildcard subjects in resourceNames. Per-actor subject
+    #                   scoping is enforced in-process by mcp-kubernetes before any
+    #                   impersonation call reaches the kube-apiserver.
     #
     # Each alias generates: a <alias> namespace, a namespaced Role granting
     # `impersonate serviceaccounts` in that namespace, and a ClusterRole granting
@@ -547,12 +555,19 @@ mcpKubernetes:
     #     allowedAudiences: ["https://mcp.example.com"]
     #     allowedTargetClusters: ["cluster-a", "cluster-b"]
     #
-    # Example (M2M + OBO):
+    # Example (M2M + OBO, glob subjects):
     #   - issuer: "https://oidc.example.com/glean"
     #     jwksURL: "https://oidc.example.com/glean/.well-known/jwks.json"
     #     alias: "glean"
-    #     allowedSubjects: ["alice@example.com", "bob@example.com"]
-    #     allowedActors: ["system:serviceaccount:kagent:my-agent"]
+    #     allowedClaims:
+    #       sub: "system:serviceaccount:kagent:*"
+    #     allowedActors:
+    #       - sub: "system:serviceaccount:kagent:my-agent"
+    #         allowedSubjects:
+    #           - "*@example.com"
+    #       - sub: "system:serviceaccount:kagent:headless-agent"
+    #         # empty allowedSubjects: this actor may impersonate any human
+    #         # whose sub matches allowedClaims.sub
     #
     # Default: [] (no external issuers trusted)
     trustedIssuers: []

@@ -597,24 +597,21 @@ rules:
     verbs: ["impersonate"]
     resourceNames: [{{ .issuer | quote }}]
 {{- /*
-OBO (Phase 2) rules: only emitted when allowedSubjects is non-empty.
-impersonate users is a crown-jewel verb — never grant it unrestricted.
-Populate allowedSubjects narrowly; prefer out-of-band shared-configs
-bindings for human populations that change frequently.
+impersonate users is granted unrestricted because K8s RBAC cannot couple it to
+impersonate-userextras/actor (independent verbs) and resourceNames has no wildcard
+support for glob subjects. Per-actor subject scoping is enforced in-process.
 */}}
-{{- if .allowedSubjects }}
-  - apiGroups: [""]
-    resources: ["users"]
-    verbs: ["impersonate"]
-    resourceNames:
-      {{- toYaml .allowedSubjects | nindent 6 }}
-{{- end }}
 {{- if .allowedActors }}
   - apiGroups: ["authentication.k8s.io"]
     resources: ["userextras/actor"]
     verbs: ["impersonate"]
     resourceNames:
-      {{- toYaml .allowedActors | nindent 6 }}
+      {{- range .allowedActors }}
+      - {{ .sub | quote }}
+      {{- end }}
+  - apiGroups: [""]
+    resources: ["users"]
+    verbs: ["impersonate"]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

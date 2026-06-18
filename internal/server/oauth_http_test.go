@@ -909,14 +909,19 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		agentSASub    = "system:serviceaccount:kagent:my-agent"
 		agentSAIssuer = "https://k8s.example.com"
 	)
+
+	// issuerMap with a single actor entry that allows any subject
+	// (empty AllowedSubjects = unrestricted, bounded by allowedClaims.sub).
 	issuerMap := map[string]TrustedIssuerConfig{
 		testIssuer: {
 			Issuer:                testIssuer,
 			JwksURL:               "https://oidc.example.com/.well-known/jwks.json",
 			Alias:                 testAlias,
 			AllowedTargetClusters: []string{"cluster-a"},
-			// matchesSubGlob supports prefix* patterns only; use exact match for human subjects.
-			AllowedClaims: map[string]string{"sub": humanSubject},
+			AllowedClaims:         map[string]string{"sub": humanSubject},
+			AllowedActors: []ActorConfig{
+				{Sub: agentSASub},
+			},
 		},
 	}
 
@@ -998,4 +1003,170 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		})).ServeHTTP(rr, newOBOReq("attacker@evil.com", agentSASub))
 		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
+
+	t.Run("OBO actor not in allowedActors returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newOBOReq(humanSubject, "system:serviceaccount:other:rogue-agent"))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("OBO allowedActors empty rejects any OBO request", func(t *testing.T) {
+		noActorMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": humanSubject},
+				// AllowedActors intentionally empty — OBO disabled.
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: noActorMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newOBOReq(humanSubject, agentSASub))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("OBO actor with allowedSubjects glob allows matching human", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		globMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": "*@example.com"},
+				AllowedActors: []ActorConfig{
+					{
+						Sub:             agentSASub,
+						AllowedSubjects: []string{"*@example.com"},
+					},
+				},
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: globMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newOBOReq("alice@example.com", agentSASub))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, "alice@example.com", identity.UserName)
+		require.Equal(t, agentSASub, identity.Actor)
+	})
+
+	t.Run("OBO actor with allowedSubjects glob rejects non-matching human", func(t *testing.T) {
+		globMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": "*@example.com"},
+				AllowedActors: []ActorConfig{
+					{
+						Sub:             agentSASub,
+						AllowedSubjects: []string{"*@example.com"},
+					},
+				},
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: globMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newOBOReq("intruder@other.org", agentSASub))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("OBO actor with empty allowedSubjects allows any matching human", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newOBOReq(humanSubject, agentSASub))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, humanSubject, identity.UserName)
+	})
+
+	t.Run("OBO multiple actors: each actor scoped to different subjects", func(t *testing.T) {
+		const (
+			agent1 = "system:serviceaccount:kagent:agent-one"
+			agent2 = "system:serviceaccount:kagent:agent-two"
+		)
+		multiActorMap := map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": "*@example.com"},
+				AllowedActors: []ActorConfig{
+					{Sub: agent1, AllowedSubjects: []string{"admin@example.com"}},
+					{Sub: agent2, AllowedSubjects: []string{"*@example.com"}},
+				},
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: multiActorMap}
+
+		// agent1 may only impersonate admin@example.com
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newOBOReq("other@example.com", agent1))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+
+		// agent2 may impersonate any @example.com human
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		rr2 := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr2, newOBOReq("other@example.com", agent2))
+		require.Equal(t, http.StatusOK, rr2.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, "other@example.com", identity.UserName)
+	})
+}
+
+func TestMatchesSubGlob(t *testing.T) {
+	tests := []struct {
+		pattern string
+		s       string
+		want    bool
+	}{
+		// exact match
+		{"alice@example.com", "alice@example.com", true},
+		{"alice@example.com", "bob@example.com", false},
+
+		// trailing star — prefix match
+		{"system:serviceaccount:kagent:*", "system:serviceaccount:kagent:bot", true},
+		{"system:serviceaccount:kagent:*", "system:serviceaccount:other:bot", false},
+		// trailing-star prefix must be non-empty
+		{"*", "anything", false},
+
+		// leading star — suffix match
+		{"*@giantswarm.io", "quentin@giantswarm.io", true},
+		{"*@giantswarm.io", "quentin@otherdomain.io", false},
+		// leading-star suffix must be non-empty
+		{"*", "anything", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.pattern+"|"+tc.s, func(t *testing.T) {
+			require.Equal(t, tc.want, matchesSubGlob(tc.pattern, tc.s))
+		})
+	}
 }

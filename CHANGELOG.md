@@ -10,7 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * OBO (Phase 2): external-issuer tokens carrying an RFC 8693 `act` claim now take the OBO impersonation branch. `Impersonate-User` is set to the human subject; `Impersonate-Extra-actor` is set to the agent SA sub, so the kube-apiserver audit log records both parties. Tokens without an `act` claim continue to use the existing M2M path unchanged.
-* `trustedIssuers[].allowedSubjects` and `trustedIssuers[].allowedActors` Helm values gate the `impersonate users` and `userextras/actor` ClusterRole rules. Both default to empty (no grant); populate narrowly to keep the `impersonate users` blast radius bounded.
+* `trustedIssuers[].allowedActors` is now a list of objects: each entry specifies an agent SA `sub` and an optional `allowedSubjects` list of human subject patterns. Per-actor subject enforcement runs in-process before any impersonation call reaches the kube-apiserver. Subject patterns support a single leading (`*@domain.com`) or trailing (`system:serviceaccount:ns:*`) wildcard. An empty `allowedSubjects` list permits any subject that passes `allowedClaims.sub`.
+* The `impersonate users` ClusterRole rule is now emitted unrestricted (no `resourceNames`) whenever `allowedActors` is non-empty. K8s RBAC cannot couple `impersonate-users` to `impersonate-userextras/actor` (independent verbs) or express wildcard subjects in `resourceNames`; the RBAC grant is the outer bound and the inner enforcement is in code.
+* `matchesSubGlob` now supports a single leading `*` as a suffix match (e.g. `*@giantswarm.io`) in addition to the existing trailing `*` prefix match.
+
+### Removed
+
+* `trustedIssuers[].allowedSubjects` Helm value removed. Subject restrictions now live per-actor in `allowedActors[].allowedSubjects`.
+
+### Changed
+
+* `trustedIssuers[].allowedActors` is now a list of objects (`{sub, allowedSubjects}`) instead of a flat list of strings. This is a breaking values change. OBO is disabled for an issuer when `allowedActors` is empty or omitted.
 
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 

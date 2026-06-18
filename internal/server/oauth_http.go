@@ -302,13 +302,34 @@ func isDNS1123Label(s string) bool {
 }
 
 // matchesSubGlob reports whether s matches a sub-claim pattern.
-// Only a trailing * wildcard is supported (prefix match).
+// matchesSubGlob matches s against pattern using a single leading or trailing
+// wildcard (*). A leading * anchors to a suffix ("*@example.com" matches any
+// string ending in "@example.com"). A trailing * anchors to a prefix
+// ("system:serviceaccount:kagent:*" matches any SA in that namespace).
+// An exact pattern (no *) requires an exact string equality.
 func matchesSubGlob(pattern, s string) bool {
 	if strings.HasSuffix(pattern, "*") {
 		prefix := pattern[:len(pattern)-1]
 		return prefix != "" && strings.HasPrefix(s, prefix)
 	}
+	if strings.HasPrefix(pattern, "*") {
+		suffix := pattern[1:]
+		return suffix != "" && strings.HasSuffix(s, suffix)
+	}
 	return pattern == s
+}
+
+// ActorConfig defines an OBO actor (RFC 8693 act.sub) and the human subjects it
+// is permitted to act on behalf of.
+type ActorConfig struct {
+	// Sub is the actor's JWT subject (act.sub claim), typically a K8s SA sub:
+	// "system:serviceaccount:<ns>:<name>".
+	Sub string `json:"sub"`
+	// AllowedSubjects is the set of human subject values (userInfo.ID) that this
+	// actor may impersonate. Trailing-star glob patterns are supported
+	// (e.g. "*@example.com"). Empty means any subject is allowed, still bounded
+	// by TrustedIssuerConfig.AllowedClaims["sub"] and the RBAC outer grant.
+	AllowedSubjects []string `json:"allowedSubjects,omitempty"`
 }
 
 // TrustedIssuerConfig holds the configuration for a single trusted external JWT issuer.
@@ -335,6 +356,10 @@ type TrustedIssuerConfig struct {
 	AcceptedTypHeaders []string `json:"acceptedTypHeaders,omitempty"`
 	// AllowPrivateIPJWKS permits JWKS endpoints on private/loopback addresses.
 	AllowPrivateIPJWKS bool `json:"allowPrivateIPJWKS,omitempty"`
+	// AllowedActors lists the OBO actors permitted for this issuer and, per actor,
+	// the human subjects they may impersonate. Empty means OBO is disabled for
+	// this issuer (any request with an act claim is rejected).
+	AllowedActors []ActorConfig `json:"allowedActors,omitempty"`
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -1015,6 +1040,41 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			// Impersonate the human subject; record the agent SA as the actor so the
 			// kube-apiserver audit log shows "human X via agent Z".
 			if userInfo.IsDelegated() {
+				// Enforce actor allow-list and per-actor subject scoping in-process.
+				// K8s RBAC cannot couple impersonate-users to impersonate-userextras/actor
+				// (independent verbs) and does not support wildcards in resourceNames,
+				// so both checks must live here.
+				actorSub := userInfo.ActorSubject
+				var matchedActor *ActorConfig
+				for i := range tiConfig.AllowedActors {
+					if tiConfig.AllowedActors[i].Sub == actorSub {
+						matchedActor = &tiConfig.AllowedActors[i]
+						break
+					}
+				}
+				if matchedActor == nil {
+					slog.Warn("AccessTokenInjector: OBO actor not in allowedActors, rejecting",
+						"issuer", userInfo.Issuer, "actor", actorSub)
+					http.Error(w, "forbidden: actor not permitted for this issuer", http.StatusForbidden)
+					return
+				}
+				if len(matchedActor.AllowedSubjects) > 0 {
+					humanSub := userInfo.ID
+					subAllowed := false
+					for _, pattern := range matchedActor.AllowedSubjects {
+						if matchesSubGlob(pattern, humanSub) {
+							subAllowed = true
+							break
+						}
+					}
+					if !subAllowed {
+						slog.Warn("AccessTokenInjector: OBO human subject not in actor's allowedSubjects, rejecting",
+							"issuer", userInfo.Issuer, "actor", actorSub, "subject", humanSub)
+						http.Error(w, "forbidden: subject not permitted for this actor", http.StatusForbidden)
+						return
+					}
+				}
+
 				identity := k8s.ImpersonationIdentity{
 					UserName: userInfo.ID,
 					// No groups: user-only impersonation. kube-apiserver auto-adds
@@ -1024,7 +1084,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 						"issuer": {userInfo.Issuer},
 						"agent":  {"mcp-kubernetes"},
 					},
-					Actor:                 userInfo.ActorSubject,
+					Actor:                 actorSub,
 					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
 				}
 				ctx = ContextWithImpersonationIdentity(ctx, identity)
