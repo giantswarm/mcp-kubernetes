@@ -596,17 +596,6 @@ rules:
     resources: ["userextras/issuer"]
     verbs: ["impersonate"]
     resourceNames: [{{ .issuer | quote }}]
-{{- /*
-OBO (Phase 2) rules: emitted when allowedActors is non-empty.
-impersonate users is granted unrestricted here because:
-  1. K8s RBAC cannot couple impersonate-users to impersonate-userextras/actor
-     (they are independent verbs checked independently).
-  2. Glob subject patterns (e.g. "*@example.com") cannot be expressed in
-     resourceNames (no wildcards supported).
-mcp-kubernetes enforces per-actor subject scoping in-process in the OBO branch
-of the access-token injector middleware. The RBAC grant is the outer bound;
-the inner enforcement is in code.
-*/}}
 {{- if .allowedActors }}
   - apiGroups: ["authentication.k8s.io"]
     resources: ["userextras/actor"]
