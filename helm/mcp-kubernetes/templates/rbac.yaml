@@ -596,6 +596,11 @@ rules:
     resources: ["userextras/issuer"]
     verbs: ["impersonate"]
     resourceNames: [{{ .issuer | quote }}]
+{{- /*
+impersonate users is granted unrestricted because K8s RBAC cannot couple it to
+impersonate-userextras/actor (independent verbs) and resourceNames has no wildcard
+support for glob subjects. Per-actor subject scoping is enforced in-process.
+*/}}
 {{- if .allowedActors }}
   - apiGroups: ["authentication.k8s.io"]
     resources: ["userextras/actor"]
