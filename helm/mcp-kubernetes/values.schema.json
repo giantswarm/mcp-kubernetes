@@ -599,19 +599,27 @@
                     "description": "Allow the JWKS endpoint to resolve to a private/loopback IP. Required when the issuer runs on an internal network.",
                     "default": false
                   },
-                  "allowedSubjects": {
-                    "type": "array",
-                    "description": "OBO (Phase 2): human subject values permitted for `impersonate users`. SECURITY: `impersonate users` is a crown-jewel verb — populate narrowly. Empty (default) emits no `impersonate users` grant at all. For large or frequently-changing human populations, use out-of-band RoleBindings via shared-configs instead.",
-                    "items": {
-                      "type": "string"
-                    },
-                    "default": []
-                  },
                   "allowedActors": {
                     "type": "array",
-                    "description": "OBO (Phase 2): agent SA sub values permitted as the OBO actor (act.sub claim). Scoped via resourceNames on userextras/actor. Empty (default) emits no userextras/actor grant.",
+                    "description": "OBO (Phase 2): list of actor entries. Each entry names an agent SA (act.sub) and optionally restricts the human subjects it may impersonate. Empty (default) disables OBO for this issuer. The chart emits an unrestricted `impersonate users` grant when this list is non-empty; per-actor subject scoping is enforced in-process by mcp-kubernetes.",
                     "items": {
-                      "type": "string"
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["sub"],
+                      "properties": {
+                        "sub": {
+                          "type": "string",
+                          "description": "Agent SA JWT subject (act.sub claim), e.g. 'system:serviceaccount:kagent:my-agent'."
+                        },
+                        "allowedSubjects": {
+                          "type": "array",
+                          "description": "Human subject patterns this actor may impersonate. Supports a single leading (*@domain.com) or trailing (system:serviceaccount:ns:*) wildcard. Empty means any subject is allowed, bounded by allowedClaims.sub.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "default": []
+                        }
+                      }
                     },
                     "default": []
                   }
