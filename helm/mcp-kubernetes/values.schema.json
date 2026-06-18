@@ -551,7 +551,7 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["issuer", "jwksURL", "alias"],
+                "required": ["issuer", "jwksURL"],
                 "properties": {
                   "issuer": {
                     "type": "string",
@@ -563,7 +563,7 @@
                   },
                   "alias": {
                     "type": "string",
-                    "description": "Stable short identifier for this issuer (e.g. 'glean'). Used as the namespace name and in the impersonated subject: system:serviceaccount:<alias>:<saName>. Must be unique across all trusted issuers.",
+                    "description": "Required for M2M issuers. Stable short identifier used as the namespace name and in the impersonated subject: system:serviceaccount:<alias>:<saName>. Omit for OBO-only issuers (e.g. muster) where the human email is impersonated directly. Must be unique across all trusted issuers.",
                     "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
                   },
                   "allowedAudiences": {

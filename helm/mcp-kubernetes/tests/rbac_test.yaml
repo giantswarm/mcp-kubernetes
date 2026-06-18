@@ -884,6 +884,31 @@ tests:
             verbs: ["impersonate"]
         documentIndex: 5
 
+  - it: should not create Namespace or M2M RBAC for issuer without alias (OBO-only)
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.trustedIssuers:
+        - issuer: "https://muster.example.com"
+          jwksURL: "https://muster.example.com/.well-known/jwks.json"
+          allowedClaims:
+            sub: "*@example.com"
+          allowedActors:
+            - sub: "system:serviceaccount:kagent:my-agent"
+              allowedSubjects:
+                - "*@example.com"
+    asserts:
+      # base ClusterRole + ClusterRoleBinding only; no Namespace, no M2M ClusterRole
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+
   - it: should include all actor subs in resourceNames when multiple allowedActors set
     set:
       serviceAccount.create: true
