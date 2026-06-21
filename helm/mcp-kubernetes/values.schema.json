@@ -582,10 +582,14 @@
                   },
                   "allowedClaims": {
                     "type": "object",
-                    "description": "Optional map of required claim key/value pairs. Tokens lacking these claims are rejected.",
+                    "description": "Optional map of required claim key/value pairs. Tokens lacking these claims are rejected. When subjectClaim is set, the impersonated-subject pattern must live under that key (e.g. allowedClaims.email), not under sub.",
                     "additionalProperties": {
                       "type": "string"
                     }
+                  },
+                  "subjectClaim": {
+                    "type": "string",
+                    "description": "Optional claim name whose value becomes the impersonated subject, replacing the standard sub. Set to 'email' for the muster-obo issuer so muster's opaque sub is remapped to the human email. Validation rejects the token if the claim is absent."
                   },
                   "acceptedTypHeaders": {
                     "type": "array",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
@@ -319,6 +321,38 @@ func matchesSubGlob(pattern, s string) bool {
 	return pattern == s
 }
 
+// actorChainSubjects returns the set of subjects in the token's RFC 8693 §4.4
+// delegation chain (act, act.act, ...). The token is already validated by the
+// upstream ValidateToken middleware, so the act claim is read from the
+// authentic payload without re-verifying the signature. Returns nil when the
+// token carries no act claim or cannot be parsed; callers must still seed the
+// set with the validated leaf actor (userInfo.ActorSubject).
+func actorChainSubjects(token string) map[string]struct{} {
+	rawClaims, err := oidc.ParseUnverifiedClaims(token)
+	if err != nil {
+		return nil
+	}
+	actRaw, ok := rawClaims["act"]
+	if !ok {
+		return nil
+	}
+	encoded, err := json.Marshal(actRaw)
+	if err != nil {
+		return nil
+	}
+	var actor oidc.ActorClaim
+	if err := json.Unmarshal(encoded, &actor); err != nil {
+		return nil
+	}
+	subjects := make(map[string]struct{})
+	for a := &actor; a != nil; a = a.Act {
+		if a.Subject != "" {
+			subjects[a.Subject] = struct{}{}
+		}
+	}
+	return subjects
+}
+
 // ActorConfig defines an OBO actor (RFC 8693 act.sub) and the human subjects it
 // is permitted to act on behalf of.
 type ActorConfig struct {
@@ -328,7 +362,7 @@ type ActorConfig struct {
 	// AllowedSubjects is the set of human subject values (userInfo.ID) that this
 	// actor may impersonate. Trailing-star glob patterns are supported
 	// (e.g. "*@example.com"). Empty means any subject is allowed, still bounded
-	// by TrustedIssuerConfig.AllowedClaims["sub"] and the RBAC outer grant.
+	// by the issuer's effective-subject-claim pattern and the RBAC outer grant.
 	AllowedSubjects []string `json:"allowedSubjects,omitempty"`
 }
 
@@ -350,7 +384,16 @@ type TrustedIssuerConfig struct {
 	// AllowedClaims constrains accepted tokens to those whose JWT claims match
 	// all entries exactly (e.g. {"sub": "system:serviceaccount:kagent:*"}).
 	// Wildcard suffix matching is supported for the "sub" claim only.
+	// When SubjectClaim is set, the entry under that key (not "sub") gates the
+	// impersonated subject; mcp-oauth evaluates AllowedClaims against the raw
+	// token before the subject is remapped, so the opaque sub cannot carry the
+	// remapped pattern.
 	AllowedClaims map[string]string `json:"allowedClaims,omitempty"`
+	// SubjectClaim names the verified claim whose value becomes the impersonated
+	// subject, replacing the standard sub claim. Set to "email" on the muster-obo
+	// issuer so muster's opaque sub is remapped to the human email. mcp-oauth
+	// fails closed if the claim is absent or not a non-empty string.
+	SubjectClaim string `json:"subjectClaim,omitempty"`
 	// AcceptedTypHeaders overrides the default RFC 9068 typ=at+jwt check.
 	// Set to ["", "JWT"] to accept Kubernetes ServiceAccount tokens.
 	AcceptedTypHeaders []string `json:"acceptedTypHeaders,omitempty"`
@@ -360,6 +403,16 @@ type TrustedIssuerConfig struct {
 	// the human subjects they may impersonate. Empty means OBO is disabled for
 	// this issuer (any request with an act claim is rejected).
 	AllowedActors []ActorConfig `json:"allowedActors,omitempty"`
+}
+
+// EffectiveSubjectKey returns the AllowedClaims key that gates the impersonated
+// subject: SubjectClaim when set, otherwise the standard "sub". The validated
+// subject (userInfo.ID) is matched against AllowedClaims[EffectiveSubjectKey()].
+func (c TrustedIssuerConfig) EffectiveSubjectKey() string {
+	if c.SubjectClaim != "" {
+		return c.SubjectClaim
+	}
+	return "sub"
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -677,6 +730,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 				JwksURL:            ti.JwksURL,
 				AllowedAudiences:   ti.AllowedAudiences,
 				AllowedClaims:      ti.AllowedClaims,
+				SubjectClaim:       ti.SubjectClaim,
 				AcceptedTypHeaders: ti.AcceptedTypHeaders,
 				AllowPrivateIPJWKS: ti.AllowPrivateIPJWKS,
 			}
@@ -1020,19 +1074,22 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				http.Error(w, "internal configuration error: issuer alias missing", http.StatusInternalServerError)
 				return
 			}
-			// Defense-in-depth: re-verify the sub claim at the impersonation boundary,
+			// Defense-in-depth: re-verify the subject at the impersonation boundary,
 			// independent of mcp-oauth's upstream check. Catches misconfigured entries
 			// (missing allowedClaims) and future library regressions before any
-			// impersonation call reaches the kube-apiserver.
-			if subPattern, ok := tiConfig.AllowedClaims["sub"]; !ok || subPattern == "" {
-				slog.Warn("AccessTokenInjector: trusted issuer has no allowedClaims.sub, rejecting",
-					"issuer", userInfo.Issuer)
+			// impersonation call reaches the kube-apiserver. The subject is matched
+			// against the effective-subject-claim pattern; for a remapped issuer
+			// (SubjectClaim set) userInfo.ID already holds the remapped value.
+			subjectKey := tiConfig.EffectiveSubjectKey()
+			if subPattern, ok := tiConfig.AllowedClaims[subjectKey]; !ok || subPattern == "" {
+				slog.Warn("AccessTokenInjector: trusted issuer has no allowedClaims for subject key, rejecting",
+					"issuer", userInfo.Issuer, "subjectKey", subjectKey)
 				http.Error(w, "forbidden: issuer misconfiguration", http.StatusForbidden)
 				return
 			} else if !matchesSubGlob(subPattern, userInfo.ID) {
-				slog.Warn("AccessTokenInjector: sub claim does not match allowedClaims pattern, rejecting",
-					"issuer", userInfo.Issuer, "pattern", subPattern)
-				http.Error(w, "forbidden: sub claim does not match allowed pattern", http.StatusForbidden)
+				slog.Warn("AccessTokenInjector: subject does not match allowedClaims pattern, rejecting",
+					"issuer", userInfo.Issuer, "subjectKey", subjectKey, "pattern", subPattern)
+				http.Error(w, "forbidden: subject does not match allowed pattern", http.StatusForbidden)
 				return
 			}
 
@@ -1044,17 +1101,30 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				// K8s RBAC cannot couple impersonate-users to impersonate-userextras/actor
 				// (independent verbs) and does not support wildcards in resourceNames,
 				// so both checks must live here.
+				//
+				// Walk the full RFC 8693 act chain: a configured actor is authorized
+				// when its sub appears anywhere in the chain, so multi-hop A2A
+				// (human -> agentA -> agentB -> MCP) is honored, not only the leaf.
+				// The leaf comes from the validated UserInfo; deeper hops are read
+				// from the authentic token payload.
 				actorSub := userInfo.ActorSubject
+				chainSubjects := actorChainSubjects(bearerToken)
+				if chainSubjects == nil {
+					chainSubjects = make(map[string]struct{}, 1)
+				}
+				if actorSub != "" {
+					chainSubjects[actorSub] = struct{}{}
+				}
 				var matchedActor *ActorConfig
 				for i := range tiConfig.AllowedActors {
-					if tiConfig.AllowedActors[i].Sub == actorSub {
+					if _, ok := chainSubjects[tiConfig.AllowedActors[i].Sub]; ok {
 						matchedActor = &tiConfig.AllowedActors[i]
 						break
 					}
 				}
 				if matchedActor == nil {
-					slog.Warn("AccessTokenInjector: OBO actor not in allowedActors, rejecting",
-						"issuer", userInfo.Issuer, "actor", actorSub)
+					slog.Warn("AccessTokenInjector: no actor in delegation chain matches allowedActors, rejecting",
+						"issuer", userInfo.Issuer, "leafActor", actorSub, "chainLen", len(chainSubjects))
 					http.Error(w, "forbidden: actor not permitted for this issuer", http.StatusForbidden)
 					return
 				}
