@@ -4,6 +4,8 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -1169,4 +1171,188 @@ func TestMatchesSubGlob(t *testing.T) {
 			require.Equal(t, tc.want, matchesSubGlob(tc.pattern, tc.s))
 		})
 	}
+}
+
+// makeDelegatedJWT builds an unsigned JWT whose payload is the given claims.
+// ParseUnverifiedClaims only base64-decodes the payload segment, so a placeholder
+// signature is sufficient for exercising the in-process act-chain walk.
+func makeDelegatedJWT(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	body, err := json.Marshal(claims)
+	require.NoError(t, err)
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"none","typ":"at+jwt"}`)) + "." + enc(body) + ".sig"
+}
+
+func TestAccessTokenInjectorMiddleware_ActorChain(t *testing.T) {
+	const (
+		testIssuer = "https://muster.example.io"
+		testAlias  = "muster-obo"
+		human      = "quentin@giantswarm.io"
+		agentInner = "system:serviceaccount:kagent:agent-a"
+		agentLeaf  = "system:serviceaccount:kagent:agent-b"
+	)
+
+	// Two-hop chain: human -> agent-a -> agent-b -> MCP. The minted token's act
+	// is the leaf (agent-b) with a nested act for the inner hop (agent-a).
+	twoHopToken := makeDelegatedJWT(t, map[string]any{
+		"iss": testIssuer,
+		"sub": human,
+		"act": map[string]any{
+			"iss": "https://k8s.example.com",
+			"sub": agentLeaf,
+			"act": map[string]any{
+				"iss": "https://k8s.example.com",
+				"sub": agentInner,
+			},
+		},
+	})
+
+	newReq := func(token string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		userInfo := &providers.UserInfo{
+			ID:           human,
+			Issuer:       testIssuer,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
+			ActorSubject: agentLeaf, // mcp-oauth mirrors only the leaf
+			ActorIssuer:  "https://k8s.example.com",
+		}
+		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
+	}
+
+	issuerWith := func(actorSub string) map[string]TrustedIssuerConfig {
+		return map[string]TrustedIssuerConfig{
+			testIssuer: {
+				Issuer:        testIssuer,
+				JwksURL:       "https://muster.example.io/.well-known/jwks.json",
+				Alias:         testAlias,
+				AllowedClaims: map[string]string{"sub": "*@giantswarm.io"},
+				AllowedActors: []ActorConfig{{Sub: actorSub}},
+			},
+		}
+	}
+
+	t.Run("allowedActors matches an inner (non-leaf) hop in the chain", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerWith(agentInner)}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(twoHopToken))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, human, identity.UserName)
+		require.Equal(t, agentLeaf, identity.Actor, "Actor records the immediate (leaf) caller")
+	})
+
+	t.Run("allowedActors matches the leaf hop in the chain", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerWith(agentLeaf)}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(twoHopToken))
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("no hop in the chain matches allowedActors returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerWith("system:serviceaccount:kagent:stranger")}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(twoHopToken))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+}
+
+func TestEffectiveSubjectKey(t *testing.T) {
+	require.Equal(t, "sub", TrustedIssuerConfig{}.EffectiveSubjectKey())
+	require.Equal(t, "email", TrustedIssuerConfig{SubjectClaim: "email"}.EffectiveSubjectKey())
+}
+
+// TestAccessTokenInjectorMiddleware_SubjectClaim covers the muster-obo issuer:
+// the subject is remapped to the email claim, so the in-process gate matches
+// userInfo.ID (already the email) against allowedClaims.email, not .sub.
+func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
+	const (
+		musterIssuer = "https://muster.glean.example.io"
+		musterAlias  = "muster-obo"
+		sreAgentSub  = "system:serviceaccount:kagent:sre-agent"
+		userEmail    = "quentin@giantswarm.io"
+	)
+
+	emailMap := map[string]TrustedIssuerConfig{
+		musterIssuer: {
+			Issuer:                musterIssuer,
+			JwksURL:               "https://muster.glean.example.io/.well-known/jwks.json",
+			Alias:                 musterAlias,
+			AllowedTargetClusters: []string{"glean"},
+			SubjectClaim:          "email",
+			AllowedClaims:         map[string]string{"email": "*@giantswarm.io"},
+			AllowedActors:         []ActorConfig{{Sub: sreAgentSub}},
+		},
+	}
+
+	newReq := func(remappedSubject string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
+		userInfo := &providers.UserInfo{
+			ID:           remappedSubject, // mcp-oauth set this from the email claim
+			Issuer:       musterIssuer,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
+			ActorSubject: sreAgentSub,
+			ActorIssuer:  "https://k8s.example.com",
+		}
+		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
+	}
+
+	t.Run("email-remapped subject matching allowedClaims.email impersonates the email", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: emailMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(userEmail))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, userEmail, identity.UserName)
+		require.Equal(t, sreAgentSub, identity.Actor)
+		require.Empty(t, identity.Groups)
+	})
+
+	t.Run("subject outside the email pattern returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: emailMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq("mallory@evil.com"))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("SubjectClaim set but no allowedClaims entry under that key returns 403", func(t *testing.T) {
+		misconfigured := map[string]TrustedIssuerConfig{
+			musterIssuer: {
+				Issuer:        musterIssuer,
+				JwksURL:       "https://muster.glean.example.io/.well-known/jwks.json",
+				Alias:         musterAlias,
+				SubjectClaim:  "email",
+				AllowedClaims: map[string]string{"sub": "*@giantswarm.io"}, // wrong key
+				AllowedActors: []ActorConfig{{Sub: sreAgentSub}},
+			},
+		}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: misconfigured}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(userEmail))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
 }

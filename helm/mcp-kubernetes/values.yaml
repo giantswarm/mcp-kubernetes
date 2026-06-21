@@ -521,6 +521,9 @@ mcpKubernetes:
     #   allowedAudiences:       accepted `aud` values (empty = accept any)
     #   allowedTargetClusters:  workload clusters this issuer may target (empty = all)
     #   allowedClaims:          required claim key/value pairs (e.g. sub prefix check)
+    #   subjectClaim:           claim whose value becomes the impersonated subject,
+    #                           replacing sub (e.g. "email"). When set, the subject
+    #                           pattern lives under that key in allowedClaims.
     #   acceptedTypHeaders:     accepted `typ` header values (empty = any)
     #   allowPrivateIPJWKS:     true when the JWKS endpoint is on a private network
     #
@@ -572,11 +575,14 @@ mcpKubernetes:
     #         # empty allowedSubjects: this actor may impersonate any human
     #         # whose sub matches allowedClaims.sub
     #
-    # Example (OBO-only issuer, e.g. muster token exchange endpoint):
+    # Example (OBO-only issuer, e.g. muster token exchange endpoint). muster keeps
+    # sub opaque and carries the human in the email claim, so subjectClaim remaps
+    # the subject to email and the pattern lives under allowedClaims.email:
     #   - issuer: "https://muster.example.com"
     #     jwksURL: "https://muster.example.com/.well-known/jwks.json"
+    #     subjectClaim: "email"
     #     allowedClaims:
-    #       sub: "*@example.com"
+    #       email: "*@example.com"
     #     acceptedTypHeaders: ["at+jwt"]
     #     allowedActors:
     #       - sub: "system:serviceaccount:kagent:my-agent"

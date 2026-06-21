@@ -438,6 +438,43 @@ Downstream OAuth (--downstream-oauth):
 }
 
 // validateEncryptionKey validates an AES-256 encryption key for security weaknesses
+// validateTrustedIssuers checks per-issuer invariants: a present issuer URL and
+// JWKS URL, a DNS-1123 alias, a non-wildcard subject pattern under the issuer's
+// effective subject claim (sub, or SubjectClaim when remapped), and unique
+// issuer URLs and aliases.
+func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
+	seenIssuers := make(map[string]struct{}, len(issuers))
+	seenAliases := make(map[string]struct{}, len(issuers))
+	for _, ti := range issuers {
+		if ti.Issuer == "" {
+			return fmt.Errorf("trusted issuer entry has empty issuer URL")
+		}
+		if ti.JwksURL == "" {
+			return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
+		}
+		if !isDNS1123Label(ti.Alias) {
+			return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
+				"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
+				ti.Issuer, ti.Alias)
+		}
+		subjectKey := ti.EffectiveSubjectKey()
+		subPattern, hasSub := ti.AllowedClaims[subjectKey]
+		if !hasSub || subPattern == "" || subPattern == "*" {
+			return fmt.Errorf("trusted issuer %q: allowedClaims.%s must be a non-empty pattern "+
+				"that is not bare '*' (prevents any identity from being impersonated)", ti.Issuer, subjectKey)
+		}
+		if _, seen := seenIssuers[ti.Issuer]; seen {
+			return fmt.Errorf("duplicate trusted issuer URL %q", ti.Issuer)
+		}
+		seenIssuers[ti.Issuer] = struct{}{}
+		if _, seen := seenAliases[ti.Alias]; seen {
+			return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
+		}
+		seenAliases[ti.Alias] = struct{}{}
+	}
+	return nil
+}
+
 func validateEncryptionKey(key []byte) error {
 	if len(key) != 32 {
 		return fmt.Errorf("encryption key must be exactly 32 bytes, got %d bytes", len(key))
@@ -593,33 +630,8 @@ func runServe(config ServeConfig) error {
 		if !config.InCluster {
 			return fmt.Errorf("trusted issuers require in-cluster mode (--in-cluster)")
 		}
-		seenIssuers := make(map[string]struct{}, len(config.OAuth.TrustedIssuers))
-		seenAliases := make(map[string]struct{}, len(config.OAuth.TrustedIssuers))
-		for _, ti := range config.OAuth.TrustedIssuers {
-			if ti.Issuer == "" {
-				return fmt.Errorf("trusted issuer entry has empty issuer URL")
-			}
-			if ti.JwksURL == "" {
-				return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
-			}
-			if !isDNS1123Label(ti.Alias) {
-				return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
-					"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
-					ti.Issuer, ti.Alias)
-			}
-			subPattern, hasSub := ti.AllowedClaims["sub"]
-			if !hasSub || subPattern == "" || subPattern == "*" {
-				return fmt.Errorf("trusted issuer %q: allowedClaims.sub must be a non-empty pattern "+
-					"that is not bare '*' (prevents any service account from being impersonated)", ti.Issuer)
-			}
-			if _, seen := seenIssuers[ti.Issuer]; seen {
-				return fmt.Errorf("duplicate trusted issuer URL %q", ti.Issuer)
-			}
-			seenIssuers[ti.Issuer] = struct{}{}
-			if _, seen := seenAliases[ti.Alias]; seen {
-				return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
-			}
-			seenAliases[ti.Alias] = struct{}{}
+		if err := validateTrustedIssuers(config.OAuth.TrustedIssuers); err != nil {
+			return err
 		}
 		impersonationFactory, err := k8s.NewInClusterImpersonationFactory(k8sConfig)
 		if err != nil {
