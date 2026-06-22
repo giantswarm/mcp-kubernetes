@@ -77,6 +77,13 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			},
 			wantError: true,
 		},
+		{
+			name: "same issuer URL with distinct aliases is valid (M2M + OBO)",
+			issuers: []server.TrustedIssuerConfig{
+				{Issuer: issuerURL, JwksURL: jwksURL, Alias: "kagent-glean", AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"}},
+				{Issuer: issuerURL, JwksURL: jwksURL, Alias: "muster-obo", SubjectClaim: "email", AllowedClaims: map[string]string{"email": "*@giantswarm.io"}},
+			},
+		},
 	}
 
 	for _, tc := range tests {

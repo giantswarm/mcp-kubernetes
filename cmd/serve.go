@@ -439,11 +439,11 @@ Downstream OAuth (--downstream-oauth):
 
 // validateEncryptionKey validates an AES-256 encryption key for security weaknesses
 // validateTrustedIssuers checks per-issuer invariants: a present issuer URL and
-// JWKS URL, a DNS-1123 alias, a non-wildcard subject pattern under the issuer's
-// effective subject claim (sub, or SubjectClaim when remapped), and unique
-// issuer URLs and aliases.
+// JWKS URL, a DNS-1123 alias, and a non-wildcard subject pattern under the
+// issuer's effective subject claim. Aliases must be unique across all entries.
+// Multiple entries may share the same issuer URL (e.g. M2M + OBO from the same
+// STS), provided their aliases differ.
 func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
-	seenIssuers := make(map[string]struct{}, len(issuers))
 	seenAliases := make(map[string]struct{}, len(issuers))
 	for _, ti := range issuers {
 		if ti.Issuer == "" {
@@ -463,10 +463,6 @@ func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 			return fmt.Errorf("trusted issuer %q: allowedClaims.%s must be a non-empty pattern "+
 				"that is not bare '*' (prevents any identity from being impersonated)", ti.Issuer, subjectKey)
 		}
-		if _, seen := seenIssuers[ti.Issuer]; seen {
-			return fmt.Errorf("duplicate trusted issuer URL %q", ti.Issuer)
-		}
-		seenIssuers[ti.Issuer] = struct{}{}
 		if _, seen := seenAliases[ti.Alias]; seen {
 			return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
 		}
