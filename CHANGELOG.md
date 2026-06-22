@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * M2M path (external-issuer tokens without `act`) replaced the alias-namespace SA construction (`system:serviceaccount:<alias>:<saName>`) with pure projection: `impersonateUser` and `impersonateGroups` fields from the trusted-issuer config drive the impersonation headers directly. Tokens whose subject is not a `system:serviceaccount:...` path are no longer rejected.
 * `trustedIssuers[].allowedActors` is now a list of objects (`{sub, allowedSubjects}`) instead of a flat list of strings. This is a breaking values change. OBO is disabled for an issuer when `allowedActors` is empty or omitted.
-* **deps:** update module github.com/giantswarm/mcp-oauth to v0.14.0.
+* External-issuer tokens are now classified as M2M or OBO from the RFC 8693 `act` claim. The `validation_method` recorded in `token-missing-identity` audit events is `m2m` or `obo` (was `trusted-issuer`). Internally the OBO branch keys off `UserInfo.IsOBO()` and the email-check bypass off `UserInfo.IsExternalIssuer()`.
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.14.1.
 
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 

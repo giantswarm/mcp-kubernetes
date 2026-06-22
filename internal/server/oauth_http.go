@@ -1190,7 +1190,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			// OBO path (Phase 2): sub=human, act.sub=agent SA.
 			// Impersonate the human subject; record the agent SA as the actor so the
 			// kube-apiserver audit log shows "human X via agent Z".
-			if userInfo.IsDelegated() {
+			if userInfo.IsOBO() {
 				// Enforce actor allow-list and per-actor subject scoping in-process.
 				// K8s RBAC cannot couple impersonate-users to impersonate-userextras/actor
 				// (independent verbs) and does not support wildcards in resourceNames,
