@@ -771,9 +771,9 @@ func makeIssuerMap(c TrustedIssuerConfig) map[string][]TrustedIssuerConfig {
 
 func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 	const (
-		testIssuer  = "https://oidc.example.com"
-		agentUser   = "agent:sre"
-		agentGroup  = "agent:sre"
+		testIssuer = "https://oidc.example.com"
+		agentUser  = "agent:sre"
+		agentGroup = "agent:sre"
 	)
 	issuerMap := makeIssuerMap(TrustedIssuerConfig{
 		Issuer:                testIssuer,
