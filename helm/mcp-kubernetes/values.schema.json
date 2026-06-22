@@ -563,8 +563,19 @@
                   },
                   "alias": {
                     "type": "string",
-                    "description": "Required for M2M issuers. Stable short identifier used as the namespace name and in the impersonated subject: system:serviceaccount:<alias>:<saName>. Omit for OBO-only issuers (e.g. muster) where the human email is impersonated directly. Must be unique across all trusted issuers.",
+                    "description": "Legacy IRSA/SA-direct path: short identifier used as the namespace name in the impersonated subject. Omit when using impersonateUser/impersonateGroups (muster M2M path) or for OBO-only issuers. Must be unique across all trusted issuers.",
                     "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+                  },
+                  "impersonateUser": {
+                    "type": "string",
+                    "description": "M2M exact-match gate: token sub must equal this value. On match, sets Impersonate-User to this value. Required when impersonateGroups is set."
+                  },
+                  "impersonateGroups": {
+                    "type": "array",
+                    "description": "M2M group allow-list: intersection of this list with the token's groups claim becomes the Impersonate-Group headers. Empty intersection → 403. Required when impersonateUser is set.",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "allowedAudiences": {
                     "type": "array",
