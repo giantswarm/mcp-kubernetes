@@ -84,6 +84,52 @@ func TestValidateTrustedIssuers(t *testing.T) {
 				{Issuer: issuerURL, JwksURL: jwksURL, Alias: "muster-obo", SubjectClaim: "email", AllowedClaims: map[string]string{"email": "*@giantswarm.io"}},
 			},
 		},
+		{
+			name: "M2M entry with subject, groups and allowedTargetClusters is valid",
+			issuers: []server.TrustedIssuerConfig{{
+				Issuer:                issuerURL,
+				JwksURL:               jwksURL,
+				Subject:               "automation",
+				Groups:                []string{"platform-admins"},
+				AllowedTargetClusters: []string{"graveler"},
+				AllowedClaims:         map[string]string{"sub": "system:serviceaccount:automation:*"},
+			}},
+		},
+		{
+			name: "M2M entry with an alias is rejected",
+			issuers: []server.TrustedIssuerConfig{{
+				Issuer:                issuerURL,
+				JwksURL:               jwksURL,
+				Alias:                 "glean",
+				Subject:               "automation",
+				Groups:                []string{"platform-admins"},
+				AllowedTargetClusters: []string{"graveler"},
+				AllowedClaims:         map[string]string{"sub": "system:serviceaccount:automation:*"},
+			}},
+			wantError: true,
+		},
+		{
+			name: "M2M entry with groups but no subject is rejected",
+			issuers: []server.TrustedIssuerConfig{{
+				Issuer:                issuerURL,
+				JwksURL:               jwksURL,
+				Groups:                []string{"platform-admins"},
+				AllowedTargetClusters: []string{"graveler"},
+				AllowedClaims:         map[string]string{"sub": "system:serviceaccount:automation:*"},
+			}},
+			wantError: true,
+		},
+		{
+			name: "M2M entry without allowedTargetClusters is rejected",
+			issuers: []server.TrustedIssuerConfig{{
+				Issuer:        issuerURL,
+				JwksURL:       jwksURL,
+				Subject:       "automation",
+				Groups:        []string{"platform-admins"},
+				AllowedClaims: map[string]string{"sub": "system:serviceaccount:automation:*"},
+			}},
+			wantError: true,
+		},
 	}
 
 	for _, tc := range tests {

@@ -563,8 +563,19 @@
                   },
                   "alias": {
                     "type": "string",
-                    "description": "Required for M2M issuers. Stable short identifier used as the namespace name and in the impersonated subject: system:serviceaccount:<alias>:<saName>. Omit for OBO-only issuers (e.g. muster) where the human email is impersonated directly. Must be unique across all trusted issuers.",
+                    "description": "OBO/SSO issuers only. Stable short identifier used as the per-issuer namespace name and in the users/userextras impersonation ClusterRole. Must be omitted on M2M entries (which use subject + groups). Must be unique across all trusted issuers.",
                     "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+                  },
+                  "subject": {
+                    "type": "string",
+                    "description": "M2M entries only. Exact subject this entry may project as Impersonate-User. The token's effective subject (after any subjectClaim remap) must equal this value verbatim. Requires groups and allowedTargetClusters; must not be combined with alias."
+                  },
+                  "groups": {
+                    "type": "array",
+                    "description": "M2M entries only. Exact allow-list of groups an M2M token may project as Impersonate-Group. The intersection of this list and the token's minted groups becomes the impersonated groups; a token carrying none of them is rejected. Requires subject.",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "allowedAudiences": {
                     "type": "array",
@@ -575,7 +586,7 @@
                   },
                   "allowedTargetClusters": {
                     "type": "array",
-                    "description": "Optional list of workload cluster names this issuer's tokens may target. Empty list allows all clusters. Use to scope blast radius when federation is enabled.",
+                    "description": "List of workload cluster names this issuer's tokens may target. Required for M2M entries (an empty list there would let a centrally minted token impersonate on any reachable cluster trusting this issuer and group). For OBO/SSO an empty list allows all clusters.",
                     "items": {
                       "type": "string"
                     }

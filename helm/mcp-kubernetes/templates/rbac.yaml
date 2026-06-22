@@ -657,4 +657,107 @@ subjects:
 {{- end }}
 {{- end }}
 {{- end }}
+{{/*
+M2M pure-projector RBAC (entries with subject + groups, no alias).
+
+muster asserts the subject and groups; this grants the mck8s ServiceAccount
+permission to set the Impersonate-User / Impersonate-Group / Impersonate-Extra
+headers. Both gates are exact: impersonate-users (or -serviceaccounts) is scoped
+to resourceName = subject and impersonate-groups to resourceNames = groups, so no
+unrestricted grant is needed. Target-cluster authorization (what the impersonated
+group may actually do) is bound per-cluster via shared-configs, not here.
+
+A subject in service-account form (system:serviceaccount:<ns>:<name>) is granted
+via a namespaced Role scoped to that namespace and name; any other subject is
+treated as a user. Naming is keyed on a hash of issuer+subject so entries sharing
+a subject across issuers do not collide.
+*/}}
+{{- range .Values.mcpKubernetes.oauth.trustedIssuers }}
+{{- if and (not .alias) .subject .groups }}
+{{- $key := printf "%s|%s" .issuer .subject | sha256sum | trunc 10 }}
+{{- $parts := splitList ":" .subject }}
+{{- $isSA := and (eq (len $parts) 4) (eq (index $parts 0) "system") (eq (index $parts 1) "serviceaccount") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-proj-{{ $key }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/m2m-issuer: {{ .issuer | quote }}
+    mcp-kubernetes.giantswarm.io/m2m-subject: {{ .subject | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+    resourceNames:
+      {{- range .groups }}
+      - {{ . | quote }}
+      {{- end }}
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["userextras/agent"]
+    verbs: ["impersonate"]
+    resourceNames: ["mcp-kubernetes"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["userextras/issuer"]
+    verbs: ["impersonate"]
+    resourceNames: [{{ .issuer | quote }}]
+{{- if not $isSA }}
+  - apiGroups: [""]
+    resources: ["users"]
+    verbs: ["impersonate"]
+    resourceNames: [{{ .subject | quote }}]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-proj-{{ $key }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-proj-{{ $key }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- if $isSA }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-proj-{{ $key }}
+  namespace: {{ index $parts 2 }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/m2m-issuer: {{ .issuer | quote }}
+    mcp-kubernetes.giantswarm.io/m2m-subject: {{ .subject | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["impersonate"]
+    resourceNames: [{{ index $parts 3 | quote }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-proj-{{ $key }}
+  namespace: {{ index $parts 2 }}
+  labels:
+    {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "mcp-kubernetes.fullname" $ }}-m2m-proj-{{ $key }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

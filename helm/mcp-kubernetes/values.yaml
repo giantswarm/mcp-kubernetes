@@ -546,34 +546,35 @@ mcpKubernetes:
     #                   scoping is enforced in-process by mcp-kubernetes before any
     #                   impersonation call reaches the kube-apiserver.
     #
-    # alias (optional): when set, the chart creates a <alias> namespace, a
-    # namespaced Role granting `impersonate serviceaccounts` in that namespace,
-    # and a ClusterRole granting `impersonate groups/extras` scoped to the alias.
-    # Required for M2M issuers (SA token impersonation). Omit for OBO-only
-    # issuers such as a muster token exchange endpoint, where the impersonated
-    # identity is the human email directly. Per-alias RBAC is only generated
-    # when serviceAccount.create and rbac.create are both true.
+    # M2M entries (subject + groups): muster asserts the subject and groups in the
+    # minted token; this entry projects them as Impersonate-User / Impersonate-Group.
+    #   subject:  required. Exact subject the entry may project. The token's effective
+    #             subject (after any subjectClaim remap) must equal it verbatim.
+    #   groups:   required. Exact allow-list of groups. The intersection with the
+    #             token's minted groups becomes Impersonate-Group; a token carrying
+    #             none of them is rejected.
+    #   allowedTargetClusters: required for M2M (an empty list would let a centrally
+    #             minted token impersonate on any reachable cluster trusting this
+    #             issuer and group).
+    #   M2M entries must NOT set alias. The chart grants the mck8s SA exact
+    #   impersonate-users (or -serviceaccounts) on subject and impersonate-groups on
+    #   groups; no unrestricted grant. Target-cluster authz is bound per-cluster via
+    #   shared-configs, not here.
     #
-    # Example (M2M only):
-    #   - issuer: "https://oidc.example.com/glean"
-    #     jwksURL: "https://oidc.example.com/glean/.well-known/jwks.json"
-    #     alias: "glean"
+    # alias (OBO/SSO only): when set, the chart creates a <alias> namespace and a
+    # ClusterRole granting `impersonate users/groups/extras` for human impersonation.
+    # Required on OBO/SSO entries; must be omitted on M2M entries. Per-alias RBAC is
+    # only generated when serviceAccount.create and rbac.create are both true.
+    #
+    # Example (M2M, pure projector):
+    #   - issuer: "https://muster.example.com"
+    #     jwksURL: "https://muster.example.com/.well-known/jwks.json"
+    #     subject: "automation"
+    #     groups: ["platform-admins"]
     #     allowedAudiences: ["https://mcp.example.com"]
     #     allowedTargetClusters: ["cluster-a", "cluster-b"]
-    #
-    # Example (M2M + OBO, glob subjects):
-    #   - issuer: "https://oidc.example.com/glean"
-    #     jwksURL: "https://oidc.example.com/glean/.well-known/jwks.json"
-    #     alias: "glean"
     #     allowedClaims:
-    #       sub: "system:serviceaccount:kagent:*"
-    #     allowedActors:
-    #       - sub: "system:serviceaccount:kagent:my-agent"
-    #         allowedSubjects:
-    #           - "*@example.com"
-    #       - sub: "system:serviceaccount:kagent:headless-agent"
-    #         # empty allowedSubjects: this actor may impersonate any human
-    #         # whose sub matches allowedClaims.sub
+    #       sub: "system:serviceaccount:automation:*"
     #
     # Example (OBO-only issuer, e.g. muster token exchange endpoint). muster keeps
     # sub opaque and carries the human in the email claim, so subjectClaim remaps

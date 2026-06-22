@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `trustedIssuers[].subject` and `trustedIssuers[].groups`: M2M entries project an exact `subject` as `Impersonate-User` and the intersection of `groups` with the token's minted groups as `Impersonate-Group`. A token carrying none of the listed groups is rejected. The chart scopes the impersonation RBAC exactly to these values (`users`, or namespaced `serviceaccounts` for a service-account-form subject, on `subject`; `groups` on the listed groups), with no unrestricted grant. `allowedTargetClusters` is required on M2M entries.
 * `trustedIssuers[].subjectClaim`: names the verified claim whose value becomes the impersonated subject, replacing the standard `sub` (set to `email` for the muster-obo issuer). When set, the impersonated-subject pattern lives under that key in `allowedClaims` (e.g. `allowedClaims.email`), and the token is rejected if the claim is absent. The in-process subject gate and startup validation key off this claim.
 * The OBO actor allow-list now matches any actor in the RFC 8693 `act` delegation chain (`act`, `act.act`, ...), not only the leaf, so multi-hop A2A delegation (human via agent A via agent B) is authorized.
 * OBO (Phase 2): external-issuer tokens carrying an RFC 8693 `act` claim now take the OBO impersonation branch. `Impersonate-User` is set to the human subject; `Impersonate-Extra-actor` is set to the agent SA sub, so the kube-apiserver audit log records both parties. Tokens without an `act` claim continue to use the existing M2M path unchanged.
@@ -22,8 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+* M2M trusted-issuer entries now identify themselves with `subject` + `groups` (pure projection) instead of an `alias`-derived `system:serviceaccount:<alias>:<saName>` principal and a pinned `system:serviceaccounts:<alias>` group. `alias` is now for OBO/SSO entries only and must be omitted on M2M entries; an M2M entry with `groups` set but no `subject`, or with no `allowedTargetClusters`, is rejected at startup. This is a breaking values change for M2M issuers.
 * `trustedIssuers[].allowedActors` is now a list of objects (`{sub, allowedSubjects}`) instead of a flat list of strings. This is a breaking values change. OBO is disabled for an issuer when `allowedActors` is empty or omitted.
-* **deps:** update module github.com/giantswarm/mcp-oauth to v0.10.2.
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.14.0.
 
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 

@@ -973,3 +973,86 @@ tests:
               - "https://issuer-a.example.com"
               - "https://issuer-b.example.com"
         documentIndex: 5
+
+  # ==========================================
+  # M2M pure-projector (subject + groups, no alias)
+  # ==========================================
+
+  - it: should create exact-scoped user impersonation RBAC for an M2M pure-projector entry
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      capiMode.enabled: false
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.trustedIssuers:
+        - issuer: "https://muster.example.com"
+          jwksURL: "https://muster.example.com/jwks"
+          subject: "automation"
+          groups: ["platform-admins"]
+          allowedTargetClusters: ["cluster-a"]
+    asserts:
+      # basic ClusterRole+CRB (0,1) + m2m-proj ClusterRole+CRB (2,3)
+      - hasDocuments:
+          count: 4
+      - isKind:
+          of: ClusterRole
+        documentIndex: 2
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["groups"]
+            verbs: ["impersonate"]
+            resourceNames:
+              - "platform-admins"
+        documentIndex: 2
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["users"]
+            verbs: ["impersonate"]
+            resourceNames:
+              - "automation"
+        documentIndex: 2
+
+  - it: should scope a service-account-form M2M subject via a namespaced Role
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      capiMode.enabled: false
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.trustedIssuers:
+        - issuer: "https://muster.example.com/ci"
+          jwksURL: "https://muster.example.com/jwks"
+          subject: "system:serviceaccount:robots:ci"
+          groups: ["ci-runners"]
+          allowedTargetClusters: ["cluster-a"]
+    asserts:
+      # basic ClusterRole+CRB (0,1) + m2m-proj ClusterRole+CRB (2,3) + Role+RoleBinding (4,5)
+      - hasDocuments:
+          count: 6
+      - isKind:
+          of: Role
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: robots
+        documentIndex: 4
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["serviceaccounts"]
+            verbs: ["impersonate"]
+            resourceNames:
+              - "ci"
+        documentIndex: 4
+      # no unrestricted users rule on the SA-form ClusterRole
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["users"]
+            verbs: ["impersonate"]
+        documentIndex: 2
