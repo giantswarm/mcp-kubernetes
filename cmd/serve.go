@@ -438,11 +438,12 @@ Downstream OAuth (--downstream-oauth):
 }
 
 // validateEncryptionKey validates an AES-256 encryption key for security weaknesses
-// validateTrustedIssuers checks per-issuer invariants: a present issuer URL and
-// JWKS URL, a DNS-1123 alias, and a non-wildcard subject pattern under the
-// issuer's effective subject claim. Aliases must be unique across all entries.
-// Multiple entries may share the same issuer URL (e.g. M2M + OBO from the same
-// STS), provided their aliases differ.
+// validateTrustedIssuers checks per-issuer invariants:
+//   - M2M entries (impersonateGroups set): must omit alias; impersonateUser required.
+//   - OBO/SSO entries: alias must be a valid DNS-1123 label and unique.
+//   - All entries: non-wildcard subject pattern under the effective subject claim.
+//
+// Multiple entries may share the same issuer URL (e.g. M2M + OBO from the same STS).
 func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 	seenAliases := make(map[string]struct{}, len(issuers))
 	for _, ti := range issuers {
@@ -452,10 +453,25 @@ func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 		if ti.JwksURL == "" {
 			return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
 		}
-		if !isDNS1123Label(ti.Alias) {
-			return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
-				"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
-				ti.Issuer, ti.Alias)
+		if len(ti.ImpersonateGroups) > 0 {
+			// M2M entry.
+			if ti.Alias != "" {
+				return fmt.Errorf("trusted issuer %q: M2M entries (impersonateGroups set) must not set alias", ti.Issuer)
+			}
+			if ti.ImpersonateUser == "" {
+				return fmt.Errorf("trusted issuer %q: impersonateUser is required when impersonateGroups is set", ti.Issuer)
+			}
+		} else {
+			// OBO/SSO entry.
+			if !isDNS1123Label(ti.Alias) {
+				return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
+					"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
+					ti.Issuer, ti.Alias)
+			}
+			if _, seen := seenAliases[ti.Alias]; seen {
+				return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
+			}
+			seenAliases[ti.Alias] = struct{}{}
 		}
 		subjectKey := ti.EffectiveSubjectKey()
 		subPattern, hasSub := ti.AllowedClaims[subjectKey]
@@ -463,10 +479,6 @@ func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 			return fmt.Errorf("trusted issuer %q: allowedClaims.%s must be a non-empty pattern "+
 				"that is not bare '*' (prevents any identity from being impersonated)", ti.Issuer, subjectKey)
 		}
-		if _, seen := seenAliases[ti.Alias]; seen {
-			return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
-		}
-		seenAliases[ti.Alias] = struct{}{}
 	}
 	return nil
 }
