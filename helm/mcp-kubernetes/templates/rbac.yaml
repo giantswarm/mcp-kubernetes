@@ -517,11 +517,18 @@ subjects:
 {{/*
 M2M Impersonation RBAC
 
-For each trusted issuer with an alias, this creates:
+For each unique alias across trustedIssuers, this creates:
   - A <alias> Namespace for the impersonated ServiceAccounts
   - A Role + RoleBinding in that namespace granting `impersonate serviceaccounts`
   - A ClusterRole + ClusterRoleBinding for groups and user-extra impersonation,
     scoped to the per-alias SA group and known extra keys/values
+
+Multiple trustedIssuers may legitimately share one alias (e.g. a localMint issuer
+and a fallback OIDC issuer both scoping to the same impersonation namespace). The
+template deduplicates per-alias resources: Namespace, Role, RoleBinding, ClusterRole,
+and ClusterRoleBinding are each rendered exactly once per unique alias. The ClusterRole
+unions the userextras/issuer resourceNames and allowedActors across all issuers that
+share the alias.
 
 This RBAC is load-bearing: without it the kube-apiserver rejects the Impersonate-*
 headers sent by mcp-kubernetes's in-cluster SA. The impersonated SAs themselves
@@ -532,8 +539,21 @@ such as `list pods`) are NOT provisioned from this chart; they must be created
 per-cluster via shared-configs or equivalent.
 */}}
 {{- if and .Values.serviceAccount.create .Values.rbac.create .Values.mcpKubernetes.oauth.enabled }}
+{{- /* Pass 1: group issuers by alias so per-alias resources can union across all of them. */}}
+{{- $aliasBuckets := dict }}
 {{- range .Values.mcpKubernetes.oauth.trustedIssuers }}
 {{- if .alias }}
+{{- $existing := default (list) (index $aliasBuckets .alias) }}
+{{- $_ := set $aliasBuckets .alias (append $existing .) }}
+{{- end }}
+{{- end }}
+{{- /* Pass 2: render once per unique alias (first occurrence in list wins for ordering). */}}
+{{- $seen := dict }}
+{{- range .Values.mcpKubernetes.oauth.trustedIssuers }}
+{{- if .alias }}
+{{- if not (hasKey $seen .alias) }}
+{{- $_ := set $seen .alias true }}
+{{- $aliasIssuers := index $aliasBuckets .alias }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -582,7 +602,6 @@ metadata:
     {{- include "mcp-kubernetes.labels" $ | nindent 4 }}
   annotations:
     mcp-kubernetes.giantswarm.io/m2m-alias: {{ .alias | quote }}
-    mcp-kubernetes.giantswarm.io/m2m-issuer: {{ .issuer | quote }}
 rules:
   - apiGroups: [""]
     resources: ["groups"]
@@ -595,19 +614,26 @@ rules:
   - apiGroups: ["authentication.k8s.io"]
     resources: ["userextras/issuer"]
     verbs: ["impersonate"]
-    resourceNames: [{{ .issuer | quote }}]
+    resourceNames:
+      {{- range $aliasIssuers }}
+      - {{ .issuer | quote }}
+      {{- end }}
 {{- /*
 impersonate users is granted unrestricted because K8s RBAC cannot couple it to
 impersonate-userextras/actor (independent verbs) and resourceNames has no wildcard
 support for glob subjects. Per-actor subject scoping is enforced in-process.
 */}}
-{{- if .allowedActors }}
+{{- $anyActors := false }}
+{{- range $aliasIssuers }}{{- if .allowedActors }}{{- $anyActors = true }}{{- end }}{{- end }}
+{{- if $anyActors }}
   - apiGroups: ["authentication.k8s.io"]
     resources: ["userextras/actor"]
     verbs: ["impersonate"]
     resourceNames:
+      {{- range $aliasIssuers }}
       {{- range .allowedActors }}
       - {{ .sub | quote }}
+      {{- end }}
       {{- end }}
   - apiGroups: [""]
     resources: ["users"]
@@ -628,6 +654,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "mcp-kubernetes.serviceAccountName" $ }}
     namespace: {{ $.Release.Namespace }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
