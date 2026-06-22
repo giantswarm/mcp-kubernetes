@@ -451,9 +451,10 @@ type OAuthHTTPServer struct {
 	disableStreaming        bool
 	instrumentationProvider *instrumentation.Provider
 	healthChecker           *HealthChecker
-	// trustedIssuersByIssuer maps issuer URL to TrustedIssuerConfig for O(1)
-	// lookup in the access-token injector middleware.
-	trustedIssuersByIssuer map[string]TrustedIssuerConfig
+	// trustedIssuersByIssuer maps issuer URL to the configured entries for that
+	// issuer. Multiple entries per URL are supported (e.g. M2M + OBO from the
+	// same STS); the matching entry is selected by subject pattern at request time.
+	trustedIssuersByIssuer map[string][]TrustedIssuerConfig
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -763,9 +764,11 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 	}
 
 	// Build issuer→config lookup map for the access-token injector middleware.
-	issuerMap := make(map[string]TrustedIssuerConfig, len(config.TrustedIssuers))
+	// Multiple entries per issuer URL are collected into a slice; the correct
+	// entry is selected at request time by matching the token subject pattern.
+	issuerMap := make(map[string][]TrustedIssuerConfig, len(config.TrustedIssuers))
 	for _, ti := range config.TrustedIssuers {
-		issuerMap[ti.Issuer] = ti
+		issuerMap[ti.Issuer] = append(issuerMap[ti.Issuer], ti)
 	}
 
 	// Create HTTP handler
@@ -1061,35 +1064,37 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// would be rejected. Derive an ImpersonationIdentity instead; the inner
 		// branch selects OBO (act claim present) or M2M (no act claim).
 		if userInfo.IsExternalIssuer() {
-			tiConfig, known := s.trustedIssuersByIssuer[userInfo.Issuer]
-			if !known {
+			candidates := s.trustedIssuersByIssuer[userInfo.Issuer]
+			if len(candidates) == 0 {
 				slog.Warn("AccessTokenInjector: external-issuer token with unknown issuer, rejecting",
 					"issuer", userInfo.Issuer)
 				http.Error(w, "forbidden: unknown trusted issuer", http.StatusForbidden)
+				return
+			}
+			// Defense-in-depth: find the configured entry whose allowedClaims pattern
+			// matches this token's effective subject. When a single issuer URL serves
+			// multiple trust domains (e.g. M2M SA pattern + OBO email pattern), the
+			// correct entry is selected here rather than at map-build time.
+			// userInfo.ID already holds the remapped value when SubjectClaim is set.
+			var tiConfig *TrustedIssuerConfig
+			for i := range candidates {
+				subjectKey := candidates[i].EffectiveSubjectKey()
+				subPattern, ok := candidates[i].AllowedClaims[subjectKey]
+				if ok && subPattern != "" && matchesSubGlob(subPattern, userInfo.ID) {
+					tiConfig = &candidates[i]
+					break
+				}
+			}
+			if tiConfig == nil {
+				slog.Warn("AccessTokenInjector: subject does not match allowedClaims pattern, rejecting",
+					"issuer", userInfo.Issuer, "subject", userInfo.ID)
+				http.Error(w, "forbidden: subject does not match allowed pattern", http.StatusForbidden)
 				return
 			}
 			if tiConfig.Alias == "" {
 				slog.Warn("AccessTokenInjector: trusted issuer has no alias configured",
 					"issuer", userInfo.Issuer)
 				http.Error(w, "internal configuration error: issuer alias missing", http.StatusInternalServerError)
-				return
-			}
-			// Defense-in-depth: re-verify the subject at the impersonation boundary,
-			// independent of mcp-oauth's upstream check. Catches misconfigured entries
-			// (missing allowedClaims) and future library regressions before any
-			// impersonation call reaches the kube-apiserver. The subject is matched
-			// against the effective-subject-claim pattern; for a remapped issuer
-			// (SubjectClaim set) userInfo.ID already holds the remapped value.
-			subjectKey := tiConfig.EffectiveSubjectKey()
-			if subPattern, ok := tiConfig.AllowedClaims[subjectKey]; !ok || subPattern == "" {
-				slog.Warn("AccessTokenInjector: trusted issuer has no allowedClaims for subject key, rejecting",
-					"issuer", userInfo.Issuer, "subjectKey", subjectKey)
-				http.Error(w, "forbidden: issuer misconfiguration", http.StatusForbidden)
-				return
-			} else if !matchesSubGlob(subPattern, userInfo.ID) {
-				slog.Warn("AccessTokenInjector: subject does not match allowedClaims pattern, rejecting",
-					"issuer", userInfo.Issuer, "subjectKey", subjectKey, "pattern", subPattern)
-				http.Error(w, "forbidden: subject does not match allowed pattern", http.StatusForbidden)
 				return
 			}
 
