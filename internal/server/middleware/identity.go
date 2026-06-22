@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/security"
 )
 
@@ -39,6 +40,12 @@ func RequireIdentity(auditor *security.Auditor, logger *slog.Logger) func(http.H
 			}
 
 			if userInfo.Email != "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Trusted-issuer tokens (M2M and OBO) carry no email in UserInfo;
+			// AccessTokenInjector handles their identity enforcement.
+			if userInfo.TokenSource == providers.TokenSourceTrustedIssuer {
 				next.ServeHTTP(w, r)
 				return
 			}
