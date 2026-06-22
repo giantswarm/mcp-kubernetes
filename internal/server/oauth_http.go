@@ -342,6 +342,15 @@ func unionStrings(a, b []string) []string {
 	return result
 }
 
+func appendIfMissing(slice []string, s string) []string {
+	for _, v := range slice {
+		if v == s {
+			return slice
+		}
+	}
+	return append(slice, s)
+}
+
 // wildcard (*). A leading * anchors to a suffix ("*@example.com" matches any
 // string ending in "@example.com"). A trailing * anchors to a prefix
 // ("system:serviceaccount:kagent:*" matches any SA in that namespace).
@@ -1232,9 +1241,10 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 				identity := k8s.ImpersonationIdentity{
 					UserName: userInfo.ID,
-					// No groups: user-only impersonation. kube-apiserver auto-adds
-					// system:authenticated. Human access is governed by RoleBindings
-					// to the user subject on each target cluster.
+					// system:authenticated must be explicit; impersonation does not
+					// inherit the real-auth group set. Human access is governed by
+					// RoleBindings to the user subject on each target cluster.
+					Groups: []string{"system:authenticated"},
 					Extra: map[string][]string{
 						"issuer": {userInfo.Issuer},
 						"agent":  {"mcp-kubernetes"},
@@ -1266,6 +1276,10 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				http.Error(w, "forbidden: no permitted group in token", http.StatusForbidden)
 				return
 			}
+			// system:authenticated is not added automatically for impersonation (unlike
+			// real auth); without it the impersonated identity lacks system:discovery
+			// access and API resource enumeration silently returns empty results.
+			impersonateGroups = appendIfMissing(impersonateGroups, "system:authenticated")
 			identity := k8s.ImpersonationIdentity{
 				UserName: userInfo.ID,
 				Groups:   impersonateGroups,

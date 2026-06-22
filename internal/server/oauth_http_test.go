@@ -871,7 +871,7 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, agentUser, identity.UserName)
-		require.Equal(t, []string{agentGroup}, identity.Groups)
+		require.Equal(t, []string{agentGroup, "system:authenticated"}, identity.Groups)
 		require.Equal(t, []string{"cluster-a"}, identity.AllowedTargetClusters)
 		require.Equal(t, []string{testIssuer}, identity.Extra["issuer"])
 		require.Equal(t, []string{"mcp-kubernetes"}, identity.Extra["agent"])
@@ -947,6 +947,19 @@ func TestIntersectGroups(t *testing.T) {
 	})
 }
 
+func TestAppendIfMissing(t *testing.T) {
+	t.Run("appends when absent", func(t *testing.T) {
+		require.Equal(t, []string{"a", "b"}, appendIfMissing([]string{"a"}, "b"))
+	})
+	t.Run("no-op when present", func(t *testing.T) {
+		got := appendIfMissing([]string{"a", "b"}, "b")
+		require.Equal(t, []string{"a", "b"}, got)
+	})
+	t.Run("appends to nil slice", func(t *testing.T) {
+		require.Equal(t, []string{"x"}, appendIfMissing(nil, "x"))
+	})
+}
+
 func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 	const (
 		testIssuer    = "https://oidc.example.com"
@@ -997,7 +1010,7 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, humanSubject, identity.UserName)
-		require.Empty(t, identity.Groups, "OBO impersonates user-only; no groups must be set")
+		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
 		require.Equal(t, agentSASub, identity.Actor)
 		require.Equal(t, []string{testIssuer}, identity.Extra["issuer"])
 		require.Equal(t, []string{"mcp-kubernetes"}, identity.Extra["agent"])
@@ -1036,7 +1049,7 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, "agent:bot", identity.UserName)
-		require.Equal(t, []string{"agent:bot"}, identity.Groups)
+		require.Equal(t, []string{"agent:bot", "system:authenticated"}, identity.Groups)
 		require.Empty(t, identity.Actor, "M2M path must not set Actor")
 	})
 
@@ -1356,7 +1369,7 @@ func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, userEmail, identity.UserName)
 		require.Equal(t, sreAgentSub, identity.Actor)
-		require.Empty(t, identity.Groups)
+		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
 	})
 
 	t.Run("subject outside the email pattern returns 403", func(t *testing.T) {
@@ -1443,7 +1456,7 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, agentUser, identity.UserName)
-		require.Equal(t, []string{agentGroup}, identity.Groups)
+		require.Equal(t, []string{agentGroup, "system:authenticated"}, identity.Groups)
 	})
 
 	t.Run("OBO token routes to email-pattern entry", func(t *testing.T) {
@@ -1471,7 +1484,7 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, humanEmail, identity.UserName)
-		require.Empty(t, identity.Groups)
+		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
 	})
 
 	t.Run("token subject matching neither entry returns 403", func(t *testing.T) {
