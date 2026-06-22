@@ -772,28 +772,31 @@ func makeIssuerMap(c TrustedIssuerConfig) map[string][]TrustedIssuerConfig {
 func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 	const (
 		testIssuer = "https://oidc.example.com"
-		testAlias  = "glean"
+		agentUser  = "agent:sre"
+		agentGroup = "agent:sre"
 	)
 	issuerMap := makeIssuerMap(TrustedIssuerConfig{
 		Issuer:                testIssuer,
 		JwksURL:               "https://oidc.example.com/.well-known/jwks.json",
-		Alias:                 testAlias,
+		ImpersonateUser:       agentUser,
+		ImpersonateGroups:     []string{agentGroup},
 		AllowedTargetClusters: []string{"cluster-a"},
-		AllowedClaims:         map[string]string{"sub": "system:serviceaccount:kagent:*"},
+		AllowedClaims:         map[string]string{"sub": agentUser},
 	})
 
-	newReq := func(issuer, id string) *http.Request {
+	newReq := func(issuer, id string, groups []string) *http.Request {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer fake-m2m-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
 			ID:          id,
 			Issuer:      issuer,
+			Groups:      groups,
 			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 	}
 
-	t.Run("K8s SA sub yields <alias>:<name>", func(t *testing.T) {
+	t.Run("sub matches impersonateUser and group intersects", func(t *testing.T) {
 		var capturedCtx context.Context
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			capturedCtx = r.Context()
@@ -802,77 +805,57 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
 
 		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:kagent:my-agent"))
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(testIssuer, agentUser, []string{agentGroup}))
 
 		require.Equal(t, http.StatusOK, rr.Code)
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
-		require.Equal(t, "system:serviceaccount:glean:my-agent", identity.UserName)
-		require.Equal(t, []string{"system:serviceaccounts:glean"}, identity.Groups)
+		require.Equal(t, agentUser, identity.UserName)
+		require.Equal(t, []string{agentGroup}, identity.Groups)
 		require.Equal(t, []string{"cluster-a"}, identity.AllowedTargetClusters)
 		require.Equal(t, []string{testIssuer}, identity.Extra["issuer"])
 		require.Equal(t, []string{"mcp-kubernetes"}, identity.Extra["agent"])
 	})
 
-	t.Run("non-K8s sub used verbatim", func(t *testing.T) {
-		var capturedCtx context.Context
-		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			capturedCtx = r.Context()
-			w.WriteHeader(http.StatusOK)
-		})
-		nonK8sMap := makeIssuerMap(TrustedIssuerConfig{
-			Issuer:        testIssuer,
-			JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
-			Alias:         testAlias,
-			AllowedClaims: map[string]string{"sub": "pipeline-*"},
-		})
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: nonK8sMap}
-
+	t.Run("sub not matching impersonateUser returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
 		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newReq(testIssuer, "pipeline-bot"))
-
-		require.Equal(t, http.StatusOK, rr.Code)
-		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
-		require.True(t, ok)
-		require.Equal(t, "system:serviceaccount:glean:pipeline-bot", identity.UserName)
-		require.Equal(t, []string{"system:serviceaccounts:glean"}, identity.Groups)
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(testIssuer, "agent:other", []string{agentGroup}))
+		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
 
-	t.Run("missing allowedClaims sub returns 403", func(t *testing.T) {
+	t.Run("token carrying no allow-listed group returns 403", func(t *testing.T) {
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, newReq(testIssuer, agentUser, []string{"some:other-group"}))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("missing allowedClaims.sub returns 403", func(t *testing.T) {
 		noClaimsMap := makeIssuerMap(TrustedIssuerConfig{
-			Issuer:  testIssuer,
-			JwksURL: "https://oidc.example.com/.well-known/jwks.json",
-			Alias:   testAlias,
+			Issuer:            testIssuer,
+			JwksURL:           "https://oidc.example.com/.well-known/jwks.json",
+			ImpersonateUser:   agentUser,
+			ImpersonateGroups: []string{agentGroup},
 		})
 		s := &OAuthHTTPServer{trustedIssuersByIssuer: noClaimsMap}
 		rr := httptest.NewRecorder()
 		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:kagent:bot"))
+		})).ServeHTTP(rr, newReq(testIssuer, agentUser, []string{agentGroup}))
 		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
 
-	t.Run("sub not matching allowedClaims pattern returns 403", func(t *testing.T) {
+	t.Run("sub not matching allowedClaims routing pattern returns 403", func(t *testing.T) {
 		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
 		rr := httptest.NewRecorder()
 		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:other-ns:attacker"))
-		require.Equal(t, http.StatusForbidden, rr.Code)
-	})
-
-	t.Run("invalid DNS-1123 saName returns 403", func(t *testing.T) {
-		badSubMap := makeIssuerMap(TrustedIssuerConfig{
-			Issuer:        testIssuer,
-			JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
-			Alias:         testAlias,
-			AllowedClaims: map[string]string{"sub": "*"},
-		})
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: badSubMap}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, newReq(testIssuer, "Bad_Name"))
+		})).ServeHTTP(rr, newReq(testIssuer, "attacker:imposter", []string{agentGroup}))
 		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
 
@@ -881,22 +864,26 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 		rr := httptest.NewRecorder()
 		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, newReq("https://unknown.example.com", "system:serviceaccount:kagent:bot"))
+		})).ServeHTTP(rr, newReq("https://unknown.example.com", agentUser, []string{agentGroup}))
 		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
+}
 
-	t.Run("alias empty returns 500", func(t *testing.T) {
-		noAlias := makeIssuerMap(TrustedIssuerConfig{
-			Issuer:        testIssuer,
-			JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
-			AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"},
-		})
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: noAlias}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, newReq(testIssuer, "system:serviceaccount:kagent:bot"))
-		require.Equal(t, http.StatusInternalServerError, rr.Code)
+func TestIntersectGroups(t *testing.T) {
+	t.Run("intersection preserves allowList order", func(t *testing.T) {
+		require.Equal(t, []string{"b", "a"}, intersectGroups([]string{"b", "a", "c"}, []string{"a", "b", "d"}))
+	})
+	t.Run("deduplicates within allowList", func(t *testing.T) {
+		require.Equal(t, []string{"x"}, intersectGroups([]string{"x", "x"}, []string{"x"}))
+	})
+	t.Run("empty allowList returns nil", func(t *testing.T) {
+		require.Nil(t, intersectGroups(nil, []string{"a"}))
+	})
+	t.Run("empty tokenGroups returns nil", func(t *testing.T) {
+		require.Nil(t, intersectGroups([]string{"a"}, nil))
+	})
+	t.Run("no overlap returns nil", func(t *testing.T) {
+		require.Nil(t, intersectGroups([]string{"a"}, []string{"b"}))
 	})
 }
 
@@ -966,18 +953,20 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer fake-m2m-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
-			ID:          "system:serviceaccount:kagent:bot",
+			ID:          "agent:bot",
 			Issuer:      testIssuer,
+			Groups:      []string{"agent:bot"},
 			TokenSource: providers.TokenSourceTrustedIssuer,
 			// ActorSubject intentionally absent
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
 		m2mMap := makeIssuerMap(TrustedIssuerConfig{
-			Issuer:        testIssuer,
-			JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
-			Alias:         testAlias,
-			AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"},
+			Issuer:            testIssuer,
+			JwksURL:           "https://oidc.example.com/.well-known/jwks.json",
+			ImpersonateUser:   "agent:bot",
+			ImpersonateGroups: []string{"agent:bot"},
+			AllowedClaims:     map[string]string{"sub": "agent:bot"},
 		})
 		s := &OAuthHTTPServer{trustedIssuersByIssuer: m2mMap}
 		rr := httptest.NewRecorder()
@@ -986,7 +975,8 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code)
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
-		require.Equal(t, "system:serviceaccount:glean:bot", identity.UserName)
+		require.Equal(t, "agent:bot", identity.UserName)
+		require.Equal(t, []string{"agent:bot"}, identity.Groups)
 		require.Empty(t, identity.Actor, "M2M path must not set Actor")
 	})
 
@@ -1337,24 +1327,26 @@ func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
 }
 
 // TestAccessTokenInjectorMiddleware_MultiIssuerURL covers the glean production
-// scenario: M2M (SA sub) and OBO (email sub) entries share the same muster
+// scenario: M2M (agent sub) and OBO (email sub) entries share the same muster
 // issuer URL. The middleware must route each token to the correct entry.
 func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 	const (
 		musterIssuer = "https://muster.glean.example.io"
-		m2mAlias     = "kagent-glean"
 		oboAlias     = "muster-obo"
 		agentSA      = "system:serviceaccount:kagent:sre-agent"
+		agentUser    = "agent:sre"
+		agentGroup   = "agent:sre"
 		humanEmail   = "alice@giantswarm.io"
 	)
 
 	dualIssuerMap := map[string][]TrustedIssuerConfig{
 		musterIssuer: {
 			{
-				Issuer:        musterIssuer,
-				JwksURL:       "https://muster.glean.example.io/.well-known/jwks.json",
-				Alias:         m2mAlias,
-				AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"},
+				Issuer:            musterIssuer,
+				JwksURL:           "https://muster.glean.example.io/.well-known/jwks.json",
+				ImpersonateUser:   agentUser,
+				ImpersonateGroups: []string{agentGroup},
+				AllowedClaims:     map[string]string{"sub": agentUser},
 			},
 			{
 				Issuer:        musterIssuer,
@@ -1367,7 +1359,7 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 		},
 	}
 
-	t.Run("M2M token routes to SA-pattern entry", func(t *testing.T) {
+	t.Run("M2M token routes to M2M entry", func(t *testing.T) {
 		var capturedCtx context.Context
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			capturedCtx = r.Context()
@@ -1376,8 +1368,9 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer fake-m2m-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
-			ID:          agentSA,
+			ID:          agentUser,
 			Issuer:      musterIssuer,
+			Groups:      []string{agentGroup},
 			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
@@ -1389,8 +1382,8 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code)
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
-		require.Equal(t, "system:serviceaccount:"+m2mAlias+":sre-agent", identity.UserName)
-		require.Equal(t, []string{"system:serviceaccounts:" + m2mAlias}, identity.Groups)
+		require.Equal(t, agentUser, identity.UserName)
+		require.Equal(t, []string{agentGroup}, identity.Groups)
 	})
 
 	t.Run("OBO token routes to email-pattern entry", func(t *testing.T) {

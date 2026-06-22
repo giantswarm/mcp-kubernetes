@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
-
 	oauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/handler"
 	oauthinstrumentation "github.com/giantswarm/mcp-oauth/instrumentation"
@@ -298,9 +296,31 @@ type OAuthConfig struct {
 	TrustedIssuers []TrustedIssuerConfig
 }
 
-// isDNS1123Label reports whether s is a valid Kubernetes DNS-1123 label.
-func isDNS1123Label(s string) bool {
-	return len(k8svalidation.IsDNS1123Label(s)) == 0
+// intersectGroups returns the members of tokenGroups present in allowList,
+// preserving allowList order and dropping duplicates. It is the allow-list gate
+// for M2M group impersonation: only configured groups carried by the token are
+// honored.
+func intersectGroups(allowList, tokenGroups []string) []string {
+	if len(allowList) == 0 || len(tokenGroups) == 0 {
+		return nil
+	}
+	present := make(map[string]struct{}, len(tokenGroups))
+	for _, g := range tokenGroups {
+		present[g] = struct{}{}
+	}
+	var matched []string
+	seen := make(map[string]struct{}, len(allowList))
+	for _, g := range allowList {
+		if _, ok := present[g]; !ok {
+			continue
+		}
+		if _, dup := seen[g]; dup {
+			continue
+		}
+		seen[g] = struct{}{}
+		matched = append(matched, g)
+	}
+	return matched
 }
 
 // matchesSubGlob reports whether s matches a sub-claim pattern.
@@ -372,10 +392,27 @@ type TrustedIssuerConfig struct {
 	Issuer string `json:"issuer"`
 	// JwksURL is the JWKS endpoint used to verify signatures.
 	JwksURL string `json:"jwksURL"`
-	// Alias is a required stable short identifier for this issuer (e.g. "glean", "mc-foo").
-	// It is encoded into the impersonated principal as the namespace component:
-	// system:serviceaccount:<alias>:<saName>
-	Alias string `json:"alias"`
+	// Alias is a stable short identifier for an OBO issuer (e.g. "muster-obo"). The
+	// chart keys the per-alias Namespace and users/userextras impersonation ClusterRole
+	// on this value. Required on OBO entries; must be omitted on M2M entries (which
+	// identify themselves via ImpersonateUser / ImpersonateGroups instead).
+	Alias string `json:"alias,omitempty"`
+	// ImpersonateUser is the exact subject this M2M entry may project as
+	// Impersonate-User. The token's effective subject (userInfo.ID, after any
+	// SubjectClaim remap) must equal this value verbatim; no glob matching applies
+	// (use AllowedClaims for routing patterns). The chart scopes the mck8s
+	// ServiceAccount's impersonate-users RBAC resourceName to exactly this value.
+	// Empty disables the M2M path for this issuer.
+	// Must be paired with a non-empty ImpersonateGroups.
+	ImpersonateUser string `json:"impersonateUser,omitempty"`
+	// ImpersonateGroups is the exact allow-list of groups an M2M token from this
+	// issuer may project as Impersonate-Group. The intersection of this list and the
+	// token's minted groups claim becomes the set of impersonated groups; a token
+	// carrying none of these groups is rejected. The chart scopes the mck8s
+	// ServiceAccount's impersonate-groups RBAC resourceNames to exactly this list.
+	// Empty disables the M2M path for this issuer.
+	// Must be paired with a non-empty ImpersonateUser.
+	ImpersonateGroups []string `json:"impersonateGroups,omitempty"`
 	// AllowedAudiences restricts accepted `aud` values. Empty means any audience.
 	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
 	// AllowedTargetClusters limits which management/workload cluster names this
@@ -1091,13 +1128,6 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				http.Error(w, "forbidden: subject does not match allowed pattern", http.StatusForbidden)
 				return
 			}
-			if tiConfig.Alias == "" {
-				slog.Warn("AccessTokenInjector: trusted issuer has no alias configured",
-					"issuer", userInfo.Issuer)
-				http.Error(w, "internal configuration error: issuer alias missing", http.StatusInternalServerError)
-				return
-			}
-
 			// OBO path (Phase 2): sub=human, act.sub=agent SA.
 			// Impersonate the human subject; record the agent SA as the actor so the
 			// kube-apiserver audit log shows "human X via agent Z".
@@ -1169,37 +1199,34 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				return
 			}
 
-			// M2M path (Phase 1B): sub=agent SA, no act claim.
-			// K8s SA token sub: "system:serviceaccount:<ns>:<name>" → extract <name>.
-			saName := userInfo.ID
-			if parts := strings.SplitN(userInfo.ID, ":", 4); len(parts) == 4 && parts[0] == "system" && parts[1] == "serviceaccount" {
-				saName = parts[3]
-			}
-			if saName == "" {
-				slog.Warn("AccessTokenInjector: empty service account name in token sub, rejecting",
-					"issuer", userInfo.Issuer)
-				http.Error(w, "forbidden: empty service account name", http.StatusForbidden)
+			// M2M path: pure projection. muster asserted the subject (GrantedSubject
+			// in mcp-oauth); ImpersonateUser is the final exact gate here. The
+			// intersection of ImpersonateGroups and the minted token groups becomes
+			// Impersonate-Group; cluster RBAC (bound to the group) authorizes.
+			if tiConfig.ImpersonateUser != userInfo.ID {
+				slog.Warn("AccessTokenInjector: M2M subject does not match impersonateUser, rejecting",
+					"issuer", userInfo.Issuer, "subject", userInfo.ID)
+				http.Error(w, "forbidden: subject not permitted for impersonation", http.StatusForbidden)
 				return
 			}
-			if !isDNS1123Label(saName) {
-				slog.Warn("AccessTokenInjector: service account name is not a valid DNS-1123 label, rejecting",
-					"issuer", userInfo.Issuer)
-				http.Error(w, "forbidden: invalid service account name", http.StatusForbidden)
+			impersonateGroups := intersectGroups(tiConfig.ImpersonateGroups, userInfo.Groups)
+			if len(impersonateGroups) == 0 {
+				slog.Warn("AccessTokenInjector: M2M token carries no allow-listed group, rejecting",
+					"issuer", userInfo.Issuer, "subject", userInfo.ID)
+				http.Error(w, "forbidden: no permitted group in token", http.StatusForbidden)
 				return
 			}
-			qualifiedUserName := "system:serviceaccount:" + tiConfig.Alias + ":" + saName
-			// Groups are pinned to the per-alias group; SA token group claims are not
-			// forwarded because they reflect the source namespace and would be rejected
-			// by the kube-apiserver impersonation RBAC.
 			identity := k8s.ImpersonationIdentity{
-				UserName: qualifiedUserName,
-				Groups:   []string{"system:serviceaccounts:" + tiConfig.Alias},
+				UserName: userInfo.ID,
+				Groups:   impersonateGroups,
 				Extra: map[string][]string{
 					"issuer": {userInfo.Issuer},
 					"agent":  {"mcp-kubernetes"},
 				},
 				AllowedTargetClusters: tiConfig.AllowedTargetClusters,
 			}
+			slog.Debug("AccessTokenInjector: M2M group impersonation",
+				"issuer", userInfo.Issuer, "subject", userInfo.ID, "groups", impersonateGroups)
 
 			ctx = ContextWithImpersonationIdentity(ctx, identity)
 			r = r.WithContext(ctx)
