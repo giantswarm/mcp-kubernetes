@@ -316,6 +316,66 @@ func TestCreateOAuthServerWithTrustedIssuers(t *testing.T) {
 	require.NotNil(t, oauthServer.Config)
 }
 
+// TestCreateOAuthServer_MultiEntryIssuerDeduplication verifies that two TrustedIssuerConfig
+// entries sharing an issuer URL are collapsed into a single oauthserver.TrustedIssuer
+// with unioned audiences and no AllowedClaims (which would reject valid tokens from
+// the other entry). Per-entry subject matching runs in AccessTokenInjector.
+func TestCreateOAuthServer_MultiEntryIssuerDeduplication(t *testing.T) {
+	// Two entries for the same issuer: M2M (SA sub) and OBO (email sub).
+	// Without deduplication the OIDCValidator map overwrites the first entry with
+	// the second; the second entry's allowedClaims.sub="*@giantswarm.io" would
+	// then reject M2M tokens whose sub="system:serviceaccount:kagent:sre-agent".
+	config := OAuthConfig{
+		BaseURL:            "https://mcp.example.com",
+		Provider:           OAuthProviderGoogle,
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
+		TrustedIssuers: []TrustedIssuerConfig{
+			{
+				Issuer:           "https://muster.example.com",
+				JwksURL:          "https://muster.example.com/.well-known/jwks.json",
+				AllowedAudiences: []string{"mcp-kubernetes"},
+				AllowedClaims:    map[string]string{"sub": "system:serviceaccount:kagent:sre-agent"},
+			},
+			{
+				Issuer:           "https://muster.example.com",
+				JwksURL:          "https://muster.example.com/.well-known/jwks.json",
+				AllowedAudiences: []string{"mcp-kubernetes"},
+				AllowedClaims:    map[string]string{"sub": "*@giantswarm.io"},
+			},
+		},
+	}
+
+	oauthServer, _, err := createOAuthServer(config)
+	require.NoError(t, err)
+	require.NotNil(t, oauthServer)
+}
+
+// TestUnionStrings verifies the helper used when deduplicating multi-entry issuers.
+func TestUnionStrings(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b []string
+		want []string
+	}{
+		{name: "both empty", a: nil, b: nil, want: []string{}},
+		{name: "b empty", a: []string{"x"}, b: nil, want: []string{"x"}},
+		{name: "a empty", a: nil, b: []string{"x"}, want: []string{"x"}},
+		{name: "disjoint", a: []string{"a"}, b: []string{"b"}, want: []string{"a", "b"}},
+		{name: "overlap", a: []string{"a", "b"}, b: []string{"b", "c"}, want: []string{"a", "b", "c"}},
+		{name: "identical", a: []string{"x"}, b: []string{"x"}, want: []string{"x"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := unionStrings(tc.a, tc.b)
+			if len(got) == 0 {
+				got = []string{}
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // TestCreateOAuthServerWithDexProvider tests Dex provider creation.
 //
 // Integration Test Requirements:
