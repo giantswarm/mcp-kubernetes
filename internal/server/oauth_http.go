@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-
 	oauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/handler"
 	oauthinstrumentation "github.com/giantswarm/mcp-oauth/instrumentation"
