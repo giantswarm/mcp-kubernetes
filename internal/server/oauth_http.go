@@ -325,6 +325,23 @@ func intersectGroups(allowList, tokenGroups []string) []string {
 
 // matchesSubGlob reports whether s matches a sub-claim pattern.
 // matchesSubGlob matches s against pattern using a single leading or trailing
+// unionStrings returns a slice containing all elements from a and b with
+// duplicates removed. Order is a first, then elements from b not already in a.
+func unionStrings(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a))
+	result := make([]string, 0, len(a)+len(b))
+	for _, v := range a {
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	for _, v := range b {
+		if _, ok := seen[v]; !ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 // wildcard (*). A leading * anchors to a suffix ("*@example.com" matches any
 // string ending in "@example.com"). A trailing * anchors to a prefix
 // ("system:serviceaccount:kagent:*" matches any SA in that namespace).
@@ -761,17 +778,50 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	}
 
 	if len(config.TrustedIssuers) > 0 {
-		issuers := make([]oauthserver.TrustedIssuer, len(config.TrustedIssuers))
-		for i, ti := range config.TrustedIssuers {
-			issuers[i] = oauthserver.TrustedIssuer{
-				Issuer:             ti.Issuer,
-				JwksURL:            ti.JwksURL,
-				AllowedAudiences:   ti.AllowedAudiences,
-				AllowedClaims:      ti.AllowedClaims,
-				SubjectClaim:       ti.SubjectClaim,
-				AcceptedTypHeaders: ti.AcceptedTypHeaders,
-				AllowPrivateIPJWKS: ti.AllowPrivateIPJWKS,
+		// mcp-oauth's OIDCValidator is keyed map[issuerURL]TrustedIssuer; duplicate
+		// issuer URLs overwrite each other. When a single issuer hosts multiple trust
+		// domains (e.g. M2M SA sub + OBO email sub), deduplicate into one entry per
+		// issuer with unioned audiences. AllowedClaims is omitted for multi-entry
+		// issuers because per-entry subject matching runs in AccessTokenInjector.
+		type mergedIssuer struct {
+			oauthserver.TrustedIssuer
+			entryCount int
+		}
+		merged := make(map[string]*mergedIssuer, len(config.TrustedIssuers))
+		var issuerOrder []string
+		for _, ti := range config.TrustedIssuers {
+			if e, ok := merged[ti.Issuer]; !ok {
+				merged[ti.Issuer] = &mergedIssuer{
+					TrustedIssuer: oauthserver.TrustedIssuer{
+						Issuer:             ti.Issuer,
+						JwksURL:            ti.JwksURL,
+						AllowedAudiences:   ti.AllowedAudiences,
+						AllowedClaims:      ti.AllowedClaims,
+						SubjectClaim:       ti.SubjectClaim,
+						AcceptedTypHeaders: ti.AcceptedTypHeaders,
+						AllowPrivateIPJWKS: ti.AllowPrivateIPJWKS,
+					},
+					entryCount: 1,
+				}
+				issuerOrder = append(issuerOrder, ti.Issuer)
+			} else {
+				e.entryCount++
+				e.AllowedAudiences = unionStrings(e.AllowedAudiences, ti.AllowedAudiences)
+				if ti.AllowPrivateIPJWKS {
+					e.AllowPrivateIPJWKS = true
+				}
 			}
+		}
+		issuers := make([]oauthserver.TrustedIssuer, 0, len(merged))
+		for _, iss := range issuerOrder {
+			e := merged[iss]
+			if e.entryCount > 1 {
+				// Per-entry allowedClaims enforcement is in AccessTokenInjector; drop
+				// it here so a later entry's pattern cannot reject earlier entries' tokens.
+				e.AllowedClaims = nil
+				e.SubjectClaim = ""
+			}
+			issuers = append(issuers, e.TrustedIssuer)
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
