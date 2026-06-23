@@ -614,6 +614,13 @@
                     "description": "Allow the JWKS endpoint to resolve to a private/loopback IP. Required when the issuer runs on an internal network.",
                     "default": false
                   },
+                  "allowPrivateIPJWKSHosts": {
+                    "type": "array",
+                    "description": "Allowlist of hostnames whose JWKS endpoints may resolve to a private/loopback IP. Scoped alternative to allowPrivateIPJWKS — restricts the SSRF exception to specific hosts instead of all private IPs.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
                   "allowedActors": {
                     "type": "array",
                     "description": "OBO (Phase 2): list of actor entries. Each entry names an agent SA (act.sub) and optionally restricts the human subjects it may impersonate. Empty (default) disables OBO for this issuer. The chart emits an unrestricted `impersonate users` grant when this list is non-empty; per-actor subject scoping is enforced in-process by mcp-kubernetes.",
