@@ -1298,9 +1298,9 @@ func TestAccessTokenInjectorMiddleware_Passthrough(t *testing.T) {
 // the restricted entry is tried first and the passthrough entry is used as a fallback.
 func TestAccessTokenInjectorMiddleware_FallbackOrdering(t *testing.T) {
 	const (
-		testIssuer   = "https://muster.example.io"
-		m2mSub       = "system:serviceaccount:kagent:sre-agent"
-		humanSub     = "quentin@giantswarm.io"
+		testIssuer = "https://muster.example.io"
+		m2mSub     = "system:serviceaccount:kagent:sre-agent"
+		humanSub   = "quentin@giantswarm.io"
 	)
 
 	// Two entries for the same issuer: one with allowedClaims (SA pattern), one passthrough.
