@@ -61,13 +61,19 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name: "missing subject pattern on default sub key is rejected",
+			name: "no allowedClaims is valid (permissive entry — JWKS is the boundary)",
 			issuers: []server.TrustedIssuerConfig{{
 				Issuer:  issuerURL,
 				JwksURL: jwksURL,
 				Alias:   "glean",
 			}},
-			wantError: true,
+		},
+		{
+			name: "no alias is valid",
+			issuers: []server.TrustedIssuerConfig{{
+				Issuer:  issuerURL,
+				JwksURL: jwksURL,
+			}},
 		},
 		{
 			name: "duplicate alias is rejected",

@@ -439,11 +439,14 @@ Downstream OAuth (--downstream-oauth):
 
 // validateEncryptionKey validates an AES-256 encryption key for security weaknesses
 // validateTrustedIssuers checks per-issuer invariants:
-//   - M2M entries (impersonateGroups set): must omit alias; impersonateUser required.
-//   - OBO/SSO entries: alias must be a valid DNS-1123 label and unique.
-//   - All entries: non-wildcard subject pattern under the effective subject claim.
+//   - issuer and jwksURL are required.
+//   - alias, if set, must be a valid DNS-1123 label and unique across entries.
+//   - allowedClaims subject pattern, if set, must not be bare '*'.
+//   - subjectClaim, if set, requires a matching allowedClaims entry under that key
+//     (having allowedClaims entries for a different key is a misconfiguration).
 //
-// Multiple entries may share the same issuer URL (e.g. M2M + OBO from the same STS).
+// All other fields are independently optional. Multiple entries may share the same
+// issuer URL (e.g. a specific-pattern entry and a permissive fallback entry).
 func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 	seenAliases := make(map[string]struct{}, len(issuers))
 	for _, ti := range issuers {
@@ -453,16 +456,7 @@ func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 		if ti.JwksURL == "" {
 			return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
 		}
-		if len(ti.ImpersonateGroups) > 0 {
-			// M2M entry.
-			if ti.Alias != "" {
-				return fmt.Errorf("trusted issuer %q: M2M entries (impersonateGroups set) must not set alias", ti.Issuer)
-			}
-			if ti.ImpersonateUser == "" {
-				return fmt.Errorf("trusted issuer %q: impersonateUser is required when impersonateGroups is set", ti.Issuer)
-			}
-		} else {
-			// OBO/SSO entry.
+		if ti.Alias != "" {
 			if !isDNS1123Label(ti.Alias) {
 				return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
 					"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
@@ -475,9 +469,14 @@ func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 		}
 		subjectKey := ti.EffectiveSubjectKey()
 		subPattern, hasSub := ti.AllowedClaims[subjectKey]
-		if !hasSub || subPattern == "" || subPattern == "*" {
-			return fmt.Errorf("trusted issuer %q: allowedClaims.%s must be a non-empty pattern "+
-				"that is not bare '*' (prevents any identity from being impersonated)", ti.Issuer, subjectKey)
+		if hasSub && subPattern == "*" {
+			return fmt.Errorf("trusted issuer %q: allowedClaims.%s must not be bare '*' "+
+				"(prevents any identity from being impersonated)", ti.Issuer, subjectKey)
+		}
+		if ti.SubjectClaim != "" && len(ti.AllowedClaims) > 0 && !hasSub {
+			return fmt.Errorf("trusted issuer %q: subjectClaim is %q but allowedClaims has no entry "+
+				"for that key; set allowedClaims.%s or clear allowedClaims entirely",
+				ti.Issuer, ti.SubjectClaim, ti.SubjectClaim)
 		}
 	}
 	return nil

@@ -399,6 +399,28 @@ func actorChainSubjects(token string) map[string]struct{} {
 	return subjects
 }
 
+// tokenAudiences extracts the aud claim from a raw JWT without signature verification.
+// The token has already been verified upstream by the mcp-oauth middleware.
+func tokenAudiences(rawToken string) []string {
+	claims, err := oidc.ParseUnverifiedClaims(rawToken)
+	if err != nil {
+		return nil
+	}
+	switch v := claims["aud"].(type) {
+	case string:
+		return []string{v}
+	case []any:
+		auds := make([]string, 0, len(v))
+		for _, a := range v {
+			if s, ok := a.(string); ok {
+				auds = append(auds, s)
+			}
+		}
+		return auds
+	}
+	return nil
+}
+
 // ActorConfig defines an OBO actor (RFC 8693 act.sub) and the human subjects it
 // is permitted to act on behalf of.
 type ActorConfig struct {
@@ -418,26 +440,19 @@ type TrustedIssuerConfig struct {
 	Issuer string `json:"issuer"`
 	// JwksURL is the JWKS endpoint used to verify signatures.
 	JwksURL string `json:"jwksURL"`
-	// Alias is a stable short identifier for an OBO issuer (e.g. "muster-obo"). The
+	// Alias is a stable short identifier for this issuer (e.g. "muster-obo"). The
 	// chart keys the per-alias Namespace and users/userextras impersonation ClusterRole
-	// on this value. Required on OBO entries; must be omitted on M2M entries (which
-	// identify themselves via ImpersonateUser / ImpersonateGroups instead).
+	// on this value. Optional; must be a valid DNS-1123 label if set.
 	Alias string `json:"alias,omitempty"`
-	// ImpersonateUser is the exact subject this M2M entry may project as
-	// Impersonate-User. The token's effective subject (userInfo.ID, after any
-	// SubjectClaim remap) must equal this value verbatim; no glob matching applies
-	// (use AllowedClaims for routing patterns). The chart scopes the mck8s
-	// ServiceAccount's impersonate-users RBAC resourceName to exactly this value.
-	// Empty disables the M2M path for this issuer.
-	// Must be paired with a non-empty ImpersonateGroups.
+	// ImpersonateUser pins the Impersonate-User value for tokens from this issuer.
+	// The token's effective subject must equal this value exactly; the request is
+	// rejected if they differ. Empty means no subject enforcement — the token's
+	// effective subject is used as-is.
 	ImpersonateUser string `json:"impersonateUser,omitempty"`
-	// ImpersonateGroups is the exact allow-list of groups an M2M token from this
-	// issuer may project as Impersonate-Group. The intersection of this list and the
-	// token's minted groups claim becomes the set of impersonated groups; a token
-	// carrying none of these groups is rejected. The chart scopes the mck8s
-	// ServiceAccount's impersonate-groups RBAC resourceNames to exactly this list.
-	// Empty disables the M2M path for this issuer.
-	// Must be paired with a non-empty ImpersonateUser.
+	// ImpersonateGroups is an allow-list of groups for Impersonate-Group. The
+	// intersection of this list and the token's groups claim is used; the request is
+	// rejected if the intersection is empty. Empty means no group restriction — the
+	// token's groups are forwarded as-is.
 	ImpersonateGroups []string `json:"impersonateGroups,omitempty"`
 	// AllowedAudiences restricts accepted `aud` values. Empty means any audience.
 	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
@@ -445,12 +460,11 @@ type TrustedIssuerConfig struct {
 	// issuer's tokens may be impersonated onto. Empty means any cluster.
 	AllowedTargetClusters []string `json:"allowedTargetClusters,omitempty"`
 	// AllowedClaims constrains accepted tokens to those whose JWT claims match
-	// all entries exactly (e.g. {"sub": "system:serviceaccount:kagent:*"}).
-	// Wildcard suffix matching is supported for the "sub" claim only.
+	// all entries (e.g. {"sub": "system:serviceaccount:kagent:*"}). Wildcard
+	// suffix/prefix matching is supported for the effective subject key only.
 	// When SubjectClaim is set, the entry under that key (not "sub") gates the
-	// impersonated subject; mcp-oauth evaluates AllowedClaims against the raw
-	// token before the subject is remapped, so the opaque sub cannot carry the
-	// remapped pattern.
+	// impersonated subject. Empty means no claim restriction — only JWKS
+	// signature verification applies.
 	AllowedClaims map[string]string `json:"allowedClaims,omitempty"`
 	// SubjectClaim names the verified claim whose value becomes the impersonated
 	// subject, replacing the standard sub claim. Set to "email" on the muster-obo
@@ -468,9 +482,9 @@ type TrustedIssuerConfig struct {
 	// protection. Use instead of AllowPrivateIPJWKS when the endpoint is a
 	// known in-cluster service (e.g. muster.agentic-platform.svc.cluster.local).
 	AllowPrivateIPJWKSHosts []string `json:"allowPrivateIPJWKSHosts,omitempty"`
-	// AllowedActors lists the OBO actors permitted for this issuer and, per actor,
-	// the human subjects they may impersonate. Empty means OBO is disabled for
-	// this issuer (any request with an act claim is rejected).
+	// AllowedActors lists the OBO actors (RFC 8693 act.sub) permitted for this
+	// issuer and, per actor, the human subjects they may impersonate. Empty means
+	// any actor is accepted without restriction (the JWKS boundary applies).
 	AllowedActors []ActorConfig `json:"allowedActors,omitempty"`
 }
 
@@ -1175,19 +1189,30 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				http.Error(w, "forbidden: unknown trusted issuer", http.StatusForbidden)
 				return
 			}
-			// Defense-in-depth: find the configured entry whose allowedClaims pattern
-			// matches this token's effective subject. When a single issuer URL serves
-			// multiple trust domains (e.g. M2M SA pattern + OBO email pattern), the
-			// correct entry is selected here rather than at map-build time.
+			// Select the matching TrustedIssuerConfig entry.
+			// Entries with AllowedClaims are tried first (specific routing for same-issuer
+			// multi-entry deployments). Entries without AllowedClaims serve as permissive
+			// fallback — JWKS signature verification is the trust boundary.
 			// userInfo.ID already holds the remapped value when SubjectClaim is set.
 			var tiConfig *TrustedIssuerConfig
+			var permissive *TrustedIssuerConfig
 			for i := range candidates {
-				subjectKey := candidates[i].EffectiveSubjectKey()
-				subPattern, ok := candidates[i].AllowedClaims[subjectKey]
+				c := &candidates[i]
+				if len(c.AllowedClaims) == 0 {
+					if permissive == nil {
+						permissive = c
+					}
+					continue
+				}
+				subjectKey := c.EffectiveSubjectKey()
+				subPattern, ok := c.AllowedClaims[subjectKey]
 				if ok && subPattern != "" && matchesSubGlob(subPattern, userInfo.ID) {
-					tiConfig = &candidates[i]
+					tiConfig = c
 					break
 				}
+			}
+			if tiConfig == nil {
+				tiConfig = permissive
 			}
 			if tiConfig == nil {
 				slog.Warn("AccessTokenInjector: subject does not match allowedClaims pattern, rejecting",
@@ -1195,28 +1220,65 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				http.Error(w, "forbidden: subject does not match allowed pattern", http.StatusForbidden)
 				return
 			}
-			// OBO path (Phase 2): sub=human, act.sub=agent SA.
-			// Impersonate the human subject; record the agent SA as the actor so the
-			// kube-apiserver audit log shows "human X via agent Z".
-			if userInfo.IsOBO() {
-				// Enforce actor allow-list and per-actor subject scoping in-process.
-				// K8s RBAC cannot couple impersonate-users to impersonate-userextras/actor
-				// (independent verbs) and does not support wildcards in resourceNames,
-				// so both checks must live here.
-				//
-				// Walk the full RFC 8693 act chain: a configured actor is authorized
-				// when its sub appears anywhere in the chain, so multi-hop A2A
-				// (human -> agentA -> agentB -> MCP) is honored, not only the leaf.
-				// The leaf comes from the validated UserInfo; deeper hops are read
-				// from the authentic token payload.
-				actorSub := userInfo.ActorSubject
+
+			// Per-field enforcement: each field is independently optional.
+
+			// Audience restriction.
+			if len(tiConfig.AllowedAudiences) > 0 {
+				tokenAuds := tokenAudiences(bearerToken)
+				matched := false
+			outer:
+				for _, allowed := range tiConfig.AllowedAudiences {
+					for _, got := range tokenAuds {
+						if allowed == got {
+							matched = true
+							break outer
+						}
+					}
+				}
+				if !matched {
+					slog.Warn("AccessTokenInjector: token audience not in allowedAudiences, rejecting",
+						"issuer", userInfo.Issuer, "subject", userInfo.ID)
+					http.Error(w, "forbidden: audience not permitted", http.StatusForbidden)
+					return
+				}
+			}
+
+			// Subject enforcement.
+			subject := userInfo.ID
+			if tiConfig.ImpersonateUser != "" && tiConfig.ImpersonateUser != subject {
+				slog.Warn("AccessTokenInjector: subject does not match impersonateUser, rejecting",
+					"issuer", userInfo.Issuer, "subject", subject)
+				http.Error(w, "forbidden: subject not permitted for impersonation", http.StatusForbidden)
+				return
+			}
+
+			// Group enforcement.
+			impersonateGroups := userInfo.Groups
+			if len(tiConfig.ImpersonateGroups) > 0 {
+				impersonateGroups = intersectGroups(tiConfig.ImpersonateGroups, userInfo.Groups)
+				if len(impersonateGroups) == 0 {
+					slog.Warn("AccessTokenInjector: token carries no allow-listed group, rejecting",
+						"issuer", userInfo.Issuer, "subject", subject)
+					http.Error(w, "forbidden: no permitted group in token", http.StatusForbidden)
+					return
+				}
+			}
+
+			// Actor enforcement (OBO path: act claim present).
+			// K8s RBAC cannot couple impersonate-users to impersonate-userextras/actor
+			// (independent verbs) and does not support wildcards in resourceNames,
+			// so this check must live in-process.
+			actorSub := userInfo.ActorSubject
+			if actorSub != "" && len(tiConfig.AllowedActors) > 0 {
+				// Walk the full RFC 8693 act chain so multi-hop A2A
+				// (human -> agentA -> agentB -> MCP) is honored.
 				chainSubjects := actorChainSubjects(bearerToken)
 				if chainSubjects == nil {
 					chainSubjects = make(map[string]struct{}, 1)
 				}
-				if actorSub != "" {
-					chainSubjects[actorSub] = struct{}{}
-				}
+				chainSubjects[actorSub] = struct{}{}
+
 				var matchedActor *ActorConfig
 				for i := range tiConfig.AllowedActors {
 					if _, ok := chainSubjects[tiConfig.AllowedActors[i].Sub]; ok {
@@ -1231,28 +1293,30 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 					return
 				}
 				if len(matchedActor.AllowedSubjects) > 0 {
-					humanSub := userInfo.ID
 					subAllowed := false
 					for _, pattern := range matchedActor.AllowedSubjects {
-						if matchesSubGlob(pattern, humanSub) {
+						if matchesSubGlob(pattern, subject) {
 							subAllowed = true
 							break
 						}
 					}
 					if !subAllowed {
 						slog.Warn("AccessTokenInjector: OBO human subject not in actor's allowedSubjects, rejecting",
-							"issuer", userInfo.Issuer, "actor", actorSub, "subject", humanSub)
+							"issuer", userInfo.Issuer, "actor", actorSub, "subject", subject)
 						http.Error(w, "forbidden: subject not permitted for this actor", http.StatusForbidden)
 						return
 					}
 				}
+			}
 
+			// Build the impersonation identity.
+			if actorSub != "" {
+				// OBO: delegation does not carry group membership through impersonation.
+				// system:authenticated must be explicit; impersonation does not
+				// inherit the real-auth group set.
 				identity := k8s.ImpersonationIdentity{
-					UserName: userInfo.ID,
-					// system:authenticated must be explicit; impersonation does not
-					// inherit the real-auth group set. Human access is governed by
-					// RoleBindings to the user subject on each target cluster.
-					Groups: []string{"system:authenticated"},
+					UserName: subject,
+					Groups:   []string{"system:authenticated"},
 					Extra: map[string][]string{
 						"issuer": {userInfo.Issuer},
 						"agent":  {"mcp-kubernetes"},
@@ -1267,29 +1331,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				return
 			}
 
-			// M2M path: pure projection. muster asserted the subject (GrantedSubject
-			// in mcp-oauth); ImpersonateUser is the final exact gate here. The
-			// intersection of ImpersonateGroups and the minted token groups becomes
-			// Impersonate-Group; cluster RBAC (bound to the group) authorizes.
-			if tiConfig.ImpersonateUser != userInfo.ID {
-				slog.Warn("AccessTokenInjector: M2M subject does not match impersonateUser, rejecting",
-					"issuer", userInfo.Issuer, "subject", userInfo.ID)
-				http.Error(w, "forbidden: subject not permitted for impersonation", http.StatusForbidden)
-				return
-			}
-			impersonateGroups := intersectGroups(tiConfig.ImpersonateGroups, userInfo.Groups)
-			if len(impersonateGroups) == 0 {
-				slog.Warn("AccessTokenInjector: M2M token carries no allow-listed group, rejecting",
-					"issuer", userInfo.Issuer, "subject", userInfo.ID)
-				http.Error(w, "forbidden: no permitted group in token", http.StatusForbidden)
-				return
-			}
+			// M2M: no act claim.
 			// system:authenticated is not added automatically for impersonation (unlike
 			// real auth); without it the impersonated identity lacks system:discovery
 			// access and API resource enumeration silently returns empty results.
 			impersonateGroups = appendIfMissing(impersonateGroups, "system:authenticated")
 			identity := k8s.ImpersonationIdentity{
-				UserName: userInfo.ID,
+				UserName: subject,
 				Groups:   impersonateGroups,
 				Extra: map[string][]string{
 					"issuer": {userInfo.Issuer},
@@ -1297,9 +1345,8 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				},
 				AllowedTargetClusters: tiConfig.AllowedTargetClusters,
 			}
-			slog.Debug("AccessTokenInjector: M2M group impersonation",
-				"issuer", userInfo.Issuer, "subject", userInfo.ID, "groups", impersonateGroups)
-
+			slog.Debug("AccessTokenInjector: external-issuer group impersonation",
+				"issuer", userInfo.Issuer, "subject", subject, "groups", impersonateGroups)
 			ctx = ContextWithImpersonationIdentity(ctx, identity)
 			r = r.WithContext(ctx)
 			next.ServeHTTP(w, r)
