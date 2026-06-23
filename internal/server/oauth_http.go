@@ -461,7 +461,13 @@ type TrustedIssuerConfig struct {
 	// Set to ["", "JWT"] to accept Kubernetes ServiceAccount tokens.
 	AcceptedTypHeaders []string `json:"acceptedTypHeaders,omitempty"`
 	// AllowPrivateIPJWKS permits JWKS endpoints on private/loopback addresses.
+	// Prefer AllowPrivateIPJWKSHosts for a narrower escape hatch.
 	AllowPrivateIPJWKS bool `json:"allowPrivateIPJWKS,omitempty"`
+	// AllowPrivateIPJWKSHosts lists the specific hostnames whose JWKS URL is
+	// permitted to resolve to a private IP. All other hosts retain SSRF
+	// protection. Use instead of AllowPrivateIPJWKS when the endpoint is a
+	// known in-cluster service (e.g. muster.agentic-platform.svc.cluster.local).
+	AllowPrivateIPJWKSHosts []string `json:"allowPrivateIPJWKSHosts,omitempty"`
 	// AllowedActors lists the OBO actors permitted for this issuer and, per actor,
 	// the human subjects they may impersonate. Empty means OBO is disabled for
 	// this issuer (any request with an act claim is rejected).
@@ -802,13 +808,14 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			if e, ok := merged[ti.Issuer]; !ok {
 				merged[ti.Issuer] = &mergedIssuer{
 					TrustedIssuer: oauthserver.TrustedIssuer{
-						Issuer:             ti.Issuer,
-						JwksURL:            ti.JwksURL,
-						AllowedAudiences:   ti.AllowedAudiences,
-						AllowedClaims:      ti.AllowedClaims,
-						SubjectClaim:       ti.SubjectClaim,
-						AcceptedTypHeaders: ti.AcceptedTypHeaders,
-						AllowPrivateIPJWKS: ti.AllowPrivateIPJWKS,
+						Issuer:                  ti.Issuer,
+						JwksURL:                 ti.JwksURL,
+						AllowedAudiences:        ti.AllowedAudiences,
+						AllowedClaims:           ti.AllowedClaims,
+						SubjectClaim:            ti.SubjectClaim,
+						AcceptedTypHeaders:      ti.AcceptedTypHeaders,
+						AllowPrivateIPJWKS:      ti.AllowPrivateIPJWKS,
+						AllowPrivateIPJWKSHosts: ti.AllowPrivateIPJWKSHosts,
 					},
 					entryCount: 1,
 				}
@@ -819,6 +826,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 				if ti.AllowPrivateIPJWKS {
 					e.AllowPrivateIPJWKS = true
 				}
+				e.AllowPrivateIPJWKSHosts = unionStrings(e.AllowPrivateIPJWKSHosts, ti.AllowPrivateIPJWKSHosts)
 			}
 		}
 		issuers := make([]oauthserver.TrustedIssuer, 0, len(merged))
