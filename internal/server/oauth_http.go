@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -294,41 +293,6 @@ type OAuthConfig struct {
 	TrustedIssuers []TrustedIssuerConfig
 }
 
-// matchesSubGlob reports whether s matches a sub-claim pattern.
-// matchesSubGlob matches s against pattern using a single leading or trailing
-// unionStrings returns a slice containing all elements from a and b with
-// duplicates removed. Order is a first, then elements from b not already in a.
-func unionStrings(a, b []string) []string {
-	seen := make(map[string]struct{}, len(a))
-	result := make([]string, 0, len(a)+len(b))
-	for _, v := range a {
-		seen[v] = struct{}{}
-		result = append(result, v)
-	}
-	for _, v := range b {
-		if _, ok := seen[v]; !ok {
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
-// wildcard (*). A leading * anchors to a suffix ("*@example.com" matches any
-// string ending in "@example.com"). A trailing * anchors to a prefix
-// ("system:serviceaccount:kagent:*" matches any SA in that namespace).
-// An exact pattern (no *) requires an exact string equality.
-func matchesSubGlob(pattern, s string) bool {
-	if strings.HasSuffix(pattern, "*") {
-		prefix := pattern[:len(pattern)-1]
-		return prefix != "" && strings.HasPrefix(s, prefix)
-	}
-	if strings.HasPrefix(pattern, "*") {
-		suffix := pattern[1:]
-		return suffix != "" && strings.HasSuffix(s, suffix)
-	}
-	return pattern == s
-}
-
 // TrustedIssuerConfig holds the configuration for a single trusted external JWT issuer.
 type TrustedIssuerConfig struct {
 	// Issuer is the expected `iss` claim value in the JWT.
@@ -364,16 +328,6 @@ type TrustedIssuerConfig struct {
 	// protection. Use instead of AllowPrivateIPJWKS when the endpoint is a
 	// known in-cluster service (e.g. muster.agentic-platform.svc.cluster.local).
 	AllowPrivateIPJWKSHosts []string `json:"allowPrivateIPJWKSHosts,omitempty"`
-}
-
-// EffectiveSubjectKey returns the AllowedClaims key that gates the impersonated
-// subject: SubjectClaim when set, otherwise the standard "sub". The validated
-// subject (userInfo.ID) is matched against AllowedClaims[EffectiveSubjectKey()].
-func (c TrustedIssuerConfig) EffectiveSubjectKey() string {
-	if c.SubjectClaim != "" {
-		return c.SubjectClaim
-	}
-	return "sub"
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -412,10 +366,9 @@ type OAuthHTTPServer struct {
 	disableStreaming        bool
 	instrumentationProvider *instrumentation.Provider
 	healthChecker           *HealthChecker
-	// trustedIssuersByIssuer maps issuer URL to the configured entries for that
-	// issuer. Multiple entries per URL are supported (e.g. two subject patterns from the
-	// same STS); the matching entry is selected by subject pattern at request time.
-	trustedIssuersByIssuer map[string][]TrustedIssuerConfig
+	// trustedIssuersByIssuer maps issuer URL to its configured entry (one per
+	// issuer URL, enforced by startup validation).
+	trustedIssuersByIssuer map[string]TrustedIssuerConfig
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -685,52 +638,21 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	}
 
 	if len(config.TrustedIssuers) > 0 {
-		// mcp-oauth's OIDCValidator is keyed map[issuerURL]TrustedIssuer; duplicate
-		// issuer URLs overwrite each other. When a single issuer hosts multiple trust
-		// domains (e.g. an SA-sub pattern and an OBO email pattern), deduplicate into one entry per
-		// issuer with unioned audiences. AllowedClaims is omitted for multi-entry
-		// issuers because per-entry subject matching runs in AccessTokenInjector.
-		type mergedIssuer struct {
-			oauthserver.TrustedIssuer
-			entryCount int
-		}
-		merged := make(map[string]*mergedIssuer, len(config.TrustedIssuers))
-		var issuerOrder []string
+		// One entry per issuer URL (enforced by startup validation). mcp-oauth
+		// validates the signature, audience, typ, and allowedClaims subject pattern;
+		// a token whose subject does not match allowedClaims is rejected upstream.
+		issuers := make([]oauthserver.TrustedIssuer, 0, len(config.TrustedIssuers))
 		for _, ti := range config.TrustedIssuers {
-			if e, ok := merged[ti.Issuer]; !ok {
-				merged[ti.Issuer] = &mergedIssuer{
-					TrustedIssuer: oauthserver.TrustedIssuer{
-						Issuer:                  ti.Issuer,
-						JwksURL:                 ti.JwksURL,
-						AllowedAudiences:        ti.AllowedAudiences,
-						AllowedClaims:           ti.AllowedClaims,
-						SubjectClaim:            ti.SubjectClaim,
-						AcceptedTypHeaders:      ti.AcceptedTypHeaders,
-						AllowPrivateIPJWKS:      ti.AllowPrivateIPJWKS,
-						AllowPrivateIPJWKSHosts: ti.AllowPrivateIPJWKSHosts,
-					},
-					entryCount: 1,
-				}
-				issuerOrder = append(issuerOrder, ti.Issuer)
-			} else {
-				e.entryCount++
-				e.AllowedAudiences = unionStrings(e.AllowedAudiences, ti.AllowedAudiences)
-				if ti.AllowPrivateIPJWKS {
-					e.AllowPrivateIPJWKS = true
-				}
-				e.AllowPrivateIPJWKSHosts = unionStrings(e.AllowPrivateIPJWKSHosts, ti.AllowPrivateIPJWKSHosts)
-			}
-		}
-		issuers := make([]oauthserver.TrustedIssuer, 0, len(merged))
-		for _, iss := range issuerOrder {
-			e := merged[iss]
-			if e.entryCount > 1 {
-				// Per-entry allowedClaims enforcement is in AccessTokenInjector; drop
-				// it here so a later entry's pattern cannot reject earlier entries' tokens.
-				e.AllowedClaims = nil
-				e.SubjectClaim = ""
-			}
-			issuers = append(issuers, e.TrustedIssuer)
+			issuers = append(issuers, oauthserver.TrustedIssuer{
+				Issuer:                  ti.Issuer,
+				JwksURL:                 ti.JwksURL,
+				AllowedAudiences:        ti.AllowedAudiences,
+				AllowedClaims:           ti.AllowedClaims,
+				SubjectClaim:            ti.SubjectClaim,
+				AcceptedTypHeaders:      ti.AcceptedTypHeaders,
+				AllowPrivateIPJWKS:      ti.AllowPrivateIPJWKS,
+				AllowPrivateIPJWKSHosts: ti.AllowPrivateIPJWKSHosts,
+			})
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
@@ -759,12 +681,12 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Build issuer→config lookup map for the access-token injector middleware.
-	// Multiple entries per issuer URL are collected into a slice; the correct
-	// entry is selected at request time by matching the token subject pattern.
-	issuerMap := make(map[string][]TrustedIssuerConfig, len(config.TrustedIssuers))
+	// Build issuer→config lookup for the access-token injector middleware. One
+	// entry per issuer URL (enforced by startup validation); mcp-oauth has already
+	// validated the token (including allowedClaims) by the time the injector runs.
+	issuerMap := make(map[string]TrustedIssuerConfig, len(config.TrustedIssuers))
 	for _, ti := range config.TrustedIssuers {
-		issuerMap[ti.Issuer] = append(issuerMap[ti.Issuer], ti)
+		issuerMap[ti.Issuer] = ti
 	}
 
 	// Create HTTP handler
@@ -1060,40 +982,11 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// would be rejected. Derive an ImpersonationIdentity for an on-behalf-of
 		// token (act claim present); a token with no actor is rejected.
 		if userInfo.IsExternalIssuer() {
-			candidates := s.trustedIssuersByIssuer[userInfo.Issuer]
-			if len(candidates) == 0 {
+			tiConfig, ok := s.trustedIssuersByIssuer[userInfo.Issuer]
+			if !ok {
 				slog.Warn("AccessTokenInjector: external-issuer token with unknown issuer, rejecting",
 					"issuer", userInfo.Issuer)
 				http.Error(w, "forbidden: unknown trusted issuer", http.StatusForbidden)
-				return
-			}
-			// Select the best matching entry for this issuer+subject combination.
-			// Entries with an allowedClaims subject pattern are tried first; entries
-			// without one are eligible as a fallback for any subject (the JWKS URL
-			// is the trust boundary for passthrough entries).
-			var tiConfig *TrustedIssuerConfig
-			var fallback *TrustedIssuerConfig
-			for i := range candidates {
-				subjectKey := candidates[i].EffectiveSubjectKey()
-				subPattern, hasSubPattern := candidates[i].AllowedClaims[subjectKey]
-				if !hasSubPattern || subPattern == "" {
-					if fallback == nil {
-						fallback = &candidates[i]
-					}
-					continue
-				}
-				if matchesSubGlob(subPattern, userInfo.ID) {
-					tiConfig = &candidates[i]
-					break
-				}
-			}
-			if tiConfig == nil {
-				tiConfig = fallback
-			}
-			if tiConfig == nil {
-				slog.Warn("AccessTokenInjector: subject does not match any configured entry, rejecting",
-					"issuer", userInfo.Issuer, "subject", userInfo.ID)
-				http.Error(w, "forbidden: subject does not match allowed pattern", http.StatusForbidden)
 				return
 			}
 

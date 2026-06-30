@@ -441,9 +441,9 @@ Downstream OAuth (--downstream-oauth):
 // validateTrustedIssuers checks per-issuer invariants:
 //   - issuer and jwksURL are required.
 //   - allowedClaims values may not be bare '*'.
-//
-// Multiple entries may share the same issuer URL (e.g. restricted + passthrough).
+//   - issuer URLs are unique (one entry per issuer).
 func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
+	seen := make(map[string]struct{}, len(issuers))
 	for _, ti := range issuers {
 		if ti.Issuer == "" {
 			return fmt.Errorf("trusted issuer entry has empty issuer URL")
@@ -451,6 +451,10 @@ func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 		if ti.JwksURL == "" {
 			return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
 		}
+		if _, dup := seen[ti.Issuer]; dup {
+			return fmt.Errorf("trusted issuer %q is configured more than once; one entry per issuer URL", ti.Issuer)
+		}
+		seen[ti.Issuer] = struct{}{}
 		for claim, pattern := range ti.AllowedClaims {
 			if pattern == "*" {
 				return fmt.Errorf("trusted issuer %q: allowedClaims.%s must not be bare '*'", ti.Issuer, claim)

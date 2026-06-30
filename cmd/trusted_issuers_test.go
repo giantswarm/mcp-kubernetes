@@ -78,11 +78,12 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name: "same issuer URL with distinct subject patterns is valid",
+			name: "duplicate issuer URL is rejected",
 			issuers: []server.TrustedIssuerConfig{
 				{Issuer: issuerURL, JwksURL: jwksURL, AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"}},
 				{Issuer: issuerURL, JwksURL: jwksURL, SubjectClaim: "email", AllowedClaims: map[string]string{"email": "*@giantswarm.io"}},
 			},
+			wantError: true,
 		},
 		{
 			name: "same issuer URL with one passthrough entry (no allowedClaims) is valid",

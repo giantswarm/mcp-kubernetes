@@ -349,31 +349,6 @@ func TestCreateOAuthServer_MultiEntryIssuerDeduplication(t *testing.T) {
 	require.NotNil(t, oauthServer)
 }
 
-// TestUnionStrings verifies the helper used when deduplicating multi-entry issuers.
-func TestUnionStrings(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b []string
-		want []string
-	}{
-		{name: "both empty", a: nil, b: nil, want: []string{}},
-		{name: "b empty", a: []string{"x"}, b: nil, want: []string{"x"}},
-		{name: "a empty", a: nil, b: []string{"x"}, want: []string{"x"}},
-		{name: "disjoint", a: []string{"a"}, b: []string{"b"}, want: []string{"a", "b"}},
-		{name: "overlap", a: []string{"a", "b"}, b: []string{"b", "c"}, want: []string{"a", "b", "c"}},
-		{name: "identical", a: []string{"x"}, b: []string{"x"}, want: []string{"x"}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := unionStrings(tc.a, tc.b)
-			if len(got) == 0 {
-				got = []string{}
-			}
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
 // TestCreateOAuthServerWithDexProvider tests Dex provider creation.
 //
 // Integration Test Requirements:
@@ -821,10 +796,9 @@ func TestDexScopesWithKubernetesAuthenticator(t *testing.T) {
 }
 
 // makeIssuerMap builds a trustedIssuersByIssuer map from a single config.
-// All test fixtures in this file configure exactly one entry per issuer URL;
-// multi-entry scenarios are covered by TestAccessTokenInjectorMiddleware_MultiIssuerURL.
-func makeIssuerMap(c TrustedIssuerConfig) map[string][]TrustedIssuerConfig {
-	return map[string][]TrustedIssuerConfig{c.Issuer: {c}}
+// (one entry per issuer URL).
+func makeIssuerMap(c TrustedIssuerConfig) map[string]TrustedIssuerConfig {
+	return map[string]TrustedIssuerConfig{c.Issuer: c}
 }
 
 func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
@@ -904,13 +878,16 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
 
-	t.Run("OBO human sub not matching allowedClaims.sub returns 403", func(t *testing.T) {
+	t.Run("OBO subject filtering is enforced upstream, not in the middleware", func(t *testing.T) {
+		// mcp-oauth rejects tokens whose subject fails AllowedClaims at validation
+		// time, so the injector never sees a non-matching subject. Given a validated
+		// OBO token it passes through regardless of the configured AllowedClaims.
 		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
 		rr := httptest.NewRecorder()
 		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})).ServeHTTP(rr, newOBOReq("attacker@evil.com", agentSASub))
-		require.Equal(t, http.StatusForbidden, rr.Code)
+		require.Equal(t, http.StatusOK, rr.Code)
 	})
 
 	t.Run("OBO: any validated actor accepted", func(t *testing.T) {
@@ -1000,119 +977,6 @@ func TestAccessTokenInjectorMiddleware_Passthrough(t *testing.T) {
 	})
 }
 
-// TestAccessTokenInjectorMiddleware_FallbackOrdering verifies that when an issuer has
-// both a restricted entry (allowedClaims set) and a passthrough entry (no allowedClaims),
-// the restricted entry is tried first and the passthrough entry is used as a fallback.
-// Entry selection runs on the on-behalf-of path; the selected entry is identified by
-// its distinct AllowedTargetClusters.
-func TestAccessTokenInjectorMiddleware_FallbackOrdering(t *testing.T) {
-	const (
-		testIssuer   = "https://muster.example.io"
-		agentSub     = "system:serviceaccount:kagent:sre-agent"
-		matchedHuman = "sre@giantswarm.io"
-		otherHuman   = "ops@example.com"
-	)
-
-	// Two entries for the same issuer: one restricted (allowedClaims sub pattern),
-	// one passthrough. Distinct AllowedTargetClusters mark which entry was selected.
-	multiMap := map[string][]TrustedIssuerConfig{
-		testIssuer: {
-			{
-				Issuer:                testIssuer,
-				JwksURL:               "https://muster.internal/jwks",
-				AllowedClaims:         map[string]string{"sub": "*@giantswarm.io"},
-				AllowedTargetClusters: []string{"restricted-cluster"},
-			},
-			{
-				Issuer:                testIssuer,
-				JwksURL:               "https://muster.internal/jwks",
-				AllowedTargetClusters: []string{"fallback-cluster"},
-			},
-		},
-	}
-
-	oboReq := func(human string) *http.Request {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
-		userInfo := &providers.UserInfo{
-			ID:           human,
-			Issuer:       testIssuer,
-			TokenSource:  providers.TokenSourceTrustedIssuer,
-			ActorSubject: agentSub,
-		}
-		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
-	}
-
-	t.Run("subject matching the pattern hits the restricted entry", func(t *testing.T) {
-		var capturedCtx context.Context
-		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			capturedCtx = r.Context()
-			w.WriteHeader(http.StatusOK)
-		})
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: multiMap}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, oboReq(matchedHuman))
-
-		require.Equal(t, http.StatusOK, rr.Code)
-		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
-		require.True(t, ok)
-		require.Equal(t, matchedHuman, identity.UserName)
-		require.Equal(t, agentSub, identity.Actor)
-		require.Equal(t, []string{"restricted-cluster"}, identity.AllowedTargetClusters)
-	})
-
-	t.Run("subject not matching the pattern falls back to the passthrough entry", func(t *testing.T) {
-		var capturedCtx context.Context
-		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			capturedCtx = r.Context()
-			w.WriteHeader(http.StatusOK)
-		})
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: multiMap}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, oboReq(otherHuman))
-
-		require.Equal(t, http.StatusOK, rr.Code)
-		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
-		require.True(t, ok)
-		require.Equal(t, otherHuman, identity.UserName)
-		require.Equal(t, []string{"fallback-cluster"}, identity.AllowedTargetClusters)
-	})
-}
-
-func TestMatchesSubGlob(t *testing.T) {
-	tests := []struct {
-		pattern string
-		s       string
-		want    bool
-	}{
-		// exact match
-		{"alice@example.com", "alice@example.com", true},
-		{"alice@example.com", "bob@example.com", false},
-
-		// trailing star — prefix match
-		{"system:serviceaccount:kagent:*", "system:serviceaccount:kagent:bot", true},
-		{"system:serviceaccount:kagent:*", "system:serviceaccount:other:bot", false},
-		// trailing-star prefix must be non-empty
-		{"*", "anything", false},
-
-		// leading star — suffix match
-		{"*@giantswarm.io", "quentin@giantswarm.io", true},
-		{"*@giantswarm.io", "quentin@otherdomain.io", false},
-		// leading-star suffix must be non-empty
-		{"*", "anything", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.pattern+"|"+tc.s, func(t *testing.T) {
-			require.Equal(t, tc.want, matchesSubGlob(tc.pattern, tc.s))
-		})
-	}
-}
-
-func TestEffectiveSubjectKey(t *testing.T) {
-	require.Equal(t, "sub", TrustedIssuerConfig{}.EffectiveSubjectKey())
-	require.Equal(t, "email", TrustedIssuerConfig{SubjectClaim: "email"}.EffectiveSubjectKey())
-}
-
 // TestAccessTokenInjectorMiddleware_SubjectClaim covers the muster-obo issuer:
 // the subject is remapped to the email claim, so the in-process gate matches
 // userInfo.ID (already the email) against allowedClaims.email, not .sub.
@@ -1163,20 +1027,10 @@ func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
 		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
 	})
 
-	t.Run("subject outside the email pattern returns 403", func(t *testing.T) {
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: emailMap}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, newReq("mallory@evil.com"))
-		require.Equal(t, http.StatusForbidden, rr.Code)
-	})
-
-	t.Run("SubjectClaim set but allowedClaims under wrong key: entry used as fallback", func(t *testing.T) {
-		// AllowedClaims has "sub" key but SubjectClaim="email", so EffectiveSubjectKey
-		// is "email" which is absent. The entry has no effective subject constraint and
-		// is used as a passthrough fallback. AllowedClaims["sub"] is enforced by
-		// mcp-oauth at token-validation time, not in the middleware.
+	t.Run("AllowedClaims are enforced upstream, not in the middleware", func(t *testing.T) {
+		// The middleware does not enforce AllowedClaims; mcp-oauth checks them at
+		// token-validation time. The request passes through regardless of how
+		// AllowedClaims are keyed.
 		misconfigured := makeIssuerMap(TrustedIssuerConfig{
 			Issuer:        musterIssuer,
 			JwksURL:       "https://muster.glean.example.io/.well-known/jwks.json",
@@ -1189,102 +1043,5 @@ func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})).ServeHTTP(rr, newReq(userEmail))
 		require.Equal(t, http.StatusOK, rr.Code)
-	})
-}
-
-// TestAccessTokenInjectorMiddleware_MultiIssuerURL covers the glean production
-// scenario: two entries (SA-sub and email-sub patterns) share the same muster
-// issuer URL. The middleware must route each token to the correct entry.
-func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
-	const (
-		musterIssuer = "https://muster.glean.example.io"
-		oboAlias     = "muster-obo"
-		agentSA      = "system:serviceaccount:kagent:sre-agent"
-		agentUser    = "agent:sre"
-		agentGroup   = "agent:sre"
-		humanEmail   = "alice@giantswarm.io"
-	)
-
-	dualIssuerMap := map[string][]TrustedIssuerConfig{
-		musterIssuer: {
-			{
-				Issuer:        musterIssuer,
-				JwksURL:       "https://muster.glean.example.io/.well-known/jwks.json",
-				AllowedClaims: map[string]string{"sub": agentUser},
-			},
-			{
-				Issuer:        musterIssuer,
-				JwksURL:       "https://muster.glean.example.io/.well-known/jwks.json",
-				SubjectClaim:  "email",
-				AllowedClaims: map[string]string{"email": "*@giantswarm.io"},
-			},
-		},
-	}
-
-	t.Run("no-actor token matching the SA entry is rejected", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-		req.Header.Set("Authorization", "Bearer fake-no-actor-token") //nolint:gosec // G101: test fixture
-		userInfo := &providers.UserInfo{
-			ID:          agentUser,
-			Issuer:      musterIssuer,
-			Groups:      []string{agentGroup},
-			TokenSource: providers.TokenSourceTrustedIssuer,
-		}
-		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
-
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: dualIssuerMap}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, req)
-
-		require.Equal(t, http.StatusForbidden, rr.Code)
-	})
-
-	t.Run("OBO token routes to email-pattern entry", func(t *testing.T) {
-		var capturedCtx context.Context
-		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			capturedCtx = r.Context()
-			w.WriteHeader(http.StatusOK)
-		})
-		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
-		userInfo := &providers.UserInfo{
-			ID:           humanEmail,
-			Issuer:       musterIssuer,
-			TokenSource:  providers.TokenSourceTrustedIssuer,
-			ActorSubject: agentSA,
-			ActorIssuer:  "https://k8s.example.com",
-		}
-		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
-
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: dualIssuerMap}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, req)
-
-		require.Equal(t, http.StatusOK, rr.Code)
-		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
-		require.True(t, ok)
-		require.Equal(t, humanEmail, identity.UserName)
-		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
-	})
-
-	t.Run("token subject matching neither entry returns 403", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-		req.Header.Set("Authorization", "Bearer fake-token") //nolint:gosec // G101: test fixture
-		userInfo := &providers.UserInfo{
-			ID:          "attacker@evil.com",
-			Issuer:      musterIssuer,
-			TokenSource: providers.TokenSourceTrustedIssuer,
-		}
-		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
-
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: dualIssuerMap}
-		rr := httptest.NewRecorder()
-		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})).ServeHTTP(rr, req)
-
-		require.Equal(t, http.StatusForbidden, rr.Code)
 	})
 }
