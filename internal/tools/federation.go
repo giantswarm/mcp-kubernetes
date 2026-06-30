@@ -106,7 +106,7 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 	if clusterName != "" {
 		var user *federation.UserInfo
 
-		// For external-issuer (M2M) tokens the middleware sets an ImpersonationIdentity
+		// For external-issuer (OBO) tokens the middleware sets an ImpersonationIdentity
 		// instead of an ID token. Use the qualified SA subject as Impersonate-User so
 		// workload-cluster clients carry the same identity as the local cluster path.
 		if identity, ok := server.ImpersonationIdentityFromContext(ctx); ok {
@@ -190,7 +190,7 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 	}
 
 	// No cluster specified - use local client (management cluster).
-	// M2M identities with AllowedTargetClusters restrictions cannot access the MC.
+	// OBO identities with AllowedTargetClusters restrictions cannot access the MC.
 	if identity, ok := server.ImpersonationIdentityFromContext(ctx); ok {
 		if len(identity.AllowedTargetClusters) > 0 {
 			return nil, "management cluster access is not permitted for this identity (restricted to specific workload clusters)"

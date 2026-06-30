@@ -27,11 +27,10 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			}},
 		},
 		{
-			name: "sub-keyed issuer with alias is valid",
+			name: "sub-keyed issuer is valid",
 			issuers: []server.TrustedIssuerConfig{{
 				Issuer:        issuerURL,
 				JwksURL:       jwksURL,
-				Alias:         "glean",
 				AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"},
 			}},
 		},
@@ -40,7 +39,6 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			issuers: []server.TrustedIssuerConfig{{
 				Issuer:        issuerURL,
 				JwksURL:       jwksURL,
-				Alias:         "muster-obo",
 				SubjectClaim:  "email",
 				AllowedClaims: map[string]string{"email": "*@giantswarm.io"},
 			}},
@@ -50,7 +48,6 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			issuers: []server.TrustedIssuerConfig{{
 				Issuer:        issuerURL,
 				JwksURL:       jwksURL,
-				Alias:         "muster-obo",
 				SubjectClaim:  "email",
 				AllowedClaims: map[string]string{"sub": "*@giantswarm.io"},
 			}},
@@ -60,7 +57,6 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			issuers: []server.TrustedIssuerConfig{{
 				Issuer:  issuerURL,
 				JwksURL: jwksURL,
-				Alias:   "glean",
 			}},
 		},
 		{
@@ -82,31 +78,14 @@ func TestValidateTrustedIssuers(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name: "duplicate alias is rejected",
+			name: "same issuer URL with distinct subject patterns is valid",
 			issuers: []server.TrustedIssuerConfig{
-				{Issuer: issuerURL, JwksURL: jwksURL, Alias: "glean", AllowedClaims: map[string]string{"sub": "a"}},
-				{Issuer: "https://other.example.com", JwksURL: jwksURL, Alias: "glean", AllowedClaims: map[string]string{"sub": "b"}},
-			},
-			wantError: true,
-		},
-		{
-			name: "invalid alias label is rejected",
-			issuers: []server.TrustedIssuerConfig{{
-				Issuer:  issuerURL,
-				JwksURL: jwksURL,
-				Alias:   "Not-Valid!",
-			}},
-			wantError: true,
-		},
-		{
-			name: "same issuer URL with distinct aliases is valid",
-			issuers: []server.TrustedIssuerConfig{
-				{Issuer: issuerURL, JwksURL: jwksURL, Alias: "kagent-glean", AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"}},
-				{Issuer: issuerURL, JwksURL: jwksURL, Alias: "muster-obo", SubjectClaim: "email", AllowedClaims: map[string]string{"email": "*@giantswarm.io"}},
+				{Issuer: issuerURL, JwksURL: jwksURL, AllowedClaims: map[string]string{"sub": "system:serviceaccount:kagent:*"}},
+				{Issuer: issuerURL, JwksURL: jwksURL, SubjectClaim: "email", AllowedClaims: map[string]string{"email": "*@giantswarm.io"}},
 			},
 		},
 		{
-			name: "same issuer URL with one passthrough entry (no alias, no allowedClaims) is valid",
+			name: "same issuer URL with one passthrough entry (no allowedClaims) is valid",
 			issuers: []server.TrustedIssuerConfig{
 				{Issuer: issuerURL, JwksURL: jwksURL},
 			},

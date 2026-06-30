@@ -42,7 +42,7 @@ func RequireIdentity(auditor *security.Auditor, logger *slog.Logger) func(http.H
 				next.ServeHTTP(w, r)
 				return
 			}
-			// External-issuer tokens (M2M and OBO) carry no email in UserInfo;
+			// External-issuer (OBO) tokens carry no email in UserInfo;
 			// AccessTokenInjector handles their identity enforcement.
 			if userInfo.IsExternalIssuer() {
 				next.ServeHTTP(w, r)

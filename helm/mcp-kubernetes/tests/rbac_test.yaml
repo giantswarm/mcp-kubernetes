@@ -802,10 +802,10 @@ tests:
         documentIndex: 4
 
   # ==========================================
-  # OBO / per-actor trustedIssuers RBAC Tests
-  # ==========================================
+  # On-behalf-of (OBO) impersonation RBAC Tests
+  # ===========================================
 
-  - it: should create M2M ClusterRole and Namespace when trustedIssuers is set with alias
+  - it: should create OBO impersonation ClusterRole and binding when trustedIssuers is set
     set:
       serviceAccount.create: true
       rbac.create: true
@@ -813,130 +813,50 @@ tests:
       mcpKubernetes.oauth.trustedIssuers:
         - issuer: "https://oidc.example.com"
           jwksURL: "https://oidc.example.com/jwks"
-          alias: "test-alias"
     asserts:
-      # base ClusterRole + ClusterRoleBinding + Namespace + Role + RoleBinding + M2M ClusterRole + ClusterRoleBinding
+      # base ClusterRole + ClusterRoleBinding + OBO ClusterRole + ClusterRoleBinding
       - hasDocuments:
-          count: 7
+          count: 4
       - isKind:
-          of: Namespace
+          of: ClusterRole
         documentIndex: 2
-      - equal:
+      - matchRegex:
           path: metadata.name
-          value: test-alias
+          pattern: obo-impersonate$
         documentIndex: 2
-      - isKind:
-          of: ClusterRole
-        documentIndex: 5
-      - equal:
-          path: metadata.annotations["mcp-kubernetes.giantswarm.io/m2m-alias"]
-          value: "test-alias"
-        documentIndex: 5
-      # No users impersonate rule without allowedActors
-      - notContains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: ["users"]
-            verbs: ["impersonate"]
-        documentIndex: 5
-      # No userextras/actor rule without allowedActors
-      - notContains:
-          path: rules
-          content:
-            apiGroups: ["authentication.k8s.io"]
-            resources: ["userextras/actor"]
-            verbs: ["impersonate"]
-        documentIndex: 5
-
-  - it: should emit userextras/actor and unrestricted users rules when allowedActors is set
-    set:
-      serviceAccount.create: true
-      rbac.create: true
-      mcpKubernetes.oauth.enabled: true
-      mcpKubernetes.oauth.trustedIssuers:
-        - issuer: "https://oidc.example.com"
-          jwksURL: "https://oidc.example.com/jwks"
-          alias: "test-alias"
-          allowedActors:
-            - sub: "system:serviceaccount:kagent:my-agent"
-              allowedSubjects:
-                - "*@example.com"
-    asserts:
-      - isKind:
-          of: ClusterRole
-        documentIndex: 5
-      # userextras/actor scoped to the actor sub
-      - contains:
-          path: rules
-          content:
-            apiGroups: ["authentication.k8s.io"]
-            resources: ["userextras/actor"]
-            verbs: ["impersonate"]
-            resourceNames: ["system:serviceaccount:kagent:my-agent"]
-        documentIndex: 5
-      # users impersonate emitted unrestricted (per-actor subject enforcement is in-process)
       - contains:
           path: rules
           content:
             apiGroups: [""]
             resources: ["users"]
             verbs: ["impersonate"]
-        documentIndex: 5
-
-  - it: should not create Namespace or M2M RBAC for issuer without alias (OBO-only)
-    set:
-      serviceAccount.create: true
-      rbac.create: true
-      mcpKubernetes.oauth.enabled: true
-      mcpKubernetes.oauth.trustedIssuers:
-        - issuer: "https://muster.example.com"
-          jwksURL: "https://muster.example.com/.well-known/jwks.json"
-          allowedClaims:
-            sub: "*@example.com"
-          allowedActors:
-            - sub: "system:serviceaccount:kagent:my-agent"
-              allowedSubjects:
-                - "*@example.com"
-    asserts:
-      # base ClusterRole + ClusterRoleBinding only; no Namespace, no M2M ClusterRole
-      - hasDocuments:
-          count: 2
-      - isKind:
-          of: ClusterRole
-        documentIndex: 0
-      - isKind:
-          of: ClusterRoleBinding
-        documentIndex: 1
-
-  - it: should include all actor subs in resourceNames when multiple allowedActors set
-    set:
-      serviceAccount.create: true
-      rbac.create: true
-      mcpKubernetes.oauth.enabled: true
-      mcpKubernetes.oauth.trustedIssuers:
-        - issuer: "https://oidc.example.com"
-          jwksURL: "https://oidc.example.com/jwks"
-          alias: "test-alias"
-          allowedActors:
-            - sub: "system:serviceaccount:kagent:agent-one"
-            - sub: "system:serviceaccount:kagent:agent-two"
-    asserts:
-      - isKind:
-          of: ClusterRole
-        documentIndex: 5
+        documentIndex: 2
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["groups"]
+            verbs: ["impersonate"]
+            resourceNames: ["system:authenticated"]
+        documentIndex: 2
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["authentication.k8s.io"]
+            resources: ["userextras/issuer"]
+            verbs: ["impersonate"]
+            resourceNames: ["https://oidc.example.com"]
+        documentIndex: 2
+      # userextras/actor is granted unrestricted (any validated actor accepted)
       - contains:
           path: rules
           content:
             apiGroups: ["authentication.k8s.io"]
             resources: ["userextras/actor"]
             verbs: ["impersonate"]
-            resourceNames:
-              - "system:serviceaccount:kagent:agent-one"
-              - "system:serviceaccount:kagent:agent-two"
-        documentIndex: 5
+        documentIndex: 2
 
-  - it: should deduplicate per-alias resources when two issuers share the same alias
+  - it: should union issuers across all trustedIssuers entries
     set:
       serviceAccount.create: true
       rbac.create: true
@@ -944,25 +864,12 @@ tests:
       mcpKubernetes.oauth.trustedIssuers:
         - issuer: "https://issuer-a.example.com"
           jwksURL: "https://issuer-a.example.com/jwks"
-          alias: "shared-alias"
         - issuer: "https://issuer-b.example.com"
           jwksURL: "https://issuer-b.example.com/jwks"
-          alias: "shared-alias"
     asserts:
-      # same 7 docs as single-issuer: dedup prevents the duplicate Namespace/Role/ClusterRole
-      - hasDocuments:
-          count: 7
-      - isKind:
-          of: Namespace
-        documentIndex: 2
-      - equal:
-          path: metadata.name
-          value: shared-alias
-        documentIndex: 2
       - isKind:
           of: ClusterRole
-        documentIndex: 5
-      # ClusterRole unions both issuers' values in the userextras/issuer rule
+        documentIndex: 2
       - contains:
           path: rules
           content:
@@ -972,4 +879,13 @@ tests:
             resourceNames:
               - "https://issuer-a.example.com"
               - "https://issuer-b.example.com"
-        documentIndex: 5
+        documentIndex: 2
+
+  - it: should not create OBO RBAC when no trustedIssuers are set
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      mcpKubernetes.oauth.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2

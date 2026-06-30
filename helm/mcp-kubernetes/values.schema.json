@@ -547,7 +547,7 @@
             },
             "trustedIssuers": {
               "type": "array",
-              "description": "Trusted external JWT issuers for M2M authentication. Each entry allows Bearer JWTs from that issuer to be accepted at /mcp without a human SSO flow.",
+              "description": "Trusted external JWT issuers for on-behalf-of authentication. Each entry allows Bearer JWTs from that issuer to be accepted at /mcp without a human SSO flow.",
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -560,22 +560,6 @@
                   "jwksURL": {
                     "type": "string",
                     "description": "JWKS endpoint used to verify JWT signatures."
-                  },
-                  "alias": {
-                    "type": "string",
-                    "description": "Legacy IRSA/SA-direct path: short identifier used as the namespace name in the impersonated subject. Omit when using impersonateUser/impersonateGroups (muster M2M path) or for OBO-only issuers. Must be unique across all trusted issuers.",
-                    "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
-                  },
-                  "impersonateUser": {
-                    "type": "string",
-                    "description": "M2M exact-match gate: token sub must equal this value. On match, sets Impersonate-User to this value. Required when impersonateGroups is set."
-                  },
-                  "impersonateGroups": {
-                    "type": "array",
-                    "description": "M2M group allow-list: intersection of this list with the token's groups claim becomes the Impersonate-Group headers. Empty intersection → 403. Required when impersonateUser is set.",
-                    "items": {
-                      "type": "string"
-                    }
                   },
                   "allowedAudiences": {
                     "type": "array",
@@ -620,30 +604,6 @@
                     "items": {
                       "type": "string"
                     }
-                  },
-                  "allowedActors": {
-                    "type": "array",
-                    "description": "OBO (Phase 2): list of actor entries. Each entry names an agent SA (act.sub) and optionally restricts the human subjects it may impersonate. Empty (default) disables OBO for this issuer. The chart emits an unrestricted `impersonate users` grant when this list is non-empty; per-actor subject scoping is enforced in-process by mcp-kubernetes.",
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["sub"],
-                      "properties": {
-                        "sub": {
-                          "type": "string",
-                          "description": "Agent SA JWT subject (act.sub claim), e.g. 'system:serviceaccount:kagent:my-agent'."
-                        },
-                        "allowedSubjects": {
-                          "type": "array",
-                          "description": "Human subject patterns this actor may impersonate. Supports a single leading (*@domain.com) or trailing (system:serviceaccount:ns:*) wildcard. Empty means any subject is allowed, bounded by allowedClaims.sub.",
-                          "items": {
-                            "type": "string"
-                          },
-                          "default": []
-                        }
-                      }
-                    },
-                    "default": []
                   }
                 }
               },

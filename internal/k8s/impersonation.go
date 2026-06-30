@@ -1,6 +1,6 @@
 package k8s
 
-// ImpersonationIdentity is the resolved identity for an external-issuer (M2M)
+// ImpersonationIdentity is the resolved identity for an external-issuer (OBO)
 // token. The access-token injector middleware populates it and stores it in the
 // request context. K8sClientForContext reads it to build an impersonation client
 // instead of a bearer-token passthrough client.

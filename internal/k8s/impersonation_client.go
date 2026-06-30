@@ -32,7 +32,7 @@ type InClusterImpersonationFactory struct {
 	allowedOperations    []string
 	restrictedNamespaces []string
 	logger               Logger
-	// cache stores one Client per (UserName+Actor) key; M2M identities are
+	// cache stores one Client per (UserName+Actor) key; external-issuer identities are
 	// config-bounded so unbounded growth is not a concern.
 	cache sync.Map
 }

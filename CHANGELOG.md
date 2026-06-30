@@ -9,27 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* `trustedIssuers[].impersonateUser`: the exact subject an M2M entry projects as `Impersonate-User`. The token's effective subject must match verbatim; no wildcard. Chart scopes the mck8s SA `impersonate users` RBAC resourceName to this value. Must be paired with `impersonateGroups`.
-* `trustedIssuers[].impersonateGroups`: allow-list of groups an M2M token may project as `Impersonate-Group`. Only groups present in both this list and the token's `groups` claim are impersonated; a token carrying none of the listed groups is rejected (403). Chart scopes the mck8s SA `impersonate groups` RBAC resourceNames to this list. Must be paired with `impersonateUser`.
-* Multiple `trustedIssuers` entries sharing the same issuer URL are now supported. The correct entry is selected at request time by subject-pattern match, so M2M and OBO entries can coexist for the same upstream STS (e.g. muster).
-* `trustedIssuers[].alias` is now optional for M2M entries (still required for OBO entries).
+* Multiple `trustedIssuers` entries sharing the same issuer URL are now supported. The correct entry is selected at request time by subject-pattern match.
 * `trustedIssuers[].subjectClaim`: names the verified claim whose value becomes the impersonated subject, replacing the standard `sub` (set to `email` for the muster-obo issuer). When set, the impersonated-subject pattern lives under that key in `allowedClaims` (e.g. `allowedClaims.email`), and the token is rejected if the claim is absent. The in-process subject gate and startup validation key off this claim.
-* The OBO actor allow-list now matches any actor in the RFC 8693 `act` delegation chain (`act`, `act.act`, ...), not only the leaf, so multi-hop A2A delegation (human via agent A via agent B) is authorized.
-* OBO (Phase 2): external-issuer tokens carrying an RFC 8693 `act` claim now take the OBO impersonation branch. `Impersonate-User` is set to the human subject; `Impersonate-Extra-actor` is set to the agent SA sub, so the kube-apiserver audit log records both parties. Tokens without an `act` claim continue to use the existing M2M path unchanged.
-* `trustedIssuers[].allowedActors` is now a list of objects: each entry specifies an agent SA `sub` and an optional `allowedSubjects` list of human subject patterns. Per-actor subject enforcement runs in-process before any impersonation call reaches the kube-apiserver. Subject patterns support a single leading (`*@domain.com`) or trailing (`system:serviceaccount:ns:*`) wildcard. An empty `allowedSubjects` list permits any subject that passes `allowedClaims.sub`.
-* The `impersonate users` ClusterRole rule is now emitted unrestricted (no `resourceNames`) whenever `allowedActors` is non-empty. K8s RBAC cannot couple `impersonate-users` to `impersonate-userextras/actor` (independent verbs) or express wildcard subjects in `resourceNames`; the RBAC grant is the outer bound and the inner enforcement is in code.
+* External-issuer tokens carrying an RFC 8693 `act` claim take the on-behalf-of impersonation branch. `Impersonate-User` is set to the human subject; `Impersonate-Extra-actor` is set to the agent SA sub, so the kube-apiserver audit log records both parties. A token without an `act` claim is rejected.
 * `matchesSubGlob` now supports a single leading `*` as a suffix match (e.g. `*@giantswarm.io`) in addition to the existing trailing `*` prefix match.
 
 ### Removed
 
-* `trustedIssuers[].allowedSubjects` Helm value removed. Subject restrictions now live per-actor in `allowedActors[].allowedSubjects`.
+* M2M (machine-to-machine) trusted-issuer support. The `trustedIssuers[].impersonateUser`, `impersonateGroups`, `alias`, and `allowedActors` (with per-actor `allowedSubjects`) fields are removed, along with the per-alias Namespace, `impersonate serviceaccounts` Role/RoleBinding, and per-alias ClusterRole. A trusted-issuer token with no RFC 8693 `act` claim is now rejected (403); only on-behalf-of (an agent acting for a human) is accepted, and any validated trusted-issuer actor is allowed (the impersonated human's Kubernetes RBAC governs access). The per-issuer impersonation RBAC is consolidated into a single `*-obo-impersonate` ClusterRole (issuers unioned; `users` and `userextras/actor` unrestricted). Requires mcp-oauth v0.18.7.
 
 ### Changed
 
-* M2M path (external-issuer tokens without `act`) replaced the alias-namespace SA construction (`system:serviceaccount:<alias>:<saName>`) with pure projection: `impersonateUser` and `impersonateGroups` fields from the trusted-issuer config drive the impersonation headers directly. Tokens whose subject is not a `system:serviceaccount:...` path are no longer rejected.
-* `trustedIssuers[].allowedActors` is now a list of objects (`{sub, allowedSubjects}`) instead of a flat list of strings. This is a breaking values change. OBO is disabled for an issuer when `allowedActors` is empty or omitted.
-* External-issuer tokens are now classified as M2M or OBO from the RFC 8693 `act` claim. The `validation_method` recorded in `token-missing-identity` audit events is `m2m` or `obo` (was `trusted-issuer`). Internally the OBO branch keys off `UserInfo.IsOBO()` and the email-check bypass off `UserInfo.IsExternalIssuer()`.
-* **deps:** update module github.com/giantswarm/mcp-oauth to v0.14.1.
+* External-issuer tokens are classified as `trusted-issuer`; the on-behalf-of branch keys off `UserInfo.IsOBO()` (the RFC 8693 `act` claim) and the email-check bypass off `UserInfo.IsExternalIssuer()`.
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.18.7.
 
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 

@@ -440,29 +440,16 @@ Downstream OAuth (--downstream-oauth):
 // validateEncryptionKey validates an AES-256 encryption key for security weaknesses
 // validateTrustedIssuers checks per-issuer invariants:
 //   - issuer and jwksURL are required.
-//   - alias, if set, must be a valid DNS-1123 label and unique across entries.
 //   - allowedClaims values may not be bare '*'.
 //
 // Multiple entries may share the same issuer URL (e.g. restricted + passthrough).
 func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
-	seenAliases := make(map[string]struct{}, len(issuers))
 	for _, ti := range issuers {
 		if ti.Issuer == "" {
 			return fmt.Errorf("trusted issuer entry has empty issuer URL")
 		}
 		if ti.JwksURL == "" {
 			return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
-		}
-		if ti.Alias != "" {
-			if !isDNS1123Label(ti.Alias) {
-				return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
-					"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
-					ti.Issuer, ti.Alias)
-			}
-			if _, seen := seenAliases[ti.Alias]; seen {
-				return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
-			}
-			seenAliases[ti.Alias] = struct{}{}
 		}
 		for claim, pattern := range ti.AllowedClaims {
 			if pattern == "*" {

@@ -141,7 +141,7 @@ func WithClientFactory(factory k8s.ClientFactory) Option {
 	}
 }
 
-// WithImpersonationFactory sets the factory used for external-issuer (M2M) requests.
+// WithImpersonationFactory sets the factory used for external-issuer (OBO) requests.
 // When set, K8sClientForContext routes requests carrying an ImpersonationIdentity
 // to this factory instead of the bearer-token passthrough path.
 func WithImpersonationFactory(factory k8s.ImpersonationClientFactory) Option {
