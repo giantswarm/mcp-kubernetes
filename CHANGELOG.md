@@ -9,10 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* Multiple `trustedIssuers` entries sharing the same issuer URL are now supported. The correct entry is selected at request time by subject-pattern match.
-* `trustedIssuers[].subjectClaim`: names the verified claim whose value becomes the impersonated subject, replacing the standard `sub` (set to `email` for the muster-obo issuer). When set, the impersonated-subject pattern lives under that key in `allowedClaims` (e.g. `allowedClaims.email`), and the token is rejected if the claim is absent. The in-process subject gate and startup validation key off this claim.
+* `trustedIssuers[].subjectClaim`: names the verified claim whose value becomes the impersonated subject, replacing the standard `sub` (set to `email` for the muster-obo issuer). When set, the impersonated-subject pattern lives under that key in `allowedClaims` (e.g. `allowedClaims.email`). mcp-oauth evaluates `allowedClaims` against the raw token at validation time and rejects a token whose subject does not match, before the request reaches the access-token injector.
 * External-issuer tokens carrying an RFC 8693 `act` claim take the on-behalf-of impersonation branch. `Impersonate-User` is set to the human subject; `Impersonate-Extra-actor` is set to the agent SA sub, so the kube-apiserver audit log records both parties. A token without an `act` claim is rejected.
-* `matchesSubGlob` now supports a single leading `*` as a suffix match (e.g. `*@giantswarm.io`) in addition to the existing trailing `*` prefix match.
 
 ### Removed
 
