@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	tklogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/giantswarm/mcp-toolkit/middleware/responsecap"
@@ -42,10 +41,6 @@ const (
 	transportSSE            = "sse"
 	transportStreamableHTTP = "streamable-http"
 )
-
-func isDNS1123Label(s string) bool {
-	return len(k8svalidation.IsDNS1123Label(s)) == 0
-}
 
 // envValueTrue is the string value used to enable boolean environment variables.
 const envValueTrue = "true"
