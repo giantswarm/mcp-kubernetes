@@ -851,7 +851,7 @@ func TestAccessTokenInjectorMiddleware_M2MToken(t *testing.T) {
 			ID:          id,
 			Issuer:      issuer,
 			Groups:      groups,
-			TokenSource: providers.TokenSourceM2M,
+			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 	}
@@ -1010,7 +1010,7 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		userInfo := &providers.UserInfo{
 			ID:           humanSub,
 			Issuer:       testIssuer,
-			TokenSource:  providers.TokenSourceOBO,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: actorSub,
 			ActorIssuer:  agentSAIssuer,
 		}
@@ -1051,7 +1051,7 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 			ID:          "agent:bot",
 			Issuer:      testIssuer,
 			Groups:      []string{"agent:bot"},
-			TokenSource: providers.TokenSourceM2M,
+			TokenSource: providers.TokenSourceTrustedIssuer,
 			// ActorSubject intentionally absent
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
@@ -1248,7 +1248,7 @@ func TestAccessTokenInjectorMiddleware_Passthrough(t *testing.T) {
 			ID:          "agent:sre",
 			Issuer:      testIssuer,
 			Groups:      []string{"agent:sre", "platform:ops"},
-			TokenSource: providers.TokenSourceM2M,
+			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
@@ -1275,7 +1275,7 @@ func TestAccessTokenInjectorMiddleware_Passthrough(t *testing.T) {
 		userInfo := &providers.UserInfo{
 			ID:           humanSub,
 			Issuer:       testIssuer,
-			TokenSource:  providers.TokenSourceOBO,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: agentSub,
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
@@ -1333,7 +1333,7 @@ func TestAccessTokenInjectorMiddleware_FallbackOrdering(t *testing.T) {
 			ID:          m2mSub,
 			Issuer:      testIssuer,
 			Groups:      []string{"agent:sre"},
-			TokenSource: providers.TokenSourceM2M,
+			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
@@ -1361,7 +1361,7 @@ func TestAccessTokenInjectorMiddleware_FallbackOrdering(t *testing.T) {
 			ID:          humanSub,
 			Issuer:      testIssuer,
 			Groups:      []string{"platform:admin"},
-			TokenSource: providers.TokenSourceM2M,
+			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
@@ -1448,7 +1448,7 @@ func TestAccessTokenInjectorMiddleware_ActorChain(t *testing.T) {
 		userInfo := &providers.UserInfo{
 			ID:           human,
 			Issuer:       testIssuer,
-			TokenSource:  providers.TokenSourceOBO,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: agentLeaf, // mcp-oauth mirrors only the leaf
 			ActorIssuer:  "https://k8s.example.com",
 		}
@@ -1533,7 +1533,7 @@ func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
 		userInfo := &providers.UserInfo{
 			ID:           remappedSubject, // mcp-oauth set this from the email claim
 			Issuer:       musterIssuer,
-			TokenSource:  providers.TokenSourceOBO,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: sreAgentSub,
 			ActorIssuer:  "https://k8s.example.com",
 		}
@@ -1634,7 +1634,7 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 			ID:          agentUser,
 			Issuer:      musterIssuer,
 			Groups:      []string{agentGroup},
-			TokenSource: providers.TokenSourceM2M,
+			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
@@ -1660,7 +1660,7 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 		userInfo := &providers.UserInfo{
 			ID:           humanEmail,
 			Issuer:       musterIssuer,
-			TokenSource:  providers.TokenSourceOBO,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: agentSA,
 			ActorIssuer:  "https://k8s.example.com",
 		}
@@ -1683,7 +1683,7 @@ func TestAccessTokenInjectorMiddleware_MultiIssuerURL(t *testing.T) {
 		userInfo := &providers.UserInfo{
 			ID:          "attacker@evil.com",
 			Issuer:      musterIssuer,
-			TokenSource: providers.TokenSourceM2M,
+			TokenSource: providers.TokenSourceTrustedIssuer,
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
