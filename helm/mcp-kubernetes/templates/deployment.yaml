@@ -220,7 +220,7 @@ spec:
             - name: OAUTH_TRUSTED_AUDIENCES
               value: {{ .Values.mcpKubernetes.oauth.trustedAudiences | join "," | quote }}
             {{- end }}
-            {{- /* Trusted external issuers for M2M JWT acceptance */ -}}
+            {{- /* Trusted external issuers for on-behalf-of JWT acceptance */ -}}
             {{- if .Values.mcpKubernetes.oauth.trustedIssuers }}
             - name: OAUTH_TRUSTED_ISSUERS
               value: {{ .Values.mcpKubernetes.oauth.trustedIssuers | toJson | quote }}

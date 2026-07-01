@@ -532,17 +532,10 @@ mcpKubernetes:
     #   acceptedTypHeaders:     accepted JWT `typ` header values. Empty = any.
     #   allowPrivateIPJWKS:     allow JWKS endpoint to resolve to a private IP.
     #   allowPrivateIPJWKSHosts: per-hostname private-IP exception (preferred over the above).
-    #   impersonateUser:        when set, enforces that the token subject equals this value.
-    #   impersonateGroups:      when set, intersects this allow-list with the token's groups;
-    #                           rejects if intersection is empty.
-    #   allowedActors:          when set, restricts which OBO actors (act.sub) are accepted
-    #                           and, per actor, which human subjects they may impersonate.
-    #                           Empty = any actor accepted (JWKS URL is the trust boundary).
     #
-    #                   SECURITY: the chart emits an unrestricted `impersonate users`
-    #                   ClusterRole rule when allowedActors is set. Per-actor subject
-    #                   scoping is enforced in-process before any impersonation call
-    #                   reaches the kube-apiserver.
+    # On-behalf-of only: a token must carry an RFC 8693 `act` claim (an agent acting
+    # for a human). Any validated trusted-issuer actor is accepted; a token with no
+    # act claim is rejected, and the impersonated human's Kubernetes RBAC governs access.
     #
     # When multiple entries share the same issuer URL, entries with allowedClaims are
     # tried first (subject pattern match); entries without allowedClaims are fallback.
@@ -553,24 +546,12 @@ mcpKubernetes:
     #     allowPrivateIPJWKSHosts: ["muster.internal"]
     #     allowedAudiences: ["https://mcp-kubernetes.mycluster.example.com"]  # optional
     #
-    # Example (direct M2M — SA token, restrict by subject + groups):
-    #   - issuer: "https://oidc.example.com/glean"
-    #     jwksURL: "https://oidc.example.com/glean/.well-known/jwks.json"
-    #     alias: "glean"
-    #     allowedClaims:
-    #       sub: "system:serviceaccount:kagent:*"
-    #     impersonateUser: "system:serviceaccount:kagent:sre-agent"
-    #     impersonateGroups: ["agent:sre"]
-    #
-    # Example (OBO — restrict by actor and subject domain):
+    # Example (OBO — restrict by subject domain):
     #   - issuer: "https://muster.example.com"
     #     jwksURL: "https://muster.example.com/.well-known/jwks.json"
     #     subjectClaim: "email"
     #     allowedClaims:
     #       email: "*@example.com"
-    #     allowedActors:
-    #       - sub: "system:serviceaccount:kagent:my-agent"
-    #         allowedSubjects: ["*@example.com"]
     #
     # Default: [] (no external issuers trusted)
     trustedIssuers: []

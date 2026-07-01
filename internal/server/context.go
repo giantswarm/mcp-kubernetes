@@ -27,7 +27,7 @@ type ServerContext struct {
 	downstreamOAuth       bool
 	downstreamOAuthStrict bool
 
-	// impersonationFactory is used for external-issuer (M2M) tokens. When set,
+	// impersonationFactory is used for external-issuer (OBO) tokens. When set,
 	// K8sClientForContext routes requests carrying an ImpersonationIdentity here
 	// instead of to the bearer-token passthrough path.
 	impersonationFactory k8s.ImpersonationClientFactory
@@ -125,7 +125,7 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, e
 		return sc.k8sClient, nil
 	}
 
-	// External-issuer (M2M) path: the middleware resolved an ImpersonationIdentity.
+	// External-issuer (OBO) path: the middleware resolved an ImpersonationIdentity.
 	// Use the in-cluster SA + impersonation instead of bearer-token passthrough.
 	if identity, ok := ImpersonationIdentityFromContext(ctx); ok {
 		if sc.impersonationFactory == nil {
@@ -139,7 +139,7 @@ func (sc *ServerContext) K8sClientForContext(ctx context.Context) (k8s.Client, e
 			}
 			return nil, fmt.Errorf("%w: %v", ErrOAuthClientFailed, err)
 		}
-		sc.logger.Debug("Created impersonation client for M2M request",
+		sc.logger.Debug("Created impersonation client for OBO request",
 			"user", identity.UserName)
 		if sc.instrumentationProvider != nil && sc.instrumentationProvider.Enabled() {
 			sc.instrumentationProvider.Metrics().RecordOAuthDownstreamAuth(ctx, instrumentation.OAuthResultSuccess)

@@ -230,9 +230,9 @@ level=DEBUG msg="Validating token audience"
   trusted_audiences=["muster-client"]
 ```
 
-## Trusted External Issuers (M2M)
+## Trusted External Issuers (on-behalf-of)
 
-`OAUTH_TRUSTED_ISSUERS` is a separate mechanism for machine-to-machine flows where an autonomous agent (e.g., a muster-issued machine token) calls `/mcp` directly, without a human SSO session.
+`OAUTH_TRUSTED_ISSUERS` is a separate mechanism for on-behalf-of flows where an agent (e.g., a muster-issued on-behalf-of token) calls `/mcp` directly, without a human SSO session.
 
 Unlike `OAUTH_TRUSTED_AUDIENCES` (which validates forwarded _human_ ID tokens against the primary IdP's JWKS), `OAUTH_TRUSTED_ISSUERS` validates tokens from a _different_ issuer entirely, using that issuer's own JWKS.
 

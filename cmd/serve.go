@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	tklogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/giantswarm/mcp-toolkit/middleware/responsecap"
@@ -42,10 +41,6 @@ const (
 	transportSSE            = "sse"
 	transportStreamableHTTP = "streamable-http"
 )
-
-func isDNS1123Label(s string) bool {
-	return len(k8svalidation.IsDNS1123Label(s)) == 0
-}
 
 // envValueTrue is the string value used to enable boolean environment variables.
 const envValueTrue = "true"
@@ -440,12 +435,10 @@ Downstream OAuth (--downstream-oauth):
 // validateEncryptionKey validates an AES-256 encryption key for security weaknesses
 // validateTrustedIssuers checks per-issuer invariants:
 //   - issuer and jwksURL are required.
-//   - alias, if set, must be a valid DNS-1123 label and unique across entries.
 //   - allowedClaims values may not be bare '*'.
-//
-// Multiple entries may share the same issuer URL (e.g. restricted + passthrough).
+//   - issuer URLs are unique (one entry per issuer).
 func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
-	seenAliases := make(map[string]struct{}, len(issuers))
+	seen := make(map[string]struct{}, len(issuers))
 	for _, ti := range issuers {
 		if ti.Issuer == "" {
 			return fmt.Errorf("trusted issuer entry has empty issuer URL")
@@ -453,17 +446,10 @@ func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
 		if ti.JwksURL == "" {
 			return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
 		}
-		if ti.Alias != "" {
-			if !isDNS1123Label(ti.Alias) {
-				return fmt.Errorf("trusted issuer %q: alias %q is not a valid DNS-1123 label "+
-					"(lowercase alphanumeric and hyphens, must start/end with alphanumeric, max 63 chars)",
-					ti.Issuer, ti.Alias)
-			}
-			if _, seen := seenAliases[ti.Alias]; seen {
-				return fmt.Errorf("trusted issuer %q: alias %q is already used by another issuer", ti.Issuer, ti.Alias)
-			}
-			seenAliases[ti.Alias] = struct{}{}
+		if _, dup := seen[ti.Issuer]; dup {
+			return fmt.Errorf("trusted issuer %q is configured more than once; one entry per issuer URL", ti.Issuer)
 		}
+		seen[ti.Issuer] = struct{}{}
 		for claim, pattern := range ti.AllowedClaims {
 			if pattern == "*" {
 				return fmt.Errorf("trusted issuer %q: allowedClaims.%s must not be bare '*'", ti.Issuer, claim)
