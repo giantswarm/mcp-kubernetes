@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+* SSO forwarded-ID-token validation now works against an internal-CA Dex. When `oauth.dex.caSecret` (`DEX_CA_FILE`) is set, the CA is now also installed on `http.DefaultTransport`, which the mcp-oauth SSO forwarded-token JWKS client uses when `oauth.sso.allowPrivateIPs` (`SSO_ALLOW_PRIVATE_IPS`) is enabled. Previously `DEX_CA_FILE` only applied to the Dex provider client, so forwarded ID tokens from an internal-CA Dex were rejected with `x509: certificate signed by unknown authority` and every downstream Kubernetes tool call failed with `authentication required: please log in to access this resource`. Requires the matching mcp-oauth `getJWKSClient` change (dependency bumped here). See https://github.com/giantswarm/giantswarm/issues/37059.
+
 ### Added
 
 * `trustedIssuers[].impersonateUser`: the exact subject an M2M entry projects as `Impersonate-User`. The token's effective subject must match verbatim; no wildcard. Chart scopes the mck8s SA `impersonate users` RBAC resourceName to this value. Must be paired with `impersonateGroups`.
