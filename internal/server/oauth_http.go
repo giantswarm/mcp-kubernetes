@@ -115,6 +115,41 @@ func createHTTPClientWithCA(caFile string) (*http.Client, error) {
 	}, nil
 }
 
+// installDexCAOnDefaultTransport adds the CA in caFile to http.DefaultTransport's
+// root CA pool (additive to the system pool). This is required so mcp-oauth's SSO
+// forwarded-ID-token JWKS client — which backs itself with http.DefaultTransport
+// when AllowPrivateIPJWKS is set — trusts an internal Dex CA. Called once during
+// OAuth server construction, before the JWKS client is first used.
+func installDexCAOnDefaultTransport(caFile string) error {
+	// #nosec G304 -- caFile is a configuration value from operator, not user input
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return fmt.Errorf("failed to read CA file %s: %w", caFile, err)
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(caCert) {
+		return fmt.Errorf("failed to parse CA certificate from %s", caFile)
+	}
+
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return fmt.Errorf("http.DefaultTransport is %T, not *http.Transport; cannot install Dex CA", http.DefaultTransport)
+	}
+	cloned := base.Clone()
+	if cloned.TLSClientConfig == nil {
+		cloned.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		cloned.TLSClientConfig = cloned.TLSClientConfig.Clone()
+	}
+	cloned.TLSClientConfig.RootCAs = pool
+	http.DefaultTransport = cloned
+	return nil
+}
+
 // OAuthStorageType represents the type of token storage backend.
 type OAuthStorageType string
 
@@ -421,6 +456,18 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			}
 			dexConfig.HTTPClient = httpClient
 			logger.Info("Using custom CA for Dex TLS verification", "caFile", config.DexCAFile)
+
+			// Also install the CA on http.DefaultTransport. dexConfig.HTTPClient
+			// only covers the Dex provider path (discovery, code flow, userinfo).
+			// The SSO forwarded-ID-token path in mcp-oauth (Server.getJWKSClient
+			// with AllowPrivateIPJWKS) backs its JWKS client with
+			// http.DefaultTransport precisely so a host-installed CA is honored;
+			// without this, forwarded ID tokens from an internal-CA Dex fail with
+			// "x509: certificate signed by unknown authority".
+			if err := installDexCAOnDefaultTransport(config.DexCAFile); err != nil {
+				return nil, nil, fmt.Errorf("failed to install Dex CA on default transport: %w", err)
+			}
+			logger.Info("Installed custom Dex CA on http.DefaultTransport for SSO JWKS validation", "caFile", config.DexCAFile)
 		}
 		provider, err = dex.NewProvider(dexConfig)
 		if err != nil {
