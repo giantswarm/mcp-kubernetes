@@ -277,10 +277,10 @@ mcpKubernetes:
       kubernetesAuthenticatorClientID: ""
       # CA certificate for Dex TLS verification (optional)
       # Use this when Dex uses a private/internal CA.
-      # Applies to BOTH the Dex provider client and — when oauth.sso.allowPrivateIPs
-      # is true — the SSO forwarded-ID-token JWKS validation (the CA is installed on
-      # http.DefaultTransport, which the SSO JWKS client uses). For an internal-CA Dex
-      # that forwards SSO tokens, set this together with oauth.sso.allowPrivateIPs.
+      # Applies to the Dex provider client and is also installed on
+      # http.DefaultTransport, which the SSO forwarded-ID-token JWKS validation uses
+      # when oauth.sso.allowPrivateIPs is true. For an internal-CA Dex that forwards
+      # SSO tokens, set this together with oauth.sso.allowPrivateIPs.
       # Can reference a secret containing the CA certificate
       caSecret:
         # Name of the secret containing the CA certificate
