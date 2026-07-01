@@ -839,46 +839,17 @@ tests:
             verbs: ["impersonate"]
             resourceNames: ["system:authenticated"]
         documentIndex: 2
-      - contains:
-          path: rules
-          content:
-            apiGroups: ["authentication.k8s.io"]
-            resources: ["userextras/issuer"]
-            verbs: ["impersonate"]
-            resourceNames: ["https://oidc.example.com"]
-        documentIndex: 2
-      # userextras/actor is granted unrestricted (any validated actor accepted)
-      - contains:
+      # only Impersonate-User and Impersonate-Group are sent; no user-extras
+      - notContains:
           path: rules
           content:
             apiGroups: ["authentication.k8s.io"]
             resources: ["userextras/actor"]
             verbs: ["impersonate"]
         documentIndex: 2
-
-  - it: should union issuers across all trustedIssuers entries
-    set:
-      serviceAccount.create: true
-      rbac.create: true
-      mcpKubernetes.oauth.enabled: true
-      mcpKubernetes.oauth.trustedIssuers:
-        - issuer: "https://issuer-a.example.com"
-          jwksURL: "https://issuer-a.example.com/jwks"
-        - issuer: "https://issuer-b.example.com"
-          jwksURL: "https://issuer-b.example.com/jwks"
-    asserts:
-      - isKind:
-          of: ClusterRole
-        documentIndex: 2
-      - contains:
+      - lengthEqual:
           path: rules
-          content:
-            apiGroups: ["authentication.k8s.io"]
-            resources: ["userextras/issuer"]
-            verbs: ["impersonate"]
-            resourceNames:
-              - "https://issuer-a.example.com"
-              - "https://issuer-b.example.com"
+          count: 2
         documentIndex: 2
 
   - it: should not create OBO RBAC when no trustedIssuers are set

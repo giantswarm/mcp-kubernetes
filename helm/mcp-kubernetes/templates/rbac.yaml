@@ -518,11 +518,10 @@ subjects:
 On-behalf-of (OBO) impersonation RBAC
 
 Grants the mcp-kubernetes ServiceAccount permission to send the Impersonate-*
-headers for an on-behalf-of token: the human subject (users), system:authenticated
-(groups), and the issuer/agent/actor user-extras. The userextras/issuer
-resourceNames union the configured issuers. impersonate users and userextras/actor
-are unrestricted: any validated trusted-issuer actor is accepted, and the
-impersonated human's downstream RBAC governs access.
+headers for an on-behalf-of token: the human subject (users) and system:authenticated
+(groups). Only Impersonate-User and Impersonate-Group are sent; no user-extras.
+impersonate users is unrestricted: any validated trusted-issuer actor is accepted,
+and the impersonated human's downstream RBAC governs access.
 
 This RBAC is load-bearing: without it the kube-apiserver rejects the Impersonate-*
 headers sent by mcp-kubernetes's in-cluster SA. Workload-cluster bindings (granting
@@ -530,8 +529,6 @@ the impersonated subject actual permissions such as `list pods`) are NOT provisi
 from this chart; they must be created per-cluster via shared-configs or equivalent.
 */}}
 {{- if and .Values.serviceAccount.create .Values.rbac.create .Values.mcpKubernetes.oauth.enabled .Values.mcpKubernetes.oauth.trustedIssuers }}
-{{- $issuers := list }}
-{{- range .Values.mcpKubernetes.oauth.trustedIssuers }}{{- $issuers = append $issuers .issuer }}{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -547,20 +544,6 @@ rules:
     resources: ["groups"]
     verbs: ["impersonate"]
     resourceNames: ["system:authenticated"]
-  - apiGroups: ["authentication.k8s.io"]
-    resources: ["userextras/agent"]
-    verbs: ["impersonate"]
-    resourceNames: ["mcp-kubernetes"]
-  - apiGroups: ["authentication.k8s.io"]
-    resources: ["userextras/issuer"]
-    verbs: ["impersonate"]
-    resourceNames:
-      {{- range ($issuers | uniq) }}
-      - {{ . | quote }}
-      {{- end }}
-  - apiGroups: ["authentication.k8s.io"]
-    resources: ["userextras/actor"]
-    verbs: ["impersonate"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

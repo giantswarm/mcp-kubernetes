@@ -992,21 +992,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 			// OBO path: sub=human, act.sub=agent SA. Any validated trusted-issuer
 			// actor is accepted; the impersonated human's downstream RBAC governs
-			// access. The acting agent is recorded as Impersonate-Extra-actor for
-			// the kube-apiserver audit log.
+			// access. Only Impersonate-User and Impersonate-Group are sent.
 			if userInfo.IsOBO() {
-				actorSub := userInfo.ActorSubject
-
 				identity := k8s.ImpersonationIdentity{
 					UserName: userInfo.ID,
 					// system:authenticated must be explicit; impersonation does not
 					// inherit the real-auth group set.
-					Groups: []string{"system:authenticated"},
-					Extra: map[string][]string{
-						"issuer": {userInfo.Issuer},
-						"agent":  {"mcp-kubernetes"},
-					},
-					Actor:                 actorSub,
+					Groups:                []string{"system:authenticated"},
 					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
 				}
 				ctx = ContextWithImpersonationIdentity(ctx, identity)

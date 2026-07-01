@@ -10,11 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * `trustedIssuers[].subjectClaim`: names the verified claim whose value becomes the impersonated subject, replacing the standard `sub` (set to `email` for the muster-obo issuer). When set, the impersonated-subject pattern lives under that key in `allowedClaims` (e.g. `allowedClaims.email`). mcp-oauth evaluates `allowedClaims` against the raw token at validation time and rejects a token whose subject does not match, before the request reaches the access-token injector.
-* External-issuer tokens carrying an RFC 8693 `act` claim take the on-behalf-of impersonation branch. `Impersonate-User` is set to the human subject; `Impersonate-Extra-actor` is set to the agent SA sub, so the kube-apiserver audit log records both parties. A token without an `act` claim is rejected.
+* External-issuer tokens carrying an RFC 8693 `act` claim take the on-behalf-of impersonation branch. `Impersonate-User` is set to the human subject and `Impersonate-Group` to `system:authenticated`; no `Impersonate-Extra-*` headers are sent. A token without an `act` claim is rejected.
 
 ### Removed
 
-* M2M (machine-to-machine) trusted-issuer support. The `trustedIssuers[].impersonateUser`, `impersonateGroups`, `alias`, and `allowedActors` (with per-actor `allowedSubjects`) fields are removed, along with the per-alias Namespace, `impersonate serviceaccounts` Role/RoleBinding, and per-alias ClusterRole. A trusted-issuer token with no RFC 8693 `act` claim is now rejected (403); only on-behalf-of (an agent acting for a human) is accepted, and any validated trusted-issuer actor is allowed (the impersonated human's Kubernetes RBAC governs access). The per-issuer impersonation RBAC is consolidated into a single `*-obo-impersonate` ClusterRole (issuers unioned; `users` and `userextras/actor` unrestricted). Requires mcp-oauth v0.18.7.
+* M2M (machine-to-machine) trusted-issuer support. The `trustedIssuers[].impersonateUser`, `impersonateGroups`, `alias`, and `allowedActors` (with per-actor `allowedSubjects`) fields are removed, along with the per-alias Namespace, `impersonate serviceaccounts` Role/RoleBinding, and per-alias ClusterRole. A trusted-issuer token with no RFC 8693 `act` claim is now rejected (403); only on-behalf-of (an agent acting for a human) is accepted, and any validated trusted-issuer actor is allowed (the impersonated human's Kubernetes RBAC governs access). The per-issuer impersonation RBAC is consolidated into a single `*-obo-impersonate` ClusterRole granting `impersonate users` and `impersonate groups` (`system:authenticated`) only; no `userextras/*` grant. Requires mcp-oauth v0.18.7.
 
 ### Changed
 

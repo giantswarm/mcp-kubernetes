@@ -846,9 +846,6 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, humanSubject, identity.UserName)
 		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
-		require.Equal(t, agentSASub, identity.Actor)
-		require.Equal(t, []string{testIssuer}, identity.Extra["issuer"])
-		require.Equal(t, []string{"mcp-kubernetes"}, identity.Extra["agent"])
 		require.Equal(t, []string{"cluster-a"}, identity.AllowedTargetClusters)
 	})
 
@@ -909,7 +906,6 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, humanSubject, identity.UserName)
-		require.Equal(t, agentSASub, identity.Actor)
 	})
 }
 
@@ -973,7 +969,6 @@ func TestAccessTokenInjectorMiddleware_Passthrough(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, humanSub, identity.UserName)
 		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
-		require.Equal(t, agentSub, identity.Actor)
 	})
 }
 
@@ -1023,7 +1018,6 @@ func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, userEmail, identity.UserName)
-		require.Equal(t, sreAgentSub, identity.Actor)
 		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
 	})
 

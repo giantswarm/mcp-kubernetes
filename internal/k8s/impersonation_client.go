@@ -32,7 +32,7 @@ type InClusterImpersonationFactory struct {
 	allowedOperations    []string
 	restrictedNamespaces []string
 	logger               Logger
-	// cache stores one Client per (UserName+Actor) key; external-issuer identities are
+	// cache stores one Client per UserName; external-issuer identities are
 	// config-bounded so unbounded growth is not a concern.
 	cache sync.Map
 }
@@ -88,19 +88,9 @@ func (f *InClusterImpersonationFactory) CreateImpersonationClient(identity Imper
 		return nil, fmt.Errorf("impersonation identity requires a non-empty UserName")
 	}
 
-	cacheKey := identity.UserName + "\x00" + identity.Actor
+	cacheKey := identity.UserName
 	if cached, ok := f.cache.Load(cacheKey); ok {
 		return cached.(Client), nil
-	}
-
-	extra := identity.Extra
-	if identity.Actor != "" {
-		merged := make(map[string][]string, len(extra)+1)
-		for k, v := range extra {
-			merged[k] = v
-		}
-		merged["actor"] = []string{identity.Actor}
-		extra = merged
 	}
 
 	cfg := &rest.Config{
@@ -117,7 +107,6 @@ func (f *InClusterImpersonationFactory) CreateImpersonationClient(identity Imper
 		Impersonate: rest.ImpersonationConfig{
 			UserName: identity.UserName,
 			Groups:   identity.Groups,
-			Extra:    extra,
 		},
 	}
 
