@@ -79,75 +79,42 @@ var (
 	}
 )
 
-// createHTTPClientWithCA creates an HTTP client that trusts certificates signed by
-// the CA in the specified file. The CA file should contain PEM-encoded certificate(s).
-// This is used for Dex deployments with private/internal CAs.
-func createHTTPClientWithCA(caFile string) (*http.Client, error) {
+// dexCACertPool builds a certificate pool from the system pool plus the CA
+// certificate(s) in caFile (PEM-encoded). Used for Dex deployments with a
+// private/internal CA. The resulting pool is passed explicitly to the mcp-oauth
+// server config and the Dex provider client — mcp-oauth no longer reads a CA
+// installed on http.DefaultTransport (see mcp-oauth #495/#498).
+func dexCACertPool(caFile string) (*x509.CertPool, error) {
 	// #nosec G304 -- caFile is a configuration value from operator, not user input
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA file %s: %w", caFile, err)
 	}
 
-	// Create a certificate pool with system CAs and add the custom CA
-	caCertPool, err := x509.SystemCertPool()
-	if err != nil {
-		// If we can't load system certs, start with an empty pool
-		caCertPool = x509.NewCertPool()
-	}
-
-	if !caCertPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA certificate from %s", caFile)
-	}
-
-	tlsConfig := &tls.Config{
-		RootCAs:    caCertPool,
-		MinVersion: tls.VersionTLS12,
-	}
-
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-	}
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-	}, nil
-}
-
-// installDexCAOnDefaultTransport adds the CA in caFile to http.DefaultTransport's
-// root CA pool (additive to the system pool). This is required so mcp-oauth's SSO
-// forwarded-ID-token JWKS client — which backs itself with http.DefaultTransport
-// when AllowPrivateIPJWKS is set — trusts an internal Dex CA. Called once during
-// OAuth server construction, before the JWKS client is first used.
-func installDexCAOnDefaultTransport(caFile string) error {
-	// #nosec G304 -- caFile is a configuration value from operator, not user input
-	caCert, err := os.ReadFile(caFile)
-	if err != nil {
-		return fmt.Errorf("failed to read CA file %s: %w", caFile, err)
-	}
-
+	// Start from the system pool and add the custom CA (additive).
 	pool, err := x509.SystemCertPool()
 	if err != nil {
+		// If we can't load system certs, start with an empty pool
 		pool = x509.NewCertPool()
 	}
 	if !pool.AppendCertsFromPEM(caCert) {
-		return fmt.Errorf("failed to parse CA certificate from %s", caFile)
+		return nil, fmt.Errorf("failed to parse CA certificate from %s", caFile)
 	}
+	return pool, nil
+}
 
-	base, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return fmt.Errorf("http.DefaultTransport is %T, not *http.Transport; cannot install Dex CA", http.DefaultTransport)
+// httpClientWithRootCAs returns an HTTP client whose transport verifies TLS
+// against the given root CA pool.
+func httpClientWithRootCAs(pool *x509.CertPool) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    pool,
+				MinVersion: tls.VersionTLS12,
+			},
+		},
+		Timeout: 30 * time.Second,
 	}
-	cloned := base.Clone()
-	if cloned.TLSClientConfig == nil {
-		cloned.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	} else {
-		cloned.TLSClientConfig = cloned.TLSClientConfig.Clone()
-	}
-	cloned.TLSClientConfig.RootCAs = pool
-	http.DefaultTransport = cloned
-	return nil
 }
 
 // OAuthStorageType represents the type of token storage backend.
@@ -423,6 +390,13 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	var provider providers.Provider
 	var err error
 
+	// dexCAPool, when set from DexCAFile, is the CA pool for verifying an
+	// internal-CA Dex. It is passed explicitly to the Dex provider client, the
+	// mcp-oauth server's forwarded-ID-token JWKS validation (Config.JWKSRootCAs),
+	// and any trusted-issuer JWKS. nil = system pool. mcp-oauth no longer reads a
+	// CA installed on http.DefaultTransport (mcp-oauth #495/#498).
+	var dexCAPool *x509.CertPool
+
 	switch config.Provider {
 	case OAuthProviderDex:
 		// Build scopes list, adding cross-client audience if configured
@@ -448,26 +422,21 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		if config.DexConnectorID != "" {
 			dexConfig.ConnectorID = config.DexConnectorID
 		}
-		// Configure custom HTTP client with CA if provided
+		// Configure custom CA if provided. The pool is used for BOTH the Dex
+		// provider client (discovery, code flow, userinfo) AND — passed
+		// explicitly below via serverConfig.JWKSRootCAs / trusted-issuer RootCAs
+		// — the SSO forwarded-ID-token JWKS validation. mcp-oauth no longer reads
+		// a CA installed on http.DefaultTransport (#495/#498), so without passing
+		// the pool explicitly, forwarded ID tokens from an internal-CA Dex would
+		// fail with "x509: certificate signed by unknown authority".
 		if config.DexCAFile != "" {
-			httpClient, err := createHTTPClientWithCA(config.DexCAFile)
+			pool, err := dexCACertPool(config.DexCAFile)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to create HTTP client with CA: %w", err)
+				return nil, nil, fmt.Errorf("failed to load Dex CA: %w", err)
 			}
-			dexConfig.HTTPClient = httpClient
+			dexCAPool = pool
+			dexConfig.HTTPClient = httpClientWithRootCAs(pool)
 			logger.Info("Using custom CA for Dex TLS verification", "caFile", config.DexCAFile)
-
-			// Also install the CA on http.DefaultTransport. dexConfig.HTTPClient
-			// only covers the Dex provider path (discovery, code flow, userinfo).
-			// The SSO forwarded-ID-token path in mcp-oauth (Server.getJWKSClient
-			// with AllowPrivateIPJWKS) backs its JWKS client with
-			// http.DefaultTransport precisely so a host-installed CA is honored;
-			// without this, forwarded ID tokens from an internal-CA Dex fail with
-			// "x509: certificate signed by unknown authority".
-			if err := installDexCAOnDefaultTransport(config.DexCAFile); err != nil {
-				return nil, nil, fmt.Errorf("failed to install Dex CA on default transport: %w", err)
-			}
-			logger.Info("Installed custom Dex CA on http.DefaultTransport for SSO JWKS validation", "caFile", config.DexCAFile)
 		}
 		provider, err = dex.NewProvider(dexConfig)
 		if err != nil {
@@ -616,6 +585,11 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// AllowPrivateIPJWKS for JWKS fetching from internal IdPs (mcp-oauth v0.2.40+)
 		// Enables SSO token forwarding when IdP (e.g., Dex) is on a private network
 		AllowPrivateIPJWKS: config.SSOAllowPrivateIPs,
+
+		// JWKSRootCAs is the CA pool for verifying the forwarded-ID-token JWKS
+		// endpoint's TLS (mcp-oauth #495/#498). Built from DexCAFile; nil = system
+		// pool. Replaces the previous http.DefaultTransport CA install.
+		JWKSRootCAs: dexCAPool,
 	}
 
 	// Debug logging for registration token configuration
@@ -699,6 +673,9 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 				AcceptedTypHeaders:      ti.AcceptedTypHeaders,
 				AllowPrivateIPJWKS:      ti.AllowPrivateIPJWKS,
 				AllowPrivateIPJWKSHosts: ti.AllowPrivateIPJWKSHosts,
+				// Trust the internal Dex CA for the issuer's JWKS TLS when a
+				// DexCAFile is configured (mcp-oauth #495/#498). nil = system pool.
+				RootCAs: dexCAPool,
 			})
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
