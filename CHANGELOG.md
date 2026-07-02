@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-* Dex CA trust for the SSO forwarded-ID-token JWKS path is now passed to mcp-oauth as explicit config instead of being installed on `http.DefaultTransport`. `--dex-ca-file` / `oauth.dex.caSecret` now builds a CA pool that is set on the mcp-oauth server config (`JWKSRootCAs`) and trusted-issuer entries, and on the Dex provider client — removing `installDexCAOnDefaultTransport`. Pairs with the mcp-oauth change that drops the `http.DefaultTransport` CA read ([mcp-oauth#498](https://github.com/giantswarm/mcp-oauth/pull/498) / [#495](https://github.com/giantswarm/mcp-oauth/issues/495)); requires the mcp-oauth release containing it. No behavior change for garm and other internal-CA installs once deployed. See https://github.com/giantswarm/giantswarm/issues/37059.
-
 ### Fixed
 
 * Team ownership: chart now labels resources `application.giantswarm.io/team: bumblebee` (was `team-bumblebee`, which did not match `team="bumblebee"` routing), and defaults the alert team to `bumblebee` (was `planeteers`).
@@ -28,8 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+* Dex CA trust for the SSO forwarded-ID-token JWKS path is now passed to mcp-oauth as explicit config instead of being installed on `http.DefaultTransport`. `--dex-ca-file` / `oauth.dex.caSecret` now builds a CA pool that is set on the mcp-oauth server config (`JWKSRootCAs`) and trusted-issuer entries, and on the Dex provider client — removing `installDexCAOnDefaultTransport`. Pairs with the mcp-oauth change that drops the `http.DefaultTransport` CA read ([mcp-oauth#498](https://github.com/giantswarm/mcp-oauth/pull/498) / [#495](https://github.com/giantswarm/mcp-oauth/issues/495)), released in mcp-oauth v1.0.0. No behavior change for garm and other internal-CA installs once deployed. See https://github.com/giantswarm/giantswarm/issues/37059.
 * External-issuer tokens are classified as `trusted-issuer`; the on-behalf-of branch keys off `UserInfo.IsOBO()` (the RFC 8693 `act` claim) and the email-check bypass off `UserInfo.IsExternalIssuer()`.
-* **deps:** update module github.com/giantswarm/mcp-oauth to v0.18.7.
+* **deps:** update module github.com/giantswarm/mcp-oauth to v1.0.0.
 
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 
