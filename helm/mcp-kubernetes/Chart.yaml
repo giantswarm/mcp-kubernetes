@@ -17,7 +17,7 @@ maintainers:
     email: team-bumblebee@giantswarm.io
 annotations:
   # Team ownership (OCI-compliant format)
-  io.giantswarm.application.team: team-bumblebee
+  io.giantswarm.application.team: bumblebee
   # Target audience: customers (default catalog)
   io.giantswarm.application.audience: customers
   # App is managed/supported by Giant Swarm
