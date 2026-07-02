@@ -974,7 +974,7 @@ prometheusRules:
   # Additional annotations for the PrometheusRule resource
   annotations: {}
   # Team responsible for these alerts (used in alert labels)
-  team: "planeteers"
+  team: "bumblebee"
   # Base URL for runbook links
   runbookBaseUrl: "https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"
 
