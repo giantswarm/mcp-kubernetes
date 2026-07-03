@@ -313,8 +313,6 @@ cluster RBAC principal.
 - `allowPrivateIPJWKS` reduces SSRF protection; prefer `allowPrivateIPJWKSHosts`
   to scope the exception to the known in-cluster JWKS hostname.
 
-**Availability:** Requires mcp-oauth v0.2.175 or later.
-
 ## Related Documentation
 
 - [OAuth Configuration](oauth.md) - Full OAuth setup guide

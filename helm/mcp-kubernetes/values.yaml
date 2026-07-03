@@ -529,8 +529,8 @@ mcpKubernetes:
     #                           leading (*@domain.com) or trailing (ns:*) glob. Bare '*'
     #                           is rejected. Empty = any claims accepted.
     #   subjectClaim:           claim whose value becomes the impersonated subject,
-    #                           replacing sub (e.g. "email"). Routing uses that key in
-    #                           allowedClaims when set.
+    #                           replacing sub (e.g. "email"). Tokens without that
+    #                           claim are rejected.
     #   acceptedTypHeaders:     accepted JWT `typ` header values. Empty = any.
     #   allowPrivateIPJWKS:     allow JWKS endpoint to resolve to a private IP.
     #   allowPrivateIPJWKSHosts: per-hostname private-IP exception (preferred over the above).
