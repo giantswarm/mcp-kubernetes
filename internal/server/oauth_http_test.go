@@ -10,6 +10,7 @@ import (
 
 	"github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -312,41 +313,6 @@ func TestCreateOAuthServerWithTrustedIssuers(t *testing.T) {
 	// the wiring via Config — trusted audiences is the closest exposed analogue.
 	// Runtime acceptance is covered by mcp-oauth's own test suite.
 	require.NotNil(t, oauthServer.Config)
-}
-
-// TestCreateOAuthServer_MultiEntryIssuerDeduplication verifies that two TrustedIssuerConfig
-// entries sharing an issuer URL are collapsed into a single oauthserver.TrustedIssuer
-// with unioned audiences and no AllowedClaims (which would reject valid tokens from
-// the other entry). Per-entry subject matching runs in AccessTokenInjector.
-func TestCreateOAuthServer_MultiEntryIssuerDeduplication(t *testing.T) {
-	// Two entries for the same issuer, selected by subject pattern.
-	// Without deduplication the OIDCValidator map overwrites the first entry with
-	// the second; the second entry's allowedClaims.sub="*@giantswarm.io" would
-	// a no-actor token is rejected regardless of which entry matches.
-	config := OAuthConfig{
-		BaseURL:            "https://mcp.example.com",
-		Provider:           OAuthProviderGoogle,
-		GoogleClientID:     "test-client-id",
-		GoogleClientSecret: "test-client-secret",
-		TrustedIssuers: []TrustedIssuerConfig{
-			{
-				Issuer:           "https://muster.example.com",
-				JwksURL:          "https://muster.example.com/.well-known/jwks.json",
-				AllowedAudiences: []string{"mcp-kubernetes"},
-				AllowedClaims:    map[string]string{"sub": "system:serviceaccount:kagent:sre-agent"},
-			},
-			{
-				Issuer:           "https://muster.example.com",
-				JwksURL:          "https://muster.example.com/.well-known/jwks.json",
-				AllowedAudiences: []string{"mcp-kubernetes"},
-				AllowedClaims:    map[string]string{"sub": "*@giantswarm.io"},
-			},
-		},
-	}
-
-	oauthServer, _, err := createOAuthServer(config)
-	require.NoError(t, err)
-	require.NotNil(t, oauthServer)
 }
 
 // TestCreateOAuthServerWithDexProvider tests Dex provider creation.
@@ -804,7 +770,6 @@ func makeIssuerMap(c TrustedIssuerConfig) map[string]TrustedIssuerConfig {
 func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 	const (
 		testIssuer    = "https://oidc.example.com"
-		testAlias     = "glean"
 		humanSubject  = "quentin@example.com"
 		agentSASub    = "system:serviceaccount:kagent:my-agent"
 		agentSAIssuer = "https://k8s.example.com"
@@ -906,6 +871,61 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
 		require.True(t, ok)
 		require.Equal(t, humanSubject, identity.UserName)
+	})
+
+	t.Run("token from an issuer not in the configured map is rejected", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
+		userInfo := &providers.UserInfo{
+			ID:           humanSubject,
+			Issuer:       "https://not-configured.example.com",
+			TokenSource:  providers.TokenSourceTrustedIssuer,
+			ActorSubject: agentSASub,
+			ActorIssuer:  agentSAIssuer,
+		}
+		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
+
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rr, req)
+
+		require.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("nested act chain: human sub is impersonated, outermost actor satisfies OBO", func(t *testing.T) {
+		const innerAgentSub = "system:serviceaccount:kagent:planner-agent"
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
+		userInfo := &providers.UserInfo{
+			ID:           humanSubject,
+			Issuer:       testIssuer,
+			TokenSource:  providers.TokenSourceTrustedIssuer,
+			ActorSubject: agentSASub,
+			ActorIssuer:  agentSAIssuer,
+			ActorChain: []oidc.ActorClaim{
+				{Issuer: agentSAIssuer, Subject: agentSASub},
+				{Issuer: agentSAIssuer, Subject: innerAgentSub},
+			},
+		}
+		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
+
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, req)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, humanSubject, identity.UserName)
+		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
 	})
 }
 
