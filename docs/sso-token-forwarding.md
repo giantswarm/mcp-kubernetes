@@ -257,10 +257,12 @@ mcpKubernetes:
   oauth:
     trustedIssuers:
       - issuer: "https://muster.example.com"
-        jwksURL: "https://muster.example.com/.well-known/jwks.json"
-        alias: "muster"
+        jwksURL: "http://muster.muster.svc.cluster.local:8080/.well-known/jwks.json"
+        subjectClaim: "email"
         allowedAudiences:
-          - "https://kubernetes.mcp.example.com"
+          - "https://muster.example.com/mcp"
+        allowPrivateIPJWKSHosts:
+          - "muster.muster.svc.cluster.local"
 ```
 
 ### Fields
@@ -269,36 +271,47 @@ mcpKubernetes:
 |---|---|---|
 | `issuer` | yes | Expected `iss` claim in the JWT |
 | `jwksURL` | yes | JWKS endpoint for signature verification |
-| `alias` | yes | Short name used to derive the namespace (`<alias>`) and the impersonated SA subject |
+| `subjectClaim` | no | Claim whose value becomes the impersonated subject, replacing `sub` (e.g. `email`) |
 | `allowedAudiences` | no | Accepted `aud` values; empty accepts any |
+| `allowedClaims` | no | Claim patterns the token must match; empty accepts any |
 | `allowedTargetClusters` | no | CAPI cluster names this issuer may access; empty allows any |
-| `allowPrivateIPJWKS` | no | Allow JWKS endpoint on a private network |
+| `acceptedTypHeaders` | no | Accepted JWT `typ` header values; empty accepts any |
+| `allowPrivateIPJWKS` | no | Allow the JWKS endpoint to resolve to a private IP |
+| `allowPrivateIPJWKSHosts` | no | Per-hostname private-IP exception (preferred over the blanket flag) |
+
+One entry per issuer URL; duplicate issuers are rejected at startup.
 
 ### How It Works
 
 ```
-Autonomous agent (e.g., muster-issued machine token)
+Agent calling on behalf of a human (muster-issued token with `act` claim)
    │
-   │  GET /mcp
-   │  Authorization: Bearer <muster-signed JWT>
+   │  POST /mcp
+   │  Authorization: Bearer <muster-signed JWT, sub=human, act.sub=agent>
    ▼
 mcp-kubernetes
    │  1. Extract `iss` from JWT (unverified, for routing)
    │  2. Look up matching TrustedIssuer entry
    │  3. Fetch JWKS from entry's jwksURL
-   │  4. Verify JWT signature
-   │  5. Check `aud` against allowedAudiences
-   │  6. Build qualified subject: system:serviceaccount:<alias>:<saName>
+   │  4. Verify JWT signature, `aud`, `typ`, and claim patterns
+   │  5. Require an RFC 8693 `act` claim (no act: 403)
+   │  6. Impersonate the human subject (subjectClaim, e.g. email)
    ▼
-Kubernetes API with Impersonate-User: system:serviceaccount:<alias>:<saName>
+Kubernetes API with Impersonate-User: <human subject>
+                   Impersonate-Group: system:authenticated
 ```
+
+The impersonated human's Kubernetes RBAC governs access; the agent is never a
+cluster RBAC principal.
 
 ### Security notes
 
 - Only issuers explicitly listed in `trustedIssuers` are accepted.
 - The token's signature is always verified via the issuer's JWKS.
-- `allowedAudiences` should be set to the kubernetes-mcp `BASE_URL` to prevent token reuse across services.
-- `allowPrivateIPJWKS` reduces SSRF protection; only enable for internal issuers on private networks.
+- With muster forwarding its issued token unchanged, `allowedAudiences` is
+  muster's own resource identifier (e.g. `https://muster.example.com/mcp`).
+- `allowPrivateIPJWKS` reduces SSRF protection; prefer `allowPrivateIPJWKSHosts`
+  to scope the exception to the known in-cluster JWKS hostname.
 
 **Availability:** Requires mcp-oauth v0.2.175 or later.
 

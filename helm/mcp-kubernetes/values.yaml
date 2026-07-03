@@ -510,10 +510,10 @@ mcpKubernetes:
     # Default: [] (only accept tokens issued directly to this server's client_id)
     trustedAudiences: []
 
-    # Trusted external JWT issuers for direct token authentication (mcp-oauth v0.2.175+).
-    # Enables autonomous agents and delegated human tokens to call /mcp without a human
-    # SSO flow. mcp-kubernetes validates the token via JWKS and builds an impersonation
-    # identity from the token's claims.
+    # Trusted external JWT issuers for direct token authentication. The intended
+    # issuer is the muster aggregator: it validates the caller's on-behalf-of token
+    # and forwards it unchanged. mcp-kubernetes verifies the token via the issuer's
+    # JWKS and builds an impersonation identity from its claims.
     #
     # Required per entry:
     #   issuer:   expected `iss` claim in the JWT (exact match)
@@ -523,8 +523,6 @@ mcpKubernetes:
     # All other fields are optional and independently enforced when set.
     # Omitting a field means no restriction for that dimension.
     #
-    #   alias:                  stable short identifier (DNS-1123 label); the chart keys
-    #                           per-alias RBAC on this value. Optional.
     #   allowedAudiences:       accepted `aud` values. Empty = any audience.
     #   allowedTargetClusters:  workload clusters this issuer may target. Empty = any.
     #   allowedClaims:          claim patterns that must match; values support a single
@@ -541,21 +539,15 @@ mcpKubernetes:
     # for a human). Any validated trusted-issuer actor is accepted; a token with no
     # act claim is rejected, and the impersonated human's Kubernetes RBAC governs access.
     #
-    # When multiple entries share the same issuer URL, entries with allowedClaims are
-    # tried first (subject pattern match); entries without allowedClaims are fallback.
+    # One entry per issuer URL; duplicate issuers are rejected at startup.
     #
-    # Example (muster behind — minimal config, JWKS is the trust boundary):
+    # Example (muster forwarding its issued token unchanged; the audience is muster's
+    # own resource identifier, not a per-backend value):
     #   - issuer: "https://muster.example.com"
-    #     jwksURL: "https://muster.internal/jwks"
-    #     allowPrivateIPJWKSHosts: ["muster.internal"]
-    #     allowedAudiences: ["https://mcp-kubernetes.mycluster.example.com"]  # optional
-    #
-    # Example (OBO — restrict by subject domain):
-    #   - issuer: "https://muster.example.com"
-    #     jwksURL: "https://muster.example.com/.well-known/jwks.json"
+    #     jwksURL: "http://muster.muster.svc.cluster.local:8080/.well-known/jwks.json"
     #     subjectClaim: "email"
-    #     allowedClaims:
-    #       email: "*@example.com"
+    #     allowedAudiences: ["https://muster.example.com/mcp"]
+    #     allowPrivateIPJWKSHosts: ["muster.muster.svc.cluster.local"]
     #
     # Default: [] (no external issuers trusted)
     trustedIssuers: []
