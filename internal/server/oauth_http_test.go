@@ -782,15 +782,20 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		AllowedClaims:         map[string]string{"sub": humanSubject},
 	})
 
+	// newOBOReq builds a request whose token carries a human subject (email) and,
+	// when actorSub is non-empty, an act claim identifying the acting agent.
 	newOBOReq := func(humanSub, actorSub string) *http.Request {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
 			ID:           humanSub,
+			Email:        humanSub,
 			Issuer:       testIssuer,
 			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: actorSub,
-			ActorIssuer:  agentSAIssuer,
+		}
+		if actorSub != "" {
+			userInfo.ActorIssuer = agentSAIssuer
 		}
 		return req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 	}
@@ -814,24 +819,36 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		require.Equal(t, []string{"cluster-a"}, identity.AllowedTargetClusters)
 	})
 
-	t.Run("trusted-issuer token with no act claim is rejected", func(t *testing.T) {
+	t.Run("human-direct token (human subject, no act) is accepted", func(t *testing.T) {
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+			w.WriteHeader(http.StatusOK)
+		})
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
+		rr := httptest.NewRecorder()
+		// No actor: a human reaching kubernetes tools directly through muster.
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rr, newOBOReq(humanSubject, ""))
+
+		require.Equal(t, http.StatusOK, rr.Code)
+		identity, ok := ImpersonationIdentityFromContext(capturedCtx)
+		require.True(t, ok)
+		require.Equal(t, humanSubject, identity.UserName)
+		require.Equal(t, []string{"system:authenticated"}, identity.Groups)
+	})
+
+	t.Run("trusted-issuer token with no human subject (no email) is rejected", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-		req.Header.Set("Authorization", "Bearer fake-no-actor-token") //nolint:gosec // G101: test fixture
+		req.Header.Set("Authorization", "Bearer fake-machine-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
-			ID:          "agent:bot",
+			ID:          "system:serviceaccount:kagent:my-agent",
 			Issuer:      testIssuer,
-			Groups:      []string{"agent:bot"},
 			TokenSource: providers.TokenSourceTrustedIssuer,
-			// ActorSubject intentionally absent: not an on-behalf-of token.
+			// No Email: a bare machine/ServiceAccount token, no human to impersonate.
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
-		noActorMap := makeIssuerMap(TrustedIssuerConfig{
-			Issuer:        testIssuer,
-			JwksURL:       "https://oidc.example.com/.well-known/jwks.json",
-			AllowedClaims: map[string]string{"sub": "agent:bot"},
-		})
-		s := &OAuthHTTPServer{trustedIssuersByIssuer: noActorMap}
+		s := &OAuthHTTPServer{trustedIssuersByIssuer: issuerMap}
 		rr := httptest.NewRecorder()
 		s.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -873,11 +890,15 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		require.Equal(t, humanSubject, identity.UserName)
 	})
 
-	t.Run("token from an issuer not in the configured map is rejected", func(t *testing.T) {
+	t.Run("act present but from an issuer not in the configured map is rejected", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
+		// Human subject present and an act claim present, but the outer issuer is
+		// not trusted: we cannot rely on muster having validated the actor, so the
+		// token is rejected before impersonation.
 		userInfo := &providers.UserInfo{
 			ID:           humanSubject,
+			Email:        humanSubject,
 			Issuer:       "https://not-configured.example.com",
 			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: agentSASub,
@@ -906,6 +927,7 @@ func TestAccessTokenInjectorMiddleware_OBOToken(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
 			ID:           humanSubject,
+			Email:        humanSubject,
 			Issuer:       testIssuer,
 			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: agentSASub,
@@ -944,14 +966,15 @@ func TestAccessTokenInjectorMiddleware_Passthrough(t *testing.T) {
 		// No allowedClaims.
 	})
 
-	t.Run("passthrough entry: no-actor token is rejected", func(t *testing.T) {
+	t.Run("passthrough entry: token with no human subject is rejected", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-		req.Header.Set("Authorization", "Bearer fake-no-actor-token") //nolint:gosec // G101: test fixture
+		req.Header.Set("Authorization", "Bearer fake-machine-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
 			ID:          "agent:sre",
 			Issuer:      testIssuer,
 			Groups:      []string{"agent:sre", "platform:ops"},
 			TokenSource: providers.TokenSourceTrustedIssuer,
+			// No Email: a bare machine identity, not a delegated human.
 		}
 		req = req.WithContext(handler.ContextWithUserInfo(req.Context(), userInfo))
 
@@ -974,6 +997,7 @@ func TestAccessTokenInjectorMiddleware_Passthrough(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
 			ID:           humanSub,
+			Email:        humanSub,
 			Issuer:       testIssuer,
 			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: agentSub,
@@ -1016,6 +1040,7 @@ func TestAccessTokenInjectorMiddleware_SubjectClaim(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer fake-obo-token") //nolint:gosec // G101: test fixture
 		userInfo := &providers.UserInfo{
 			ID:           remappedSubject, // mcp-oauth set this from the email claim
+			Email:        remappedSubject,
 			Issuer:       musterIssuer,
 			TokenSource:  providers.TokenSourceTrustedIssuer,
 			ActorSubject: sreAgentSub,

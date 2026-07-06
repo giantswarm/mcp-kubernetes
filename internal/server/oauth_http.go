@@ -1002,9 +1002,10 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 
 		// External-issuer path: token was validated against a TrustedIssuer entry.
-		// The Bearer's aud is the muster STS, not kube-apiserver — passthrough
-		// would be rejected. Derive an ImpersonationIdentity for an on-behalf-of
-		// token (act claim present); a token with no actor is rejected.
+		// The Bearer's aud is muster's resource identifier, not the kube-apiserver,
+		// so passthrough would be rejected. Impersonate the validated human subject
+		// instead. The invariant is a validated human, not a present actor: a token
+		// with a human subject is accepted whether or not it carries an act claim.
 		if userInfo.IsExternalIssuer() {
 			tiConfig, ok := s.trustedIssuersByIssuer[userInfo.Issuer]
 			if !ok {
@@ -1014,31 +1015,39 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				return
 			}
 
-			// OBO path: sub=human, act.sub=agent SA. Any validated trusted-issuer
-			// actor is accepted; the impersonated human's downstream RBAC governs
-			// access. Only Impersonate-User and Impersonate-Group are sent.
-			if userInfo.IsOBO() {
-				identity := k8s.ImpersonationIdentity{
-					UserName: userInfo.ID,
-					// system:authenticated must be explicit; impersonation does not
-					// inherit the real-auth group set.
-					Groups:                []string{"system:authenticated"},
-					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
-				}
-				ctx = ContextWithImpersonationIdentity(ctx, identity)
-				r = r.WithContext(ctx)
-				recordMetric(ctx, "obo_success")
-				next.ServeHTTP(w, r)
+			// Never bare impersonation: require a validated human subject. The
+			// issuer's allowedClaims.email (with subjectClaim=email) makes muster's
+			// human tokens carry an email on both the on-behalf-of and the
+			// human-direct path; a bare machine/ServiceAccount token has none and
+			// is rejected here.
+			if userInfo.Email == "" {
+				slog.Warn("AccessTokenInjector: trusted-issuer token has no human subject (email claim), rejecting",
+					"issuer", userInfo.Issuer, "subject", userInfo.ID)
+				http.Error(w, "forbidden: trusted-issuer token requires a validated human subject", http.StatusForbidden)
 				return
 			}
 
-			// A trusted-issuer token with no actor (act) claim is not accepted:
-			// the supported flow is on-behalf-of, where muster mints a token
-			// carrying the agent as the actor. A bare-subject (machine) token has
-			// no delegation to impersonate, so reject it.
-			slog.Warn("AccessTokenInjector: trusted-issuer token carries no actor (act) claim, rejecting",
-				"issuer", userInfo.Issuer, "subject", userInfo.ID)
-			http.Error(w, "forbidden: trusted-issuer token requires an on-behalf-of (act) claim", http.StatusForbidden)
+			// act is validated-if-present. When present it identifies the acting
+			// agent (sub=human, act.sub=agent SA), and muster has already validated
+			// it as a trusted actor at exchange time; the impersonated human's
+			// downstream RBAC governs access. Its absence is the human-direct path
+			// (Backstage, Claude Code reaching kubernetes tools through muster), not
+			// an error. Only Impersonate-User and Impersonate-Group are sent.
+			identity := k8s.ImpersonationIdentity{
+				UserName: userInfo.ID,
+				// system:authenticated must be explicit; impersonation does not
+				// inherit the real-auth group set.
+				Groups:                []string{"system:authenticated"},
+				AllowedTargetClusters: tiConfig.AllowedTargetClusters,
+			}
+			ctx = ContextWithImpersonationIdentity(ctx, identity)
+			r = r.WithContext(ctx)
+			if userInfo.IsOBO() {
+				recordMetric(ctx, "obo_success")
+			} else {
+				recordMetric(ctx, "human_direct_success")
+			}
+			next.ServeHTTP(w, r)
 			return
 		}
 

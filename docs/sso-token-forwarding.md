@@ -284,25 +284,29 @@ One entry per issuer URL; duplicate issuers are rejected at startup.
 ### How It Works
 
 ```
-Agent calling on behalf of a human (muster-issued token with `act` claim)
+Caller presenting a muster-issued token (OBO: sub=human + act=agent;
+human-direct: sub=human, no act)
    │
    │  POST /mcp
-   │  Authorization: Bearer <muster-signed JWT, sub=human, act.sub=agent>
+   │  Authorization: Bearer <muster-signed JWT, sub=human[, act.sub=agent]>
    ▼
 mcp-kubernetes
    │  1. Extract `iss` from JWT (unverified, for routing)
    │  2. Look up matching TrustedIssuer entry
    │  3. Fetch JWKS from entry's jwksURL
    │  4. Verify JWT signature, `aud`, `typ`, and claim patterns
-   │  5. Require an RFC 8693 `act` claim (no act: 403)
+   │  5. Require a validated human subject (email); no human subject: 403.
+   │     Validate the `act` claim if present; its absence is not an error.
    │  6. Impersonate the human subject (subjectClaim, e.g. email)
    ▼
 Kubernetes API with Impersonate-User: <human subject>
                    Impersonate-Group: system:authenticated
 ```
 
-The impersonated human's Kubernetes RBAC governs access; the agent is never a
-cluster RBAC principal.
+The invariant is a validated human, not a present actor: both an on-behalf-of
+token (agent acting for a human) and a human-direct token (a human reaching
+kubernetes tools through muster) are accepted. The impersonated human's
+Kubernetes RBAC governs access; the agent is never a cluster RBAC principal.
 
 ### Security notes
 
