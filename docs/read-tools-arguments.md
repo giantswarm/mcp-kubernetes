@@ -63,9 +63,29 @@ result, so ordering decides which items a bounded call actually returns.
 
 - **Events** are sorted **newest-first**, by `lastTimestamp`, then `eventTime`,
   then `firstTimestamp` — the same precedence reported as `lastSeen` in compact
-  output, and the same ordering `describe` applies to its embedded events. So
-  `{"resourceType": "events", "limit": 15}` returns the 15 most recent events.
+  output, and the same ordering `describe` applies to its embedded events.
   Events with no parseable timestamp sort last.
+
+  A client-side sort is only meaningful if it sees more than the caller's page:
+  the API server applies `limit` in its own key order, so asking it for 15
+  events and sorting those would reorder an arbitrary alphabetical slice and
+  still miss the most recent activity. Event queries are therefore **scanned up
+  to an internal ceiling of 5000 matching events**, sorted, and only then
+  truncated to `limit` — the same shape as `describe` (which fetches every event
+  for the object, then sorts and truncates) and as `kubectl get events
+  --sort-by=.lastTimestamp`. So `{"resourceType": "events", "limit": 15}` really
+  does return the 15 most recent events, as long as fewer than 5000 matched.
+
+  Two consequences worth knowing:
+
+  - If a scan reaches the ceiling, older events were not read and the newest-15
+    claim is no longer exact. The response says so — `metadata.ordering` in
+    compact output, `_meta.hint` with `fullOutput: true` — and the fix is to
+    narrow the query with `namespace` / `fieldSelector` / `labelSelector`.
+  - An event query returns **no `continue` token**, because "the next N by
+    recency" cannot be expressed as a position in the API server's key-order
+    pagination. Passing a `continue` token explicitly opts out of the widened
+    scan and serves that page in unsorted API order.
 - **Every other Kind** is returned in the API server's order, which is
   namespace/name ascending. A `limit` therefore yields an alphabetical prefix —
   *not* the newest, largest or unhealthiest items. To bound a result set

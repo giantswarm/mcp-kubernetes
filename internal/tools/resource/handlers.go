@@ -222,14 +222,50 @@ func compactItemsForResourceType(items []runtime.Object, resourceType string) {
 	}
 }
 
+// listSortScanLimit is the server-side page size requested for a Kind that
+// is ordered locally (today: Events). Ordering a Kind newest-first is only
+// meaningful if the sort sees more than the caller's page: the API server
+// returns items in its own key order, so asking it for `limit` items and
+// then sorting them locally would reorder an arbitrary alphabetical subset
+// and still miss the most recent activity entirely.
+//
+// So the request is widened to this ceiling, the full scan is sorted, and
+// only then is the caller's `limit` applied locally. This mirrors what the
+// describe path does (it fetches every event for the object with no server
+// limit, then sorts and truncates) and what `kubectl get events
+// --sort-by=.lastTimestamp` does client-side, because Kubernetes offers
+// neither server-side sorting nor a time-based field selector for events.
+//
+// The ceiling exists so a cluster with a pathological event volume cannot
+// turn one call into an unbounded fetch. It is well above the event count a
+// default 1h event TTL leaves on a busy cluster; when a scan does hit it,
+// the response is annotated (see listScanNotice) rather than silently
+// pretending to be complete.
+const listSortScanLimit int64 = 5000
+
+// locallyOrderedResourceType reports whether this resourceType is ordered
+// client-side, and therefore needs the widened scan described above.
+//
+// A caller-supplied continue token opts out: it encodes a position in the
+// API server's key-order pagination, which local reordering does not
+// preserve, so the honest behaviour is to serve that page as the server
+// returns it.
+func locallyOrderedResourceType(resourceType, continueToken string) bool {
+	if continueToken != "" {
+		return false
+	}
+	rules, ok := listKindRulesByType[normalizeResourceType(resourceType)]
+	return ok && rules.sort != nil
+}
+
 // sortItemsForResourceType imposes a per-Kind order on list items. Today
 // only Events have a sort rule (newest-first); every other resourceType
 // keeps the API server's own order.
 //
-// The caller MUST invoke this before client-side filtering and before
-// output.ProcessRuntimeObjects: truncation to MaxItems keeps a prefix of
-// the slice, so sorting afterwards would order an arbitrary subset rather
-// than select the most relevant items.
+// The caller MUST invoke this before output.ProcessRuntimeObjects and
+// before the local truncation in truncateToCallerLimit: both keep a prefix
+// of the slice, so sorting afterwards would order an arbitrary subset
+// rather than select the most relevant items.
 //
 // Items must be *unstructured.Unstructured (which is what the k8s client
 // returns). A non-unstructured item makes the whole sort a no-op rather
@@ -245,6 +281,58 @@ func sortItemsForResourceType(items []runtime.Object, resourceType string) {
 		}
 	}
 	rules.sort(items)
+}
+
+// truncateToCallerLimit applies the caller's `limit` to an already-sorted,
+// already-filtered item slice, and returns the number of items scanned
+// before truncation.
+//
+// This is the second half of the widened-scan path: the server was asked
+// for listSortScanLimit items so the sort had something meaningful to
+// order, so the caller's much smaller page size has to be honoured here
+// instead. The continue token is cleared because it refers to the server's
+// key-order position and cannot express "the next N by recency" once the
+// items have been reordered.
+func truncateToCallerLimit(response *k8s.PaginatedListResponse, limit int64) (scanned int, scanCapped bool) {
+	scanned = len(response.Items)
+	scanCapped = response.Continue != "" || int64(scanned) >= listSortScanLimit
+
+	response.Continue = ""
+	response.RemainingItems = nil
+
+	if limit > 0 && int64(len(response.Items)) > limit {
+		response.Items = response.Items[:limit]
+	}
+	response.TotalItems = len(response.Items)
+
+	return scanned, scanCapped
+}
+
+// listScanNotice describes a widened scan for the caller, so an agent can
+// tell "the newest 15 of everything there is" from "the newest 15 of the
+// first 5000 we were willing to read".
+func listScanNotice(resourceType string, scanned int, scanCapped bool) string {
+	if !scanCapped {
+		return fmt.Sprintf("%s sorted newest-first; all %d matching items were scanned", resourceType, scanned)
+	}
+	return fmt.Sprintf(
+		"%s sorted newest-first, but the scan stopped at the %d-item ceiling, so older items were not read; narrow the query with fieldSelector/labelSelector/namespace for a complete answer",
+		resourceType, scanned,
+	)
+}
+
+// appendHint joins a new note onto an existing ResponseMeta hint without
+// clobbering whatever BuildResponseMeta already put there (e.g. the
+// all-namespaces or cluster-scoped notes).
+func appendHint(existing, note string) string {
+	switch {
+	case note == "":
+		return existing
+	case existing == "":
+		return note
+	default:
+		return existing + "; " + note
+	}
 }
 
 // sortEventItemsNewestFirst orders events by their effective timestamp,
@@ -428,11 +516,22 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 	continueToken, _ := args["continue"].(string)
 
+	// Kinds that are ordered client-side (Events, newest-first) must be
+	// fetched wider than the caller's page: the API server would otherwise
+	// hand back an arbitrary key-order slice of `limit` items and the sort
+	// would only reorder that, never surfacing the most recent activity.
+	// The caller's limit is applied locally after sorting instead.
+	locallyOrdered := locallyOrderedResourceType(resourceType, continueToken)
+	requestLimit := limit
+	if locallyOrdered {
+		requestLimit = listSortScanLimit
+	}
+
 	opts := k8s.ListOptions{
 		LabelSelector: labelSelector,
 		FieldSelector: fieldSelector,
 		AllNamespaces: allNamespaces,
-		Limit:         limit,
+		Limit:         requestLimit,
 		Continue:      continueToken,
 	}
 
@@ -469,9 +568,9 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		slog.Duration("duration", k8sDuration))
 
 	// Impose a per-Kind order (events: newest first) before anything narrows
-	// the slice. Both the client-side filter below and the MaxItems
-	// truncation inside ProcessRuntimeObjects keep a prefix, so this has to
-	// happen first for `limit` to mean "the most recent N".
+	// the slice. The client-side filter below, the local truncation to the
+	// caller's limit, and the MaxItems cap inside ProcessRuntimeObjects all
+	// keep a prefix, so this has to happen first.
 	sortItemsForResourceType(paginatedResponse.Items, resourceType)
 
 	// Apply client-side filtering if criteria provided
@@ -492,6 +591,29 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		}
 	}
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationList, resourceType, metricsNamespace, instrumentation.StatusSuccess, k8sDuration)
+
+	// Locally-ordered Kinds were fetched up to listSortScanLimit rather than
+	// the caller's page size, so apply that page size now — after the sort
+	// and the filter, so the result really is the newest N of what matched.
+	var scanNotice string
+	if locallyOrdered {
+		scanned, scanCapped := truncateToCallerLimit(paginatedResponse, limit)
+		scanNotice = listScanNotice(resourceType, scanned, scanCapped)
+		if scanCapped {
+			slog.Warn("locally-ordered list hit the scan ceiling",
+				logging.ResourceType(resourceType),
+				slog.Int("scanned", scanned),
+				slog.Int64("scan_ceiling", listSortScanLimit))
+		}
+		slog.Debug("locally-ordered list truncated to caller limit",
+			logging.ResourceType(resourceType),
+			slog.Int("scanned", scanned),
+			slog.Int("returned", paginatedResponse.TotalItems),
+			slog.Bool("scan_capped", scanCapped))
+		if paginatedResponse.Meta != nil {
+			paginatedResponse.Meta.Hint = appendHint(paginatedResponse.Meta.Hint, scanNotice)
+		}
+	}
 
 	// Build output processor honouring the per-call format. SlimOutput is
 	// flipped off for output=wide; secret masking always runs regardless of
@@ -552,6 +674,15 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		paginatedResponse.ResourceVersion,
 		paginatedResponse.RemainingItems,
 	)
+	// The compact response has no _meta, so carry the scan notice here
+	// instead: a caller reading a bounded list needs to know whether it is
+	// the newest N of everything or the newest N of a capped scan.
+	if scanNotice != "" {
+		if summary.Metadata == nil {
+			summary.Metadata = map[string]interface{}{}
+		}
+		summary.Metadata["ordering"] = scanNotice
+	}
 	jsonData, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal paginated resource summary: %v", err)), nil

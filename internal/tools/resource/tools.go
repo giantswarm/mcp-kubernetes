@@ -149,7 +149,7 @@ Examples:
 - List all pods: {"resourceType": "pods", "allNamespaces": true}
 - List CAPI clusters: {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}
 
-Ordering: events are returned newest-first (by lastTimestamp, then eventTime, then firstTimestamp), so 'limit' selects the most recent activity. All other resource types are returned in the API server's own order (namespace/name), so 'limit' selects an alphabetical prefix, not the newest or the worst.
+Ordering: events are returned newest-first (by lastTimestamp, then eventTime, then firstTimestamp). To make that ordering real, an event query is scanned up to an internal ceiling of 5000 matching events before 'limit' is applied, so 'limit' selects the most recent activity rather than an alphabetical slice. If a scan reaches that ceiling the response says so under 'metadata.ordering' (or '_meta.hint' with fullOutput) and older events were not read — narrow the query with namespace/fieldSelector/labelSelector for a complete answer. Since recency ordering cannot be expressed as a server-side page position, an event query returns no 'continue' token; passing one falls back to unsorted API order. All other resource types are returned in the API server's own order (namespace/name), so 'limit' selects an alphabetical prefix, not the newest or the worst.
 
 Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios.`),
 		mcp.WithReadOnlyHintAnnotation(true),

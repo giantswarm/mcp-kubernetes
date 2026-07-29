@@ -3,6 +3,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
@@ -932,4 +934,137 @@ func TestUnstructuredEventTime_MatchesEffectiveEventTime(t *testing.T) {
 		got := unstructuredEventTime(&unstructured.Unstructured{Object: map[string]any{}})
 		assert.True(t, got.IsZero())
 	})
+}
+
+// TestLocallyOrderedResourceType pins which Kinds get the widened scan. The
+// whole point of the wider fetch is that a newest-first sort is meaningless
+// if the API server already truncated the result to the caller's page in its
+// own key order, so this decision has to be right for events and inert for
+// everything else.
+func TestLocallyOrderedResourceType(t *testing.T) {
+	t.Run("events are ordered locally", func(t *testing.T) {
+		for _, resourceType := range []string{"events", "event", "ev", "Events", "EVENT"} {
+			assert.True(t, locallyOrderedResourceType(resourceType, ""),
+				"resourceType %q must use the widened scan", resourceType)
+		}
+	})
+
+	t.Run("other Kinds keep server-side paging", func(t *testing.T) {
+		for _, resourceType := range []string{"pods", "deployments", "nodes", "clusters"} {
+			assert.False(t, locallyOrderedResourceType(resourceType, ""),
+				"resourceType %q must not widen its scan", resourceType)
+		}
+	})
+
+	t.Run("an explicit continue token opts out", func(t *testing.T) {
+		// A continue token is a position in the API server's key-order
+		// pagination. Re-ordering locally would make the caller's next page
+		// meaningless, so honour the server's paging instead.
+		assert.False(t, locallyOrderedResourceType("events", "eyJ2IjoibWV0YS5rOHMuaW8vdjEi"),
+			"a caller-supplied continue token must disable the widened scan")
+	})
+}
+
+// TestTruncateToCallerLimit pins the second half of the widened-scan path.
+// The server is asked for listSortScanLimit items so the sort has something
+// meaningful to order; the caller's much smaller page size must then be
+// applied here, and the continue token dropped because it cannot express
+// "the next N by recency" once the items have been reordered.
+func TestTruncateToCallerLimit(t *testing.T) {
+	events := func(n int) []runtime.Object {
+		items := make([]runtime.Object, 0, n)
+		for i := 0; i < n; i++ {
+			items = append(items, eventObj(fmt.Sprintf("e%03d", i), "lastTimestamp", "2026-07-29T10:00:00Z"))
+		}
+		return items
+	}
+
+	t.Run("keeps the newest limit items", func(t *testing.T) {
+		resp := &k8s.PaginatedListResponse{Items: events(200), TotalItems: 200}
+
+		scanned, capped := truncateToCallerLimit(resp, 15)
+
+		assert.Equal(t, 200, scanned, "the full scan must be reported")
+		assert.False(t, capped, "200 items is well under the ceiling")
+		assert.Len(t, resp.Items, 15)
+		assert.Equal(t, 15, resp.TotalItems)
+		// The slice is a prefix of the sorted input, so item 0 stays first.
+		first, ok := resp.Items[0].(*unstructured.Unstructured)
+		require.True(t, ok)
+		assert.Equal(t, "e000", first.GetName())
+	})
+
+	t.Run("a scan smaller than the limit is untouched", func(t *testing.T) {
+		resp := &k8s.PaginatedListResponse{Items: events(3), TotalItems: 3}
+
+		scanned, capped := truncateToCallerLimit(resp, 15)
+
+		assert.Equal(t, 3, scanned)
+		assert.False(t, capped)
+		assert.Len(t, resp.Items, 3)
+		assert.Equal(t, 3, resp.TotalItems)
+	})
+
+	t.Run("continue token and remainingItems are cleared", func(t *testing.T) {
+		remaining := int64(4000)
+		resp := &k8s.PaginatedListResponse{
+			Items:          events(50),
+			TotalItems:     50,
+			Continue:       "server-key-order-token",
+			RemainingItems: &remaining,
+		}
+
+		_, capped := truncateToCallerLimit(resp, 15)
+
+		assert.Empty(t, resp.Continue, "a key-order token is meaningless after reordering")
+		assert.Nil(t, resp.RemainingItems)
+		assert.True(t, capped, "a leftover server token means the scan was incomplete")
+	})
+
+	t.Run("hitting the ceiling is reported as capped", func(t *testing.T) {
+		resp := &k8s.PaginatedListResponse{
+			Items:      events(int(listSortScanLimit)),
+			TotalItems: int(listSortScanLimit),
+		}
+
+		scanned, capped := truncateToCallerLimit(resp, 15)
+
+		assert.Equal(t, int(listSortScanLimit), scanned)
+		assert.True(t, capped, "a scan that reached the ceiling may have missed older items")
+	})
+
+	t.Run("limit zero keeps the whole scan", func(t *testing.T) {
+		resp := &k8s.PaginatedListResponse{Items: events(40), TotalItems: 40}
+
+		truncateToCallerLimit(resp, 0)
+
+		assert.Len(t, resp.Items, 40)
+	})
+}
+
+// TestListScanNotice pins the transparency string. An agent must be able to
+// tell "the newest 15 of everything there is" from "the newest 15 of the
+// first N we were willing to read" — otherwise a capped scan reads as a
+// complete answer, which is the same class of silent-truncation bug the
+// newest-first ordering was added to fix.
+func TestListScanNotice(t *testing.T) {
+	t.Run("complete scan says so", func(t *testing.T) {
+		notice := listScanNotice("events", 312, false)
+		assert.Contains(t, notice, "newest-first")
+		assert.Contains(t, notice, "all 312")
+		assert.NotContains(t, notice, "ceiling")
+	})
+
+	t.Run("capped scan warns and suggests narrowing", func(t *testing.T) {
+		notice := listScanNotice("events", int(listSortScanLimit), true)
+		assert.Contains(t, notice, "ceiling")
+		assert.Contains(t, notice, "fieldSelector")
+	})
+}
+
+func TestAppendHint(t *testing.T) {
+	assert.Equal(t, "note", appendHint("", "note"))
+	assert.Equal(t, "existing", appendHint("existing", ""))
+	assert.Equal(t, "existing; note", appendHint("existing", "note"))
+	assert.Equal(t, "", appendHint("", ""))
 }
