@@ -149,6 +149,8 @@ Examples:
 - List all pods: {"resourceType": "pods", "allNamespaces": true}
 - List CAPI clusters: {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}
 
+Ordering: events are returned newest-first (by lastTimestamp, then eventTime, then firstTimestamp), so 'limit' selects the most recent activity. All other resource types are returned in the API server's own order (namespace/name), so 'limit' selects an alphabetical prefix, not the newest or the worst.
+
 Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios.`),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
@@ -173,7 +175,7 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 			mcp.Description("Server-side label selector for efficient filtering (e.g., 'app=nginx,env=prod'). Use this when possible for better performance."),
 		),
 		mcp.WithString("fieldSelector",
-			mcp.Description("Server-side field selector (limited fields: metadata.name, metadata.namespace, spec.nodeName, status.phase). For fields not supported by Kubernetes, use 'filter' instead."),
+			mcp.Description("Server-side field selector. Only fields the API server indexes for that Kind are selectable, and the set differs per Kind: pods support metadata.name, metadata.namespace, spec.nodeName and status.phase; events additionally support reason, type, involvedObject.kind, involvedObject.name, involvedObject.namespace and involvedObject.fieldPath. No Kind exposes a timestamp field, so age cannot be selected server-side. For fields that are not selectable, use 'filter' instead."),
 		),
 		mcp.WithObject("filter",
 			mcp.Description("Client-side filter for advanced scenarios not supported by fieldSelector (e.g., filtering nodes by taints). Supports dot notation for nested fields and [*] for array matching. Examples: {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"} or {\"metadata.labels.app\": \"nginx\"}. See docs/client-side-filtering.md for full syntax and use cases. Performance note: Prefer labelSelector/fieldSelector when available as they filter server-side."),
@@ -185,7 +187,7 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 - When true, overrides the 'namespace' parameter.`),
 		),
 		mcp.WithBoolean("fullOutput",
-			mcp.Description("Return full resource manifests instead of summary (default: false, returns compact summary)"),
+			mcp.Description("Return full resource manifests instead of summary (default: false, returns compact summary). The 'output' format only takes effect when this is true; the compact summary has its own fixed per-Kind shape."),
 		),
 		mcp.WithBoolean("includeLabels",
 			mcp.Description("Include resource labels in summary output (default: false)"),
@@ -203,7 +205,7 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 			mcp.Description("Return aggregated counts (by status, namespace) instead of full objects. Useful for fleet-scale operations with many results. Default: false"),
 		),
 		mcp.WithString("output",
-			mcp.Description("Output format: 'slim' (default; blacklist exclusion + per-Kind shaping), 'normal' (blacklist exclusion only), 'wide' / 'full' (no field stripping). Secret data is always masked regardless of output. See docs/slim-output-tuning.md for the full per-Kind shape table."),
+			mcp.Description("Output format for full manifests, i.e. only meaningful together with fullOutput=true: 'slim' (default; blacklist exclusion + per-Kind shaping), 'normal' (blacklist exclusion only), 'wide' / 'full' (no field stripping — the only formats that retain metadata.ownerReferences). Secret data is always masked regardless of output. See docs/slim-output-tuning.md for the full per-Kind shape table."),
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)

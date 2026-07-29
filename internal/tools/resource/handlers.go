@@ -162,23 +162,29 @@ func processorWithExtraExcluded(p *output.Processor, extra []string) *output.Pro
 	return output.NewProcessor(cfg)
 }
 
-// listKindRules bundles the per-resourceType slim-mode customisations
-// applied to list responses: extraExcluded paths to layer onto the
-// generic DefaultExcludedFields, and a compact callback for value-
-// conditional cleanup (e.g. dropping null timestamp siblings on Events).
-// Either field may be empty / nil.
+// listKindRules bundles the per-resourceType customisations applied to
+// list responses: extraExcluded paths to layer onto the generic
+// DefaultExcludedFields (slim mode only), a compact callback for value-
+// conditional cleanup (e.g. dropping null timestamp siblings on Events),
+// and a sort callback that imposes a meaningful order on the items before
+// they are filtered and truncated. Any field may be empty / nil.
 type listKindRules struct {
 	extraExcluded []string
 	compact       func(map[string]any)
+	sort          func([]runtime.Object)
 }
 
 // listKindRulesByType maps the lower-cased resourceType (and accepted
 // shortnames, mirroring how the kubectl REST mapper resolves them) to its
 // list-mode customisation. Adding a new per-Kind rule to the list path
-// means adding a single entry here — keeps `extraExcludedForResourceType`
-// and `compactItemsForResourceType` in lockstep.
+// means adding a single entry here — keeps `extraExcludedForResourceType`,
+// `compactItemsForResourceType` and `sortItemsForResourceType` in lockstep.
 var listKindRulesByType = func() map[string]listKindRules {
-	eventRules := listKindRules{extraExcluded: eventListSlimFields, compact: compactEventItem}
+	eventRules := listKindRules{
+		extraExcluded: eventListSlimFields,
+		compact:       compactEventItem,
+		sort:          sortEventItemsNewestFirst,
+	}
 	return map[string]listKindRules{
 		"event":  eventRules,
 		"events": eventRules,
@@ -214,6 +220,72 @@ func compactItemsForResourceType(items []runtime.Object, resourceType string) {
 		}
 		rules.compact(u.Object)
 	}
+}
+
+// sortItemsForResourceType imposes a per-Kind order on list items. Today
+// only Events have a sort rule (newest-first); every other resourceType
+// keeps the API server's own order.
+//
+// The caller MUST invoke this before client-side filtering and before
+// output.ProcessRuntimeObjects: truncation to MaxItems keeps a prefix of
+// the slice, so sorting afterwards would order an arbitrary subset rather
+// than select the most relevant items.
+//
+// Items must be *unstructured.Unstructured (which is what the k8s client
+// returns). A non-unstructured item makes the whole sort a no-op rather
+// than a partial reorder.
+func sortItemsForResourceType(items []runtime.Object, resourceType string) {
+	rules, ok := listKindRulesByType[normalizeResourceType(resourceType)]
+	if !ok || rules.sort == nil {
+		return
+	}
+	for _, it := range items {
+		if _, ok := it.(*unstructured.Unstructured); !ok {
+			return
+		}
+	}
+	rules.sort(items)
+}
+
+// sortEventItemsNewestFirst orders events by their effective timestamp,
+// most recent first — the same ordering the describe handler applies to the
+// events it embeds. Without it, `list` returns events in etcd key order, so
+// a `limit` silently yields an arbitrary alphabetical slice rather than the
+// most recent activity, and stale events crowd out current ones.
+//
+// Events with no parseable timestamp sort last: they carry no recency
+// signal, so they must not displace events that do.
+func sortEventItemsNewestFirst(items []runtime.Object) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return unstructuredEventTime(items[i]).After(unstructuredEventTime(items[j]))
+	})
+}
+
+// unstructuredEventTime is the unstructured counterpart of
+// effectiveEventTime: it returns the best available timestamp for ordering
+// an event, using the same precedence (lastTimestamp, then eventTime, then
+// firstTimestamp) that summarizeResource reports as `lastSeen`, so the
+// ordering always agrees with the timestamp the caller sees.
+//
+// A missing, non-string or unparseable value yields the zero time, which
+// sorts last under sortEventItemsNewestFirst.
+func unstructuredEventTime(item runtime.Object) time.Time {
+	u, ok := item.(*unstructured.Unstructured)
+	if !ok {
+		return time.Time{}
+	}
+	for _, key := range []string{"lastTimestamp", "eventTime", "firstTimestamp"} {
+		v, found, err := unstructured.NestedString(u.Object, key)
+		if err != nil || !found || v == "" {
+			continue
+		}
+		// Kubernetes serialises metav1.Time as RFC3339; metav1.MicroTime
+		// (eventTime) adds sub-second precision, which RFC3339 accepts.
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // compactEventItem trims null timestamp siblings and empty source from a
@@ -395,6 +467,12 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 		slog.String("resourceType", resourceType),
 		slog.Int("items", paginatedResponse.TotalItems),
 		slog.Duration("duration", k8sDuration))
+
+	// Impose a per-Kind order (events: newest first) before anything narrows
+	// the slice. Both the client-side filter below and the MaxItems
+	// truncation inside ProcessRuntimeObjects keep a prefix, so this has to
+	// happen first for `limit` to mean "the most recent N".
+	sortItemsForResourceType(paginatedResponse.Items, resourceType)
 
 	// Apply client-side filtering if criteria provided
 	if len(filterCriteria) > 0 {

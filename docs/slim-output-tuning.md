@@ -209,6 +209,41 @@ under-threshold env list) is preserved verbatim. Callers that need the
 full shape can always pass `output: wide` (or `output: full`) — secret
 masking still applies.
 
+## Compact Pod summary fields
+
+The compact `list` summary (`fullOutput: false`, the default) is a separate,
+hand-written per-Kind projection — it is built by `summarizeResource` and is
+**not** the slim-processed manifest, so the `output` format has no effect on it.
+For Pods (`extractPodInfo`) it reports:
+
+| Field                         | Source                                                | Notes                                                                       |
+|-------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------------|
+| `status`                      | `status.phase`                                        | `Running` / `Pending` / `Failed` / `Succeeded` / `Unknown`                   |
+| `ready`                       | `status.containerStatuses[*].ready`                   | `"<ready>/<total>"`; absent for an unscheduled pod with no container statuses |
+| `extra.restarts`              | sum of `restartCount`                                 | Summed across containers, not per-container                                 |
+| `extra.containers`            | `len(spec.containers)`                                |                                                                             |
+| `extra.node`                  | `spec.nodeName`                                       | Absent while unscheduled                                                    |
+| `extra.reason`                | `status.reason`                                       | `Evicted`, `NodeShutdown`, … — only set when present                        |
+| `extra.terminating`           | `metadata.deletionTimestamp` present                  | `true` only; absent otherwise                                               |
+| `extra.waitingReasons`        | distinct `containerStatuses[*].state.waiting.reason`  | `CrashLoopBackOff`, `ImagePullBackOff`, `CreateContainerConfigError`, …      |
+| `extra.lastTerminationReason` | distinct `containerStatuses[*].lastState.terminated.reason` | `OOMKilled`, `Error`, …                                                |
+
+The last four exist so a caller can reason about pod health from **live state**
+alone. Two failure modes were previously invisible in compact output:
+
+- **A crashlooping pod reports `status.phase: Running`.** Without
+  `waitingReasons`, restart loops could only be detected via `reason=BackOff`
+  events — but events outlive the pod they describe, so a loop that a
+  replacement pod had already resolved kept being reported as current.
+- **An evicted husk and a live failure both report `Failed` with `0/N` ready.**
+  `reason` and `terminating` distinguish a pod that is on its way out (and has
+  probably already been replaced) from one that is actually broken.
+
+`waitingReasons` and `lastTerminationReason` are de-duplicated and sorted, so a
+multi-container pod whose containers share one reason costs a single entry and
+output is stable across calls. All four keys are omitted when empty, so healthy
+pods pay nothing.
+
 ## Helm/Flux bookkeeping annotations
 
 `metadata.annotations.meta.helm.sh/release-name` and

@@ -4,10 +4,15 @@ package resource
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
@@ -732,4 +737,199 @@ func TestGetOutputProcessorForFormat(t *testing.T) {
 				"MaskSecrets must stay enabled for output=%q", tt.outputFormat)
 		})
 	}
+}
+
+// eventObj builds a minimal event list item carrying exactly one of the three
+// timestamp fields, mirroring how the apiserver populates them (core/v1
+// events set lastTimestamp/firstTimestamp; events.k8s.io/v1 set eventTime).
+func eventObj(name, timestampField, timestamp string) runtime.Object {
+	obj := map[string]any{
+		"kind":       "Event",
+		"apiVersion": "v1",
+		"metadata":   map[string]any{"name": name, "namespace": "kube-system"},
+		"reason":     "BackOff",
+	}
+	if timestampField != "" {
+		obj[timestampField] = timestamp
+	}
+	return &unstructured.Unstructured{Object: obj}
+}
+
+func eventNames(items []runtime.Object) []string {
+	names := make([]string, 0, len(items))
+	for _, it := range items {
+		u, ok := it.(*unstructured.Unstructured)
+		if !ok {
+			names = append(names, "<not-unstructured>")
+			continue
+		}
+		names = append(names, u.GetName())
+	}
+	return names
+}
+
+// TestSortItemsForResourceType_Events pins the newest-first ordering of event
+// list results. The apiserver returns events in etcd key order (namespace/name),
+// so without this sort a `limit` yields an arbitrary alphabetical slice: stale
+// events crowd out current ones and a caller asking for "recent events" is
+// silently handed old ones. Ordering must also agree with the `lastSeen` value
+// summarizeResource reports, hence the shared timestamp precedence.
+func TestSortItemsForResourceType_Events(t *testing.T) {
+	t.Run("newest first regardless of input order", func(t *testing.T) {
+		items := []runtime.Object{
+			eventObj("old", "lastTimestamp", "2026-07-29T10:00:00Z"),
+			eventObj("newest", "lastTimestamp", "2026-07-29T12:00:00Z"),
+			eventObj("middle", "lastTimestamp", "2026-07-29T11:00:00Z"),
+		}
+
+		sortItemsForResourceType(items, "events")
+
+		assert.Equal(t, []string{"newest", "middle", "old"}, eventNames(items))
+	})
+
+	t.Run("all accepted resourceType spellings sort", func(t *testing.T) {
+		for _, resourceType := range []string{"events", "event", "ev", "Events", "EVENT"} {
+			items := []runtime.Object{
+				eventObj("old", "lastTimestamp", "2026-07-29T10:00:00Z"),
+				eventObj("new", "lastTimestamp", "2026-07-29T12:00:00Z"),
+			}
+			sortItemsForResourceType(items, resourceType)
+			assert.Equal(t, []string{"new", "old"}, eventNames(items),
+				"resourceType %q must sort", resourceType)
+		}
+	})
+
+	t.Run("each timestamp field is honoured", func(t *testing.T) {
+		items := []runtime.Object{
+			eventObj("first-ts", "firstTimestamp", "2026-07-29T10:00:00Z"),
+			eventObj("event-ts", "eventTime", "2026-07-29T12:00:00.123456Z"),
+			eventObj("last-ts", "lastTimestamp", "2026-07-29T11:00:00Z"),
+		}
+
+		sortItemsForResourceType(items, "events")
+
+		assert.Equal(t, []string{"event-ts", "last-ts", "first-ts"}, eventNames(items))
+	})
+
+	t.Run("lastTimestamp wins over the other fields", func(t *testing.T) {
+		// An event carrying every field must be ordered by lastTimestamp,
+		// which is the one summarizeResource reports as lastSeen.
+		multi := &unstructured.Unstructured{Object: map[string]any{
+			"kind":           "Event",
+			"metadata":       map[string]any{"name": "multi"},
+			"firstTimestamp": "2026-07-29T09:00:00Z",
+			"eventTime":      "2026-07-29T09:30:00Z",
+			"lastTimestamp":  "2026-07-29T13:00:00Z",
+		}}
+		items := []runtime.Object{
+			eventObj("noon", "lastTimestamp", "2026-07-29T12:00:00Z"),
+			multi,
+		}
+
+		sortItemsForResourceType(items, "events")
+
+		assert.Equal(t, []string{"multi", "noon"}, eventNames(items))
+	})
+
+	t.Run("timestampless and unparseable events sort last", func(t *testing.T) {
+		items := []runtime.Object{
+			eventObj("no-timestamp", "", ""),
+			eventObj("garbage", "lastTimestamp", "not-a-timestamp"),
+			eventObj("dated", "lastTimestamp", "2026-07-29T10:00:00Z"),
+		}
+
+		sortItemsForResourceType(items, "events")
+
+		// The dated event must come first; the two without usable recency
+		// keep their relative input order (the sort is stable).
+		assert.Equal(t, []string{"dated", "no-timestamp", "garbage"}, eventNames(items))
+	})
+
+	t.Run("non-event resourceTypes keep API order", func(t *testing.T) {
+		items := []runtime.Object{
+			eventObj("b-pod", "lastTimestamp", "2026-07-29T10:00:00Z"),
+			eventObj("a-pod", "lastTimestamp", "2026-07-29T12:00:00Z"),
+		}
+
+		sortItemsForResourceType(items, "pods")
+
+		assert.Equal(t, []string{"b-pod", "a-pod"}, eventNames(items))
+	})
+
+	t.Run("empty and single-item slices are safe", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			sortItemsForResourceType(nil, "events")
+			sortItemsForResourceType([]runtime.Object{}, "events")
+			sortItemsForResourceType([]runtime.Object{
+				eventObj("only", "lastTimestamp", "2026-07-29T10:00:00Z"),
+			}, "events")
+		})
+	})
+
+	t.Run("a non-unstructured item leaves the slice untouched", func(t *testing.T) {
+		// Rather than reorder a partially-comparable slice, bail out: a
+		// half-sorted result would be worse than the API's own order.
+		items := []runtime.Object{
+			eventObj("old", "lastTimestamp", "2026-07-29T10:00:00Z"),
+			&corev1.Event{},
+			eventObj("new", "lastTimestamp", "2026-07-29T12:00:00Z"),
+		}
+
+		sortItemsForResourceType(items, "events")
+
+		assert.Equal(t, []string{"old", "<not-unstructured>", "new"}, eventNames(items))
+	})
+}
+
+// TestUnstructuredEventTime_MatchesEffectiveEventTime pins the two event-time
+// helpers to the same field precedence. summarizeResource reports `lastSeen`
+// from the unstructured path while the describe handler sorts via the typed
+// path; if they disagreed, list output would be ordered by one timestamp and
+// labelled with another.
+func TestUnstructuredEventTime_MatchesEffectiveEventTime(t *testing.T) {
+	lastTS := metav1.Date(2026, 7, 29, 13, 0, 0, 0, time.UTC)
+	firstTS := metav1.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
+	eventTS := metav1.NewMicroTime(time.Date(2026, 7, 29, 11, 0, 0, 0, time.UTC))
+
+	tests := []struct {
+		name  string
+		typed corev1.Event
+		obj   map[string]any
+	}{
+		{
+			name:  "lastTimestamp preferred",
+			typed: corev1.Event{LastTimestamp: lastTS, FirstTimestamp: firstTS, EventTime: eventTS},
+			obj: map[string]any{
+				"lastTimestamp":  lastTS.UTC().Format(time.RFC3339),
+				"firstTimestamp": firstTS.UTC().Format(time.RFC3339),
+				"eventTime":      eventTS.UTC().Format(time.RFC3339Nano),
+			},
+		},
+		{
+			name:  "eventTime when lastTimestamp absent",
+			typed: corev1.Event{FirstTimestamp: firstTS, EventTime: eventTS},
+			obj: map[string]any{
+				"firstTimestamp": firstTS.UTC().Format(time.RFC3339),
+				"eventTime":      eventTS.UTC().Format(time.RFC3339Nano),
+			},
+		},
+		{
+			name:  "firstTimestamp as last resort",
+			typed: corev1.Event{FirstTimestamp: firstTS},
+			obj:   map[string]any{"firstTimestamp": firstTS.UTC().Format(time.RFC3339)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := unstructuredEventTime(&unstructured.Unstructured{Object: tt.obj})
+			assert.True(t, got.Equal(effectiveEventTime(tt.typed)),
+				"unstructured %v must match typed %v", got, effectiveEventTime(tt.typed))
+		})
+	}
+
+	t.Run("no timestamp yields the zero time", func(t *testing.T) {
+		got := unstructuredEventTime(&unstructured.Unstructured{Object: map[string]any{}})
+		assert.True(t, got.IsZero())
+	})
 }
