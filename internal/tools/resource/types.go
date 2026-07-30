@@ -2,6 +2,7 @@ package resource
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -264,18 +265,63 @@ func extractPodInfo(obj *unstructured.Unstructured, summary *ResourceSummary) {
 		summary.Status = status
 	}
 
-	// Calculate ready containers
-	var readyContainers, totalContainers int
+	// Pod-level failure reason: "Evicted", "NodeShutdown", "Shutdown",
+	// "TerminationByKubelet", ... Without it a husk left behind by an
+	// eviction is indistinguishable from a pod that is failing right now,
+	// since both report phase Failed and 0/N ready.
+	if reason, found, _ := unstructured.NestedString(obj.Object, "status", "reason"); found && reason != "" {
+		summary.Extra["reason"] = reason
+	}
+
+	// A pod being deleted is not a broken pod. Report the fact rather than
+	// the timestamp: callers only need the boolean, and `age` already
+	// carries the timing.
+	if ts, found, _ := unstructured.NestedString(obj.Object, "metadata", "deletionTimestamp"); found && ts != "" {
+		summary.Extra["terminating"] = true
+	}
+
+	// Walk containerStatuses once for everything derived from it: the ready
+	// count, the restart total, and the per-container waiting / previous
+	// termination reasons.
 	if containerStatuses, found, _ := unstructured.NestedSlice(obj.Object, "status", "containerStatuses"); found {
-		totalContainers = len(containerStatuses)
+		var readyContainers int
+		var totalRestarts int64
+		var waitingReasons, lastTerminationReasons []string
+
 		for _, cs := range containerStatuses {
-			if csMap, ok := cs.(map[string]interface{}); ok {
-				if ready, found, _ := unstructured.NestedBool(csMap, "ready"); found && ready {
-					readyContainers++
-				}
+			csMap, ok := cs.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if ready, found, _ := unstructured.NestedBool(csMap, "ready"); found && ready {
+				readyContainers++
+			}
+			if restarts, found, _ := unstructured.NestedInt64(csMap, "restartCount"); found {
+				totalRestarts += restarts
+			}
+			// CrashLoopBackOff / ImagePullBackOff / ErrImagePull /
+			// CreateContainerConfigError. This is the authoritative live
+			// signal for a restart loop: a crashlooping pod reports phase
+			// Running, so without it callers have to fall back to BackOff
+			// events, which outlive the pod they describe.
+			if reason, found, _ := unstructured.NestedString(csMap, "state", "waiting", "reason"); found && reason != "" {
+				waitingReasons = append(waitingReasons, reason)
+			}
+			// Why the previous incarnation died — OOMKilled, Error,
+			// ContainerStatusUnknown — the root cause behind a restart count.
+			if reason, found, _ := unstructured.NestedString(csMap, "lastState", "terminated", "reason"); found && reason != "" {
+				lastTerminationReasons = append(lastTerminationReasons, reason)
 			}
 		}
-		summary.Ready = fmt.Sprintf("%d/%d", readyContainers, totalContainers)
+
+		summary.Ready = fmt.Sprintf("%d/%d", readyContainers, len(containerStatuses))
+		summary.Extra["restarts"] = totalRestarts
+		if r := sortedUnique(waitingReasons); len(r) > 0 {
+			summary.Extra["waitingReasons"] = r
+		}
+		if r := sortedUnique(lastTerminationReasons); len(r) > 0 {
+			summary.Extra["lastTerminationReason"] = r
+		}
 	}
 
 	// Add container count
@@ -287,19 +333,27 @@ func extractPodInfo(obj *unstructured.Unstructured, summary *ResourceSummary) {
 	if nodeName, found, _ := unstructured.NestedString(obj.Object, "spec", "nodeName"); found {
 		summary.Extra["node"] = nodeName
 	}
+}
 
-	// Add restart count
-	if containerStatuses, found, _ := unstructured.NestedSlice(obj.Object, "status", "containerStatuses"); found {
-		var totalRestarts int64
-		for _, cs := range containerStatuses {
-			if csMap, ok := cs.(map[string]interface{}); ok {
-				if restarts, found, _ := unstructured.NestedInt64(csMap, "restartCount"); found {
-					totalRestarts += restarts
-				}
-			}
-		}
-		summary.Extra["restarts"] = totalRestarts
+// sortedUnique de-duplicates and sorts a slice of reason strings. A pod's
+// containers commonly share one reason (all CrashLoopBackOff), so collapsing
+// duplicates keeps the summary short, and sorting keeps output stable across
+// calls regardless of container ordering.
+func sortedUnique(values []string) []string {
+	if len(values) == 0 {
+		return nil
 	}
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, v := range values {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		unique = append(unique, v)
+	}
+	sort.Strings(unique)
+	return unique
 }
 
 func extractDeploymentInfo(obj *unstructured.Unstructured, summary *ResourceSummary) {

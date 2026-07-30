@@ -361,3 +361,50 @@ func makeTestPods(count int) []map[string]interface{} {
 	}
 	return pods
 }
+
+// TestExtractStatus_DaemonSet pins DaemonSet bucketing. DaemonSets have no
+// spec.replicas and report their counts under status.desiredNumberScheduled /
+// numberReady / numberAvailable, so routing them through the generic workload
+// extractor read replicas == 0 and bucketed every DaemonSet in the cluster as
+// "Scaled to Zero" — hiding real degradation behind a benign-looking label.
+func TestExtractStatus_DaemonSet(t *testing.T) {
+	daemonSet := func(desired, ready, available int) map[string]interface{} {
+		return map[string]interface{}{
+			"kind": "DaemonSet",
+			"status": map[string]interface{}{
+				"desiredNumberScheduled": desired,
+				"numberReady":            ready,
+				"numberAvailable":        available,
+			},
+		}
+	}
+
+	tests := []struct {
+		name                      string
+		desired, ready, available int
+		want                      string
+	}{
+		{"fully scheduled and ready", 5, 5, 5, "Ready"},
+		{"some nodes not ready", 5, 3, 3, "Partially Ready"},
+		{"no pod ready anywhere", 5, 0, 0, "NotReady"},
+		{"ready but not yet available", 5, 5, 3, "Partially Ready"},
+		{"nothing should run", 0, 0, 0, "Scaled to Zero"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractStatus(daemonSet(tt.desired, tt.ready, tt.available))
+			if got != tt.want {
+				t.Errorf("extractStatus(DaemonSet %d/%d ready, %d available) = %q, want %q",
+					tt.ready, tt.desired, tt.available, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("missing status is Unknown", func(t *testing.T) {
+		got := extractStatus(map[string]interface{}{"kind": "DaemonSet"})
+		if got != "Unknown" {
+			t.Errorf("extractStatus(DaemonSet without status) = %q, want %q", got, "Unknown")
+		}
+	})
+}

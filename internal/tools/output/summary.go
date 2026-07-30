@@ -192,8 +192,10 @@ func extractStatus(obj map[string]interface{}) string {
 	switch kind {
 	case "pod":
 		return extractPodStatus(obj)
-	case "deployment", "replicaset", "statefulset", "daemonset":
+	case "deployment", "replicaset", "statefulset":
 		return extractWorkloadStatus(obj)
+	case "daemonset":
+		return extractDaemonSetStatus(obj)
 	case "node":
 		return extractNodeStatus(obj)
 	case "persistentvolumeclaim", "pvc":
@@ -240,6 +242,40 @@ func extractWorkloadStatus(obj map[string]interface{}) string {
 		return statusReady
 	}
 	if readyReplicas > 0 {
+		return statusPartiallyReady
+	}
+	return statusNotReady
+}
+
+// extractDaemonSetStatus extracts status from a DaemonSet resource.
+//
+// DaemonSets need their own extractor rather than sharing
+// extractWorkloadStatus: their replica counts live under different names
+// (status.desiredNumberScheduled / numberReady / numberAvailable) and they
+// have no spec.replicas at all. Routing them through the workload extractor
+// therefore read replicas == 0 and bucketed every DaemonSet in the cluster
+// as "Scaled to Zero", hiding real degradation.
+//
+// desiredNumberScheduled == 0 genuinely means nothing should run (no node
+// matches the node selector, or the cluster has no nodes yet), so it maps to
+// the same "Scaled to Zero" bucket a zero-replica Deployment gets.
+func extractDaemonSetStatus(obj map[string]interface{}) string {
+	status, ok := obj["status"].(map[string]interface{})
+	if !ok {
+		return statusUnknown
+	}
+
+	desired, _ := getNestedInt(status, "desiredNumberScheduled")
+	ready, _ := getNestedInt(status, "numberReady")
+	available, _ := getNestedInt(status, "numberAvailable")
+
+	if desired == 0 {
+		return statusScaledToZero
+	}
+	if ready >= desired && available >= desired {
+		return statusReady
+	}
+	if ready > 0 {
 		return statusPartiallyReady
 	}
 	return statusNotReady

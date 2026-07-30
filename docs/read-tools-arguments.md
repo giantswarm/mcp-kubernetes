@@ -29,7 +29,7 @@ target a specific cluster or kube-context.
 | `containerName` |    -      |    -      |     -       | optional  | Required for multi-container pods.                                                          |
 | `allNamespaces` | optional  |    -      |     -       |    -      | List namespaced resources across all namespaces.                                            |
 | `labelSelector` | optional  |    -      |     -       |    -      | Server-side label selector (`app=nginx,env=prod`).                                          |
-| `fieldSelector` | optional  |    -      |     -       |    -      | Server-side field selector (limited fields).                                                |
+| `fieldSelector` | optional  |    -      |     -       |    -      | Server-side field selector; selectable fields vary per Kind, and no Kind exposes a timestamp. See [selectable fields](#server-side-field-selectors). |
 | `filter`        | optional  |    -      |     -       |    -      | Client-side filter for advanced cases. See [client-side-filtering.md](client-side-filtering.md). |
 
 ## Output shaping
@@ -54,6 +54,63 @@ target a specific cluster or kube-context.
 |-----------------|:--------:|:------:|:-----------:|:-------:|------------------------------------------------------------------------|
 | `limit`         | optional |   -    |     -       |    -    | Maximum number of items per page (default 20, max 1000).               |
 | `continue`      | optional |   -    |     -       |    -    | Continue token from a previous paginated response.                     |
+
+## Result ordering
+
+`list` applies one Kind-specific ordering rule, and otherwise preserves the API
+server's own order. This matters because `limit` keeps a **prefix** of the
+result, so ordering decides which items a bounded call actually returns.
+
+- **Events** are sorted **newest-first**, by `lastTimestamp`, then `eventTime`,
+  then `firstTimestamp` — the same precedence reported as `lastSeen` in compact
+  output, and the same ordering `describe` applies to its embedded events.
+  Events with no parseable timestamp sort last.
+
+  A client-side sort is only meaningful if it sees more than the caller's page:
+  the API server applies `limit` in its own key order, so asking it for 15
+  events and sorting those would reorder an arbitrary alphabetical slice and
+  still miss the most recent activity. Event queries are therefore **scanned up
+  to an internal ceiling of 5000 matching events**, sorted, and only then
+  truncated to `limit` — the same shape as `describe` (which fetches every event
+  for the object, then sorts and truncates) and as `kubectl get events
+  --sort-by=.lastTimestamp`. So `{"resourceType": "events", "limit": 15}` really
+  does return the 15 most recent events, as long as fewer than 5000 matched.
+
+  Two consequences worth knowing:
+
+  - If a scan reaches the ceiling, older events were not read and the newest-15
+    claim is no longer exact. The response says so — `metadata.ordering` in
+    compact output, `_meta.hint` with `fullOutput: true` — and the fix is to
+    narrow the query with `namespace` / `fieldSelector` / `labelSelector`.
+  - An event query returns **no `continue` token**, because "the next N by
+    recency" cannot be expressed as a position in the API server's key-order
+    pagination. Passing a `continue` token explicitly opts out of the widened
+    scan and serves that page in unsorted API order.
+- **Every other Kind** is returned in the API server's order, which is
+  namespace/name ascending. A `limit` therefore yields an alphabetical prefix —
+  *not* the newest, largest or unhealthiest items. To bound a result set
+  meaningfully, narrow it with `labelSelector` / `fieldSelector` / `filter`
+  rather than relying on `limit`.
+
+Note that client-side `filter` is applied **after** the server-side `limit`, so
+a filtered call needs a `limit` large enough to cover the candidate set before
+filtering (and then pages via `continue`).
+
+## Server-side field selectors
+
+Only fields the API server indexes are selectable, and the set is per-Kind.
+Passing an unindexed field makes the API server reject the request.
+
+| Kind    | Selectable fields                                                                                                                                    |
+|---------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Pods    | `metadata.name`, `metadata.namespace`, `spec.nodeName`, `status.phase`                                                                               |
+| Events  | `metadata.name`, `metadata.namespace`, `reason`, `type`, `involvedObject.kind`, `involvedObject.name`, `involvedObject.namespace`, `involvedObject.fieldPath` |
+| Others  | `metadata.name`, `metadata.namespace`                                                                                                                |
+
+**No Kind exposes a timestamp field**, so "events from the last 10 minutes"
+cannot be expressed server-side, and `filter` is equality-only so it cannot
+express it either. Rely on the newest-first event ordering above and compare
+`lastSeen` on the returned items.
 
 ## `output` semantics
 
