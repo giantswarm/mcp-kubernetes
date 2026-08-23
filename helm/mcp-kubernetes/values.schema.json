@@ -1,1049 +1,919 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "properties": {
-    "replicaCount": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "image": {
-      "type": "object",
-      "properties": {
-        "registry": {
-          "type": "string"
-        },
-        "repository": {
-          "type": "string"
-        },
-        "pullPolicy": {
-          "type": "string",
-          "enum": ["Always", "Never", "IfNotPresent"]
-        },
-        "tag": {
-          "type": "string"
-        }
-      },
-      "required": ["registry", "repository", "pullPolicy"]
-    },
-    "imagePullSecrets": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
-    },
-    "nameOverride": {
-      "type": "string"
-    },
-    "fullnameOverride": {
-      "type": "string"
-    },
-    "serviceAccount": {
-      "type": "object",
-      "properties": {
-        "create": {
-          "type": "boolean"
-        },
-        "automount": {
-          "type": "boolean"
-        },
-        "annotations": {
-          "type": "object"
-        },
-        "name": {
-          "type": "string"
-        }
-      }
-    },
-    "rbac": {
-      "type": "object",
-      "description": "RBAC configuration for the ServiceAccount",
-      "properties": {
-        "create": {
-          "type": "boolean",
-          "description": "Create RBAC resources (ClusterRole and ClusterRoleBinding)"
-        },
-        "profile": {
-          "type": "string",
-          "description": "RBAC profile: minimal (no permissions), readonly (read-only, no secrets), standard (read/write including secrets), admin (requires adminConfirmation)",
-          "enum": ["minimal", "readonly", "standard", "admin"]
-        },
-        "adminConfirmation": {
-          "type": "boolean",
-          "description": "REQUIRED when using admin profile. Must be set to true to acknowledge the dangerous permissions (RBAC management, pod exec, webhook configuration)"
-        },
-        "custom": {
-          "type": "object",
-          "description": "Custom RBAC rules. WARNING: Overrides profile safety controls when enabled - use with caution",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable custom RBAC rules"
-            },
-            "rules": {
-              "type": "array",
-              "description": "Custom RBAC rules to apply",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "apiGroups": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                  },
-                  "resources": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                  },
-                  "verbs": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                  }
-                },
-                "required": ["apiGroups", "resources", "verbs"]
-              }
-            }
-          }
-        }
-      }
-    },
-    "podAnnotations": {
-      "type": "object"
-    },
-    "podLabels": {
-      "type": "object"
-    },
-    "podSecurityContext": {
-      "type": "object",
-      "properties": {
-        "runAsUser": {
-          "type": "integer"
-        },
-        "runAsGroup": {
-          "type": "integer"
-        },
-        "runAsNonRoot": {
-          "type": "boolean"
-        },
-        "fsGroup": {
-          "type": "integer"
-        }
-      }
-    },
-    "securityContext": {
-      "type": "object",
-      "properties": {
-        "readOnlyRootFilesystem": {
-          "type": "boolean"
-        },
-        "allowPrivilegeEscalation": {
-          "type": "boolean"
-        },
-        "runAsUser": {
-          "type": "integer"
-        },
-        "runAsGroup": {
-          "type": "integer"
-        },
-        "runAsNonRoot": {
-          "type": "boolean"
-        },
-        "seccompProfile": {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string"
-            }
-          }
-        },
-        "capabilities": {
-          "type": "object",
-          "properties": {
-            "drop": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      }
-    },
-    "service": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"]
-        },
-        "port": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        }
-      },
-      "required": ["type", "port"]
-    },
-    "ingress": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "className": {
-          "type": "string"
-        },
-        "annotations": {
-          "type": "object"
-        },
-        "hosts": {
-          "type": "array",
-          "items": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "affinity": {
             "type": "object",
-            "properties": {
-              "host": {
-                "type": "string"
-              },
-              "paths": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "path": {
-                      "type": "string"
-                    },
-                    "pathType": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
+            "additionalProperties": false
         },
-        "tls": {
-          "type": "array"
-        }
-      }
-    },
-    "gatewayAPI": {
-      "type": "object",
-      "description": "Gateway API configuration for HTTPRoute and BackendTrafficPolicy resources",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable Gateway API resources (HTTPRoute)"
-        },
-        "httpRoute": {
-          "type": "object",
-          "description": "HTTPRoute configuration",
-          "properties": {
-            "parentRefs": {
-              "type": "array",
-              "description": "Parent gateway references (required when gatewayAPI.enabled is true)",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Name of the parent Gateway"
-                  },
-                  "namespace": {
-                    "type": "string",
-                    "description": "Namespace of the parent Gateway"
-                  },
-                  "sectionName": {
-                    "type": "string",
-                    "description": "Specific listener on the Gateway (optional)"
-                  }
-                },
-                "required": ["name"]
-              }
-            },
-            "hostnames": {
-              "type": "array",
-              "description": "Hostnames for the route",
-              "items": {
-                "type": "string"
-              }
-            },
-            "rules": {
-              "type": "array",
-              "description": "Custom routing rules (defaults to PathPrefix / if not specified)",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "matches": {
-                    "type": "array",
-                    "description": "Path and header matching rules"
-                  },
-                  "filters": {
-                    "type": "array",
-                    "description": "Request/response filters"
-                  },
-                  "timeouts": {
-                    "type": "object",
-                    "description": "Per-rule timeout configuration"
-                  }
-                }
-              }
-            },
-            "annotations": {
-              "type": "object",
-              "description": "Additional annotations for the HTTPRoute"
-            },
-            "labels": {
-              "type": "object",
-              "description": "Additional labels for the HTTPRoute"
-            }
-          }
-        },
-        "backendTrafficPolicy": {
-          "type": "object",
-          "description": "BackendTrafficPolicy configuration (Envoy Gateway specific)",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable BackendTrafficPolicy resource"
-            },
-            "timeout": {
-              "type": "string",
-              "description": "Request timeout for backend connections (e.g., '300s')",
-              "pattern": "^[0-9]+(s|m|h)$"
-            },
-            "annotations": {
-              "type": "object",
-              "description": "Additional annotations for the BackendTrafficPolicy"
-            },
-            "labels": {
-              "type": "object",
-              "description": "Additional labels for the BackendTrafficPolicy"
-            }
-          }
-        }
-      }
-    },
-    "resources": {
-      "type": "object"
-    },
-    "autoscaling": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "minReplicas": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "maxReplicas": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "targetCPUUtilizationPercentage": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        },
-        "targetMemoryUtilizationPercentage": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        }
-      }
-    },
-    "volumes": {
-      "type": "array"
-    },
-    "volumeMounts": {
-      "type": "array"
-    },
-    "nodeSelector": {
-      "type": "object"
-    },
-    "tolerations": {
-      "type": "array"
-    },
-    "affinity": {
-      "type": "object"
-    },
-    "mcpKubernetes": {
-      "type": "object",
-      "properties": {
-        "debug": {
-          "type": "boolean",
-          "description": "Enable debug mode. WARNING: May expose sensitive information in logs. Only for development/troubleshooting, never in production.",
-          "default": false
-        },
-        "kubernetes": {
-          "type": "object",
-          "properties": {
-            "inCluster": {
-              "type": "boolean"
-            },
-            "kubeconfig": {
-              "type": "string"
-            }
-          }
-        },
-        "oauth": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "baseURL": {
-              "type": "string"
-            },
-            "googleClientID": {
-              "type": "string"
-            },
-            "googleClientSecret": {
-              "type": "string"
-            },
-            "registrationToken": {
-              "type": "string"
-            },
-            "registrationAccessToken": {
-              "type": "string"
-            },
-            "allowPublicRegistration": {
-              "type": "boolean"
-            },
-            "allowInsecureAuthWithoutState": {
-              "type": "boolean"
-            },
-            "allowPrivateURLs": {
-              "type": "boolean",
-              "description": "Allow OAuth URLs that resolve to private/internal IP addresses (for internal deployments)"
-            },
-            "maxClientsPerIP": {
-              "type": "integer"
-            },
-            "encryptionKey": {
-              "type": "boolean"
-            },
-            "encryptionKeyValue": {
-              "type": "string"
-            },
-            "disableStreaming": {
-              "type": "boolean"
-            },
-            "existingSecret": {
-              "type": "string"
-            },
-            "provider": {
-              "type": "string",
-              "enum": ["dex", "google"],
-              "description": "OAuth provider: dex or google"
-            },
-            "dex": {
-              "type": "object",
-              "description": "Dex OIDC provider configuration",
-              "properties": {
-                "issuerURL": {
-                  "type": "string",
-                  "description": "Dex OIDC issuer URL"
-                },
-                "clientID": {
-                  "type": "string",
-                  "description": "Dex OAuth Client ID"
-                },
-                "clientSecret": {
-                  "type": "string",
-                  "description": "Dex OAuth Client Secret"
-                },
-                "connectorID": {
-                  "type": "string",
-                  "description": "Dex connector ID to bypass connector selection screen"
-                },
-                "kubernetesAuthenticatorClientID": {
-                  "type": "string",
-                  "description": "Kubernetes authenticator client ID for cross-client audience tokens"
-                },
-                "caSecret": {
-                  "type": "object",
-                  "description": "CA certificate secret for Dex TLS verification",
-                  "properties": {
-                    "name": {
-                      "type": "string"
-                    },
-                    "key": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            },
-            "enableDownstreamOAuth": {
-              "type": "boolean",
-              "description": "Enable downstream OAuth token passthrough to Kubernetes API"
-            },
-            "redirectURISecurity": {
-              "type": "object",
-              "description": "Redirect URI security configuration. All settings default to secure values.",
-              "properties": {
-                "disableProductionMode": {
-                  "type": "boolean",
-                  "description": "Disable production mode (allows HTTP, private IPs). WARNING: Significantly weakens security."
-                },
-                "allowLocalhostRedirectURIs": {
-                  "type": "boolean",
-                  "description": "Allow http://localhost redirect URIs for native apps (RFC 8252)"
-                },
-                "allowPrivateIPRedirectURIs": {
-                  "type": "boolean",
-                  "description": "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk."
-                },
-                "allowLinkLocalRedirectURIs": {
-                  "type": "boolean",
-                  "description": "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk."
-                },
-                "disableDNSValidation": {
-                  "type": "boolean",
-                  "description": "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks."
-                },
-                "disableDNSValidationStrict": {
-                  "type": "boolean",
-                  "description": "Disable fail-closed DNS validation. WARNING: Allows validation bypass via DNS failures."
-                },
-                "disableAuthorizationTimeValidation": {
-                  "type": "boolean",
-                  "description": "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks."
-                }
-              }
-            },
-            "trustedPublicRegistrationSchemes": {
-              "type": "array",
-              "description": "URI schemes allowed for unauthenticated client registration (e.g., cursor, vscode). Enables MCP clients that don't support registration tokens.",
-              "items": {
-                "type": "string"
-              }
-            },
-            "disableStrictSchemeMatching": {
-              "type": "boolean",
-              "description": "Allow mixed redirect URI schemes with trusted scheme registration. WARNING: Reduces security."
-            },
-            "enableCIMD": {
-              "type": "boolean",
-              "description": "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers for decentralized registration. Default: true."
-            },
-            "cimd": {
-              "type": "object",
-              "description": "CIMD (Client ID Metadata Documents) configuration",
-              "properties": {
-                "allowPrivateIPs": {
-                  "type": "boolean",
-                  "description": "Allow CIMD metadata URLs that resolve to private/internal IP addresses. WARNING: Reduces SSRF protection. Only for internal deployments. Default: false."
-                }
-              }
-            },
-            "trustedAudiences": {
-              "type": "array",
-              "description": "Trusted audiences for SSO token forwarding. When configured, tokens with these audience claims are validated via JWKS signature verification, enabling SSO from upstream aggregators.",
-              "items": {
-                "type": "string"
-              },
-              "default": [],
-              "examples": [["muster-client", "my-aggregator-client"]]
-            },
-            "trustedIssuers": {
-              "type": "array",
-              "description": "Trusted external JWT issuers for on-behalf-of authentication. Each entry allows Bearer JWTs from that issuer to be accepted at /mcp without a human SSO flow.",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["issuer", "jwksURL"],
-                "properties": {
-                  "issuer": {
-                    "type": "string",
-                    "description": "Expected `iss` claim value in the JWT."
-                  },
-                  "jwksURL": {
-                    "type": "string",
-                    "description": "JWKS endpoint used to verify JWT signatures."
-                  },
-                  "allowedAudiences": {
-                    "type": "array",
-                    "description": "Accepted `aud` values. Should be set to the kubernetes-mcp BASE_URL in production — an empty list accepts tokens for any audience, enabling cross-service token reuse.",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "allowedTargetClusters": {
-                    "type": "array",
-                    "description": "Optional list of workload cluster names this issuer's tokens may target. Empty list allows all clusters. Use to scope blast radius when federation is enabled.",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "allowedClaims": {
-                    "type": "object",
-                    "description": "Optional map of required claim key/value pairs. Tokens lacking these claims are rejected. When subjectClaim is set, the impersonated-subject pattern must live under that key (e.g. allowedClaims.email), not under sub.",
-                    "additionalProperties": {
-                      "type": "string"
-                    }
-                  },
-                  "subjectClaim": {
-                    "type": "string",
-                    "description": "Optional claim name whose value becomes the impersonated subject, replacing the standard sub. Set to 'email' for the muster-obo issuer so muster's opaque sub is remapped to the human email. Validation rejects the token if the claim is absent."
-                  },
-                  "acceptedTypHeaders": {
-                    "type": "array",
-                    "description": "Optional list of accepted `typ` header values. Empty list accepts any typ.",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "allowPrivateIPJWKS": {
-                    "type": "boolean",
-                    "description": "Allow the JWKS endpoint to resolve to a private/loopback IP. Required when the issuer runs on an internal network.",
-                    "default": false
-                  },
-                  "allowPrivateIPJWKSHosts": {
-                    "type": "array",
-                    "description": "Allowlist of hostnames whose JWKS endpoints may resolve to a private/loopback IP. Scoped alternative to allowPrivateIPJWKS — restricts the SSRF exception to specific hosts instead of all private IPs.",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                }
-              },
-              "default": []
-            },
-            "sso": {
-              "type": "object",
-              "description": "SSO security configuration (mcp-oauth v0.2.40+)",
-              "additionalProperties": false,
-              "properties": {
-                "allowPrivateIPs": {
-                  "type": "boolean",
-                  "description": "Allow JWKS endpoints to resolve to private IPs during SSO token validation. Required for private IdP deployments (e.g., Dex on internal networks). WARNING: reduces SSRF protection. Has no effect for Google OAuth (JWKS is always public).",
-                  "default": false
-                }
-              }
-            }
-          }
-        },
-        "env": {
-          "type": "array",
-          "items": {
+        "autoscaling": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
-              "name": {
-                "type": "string"
-              },
-              "value": {
-                "type": "string"
-              }
-            },
-            "required": ["name"]
-          }
-        },
-        "metrics": {
-          "type": "object",
-          "description": "Metrics server configuration. Runs on a separate port for security.",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable the dedicated metrics server (default: true)"
-            },
-            "port": {
-              "type": "integer",
-              "description": "Port for the metrics server (default: 9090)",
-              "minimum": 1,
-              "maximum": 65535
+                "enabled": {
+                    "type": "boolean"
+                },
+                "maxReplicas": {
+                    "type": "integer"
+                },
+                "minReplicas": {
+                    "type": "integer"
+                },
+                "targetCPUUtilizationPercentage": {
+                    "type": "integer"
+                }
             }
-          }
-        }
-      }
-    },
-    "capiMode": {
-      "type": "object",
-      "description": "CAPI Mode configuration for multi-cluster federation",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable CAPI federation mode"
         },
-        "cache": {
-          "type": "object",
-          "description": "Client cache settings for workload cluster connections",
-          "properties": {
-            "ttl": {
-              "type": "string",
-              "description": "Time-to-live for cached clients (e.g., '10m')",
-              "pattern": "^[0-9]+(s|m|h)$"
-            },
-            "maxEntries": {
-              "type": "integer",
-              "description": "Maximum number of cached (cluster, user) pairs",
-              "minimum": 1,
-              "maximum": 10000
-            },
-            "cleanupInterval": {
-              "type": "string",
-              "description": "How often to clean up expired entries (e.g., '1m')",
-              "pattern": "^[0-9]+(s|m|h)$"
+        "capiMode": {
+            "type": "object",
+            "description": "------------------------------------ The RBAC resources created by this chart (ClusterRoles, Roles, RoleBindings) are ONLY used when OAuth Downstream is DISABLED (enableDownstreamOAuth: false).  When OAuth Downstream is ENABLED (enableDownstreamOAuth: true): - The ServiceAccount RBAC is NOT used for Kubernetes API operations - Users must have their own RBAC permissions on the Management Cluster to: * List CAPI Cluster resources (cluster.x-k8s.io/clusters) * Read kubeconfig secrets in organization namespaces - On Workload Clusters, user identity is propagated via impersonation headers - Users need appropriate RBAC on each Workload Cluster they access  See docs/rbac-security.md for detailed RBAC requirements per deployment mode.",
+            "additionalProperties": false,
+            "properties": {
+                "cache": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "cleanupInterval": {
+                            "type": "string"
+                        },
+                        "maxEntries": {
+                            "type": "integer"
+                        },
+                        "ttl": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "connectivity": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "burst": {
+                            "type": "integer"
+                        },
+                        "qps": {
+                            "type": "integer"
+                        },
+                        "requestTimeout": {
+                            "type": "string"
+                        },
+                        "retryAttempts": {
+                            "type": "integer"
+                        },
+                        "retryBackoff": {
+                            "type": "string"
+                        },
+                        "timeout": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "output": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "maskSecrets": {
+                            "type": "boolean"
+                        },
+                        "maxClusters": {
+                            "type": "integer"
+                        },
+                        "maxItems": {
+                            "type": "integer"
+                        },
+                        "maxResponseBytes": {
+                            "type": "integer"
+                        },
+                        "slimOutput": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "privilegedAccess": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "privilegedCAPIDiscovery": {
+                            "type": "boolean"
+                        },
+                        "rateLimit": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "burst": {
+                                    "type": "integer"
+                                },
+                                "perSecond": {
+                                    "type": "number"
+                                }
+                            }
+                        },
+                        "strict": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "rbac": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "allowedNamespaces": {
+                            "type": "array"
+                        },
+                        "clusterWideSecrets": {
+                            "type": "boolean"
+                        },
+                        "create": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "workloadClusterAuth": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "caConfigMapSuffix": {
+                            "type": "string"
+                        },
+                        "disableCaching": {
+                            "type": "boolean"
+                        },
+                        "groupMappings": {
+                            "type": "object",
+                            "additionalProperties": false
+                        },
+                        "mode": {
+                            "type": "string"
+                        }
+                    }
+                }
             }
-          }
         },
-        "connectivity": {
-          "type": "object",
-          "description": "Connectivity settings for workload clusters",
-          "properties": {
-            "timeout": {
-              "type": "string",
-              "description": "Timeout for initial TCP connection (e.g., '5s')",
-              "pattern": "^[0-9]+(s|m|h)$"
-            },
-            "retryAttempts": {
-              "type": "integer",
-              "description": "Number of retry attempts for transient failures",
-              "minimum": 0,
-              "maximum": 10
-            },
-            "retryBackoff": {
-              "type": "string",
-              "description": "Initial backoff between retries (e.g., '1s')",
-              "pattern": "^[0-9]+(s|m|h)$"
-            },
-            "requestTimeout": {
-              "type": "string",
-              "description": "Request timeout for API operations (e.g., '30s')",
-              "pattern": "^[0-9]+(s|m|h)$"
-            },
-            "qps": {
-              "type": "integer",
-              "description": "QPS rate limit for Kubernetes client",
-              "minimum": 1,
-              "maximum": 1000
-            },
-            "burst": {
-              "type": "integer",
-              "description": "Burst limit for Kubernetes client",
-              "minimum": 1,
-              "maximum": 2000
+        "ciliumNetworkPolicy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "annotations": {
+                    "type": "object",
+                    "additionalProperties": false
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": false
+                }
             }
-          }
         },
-        "output": {
-          "type": "object",
-          "description": "Output processing limits for fleet-scale operations",
-          "properties": {
-            "maxItems": {
-              "type": "integer",
-              "description": "Maximum items per query (absolute max: 1000)",
-              "minimum": 1,
-              "maximum": 1000
-            },
-            "maxClusters": {
-              "type": "integer",
-              "description": "Maximum clusters in fleet-wide queries (absolute max: 100)",
-              "minimum": 1,
-              "maximum": 100
-            },
-            "maxResponseBytes": {
-              "type": "integer",
-              "description": "Maximum response size in bytes (absolute max: 2MB)",
-              "minimum": 1024,
-              "maximum": 2097152
-            },
-            "slimOutput": {
-              "type": "boolean",
-              "description": "Enable slim output (removes verbose fields)"
-            },
-            "maskSecrets": {
-              "type": "boolean",
-              "description": "Mask secret data with ***REDACTED***"
+        "fullnameOverride": {
+            "type": "string"
+        },
+        "gatewayAPI": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "backendTrafficPolicy": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "annotations": {
+                            "type": "object",
+                            "additionalProperties": false
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "labels": {
+                            "type": "object",
+                            "additionalProperties": false
+                        },
+                        "timeout": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "httpRoute": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "annotations": {
+                            "type": "object",
+                            "additionalProperties": false
+                        },
+                        "hostnames": {
+                            "type": "array"
+                        },
+                        "labels": {
+                            "type": "object",
+                            "additionalProperties": false
+                        },
+                        "parentRefs": {
+                            "type": "array"
+                        },
+                        "rules": {
+                            "type": "array"
+                        }
+                    }
+                }
             }
-          }
+        },
+        "global": {
+            "type": [
+                "object",
+                "null"
+            ],
+            "description": "Global values shared between all subcharts",
+            "$comment": "Added automatically by 'helm schema' to allow this chart to be used as a Helm dependency, as the `additionalProperties` setting would otherwise collide with Helm's special 'global' values key."
+        },
+        "grafanaDashboards": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "annotations": {
+                    "type": "object",
+                    "additionalProperties": false
+                },
+                "dashboards": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "administrator": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "clusterOperator": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "security": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "folder": {
+                    "type": "string"
+                },
+                "giantswarm": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "organization": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "grafana_dashboard": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "namespace": {
+                    "type": "string"
+                }
+            }
+        },
+        "image": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "pullPolicy": {
+                    "type": "string"
+                },
+                "registry": {
+                    "type": "string"
+                },
+                "repository": {
+                    "type": "string"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "imagePullSecrets": {
+            "type": "array"
+        },
+        "ingress": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "annotations": {
+                    "type": "object",
+                    "additionalProperties": false
+                },
+                "className": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "hosts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "host": {
+                                "type": "string"
+                            },
+                            "paths": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "path": {
+                                            "type": "string"
+                                        },
+                                        "pathType": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "tls": {
+                    "type": "array"
+                }
+            }
+        },
+        "mcpKubernetes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "debug": {
+                    "type": "boolean"
+                },
+                "env": {
+                    "type": "array"
+                },
+                "instrumentation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "detailedLabels": {
+                            "type": "boolean"
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "metricsExporter": {
+                            "type": "string"
+                        },
+                        "otlpEndpoint": {
+                            "type": "string"
+                        },
+                        "otlpInsecure": {
+                            "type": "boolean"
+                        },
+                        "serviceMonitor": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "annotations": {
+                                    "type": "object",
+                                    "additionalProperties": false
+                                },
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "interval": {
+                                    "type": "string"
+                                },
+                                "labels": {
+                                    "type": "object",
+                                    "additionalProperties": false
+                                },
+                                "metricRelabelings": {
+                                    "type": "array"
+                                },
+                                "relabelings": {
+                                    "type": "array"
+                                },
+                                "scrapeTimeout": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "traceSamplingRate": {
+                            "type": "number"
+                        },
+                        "tracingExporter": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "kubernetes": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "inCluster": {
+                            "type": "boolean"
+                        },
+                        "kubeconfig": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "metrics": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "port": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "oauth": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "allowInsecureAuthWithoutState": {
+                            "type": "boolean"
+                        },
+                        "allowPrivateURLs": {
+                            "type": "boolean"
+                        },
+                        "allowPublicRegistration": {
+                            "type": "boolean"
+                        },
+                        "baseURL": {
+                            "type": "string"
+                        },
+                        "cimd": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "allowPrivateIPs": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "dex": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "caSecret": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        }
+                                    }
+                                },
+                                "clientID": {
+                                    "type": "string"
+                                },
+                                "clientSecret": {
+                                    "type": "string"
+                                },
+                                "connectorID": {
+                                    "type": "string"
+                                },
+                                "issuerURL": {
+                                    "type": "string"
+                                },
+                                "kubernetesAuthenticatorClientID": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "disableStreaming": {
+                            "type": "boolean"
+                        },
+                        "disableStrictSchemeMatching": {
+                            "type": "boolean"
+                        },
+                        "enableCIMD": {
+                            "type": "boolean"
+                        },
+                        "enableDownstreamOAuth": {
+                            "type": "boolean"
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "encryptionKey": {
+                            "type": "boolean"
+                        },
+                        "existingSecret": {
+                            "type": "string"
+                        },
+                        "google": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "clientID": {
+                                    "type": "string"
+                                },
+                                "clientSecret": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "maxClientsPerIP": {
+                            "type": "integer"
+                        },
+                        "provider": {
+                            "type": "string"
+                        },
+                        "redirectURISecurity": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "allowLinkLocalRedirectURIs": {
+                                    "type": "boolean"
+                                },
+                                "allowLocalhostRedirectURIs": {
+                                    "type": "boolean"
+                                },
+                                "allowPrivateIPRedirectURIs": {
+                                    "type": "boolean"
+                                },
+                                "disableAuthorizationTimeValidation": {
+                                    "type": "boolean"
+                                },
+                                "disableDNSValidation": {
+                                    "type": "boolean"
+                                },
+                                "disableDNSValidationStrict": {
+                                    "type": "boolean"
+                                },
+                                "disableProductionMode": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "registrationAccessToken": {
+                            "type": "string"
+                        },
+                        "sso": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "allowPrivateIPs": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "storage": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "type": {
+                                    "type": "string"
+                                },
+                                "valkey": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "db": {
+                                            "type": "integer"
+                                        },
+                                        "existingSecret": {
+                                            "type": "string"
+                                        },
+                                        "keyPrefix": {
+                                            "type": "string"
+                                        },
+                                        "password": {
+                                            "type": "string"
+                                        },
+                                        "secretKeyPassword": {
+                                            "type": "string"
+                                        },
+                                        "tls": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                }
+                                            }
+                                        },
+                                        "url": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "trustedAudiences": {
+                            "type": "array"
+                        },
+                        "trustedIssuers": {
+                            "type": "array"
+                        },
+                        "trustedPublicRegistrationSchemes": {
+                            "type": "array"
+                        }
+                    }
+                },
+                "service": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "port": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        },
+        "nameOverride": {
+            "type": "string"
+        },
+        "nodeSelector": {
+            "type": "object",
+            "additionalProperties": false
+        },
+        "podAnnotations": {
+            "type": "object",
+            "additionalProperties": false
+        },
+        "podLabels": {
+            "type": "object",
+            "additionalProperties": false
+        },
+        "podSecurityContext": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "fsGroup": {
+                    "type": "integer"
+                },
+                "runAsGroup": {
+                    "type": "integer"
+                },
+                "runAsNonRoot": {
+                    "type": "boolean"
+                },
+                "runAsUser": {
+                    "type": "integer"
+                }
+            }
+        },
+        "prometheusRules": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "annotations": {
+                    "type": "object",
+                    "additionalProperties": false
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": false
+                },
+                "rules": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "mcpKubernetesClusterOperationFailures": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "mcpKubernetesHighErrorRate": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "mcpKubernetesK8sOperationFailures": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "mcpKubernetesOAuthFailures": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "mcpKubernetesWorkloadClusterAuthFailures": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                },
+                "runbookBaseUrl": {
+                    "type": "string"
+                },
+                "team": {
+                    "type": "string"
+                }
+            }
         },
         "rbac": {
-          "type": "object",
-          "description": "RBAC configuration for CAPI mode",
-          "properties": {
-            "create": {
-              "type": "boolean",
-              "description": "Create CAPI-specific RBAC resources"
-            },
-            "allowedNamespaces": {
-              "type": "array",
-              "description": "Namespaces to grant kubeconfig secret access",
-              "items": {
-                "type": "string"
-              }
-            },
-            "clusterWideSecrets": {
-              "type": "boolean",
-              "description": "Grant cluster-wide secret access (NOT recommended)"
-            }
-          }
-        },
-        "workloadClusterAuth": {
-          "type": "object",
-          "description": "Workload cluster authentication configuration",
-          "properties": {
-            "mode": {
-              "type": "string",
-              "enum": ["impersonation", "sso-passthrough"],
-              "description": "Authentication mode: 'impersonation' (default) uses admin credentials with user impersonation headers; 'sso-passthrough' forwards user's SSO token directly to WC API servers"
-            },
-            "caConfigMapSuffix": {
-              "type": "string",
-              "description": "ConfigMap suffix for CA certificates in sso-passthrough mode (e.g., '-ca-public'). These ConfigMaps contain the cluster's public CA certificate.",
-              "pattern": "^-[a-z0-9-]+$"
-            },
-            "disableCaching": {
-              "type": "boolean",
-              "description": "Disable client caching in sso-passthrough mode. Each request creates a fresh client with current SSO token. Recommended for high-security deployments to ensure token revocation takes effect immediately."
-            },
-            "groupMappings": {
-              "type": "object",
-              "description": "Map of OIDC group identifiers to workload cluster group identifiers for impersonation mode. Keys are source groups, values are target groups. Unmapped groups pass through unchanged.",
-              "additionalProperties": {
-                "type": "string"
-              },
-              "default": {}
-            }
-          }
-        },
-        "privilegedAccess": {
-          "type": "object",
-          "description": "Privileged access configuration for split-credential model. ServiceAccount token is used for kubeconfig secret access and optionally CAPI discovery instead of user OAuth tokens.",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable or disable the split-credential model. When false, all operations use the user's own OAuth token and RBAC (CredentialModeUser). When true (default), the ServiceAccount is used for secret access and optionally CAPI discovery.",
-              "default": true
-            },
-            "strict": {
-              "type": "boolean",
-              "description": "When enabled, fails instead of falling back to user credentials when ServiceAccount access is unavailable. SECURITY RECOMMENDATION: Enable in production to enforce split-credential model.",
-              "default": false
-            },
-            "privilegedCAPIDiscovery": {
-              "type": "boolean",
-              "description": "When enabled, CAPI cluster discovery uses ServiceAccount credentials. All users can see all clusters but workload cluster access is still governed by user RBAC. When disabled, users need their own CAPI RBAC for cluster discovery.",
-              "default": true
-            },
-            "rateLimit": {
-              "type": "object",
-              "description": "Rate limiting for privileged access to prevent abuse",
-              "properties": {
-                "perSecond": {
-                  "type": "number",
-                  "description": "Rate limit per user (requests per second)",
-                  "default": 10.0,
-                  "minimum": 0.1,
-                  "maximum": 1000
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "adminConfirmation": {
+                    "type": "boolean"
                 },
-                "burst": {
-                  "type": "integer",
-                  "description": "Burst size per user (allows short bursts above rate limit)",
-                  "default": 20,
-                  "minimum": 1,
-                  "maximum": 1000
+                "create": {
+                    "type": "boolean"
+                },
+                "custom": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "rules": {
+                            "type": "array"
+                        }
+                    }
+                },
+                "profile": {
+                    "type": "string"
                 }
-              }
             }
-          }
-        }
-      }
-    },
-    "grafanaDashboards": {
-      "type": "object",
-      "description": "Grafana dashboard provisioning configuration. Prerequisites: Prometheus scraping metrics, Grafana sidecar watching for ConfigMaps, Prometheus datasource configured.",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable Grafana dashboard provisioning via ConfigMaps. When enabled, creates ConfigMaps for each dashboard that Grafana's sidecar can discover.",
-          "default": false
         },
-        "namespace": {
-          "type": "string",
-          "description": "Namespace for the dashboard ConfigMaps. Defaults to release namespace. Override when Grafana sidecar watches a specific namespace (common in multi-tenant setups where Grafana runs in a shared monitoring namespace).",
-          "default": ""
+        "replicaCount": {
+            "type": "integer"
         },
-        "labels": {
-          "type": "object",
-          "description": "Labels to add to dashboard ConfigMaps. The 'grafana_dashboard: 1' label is required for standard Grafana sidecar discovery.",
-          "default": {"grafana_dashboard": "1"}
-        },
-        "annotations": {
-          "type": "object",
-          "description": "Additional annotations to add to dashboard ConfigMaps",
-          "default": {}
-        },
-        "folder": {
-          "type": "string",
-          "description": "Grafana folder name where dashboards will appear. The folder is created automatically by the Grafana sidecar if it doesn't exist.",
-          "default": "mcp-kubernetes"
-        },
-        "dashboards": {
-          "type": "object",
-          "description": "Individual dashboard toggles. Each enabled dashboard creates a ConfigMap named <release>-mcp-kubernetes-dashboard-<name>.",
-          "properties": {
-            "administrator": {
-              "type": "object",
-              "description": "Platform Administrator Dashboard - Monitor service health, performance, and Kubernetes operations. ConfigMap suffix: -dashboard-administrator",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Enable the Platform Administrator dashboard",
-                  "default": true
+        "resources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "limits": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "cpu": {
+                            "type": "string"
+                        },
+                        "memory": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "requests": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "cpu": {
+                            "type": "string"
+                        },
+                        "memory": {
+                            "type": "string"
+                        }
+                    }
                 }
-              }
-            },
-            "security": {
-              "type": "object",
-              "description": "Security Operations Dashboard - Incident investigation, audit trails, and anomaly detection. ConfigMap suffix: -dashboard-security",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Enable the Security Operations dashboard",
-                  "default": true
-                }
-              }
-            },
-            "clusterOperator": {
-              "type": "object",
-              "description": "Cluster Operator Dashboard - Multi-cluster federation visibility and workload cluster operations. ConfigMap suffix: -dashboard-cluster-operator",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Enable the Cluster Operator dashboard",
-                  "default": true
-                }
-              }
             }
-          }
         },
-        "giantswarm": {
-          "type": "object",
-          "description": "Giant Swarm specific configuration for dashboard integration. See: https://docs.giantswarm.io/overview/observability/dashboard-management/dashboard-creation/",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable Giant Swarm dashboard integration. When enabled, adds the required label (app.giantswarm.io/kind: dashboard) for automatic detection by Giant Swarm's observability stack.",
-              "default": false
-            },
-            "organization": {
-              "type": "string",
-              "description": "Organization name for Grafana organization targeting. REQUIRED when giantswarm.enabled is true. The dashboard will be provisioned to this Grafana organization. Must match an existing organization's display name in Giant Swarm Grafana. If left empty when giantswarm.enabled is true, the dashboard goes to the default org (likely not intended).",
-              "default": ""
+        "securityContext": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "allowPrivilegeEscalation": {
+                    "type": "boolean"
+                },
+                "capabilities": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "drop": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "readOnlyRootFilesystem": {
+                    "type": "boolean"
+                },
+                "runAsGroup": {
+                    "type": "integer"
+                },
+                "runAsNonRoot": {
+                    "type": "boolean"
+                },
+                "runAsUser": {
+                    "type": "integer"
+                },
+                "seccompProfile": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string"
+                        }
+                    }
+                }
             }
-          }
-        }
-      }
-    },
-    "prometheusRules": {
-      "type": "object",
-      "description": "Prometheus alert rules for mcp-kubernetes-specific metrics. Generic alerts (deployment, restarts, resources) are handled by centralized prometheus-rules.",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable PrometheusRule creation",
-          "default": false
         },
-        "labels": {
-          "type": "object",
-          "description": "Additional labels for the PrometheusRule resource (e.g., observability.giantswarm.io/tenant for tenant routing)",
-          "default": {}
-        },
-        "annotations": {
-          "type": "object",
-          "description": "Additional annotations for the PrometheusRule resource",
-          "default": {}
-        },
-        "team": {
-          "type": "string",
-          "description": "Team responsible for alerts (used in alert labels)",
-          "default": "planeteers"
-        },
-        "runbookBaseUrl": {
-          "type": "string",
-          "description": "Base URL for runbook links in alert annotations",
-          "default": "https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"
-        },
-        "rules": {
-          "type": "object",
-          "description": "Individual alert rule toggles for mcp-kubernetes-specific alerts",
-          "properties": {
-            "mcpKubernetesHighErrorRate": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Alert when MCP request error rate exceeds 10%",
-                  "default": true
+        "service": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
                 }
-              }
-            },
-            "mcpKubernetesK8sOperationFailures": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Alert when K8s operations via MCP are failing at >20% rate",
-                  "default": true
-                }
-              }
-            },
-            "mcpKubernetesOAuthFailures": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Alert when OAuth authentication failure rate exceeds 30%",
-                  "default": true
-                }
-              }
-            },
-            "mcpKubernetesWorkloadClusterAuthFailures": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Alert when workload cluster auth failure rate exceeds 30%",
-                  "default": true
-                }
-              }
-            },
-            "mcpKubernetesClusterOperationFailures": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Alert when cluster operation failure rate exceeds 30%",
-                  "default": true
-                }
-              }
             }
-          }
-        }
-      }
-    },
-    "ciliumNetworkPolicy": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
         },
-        "labels": {
-          "type": "object"
+        "serviceAccount": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "annotations": {
+                    "type": "object",
+                    "additionalProperties": false
+                },
+                "automount": {
+                    "type": "boolean"
+                },
+                "create": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
         },
-        "annotations": {
-          "type": "object"
+        "tolerations": {
+            "type": "array"
+        },
+        "volumeMounts": {
+            "type": "array"
+        },
+        "volumes": {
+            "type": "array"
         }
-      },
-      "required": ["enabled"]
     }
-  },
-  "required": [
-    "replicaCount",
-    "image",
-    "serviceAccount",
-    "service",
-    "mcpKubernetes",
-    "ciliumNetworkPolicy"
-  ]
 }
