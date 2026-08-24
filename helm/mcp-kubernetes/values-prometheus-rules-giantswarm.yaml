@@ -33,7 +33,7 @@ prometheusRules:
   labels:
     observability.giantswarm.io/tenant: "giantswarm"
   # Team responsible for these alerts
-  team: "planeteers"
+  team: "bumblebee"
   # All mcp-kubernetes-specific rules enabled by default
   rules:
     # MCP-specific error rate
