@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* `values-prometheus-rules-giantswarm.yaml` sets `prometheusRules.team` to `bumblebee`, matching the chart default. It named `planeteers`, so anyone following the example routed the alerts to the wrong team.
+
 * `values.schema.json` accepts user-defined keys again in the chart's free-form maps: `capiMode.workloadClusterAuth.groupMappings`, `podAnnotations`, `podLabels`, `nodeSelector`, `affinity`, `serviceAccount.annotations`, `ingress.annotations`, `gatewayAPI.httpRoute.{annotations,labels}`, `gatewayAPI.backendTrafficPolicy.{annotations,labels}`, `mcpKubernetes.instrumentation.serviceMonitor.{annotations,labels}`, `grafanaDashboards.{labels,annotations}`, `prometheusRules.{labels,annotations}` and `ciliumNetworkPolicy.{labels,annotations}`. Since 1.0.40 these carried `additionalProperties: false` with no allowed properties, so any value set under them was rejected with `additional properties '<key>' not allowed` and the Helm install or upgrade failed.
 
 * `list` now returns events **newest-first** (by `lastTimestamp`, then `eventTime`, then `firstTimestamp` — the same precedence reported as `lastSeen`, and the same ordering `describe` already applied to its embedded events). Previously `list` preserved the API server's namespace/name order and truncation kept a prefix, so `{"resourceType": "events", "limit": 15}` returned an arbitrary alphabetical slice: stale events were returned preferentially while current ones were truncated away, and callers asking for recent activity were reliably handed old events.
