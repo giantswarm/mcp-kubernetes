@@ -5,7 +5,7 @@
     "properties": {
         "affinity": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "autoscaling": {
             "type": "object",
@@ -154,7 +154,7 @@
                         },
                         "groupMappings": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "mode": {
                             "type": "string"
@@ -173,14 +173,14 @@
             "properties": {
                 "annotations": {
                     "type": "object",
-                    "additionalProperties": false
+                    "additionalProperties": true
                 },
                 "enabled": {
                     "type": "boolean"
                 },
                 "labels": {
                     "type": "object",
-                    "additionalProperties": false
+                    "additionalProperties": true
                 }
             }
         },
@@ -213,14 +213,14 @@
                     "properties": {
                         "annotations": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "enabled": {
                             "type": "boolean"
                         },
                         "labels": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "timeout": {
                             "type": "string"
@@ -236,14 +236,14 @@
                     "properties": {
                         "annotations": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "hostnames": {
                             "type": "array"
                         },
                         "labels": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "parentRefs": {
                             "type": "array"
@@ -272,7 +272,7 @@
             "properties": {
                 "annotations": {
                     "type": "object",
-                    "additionalProperties": false
+                    "additionalProperties": true
                 },
                 "dashboards": {
                     "type": "object",
@@ -327,7 +327,7 @@
                 },
                 "labels": {
                     "type": "object",
-                    "additionalProperties": false,
+                    "additionalProperties": true,
                     "properties": {
                         "grafana_dashboard": {
                             "type": "string"
@@ -366,7 +366,7 @@
             "properties": {
                 "annotations": {
                     "type": "object",
-                    "additionalProperties": false
+                    "additionalProperties": true
                 },
                 "className": {
                     "type": "string"
@@ -441,7 +441,7 @@
                             "properties": {
                                 "annotations": {
                                     "type": "object",
-                                    "additionalProperties": false
+                                    "additionalProperties": true
                                 },
                                 "enabled": {
                                     "type": "boolean"
@@ -451,7 +451,7 @@
                                 },
                                 "labels": {
                                     "type": "object",
-                                    "additionalProperties": false
+                                    "additionalProperties": true
                                 },
                                 "metricRelabelings": {
                                     "type": "array"
@@ -701,15 +701,15 @@
         },
         "nodeSelector": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "podAnnotations": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "podLabels": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "podSecurityContext": {
             "type": "object",
@@ -735,14 +735,14 @@
             "properties": {
                 "annotations": {
                     "type": "object",
-                    "additionalProperties": false
+                    "additionalProperties": true
                 },
                 "enabled": {
                     "type": "boolean"
                 },
                 "labels": {
                     "type": "object",
-                    "additionalProperties": false
+                    "additionalProperties": true
                 },
                 "rules": {
                     "type": "object",
@@ -926,7 +926,7 @@
             "properties": {
                 "annotations": {
                     "type": "object",
-                    "additionalProperties": false
+                    "additionalProperties": true
                 },
                 "automount": {
                     "type": "boolean"
