@@ -25,6 +25,13 @@
                 }
             }
         },
+        "baseDomain": {
+            "type": "string"
+        },
+        "bootstrapMode": {
+            "type": "object",
+            "additionalProperties": true
+        },
         "capiMode": {
             "type": "object",
             "description": "------------------------------------ The RBAC resources created by this chart (ClusterRoles, Roles, RoleBindings) are ONLY used when OAuth Downstream is DISABLED (enableDownstreamOAuth: false).  When OAuth Downstream is ENABLED (enableDownstreamOAuth: true): - The ServiceAccount RBAC is NOT used for Kubernetes API operations - Users must have their own RBAC permissions on the Management Cluster to: * List CAPI Cluster resources (cluster.x-k8s.io/clusters) * Read kubeconfig secrets in organization namespaces - On Workload Clusters, user identity is propagated via impersonation headers - Users need appropriate RBAC on each Workload Cluster they access  See docs/rbac-security.md for detailed RBAC requirements per deployment mode.",
@@ -156,9 +163,13 @@
                 }
             }
         },
+        "chartOperator": {
+            "type": "object",
+            "additionalProperties": true
+        },
         "ciliumNetworkPolicy": {
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
                 "annotations": {
                     "type": "object",
@@ -172,6 +183,22 @@
                     "additionalProperties": false
                 }
             }
+        },
+        "cluster": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "clusterCA": {
+            "type": "string"
+        },
+        "clusterCIDR": {
+            "type": "string"
+        },
+        "clusterDNSIP": {
+            "type": "string"
+        },
+        "clusterID": {
+            "type": "string"
         },
         "fullnameOverride": {
             "type": "string"
@@ -227,6 +254,9 @@
                     }
                 }
             }
+        },
+        "gcpProject": {
+            "type": "string"
         },
         "global": {
             "type": [
@@ -773,6 +803,9 @@
                 }
             }
         },
+        "provider": {
+            "type": "string"
+        },
         "rbac": {
             "type": "object",
             "additionalProperties": false,
@@ -905,6 +938,9 @@
                     "type": "string"
                 }
             }
+        },
+        "subscriptionID": {
+            "type": "string"
         },
         "tolerations": {
             "type": "array"
