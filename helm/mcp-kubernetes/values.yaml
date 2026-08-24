@@ -21,7 +21,7 @@ serviceAccount:
   # Automatically mount a ServiceAccount's API credentials?
   automount: true
   # Annotations to add to the service account
-  annotations: {}
+  annotations: {}  # @schema additionalProperties: true
   # The name of the service account to use.
   # If not set and create is true, a name is generated using the fullname template
   name: ""
@@ -91,8 +91,8 @@ rbac:
     #     verbs: ["get", "list"]
     rules: []
 
-podAnnotations: {}
-podLabels: {}
+podAnnotations: {}  # @schema additionalProperties: true
+podLabels: {}  # @schema additionalProperties: true
 
 podSecurityContext:
   runAsUser: 1000
@@ -119,7 +119,7 @@ service:
 ingress:
   enabled: false
   className: ""
-  annotations: {}
+  annotations: {}  # @schema additionalProperties: true
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
@@ -167,10 +167,10 @@ gatewayAPI:
     rules: []
 
     # Additional annotations for the HTTPRoute
-    annotations: {}
+    annotations: {}  # @schema additionalProperties: true
 
     # Additional labels for the HTTPRoute
-    labels: {}
+    labels: {}  # @schema additionalProperties: true
 
   # BackendTrafficPolicy configuration (Envoy Gateway specific)
   # Configures backend connection behavior like timeouts.
@@ -187,10 +187,10 @@ gatewayAPI:
     timeout: "0s"
 
     # Additional annotations for the BackendTrafficPolicy
-    annotations: {}
+    annotations: {}  # @schema additionalProperties: true
 
     # Additional labels for the BackendTrafficPolicy
-    labels: {}
+    labels: {}  # @schema additionalProperties: true
 
 resources:
   limits:
@@ -220,11 +220,11 @@ volumeMounts: []
 #   mountPath: "/etc/foo"
 #   readOnly: true
 
-nodeSelector: {}
+nodeSelector: {}  # @schema additionalProperties: true
 
 tolerations: []
 
-affinity: {}
+affinity: {}  # @schema additionalProperties: true
 
 # MCP Kubernetes specific configuration
 mcpKubernetes:
@@ -601,9 +601,9 @@ mcpKubernetes:
       # Enable ServiceMonitor creation (requires Prometheus Operator CRDs)
       enabled: false
       # Additional labels for the ServiceMonitor (e.g., for Prometheus selection)
-      labels: {}
+      labels: {}  # @schema additionalProperties: true
       # Additional annotations for the ServiceMonitor
-      annotations: {}
+      annotations: {}  # @schema additionalProperties: true
       # Scrape interval (default: Prometheus default)
       interval: ""
       # Scrape timeout (default: Prometheus default)
@@ -825,7 +825,7 @@ capiMode:
     #     "customer:Developers": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
     #
     # Default: {} (no group mapping, all groups pass through unchanged)
-    groupMappings: {}
+    groupMappings: {}  # @schema additionalProperties: true
 
   # Privileged access configuration (split-credential model)
   #
@@ -909,10 +909,10 @@ grafanaDashboards:
   namespace: ""
   # Labels to add to dashboard ConfigMaps
   # The grafana_dashboard label is required for Grafana sidecar discovery
-  labels:
+  labels:  # @schema additionalProperties: true
     grafana_dashboard: "1"
   # Additional annotations to add to dashboard ConfigMaps
-  annotations: {}
+  annotations: {}  # @schema additionalProperties: true
   # Grafana folder name where dashboards will appear
   # The folder is created automatically by the Grafana sidecar if it doesn't exist
   folder: "mcp-kubernetes"
@@ -970,9 +970,9 @@ prometheusRules:
   # Additional labels for the PrometheusRule resource
   # Example for Giant Swarm tenant routing:
   #   observability.giantswarm.io/tenant: "giantswarm"
-  labels: {}
+  labels: {}  # @schema additionalProperties: true
   # Additional annotations for the PrometheusRule resource
-  annotations: {}
+  annotations: {}  # @schema additionalProperties: true
   # Team responsible for these alerts (used in alert labels)
   team: "bumblebee"
   # Base URL for runbook links
@@ -1010,6 +1010,6 @@ ciliumNetworkPolicy:
   # Specifies whether a CiliumNetworkPolicy should be created
   enabled: true
   # Additional labels to add to the CiliumNetworkPolicy
-  labels: {}
+  labels: {}  # @schema additionalProperties: true
   # Additional annotations to add to the CiliumNetworkPolicy
-  annotations: {}
+  annotations: {}  # @schema additionalProperties: true
