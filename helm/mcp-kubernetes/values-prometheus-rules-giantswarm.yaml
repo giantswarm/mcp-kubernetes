@@ -29,7 +29,9 @@ mcpKubernetes:
 # Enable PrometheusRule with Giant Swarm labels
 prometheusRules:
   enabled: true
-  # Required: Set the tenant label for your Grafana Organization
+  # The tenant label your Grafana Organization routes on. This repeats the
+  # chart default, and is spelled out here so a copy of this file stays correct
+  # on an installation that routes to another tenant.
   labels:
     observability.giantswarm.io/tenant: "giantswarm"
   # Team responsible for these alerts
