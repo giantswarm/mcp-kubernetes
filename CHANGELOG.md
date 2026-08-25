@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+* `prometheusRules.labels` now defaults to `observability.giantswarm.io/tenant: giantswarm`. Mimir's `rule_selector` matches on that label: a PrometheusRule without it is accepted by the API server and never loaded into the ruler, so its alerts silently never evaluate. The chart shipped no default, so enabling `prometheusRules` without also supplying the label produced five alerts that could not fire. Helm merges values maps, so an installation setting an unrelated label keeps the default; override the key to route to another tenant, or set it to `null` to drop the label. See https://github.com/giantswarm/giantswarm/issues/37445.
+
 * Dex CA trust for the SSO forwarded-ID-token JWKS path is now passed to mcp-oauth as explicit config instead of being installed on `http.DefaultTransport`. `--dex-ca-file` / `oauth.dex.caSecret` now builds a CA pool that is set on the mcp-oauth server config (`JWKSRootCAs`) and trusted-issuer entries, and on the Dex provider client — removing `installDexCAOnDefaultTransport`. Pairs with the mcp-oauth change that drops the `http.DefaultTransport` CA read ([mcp-oauth#498](https://github.com/giantswarm/mcp-oauth/pull/498) / [#495](https://github.com/giantswarm/mcp-oauth/issues/495)), released in mcp-oauth v1.0.0. No behavior change for garm and other internal-CA installs once deployed. See https://github.com/giantswarm/giantswarm/issues/37059.
 * External-issuer tokens are classified as `trusted-issuer`; the on-behalf-of branch keys off `UserInfo.IsOBO()` (the RFC 8693 `act` claim) and the email-check bypass off `UserInfo.IsExternalIssuer()`.
 * **deps:** update module github.com/giantswarm/mcp-oauth to v1.0.0.

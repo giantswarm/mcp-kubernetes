@@ -31,17 +31,53 @@ tests:
             app.kubernetes.io/name: mcp-kubernetes
             app.kubernetes.io/instance: RELEASE-NAME
 
-  - it: should include custom labels when specified
+  # Mimir's rule_selector matches on the tenant label. Without it the
+  # PrometheusRule is created and its alerts never evaluate, so the default
+  # matters as much as the override.
+  - it: should carry the giantswarm tenant label by default
     set:
       prometheusRules:
         enabled: true
-        labels:
-          observability.giantswarm.io/tenant: giantswarm
     asserts:
       - isSubset:
           path: metadata.labels
           content:
             observability.giantswarm.io/tenant: giantswarm
+
+  - it: should keep the tenant default when an unrelated label is set
+    set:
+      prometheusRules:
+        enabled: true
+        labels:
+          example.com/extra: value
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            observability.giantswarm.io/tenant: giantswarm
+            example.com/extra: value
+
+  - it: should let an explicit tenant label override the default
+    set:
+      prometheusRules:
+        enabled: true
+        labels:
+          observability.giantswarm.io/tenant: customer
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            observability.giantswarm.io/tenant: customer
+
+  - it: should drop the tenant label when set to null
+    set:
+      prometheusRules:
+        enabled: true
+        labels:
+          observability.giantswarm.io/tenant: null
+    asserts:
+      - notExists:
+          path: metadata.labels["observability.giantswarm.io/tenant"]
 
   - it: should include annotations when specified
     set:

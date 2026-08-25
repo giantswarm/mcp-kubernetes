@@ -158,7 +158,7 @@ A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 | grafanaDashboards.dashboards.security.enabled | bool | `true` |  |
 | grafanaDashboards.dashboards.clusterOperator.enabled | bool | `true` |  |
 | prometheusRules.enabled | bool | `false` |  |
-| prometheusRules.labels | object | `{}` |  |
+| prometheusRules.labels."observability.giantswarm.io/tenant" | string | `"giantswarm"` |  |
 | prometheusRules.annotations | object | `{}` |  |
 | prometheusRules.team | string | `"bumblebee"` |  |
 | prometheusRules.runbookBaseUrl | string | `"https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"` |  |

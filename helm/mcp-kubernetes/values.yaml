@@ -967,10 +967,17 @@ grafanaDashboards:
 prometheusRules:
   # Enable PrometheusRule creation
   enabled: false
-  # Additional labels for the PrometheusRule resource
-  # Example for Giant Swarm tenant routing:
-  #   observability.giantswarm.io/tenant: "giantswarm"
-  labels: {}  # @schema additionalProperties: true
+  # Labels for the PrometheusRule resource. Mimir's rule_selector matches on
+  # observability.giantswarm.io/tenant: a rule without it is accepted by the
+  # API server and never loaded into the ruler, so its alerts never evaluate.
+  # Override the key to route to another tenant, or set it to null to drop the
+  # label on installs whose ruler does not select on it.
+  #
+  # skipProperties keeps the tenant key out of the generated schema:
+  # additionalProperties already admits any label, and pinning one key's type
+  # would put an installation-specific label in the chart's contract.
+  labels:  # @schema additionalProperties: true;skipProperties: true
+    observability.giantswarm.io/tenant: "giantswarm"
   # Additional annotations for the PrometheusRule resource
   annotations: {}  # @schema additionalProperties: true
   # Team responsible for these alerts (used in alert labels)
