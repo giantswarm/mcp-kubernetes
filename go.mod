@@ -8,7 +8,7 @@ require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/giantswarm/mcp-oauth v1.0.0
 	github.com/giantswarm/mcp-toolkit v0.2.9
-	github.com/mark3labs/mcp-go v0.55.1
+	github.com/mark3labs/mcp-go v0.58.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
@@ -63,6 +63,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/moby/spdystream v0.5.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
