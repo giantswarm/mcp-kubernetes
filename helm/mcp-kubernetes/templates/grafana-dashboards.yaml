@@ -5,6 +5,9 @@
 {{- $annotations := .Values.grafanaDashboards.annotations | default dict }}
 {{- $giantswarmEnabled := .Values.grafanaDashboards.giantswarm.enabled | default false }}
 {{- $giantswarmOrg := .Values.grafanaDashboards.giantswarm.organization | default "" }}
+{{- /* The GS observability-operator reads its own observability.giantswarm.io/folder
+key, not the upstream sidecar's grafana_folder; without it the dashboards land in
+the organization's General folder. */}}
 {{- if .Values.grafanaDashboards.dashboards.administrator.enabled }}
 apiVersion: v1
 kind: ConfigMap
@@ -21,8 +24,11 @@ metadata:
     {{- end }}
   annotations:
     grafana_folder: {{ $folder | quote }}
-    {{- if and $giantswarmEnabled $giantswarmOrg }}
+    {{- if $giantswarmEnabled }}
+    observability.giantswarm.io/folder: {{ $folder | quote }}
+    {{- if $giantswarmOrg }}
     observability.giantswarm.io/organization: {{ $giantswarmOrg | quote }}
+    {{- end }}
     {{- end }}
     {{- range $key, $value := $annotations }}
     {{ $key }}: {{ $value | quote }}
@@ -48,8 +54,11 @@ metadata:
     {{- end }}
   annotations:
     grafana_folder: {{ $folder | quote }}
-    {{- if and $giantswarmEnabled $giantswarmOrg }}
+    {{- if $giantswarmEnabled }}
+    observability.giantswarm.io/folder: {{ $folder | quote }}
+    {{- if $giantswarmOrg }}
     observability.giantswarm.io/organization: {{ $giantswarmOrg | quote }}
+    {{- end }}
     {{- end }}
     {{- range $key, $value := $annotations }}
     {{ $key }}: {{ $value | quote }}
@@ -75,8 +84,11 @@ metadata:
     {{- end }}
   annotations:
     grafana_folder: {{ $folder | quote }}
-    {{- if and $giantswarmEnabled $giantswarmOrg }}
+    {{- if $giantswarmEnabled }}
+    observability.giantswarm.io/folder: {{ $folder | quote }}
+    {{- if $giantswarmOrg }}
     observability.giantswarm.io/organization: {{ $giantswarmOrg | quote }}
+    {{- end }}
     {{- end }}
     {{- range $key, $value := $annotations }}
     {{ $key }}: {{ $value | quote }}
