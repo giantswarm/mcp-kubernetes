@@ -1,0 +1,73 @@
+suite: Grafana dashboards template tests
+templates:
+  - grafana-dashboards.yaml
+tests:
+  - it: should not render dashboards when disabled (default)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render all three dashboards with the sidecar folder annotation only
+    set:
+      grafanaDashboards:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.annotations["grafana_folder"]
+          value: mcp-kubernetes
+      - notExists:
+          path: metadata.annotations["observability.giantswarm.io/folder"]
+      - notExists:
+          path: metadata.annotations["observability.giantswarm.io/organization"]
+      - notExists:
+          path: metadata.labels["app.giantswarm.io/kind"]
+
+  - it: should add Giant Swarm label, folder and organization annotations when giantswarm.enabled
+    set:
+      grafanaDashboards:
+        enabled: true
+        giantswarm:
+          enabled: true
+          organization: giantswarm
+    asserts:
+      - equal:
+          path: metadata.labels["app.giantswarm.io/kind"]
+          value: dashboard
+      - equal:
+          path: metadata.annotations["observability.giantswarm.io/folder"]
+          value: mcp-kubernetes
+      - equal:
+          path: metadata.annotations["observability.giantswarm.io/organization"]
+          value: giantswarm
+
+  - it: should add the Giant Swarm folder annotation even without an organization
+    set:
+      grafanaDashboards:
+        enabled: true
+        giantswarm:
+          enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["observability.giantswarm.io/folder"]
+          value: mcp-kubernetes
+      - notExists:
+          path: metadata.annotations["observability.giantswarm.io/organization"]
+
+  - it: should propagate a custom folder to both folder annotations
+    set:
+      grafanaDashboards:
+        enabled: true
+        folder: platform-tools
+        giantswarm:
+          enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["grafana_folder"]
+          value: platform-tools
+      - equal:
+          path: metadata.annotations["observability.giantswarm.io/folder"]
+          value: platform-tools

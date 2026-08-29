@@ -913,15 +913,19 @@ grafanaDashboards:
     grafana_dashboard: "1"
   # Additional annotations to add to dashboard ConfigMaps
   annotations: {}  # @schema additionalProperties: true
-  # Grafana folder name where dashboards will appear
-  # The folder is created automatically by the Grafana sidecar if it doesn't exist
+  # Grafana folder the dashboards are placed in. Rendered as the upstream
+  # sidecar's grafana_folder annotation (the sidecar creates the folder if it
+  # doesn't exist), and — when giantswarm.enabled — additionally as the
+  # observability.giantswarm.io/folder annotation the Giant Swarm
+  # observability platform actually reads.
   folder: "mcp-kubernetes"
   # Giant Swarm specific configuration
   # Enable this when deploying on Giant Swarm managed clusters
   giantswarm:
     # Enable Giant Swarm dashboard integration
     # When enabled, adds the required label (app.giantswarm.io/kind: dashboard)
-    # for automatic detection by Giant Swarm's observability stack
+    # for automatic detection by Giant Swarm's observability stack, plus the
+    # observability.giantswarm.io/folder annotation for folder placement
     enabled: false
     # Organization name for Grafana organization targeting
     # The dashboard will be provisioned to this Grafana organization
