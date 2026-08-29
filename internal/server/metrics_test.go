@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -104,11 +105,19 @@ func TestMetricsServer_StartAndShutdown(t *testing.T) {
 		serverErr <- server.Start()
 	}()
 
+	// Use a dedicated client without keep-alives: the default transport may
+	// race a spare TCP connection while a request is in flight and pool it
+	// without ever sending a request on it. Server-side that connection sits
+	// in StateNew, which Server.Shutdown does not close — it would block
+	// shutdown until ReadHeaderTimeout, past this test's shutdown deadline.
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	defer client.CloseIdleConnections()
+
 	// Wait for server to be ready by polling the health endpoint
 	var resp *http.Response
 	var lastErr error
 	for i := 0; i < 50; i++ {
-		resp, lastErr = http.Get("http://localhost:9092/healthz")
+		resp, lastErr = client.Get("http://localhost:9092/healthz")
 		if lastErr == nil {
 			if err := resp.Body.Close(); err != nil {
 				t.Logf("Warning: failed to close response body: %v", err)
@@ -122,7 +131,7 @@ func TestMetricsServer_StartAndShutdown(t *testing.T) {
 	}
 
 	// Test that the /metrics endpoint is accessible
-	resp, err = http.Get("http://localhost:9092/metrics")
+	resp, err = client.Get("http://localhost:9092/metrics")
 	if err != nil {
 		t.Errorf("Failed to reach /metrics endpoint: %v", err)
 	} else {
@@ -136,13 +145,16 @@ func TestMetricsServer_StartAndShutdown(t *testing.T) {
 		if resp.StatusCode == http.StatusInternalServerError {
 			t.Log("Note: /metrics returned 500 - this may be due to metric collection errors in test environment")
 		}
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			t.Logf("Warning: failed to drain response body: %v", err)
+		}
 		if err := resp.Body.Close(); err != nil {
 			t.Logf("Warning: failed to close response body: %v", err)
 		}
 	}
 
 	// Test that the /healthz endpoint is accessible
-	resp, err = http.Get("http://localhost:9092/healthz")
+	resp, err = client.Get("http://localhost:9092/healthz")
 	if err != nil {
 		t.Errorf("Failed to reach /healthz endpoint: %v", err)
 	} else {
@@ -154,7 +166,9 @@ func TestMetricsServer_StartAndShutdown(t *testing.T) {
 		}
 	}
 
-	// Shutdown the server
+	// Shutdown the server. Close the client's connections first so no
+	// never-used spare connection keeps Shutdown waiting.
+	client.CloseIdleConnections()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
