@@ -124,3 +124,9 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// Pin unimported vulnerable indirect: nancy scans the full module graph and
+// flags golang.org/x/mod < v0.40.0 (CVE-2026-56864). The module is not needed
+// by any imported package, so a require would be dropped by go mod tidy —
+// only a replace holds the graph at the fixed version.
+replace golang.org/x/mod => golang.org/x/mod v0.40.0
