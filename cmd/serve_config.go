@@ -350,10 +350,12 @@ func loadEnvIfEmpty(target *string, envKey string) {
 
 // validateSecureURL validates that a URL uses HTTPS and is not vulnerable to SSRF attacks.
 // It checks for:
-// - Valid URL format
-// - HTTPS scheme (HTTP not allowed)
-// - No private/local IP addresses (unless allowPrivate is true)
-// - No localhost references
+//   - Valid URL format
+//   - HTTPS scheme (HTTP not allowed)
+//   - No private/local IP addresses (unless allowPrivate is true)
+//   - No localhost references (unless allowPrivate is true: localhost is the loopback
+//     address by name, the same class allowPrivate admits by IP — an IdP published
+//     on the node, e.g. a kind lab's Dex NodePort, is reached as https://localhost)
 func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error {
 	// Check for empty URL
 	if urlStr == "" {
@@ -379,8 +381,14 @@ func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error
 		return fmt.Errorf("%s must have a valid hostname", fieldName)
 	}
 
-	// Check for localhost references
+	// Check for localhost references (loopback by name; allowPrivate admits it
+	// like the loopback IPs below)
 	if strings.ToLower(hostname) == "localhost" {
+		if allowPrivate {
+			slog.Warn("URL uses localhost; allowed because private/internal OAuth URLs are enabled",
+				"field", fieldName)
+			return nil
+		}
 		return fmt.Errorf("%s cannot use localhost", fieldName)
 	}
 
