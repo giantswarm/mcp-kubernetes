@@ -259,12 +259,40 @@
             "type": "string"
         },
         "global": {
-            "type": [
-                "object",
-                "null"
-            ],
-            "description": "Global values shared between all subcharts",
-            "$comment": "Added automatically by 'helm schema' to allow this chart to be used as a Helm dependency, as this schema would otherwise not allow Helm's special 'global' values key."
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "domain": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                        "ca": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "properties": {
+                                "key": {
+                                    "type": "string"
+                                },
+                                "secretName": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "clientId": {
+                            "type": "string"
+                        },
+                        "existingSecret": {
+                            "type": "string"
+                        },
+                        "issuerUrl": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         },
         "grafanaDashboards": {
             "type": "object",

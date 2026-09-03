@@ -53,7 +53,7 @@ spec:
             {{- end }}
             {{- if .Values.mcpKubernetes.oauth.enabled }}
             - --enable-oauth=true
-            - --oauth-base-url={{ required "mcpKubernetes.oauth.baseURL is required when OAuth is enabled" .Values.mcpKubernetes.oauth.baseURL }}
+            - --oauth-base-url={{ required "mcpKubernetes.oauth.baseURL (or global.domain, from which https://<fullname>.<domain> is derived) is required when OAuth is enabled" (include "mcp-kubernetes.oauth.baseURL" .) }}
             - --oauth-provider={{ .Values.mcpKubernetes.oauth.provider | default "dex" }}
             {{- if .Values.mcpKubernetes.oauth.allowPublicRegistration }}
             - --allow-public-registration=true
@@ -162,22 +162,22 @@ spec:
             - name: GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  name: {{ include "mcp-kubernetes.oauth.secretName" . }}
                   key: google-client-id
             - name: GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  name: {{ include "mcp-kubernetes.oauth.secretName" . }}
                   key: google-client-secret
             {{- else if eq (.Values.mcpKubernetes.oauth.provider | default "dex") "dex" }}
             - name: DEX_ISSUER_URL
-              value: {{ required "mcpKubernetes.oauth.dex.issuerURL is required when Dex provider is used" .Values.mcpKubernetes.oauth.dex.issuerURL | quote }}
+              value: {{ required "mcpKubernetes.oauth.dex.issuerURL (or global.identity.issuerUrl) is required when Dex provider is used" (include "mcp-kubernetes.oauth.dexIssuerURL" .) | quote }}
             - name: DEX_CLIENT_ID
-              value: {{ required "mcpKubernetes.oauth.dex.clientID is required when Dex provider is used" .Values.mcpKubernetes.oauth.dex.clientID | quote }}
+              value: {{ required "mcpKubernetes.oauth.dex.clientID (or global.identity.clientId) is required when Dex provider is used" (include "mcp-kubernetes.oauth.dexClientID" .) | quote }}
             - name: DEX_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  name: {{ include "mcp-kubernetes.oauth.secretName" . }}
                   key: dex-client-secret
             {{- if .Values.mcpKubernetes.oauth.dex.connectorID }}
             - name: DEX_CONNECTOR_ID
@@ -187,9 +187,9 @@ spec:
             - name: DEX_K8S_AUTHENTICATOR_CLIENT_ID
               value: {{ .Values.mcpKubernetes.oauth.dex.kubernetesAuthenticatorClientID | quote }}
             {{- end }}
-            {{- if .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            {{- if include "mcp-kubernetes.oauth.caSecretName" . }}
             - name: DEX_CA_FILE
-              value: "/etc/ssl/certs/dex-ca/{{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}"
+              value: "/etc/ssl/certs/dex-ca/{{ include "mcp-kubernetes.oauth.caSecretKey" . }}"
             {{- end }}
             {{- end }}
             {{- /* Only mount REGISTRATION_TOKEN if registrationAccessToken is explicitly configured.
@@ -205,20 +205,20 @@ spec:
             - name: REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  name: {{ include "mcp-kubernetes.oauth.secretName" . }}
                   key: registration-token
             {{- end }}
             {{- if .Values.mcpKubernetes.oauth.encryptionKey }}
             - name: OAUTH_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  name: {{ include "mcp-kubernetes.oauth.secretName" . }}
                   key: oauth-encryption-key
             {{- end }}
             {{- /* Trusted audiences for SSO token forwarding from aggregators */ -}}
-            {{- if .Values.mcpKubernetes.oauth.trustedAudiences }}
+            {{- if include "mcp-kubernetes.oauth.trustedAudiences" . }}
             - name: OAUTH_TRUSTED_AUDIENCES
-              value: {{ .Values.mcpKubernetes.oauth.trustedAudiences | join "," | quote }}
+              value: {{ include "mcp-kubernetes.oauth.trustedAudiences" . | quote }}
             {{- end }}
             {{- /* Trusted external issuers for on-behalf-of JWT acceptance */ -}}
             {{- if .Values.mcpKubernetes.oauth.trustedIssuers }}
@@ -248,11 +248,11 @@ spec:
             - name: VALKEY_DB
               value: {{ .Values.mcpKubernetes.oauth.storage.valkey.db | quote }}
             {{- end }}
-            {{- if or .Values.mcpKubernetes.oauth.storage.valkey.existingSecret .Values.mcpKubernetes.oauth.existingSecret }}
+            {{- if or .Values.mcpKubernetes.oauth.storage.valkey.existingSecret (include "mcp-kubernetes.oauth.existingSecret" .) }}
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcpKubernetes.oauth.storage.valkey.existingSecret | default .Values.mcpKubernetes.oauth.existingSecret | default (printf "%s-oauth" (include "mcp-kubernetes.fullname" .)) }}
+                  name: {{ .Values.mcpKubernetes.oauth.storage.valkey.existingSecret | default (include "mcp-kubernetes.oauth.secretName" .) }}
                   key: {{ .Values.mcpKubernetes.oauth.storage.valkey.secretKeyPassword | default "valkey-password" }}
                   optional: true
             {{- end }}
@@ -381,7 +381,7 @@ spec:
             - name: sa-token
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
-            {{- if and .Values.mcpKubernetes.oauth.enabled .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            {{- if and .Values.mcpKubernetes.oauth.enabled (include "mcp-kubernetes.oauth.caSecretName" .) }}
             - name: dex-ca
               mountPath: /etc/ssl/certs/dex-ca
               readOnly: true
@@ -408,13 +408,13 @@ spec:
                     - path: namespace
                       fieldRef:
                         fieldPath: metadata.namespace
-        {{- if and .Values.mcpKubernetes.oauth.enabled .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+        {{- if and .Values.mcpKubernetes.oauth.enabled (include "mcp-kubernetes.oauth.caSecretName" .) }}
         - name: dex-ca
           secret:
-            secretName: {{ .Values.mcpKubernetes.oauth.dex.caSecret.name }}
+            secretName: {{ include "mcp-kubernetes.oauth.caSecretName" . }}
             items:
-              - key: {{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}
-                path: {{ .Values.mcpKubernetes.oauth.dex.caSecret.key | default "ca.crt" }}
+              - key: {{ include "mcp-kubernetes.oauth.caSecretKey" . }}
+                path: {{ include "mcp-kubernetes.oauth.caSecretKey" . }}
         {{- end }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}

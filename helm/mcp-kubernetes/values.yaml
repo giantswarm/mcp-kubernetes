@@ -2,6 +2,47 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Platform identity contract, shared with the other charts of an umbrella
+# release (Helm forwards `global.*` to every sub-chart). All keys are empty by
+# default: a chart installed on its own configures mcpKubernetes.oauth.*
+# directly and renders exactly as before. When a parent chart (for example
+# agent-platform-standalone) sets them, the OAuth settings fall back to them
+# wherever the local value is empty; an explicit mcpKubernetes.oauth.* value
+# always wins:
+#
+#   mcpKubernetes.oauth.dex.issuerURL      <- global.identity.issuerUrl
+#   mcpKubernetes.oauth.dex.clientID       <- global.identity.clientId
+#   mcpKubernetes.oauth.existingSecret     <- global.identity.existingSecret
+#   mcpKubernetes.oauth.dex.caSecret.name  <- global.identity.ca.secretName
+#   mcpKubernetes.oauth.dex.caSecret.key   <- global.identity.ca.key
+#   mcpKubernetes.oauth.trustedAudiences   <- [global.identity.clientId]
+#   mcpKubernetes.oauth.baseURL            <- https://<fullname>.<global.domain>
+#
+# The fallbacks only fill in values: mcpKubernetes.oauth.enabled and
+# mcpKubernetes.oauth.enableDownstreamOAuth stay explicit. Other global.* keys a
+# parent chart forwards (registry, imagePullSecrets, ...) are accepted and ignored.
+global:  # @schema additionalProperties: true
+  # The platform's public base domain. Hostnames derive from it by convention
+  # (<fullname>.<domain>); this chart derives its OAuth base URL from it.
+  domain: ""
+  # The platform's login identity provider: one OIDC provider per installation.
+  identity:  # @schema additionalProperties: true
+    # OIDC issuer URL exactly as it appears in token iss claims
+    # (e.g. https://dex.example.com/dex).
+    issuerUrl: ""
+    # OAuth client registered at the provider for the platform. It is also the
+    # audience of the IdP id_token an aggregator such as muster forwards, hence
+    # the trustedAudiences fallback.
+    clientId: ""
+    # Secret in the release namespace with the platform credentials, using the
+    # key names this chart reads: dex-client-secret, registration-token,
+    # oauth-encryption-key.
+    existingSecret: ""
+    # CA of a provider with a private certificate. Empty: system trust only.
+    ca:  # @schema additionalProperties: true
+      secretName: ""
+      key: ca.crt
+
 replicaCount: 1
 
 image:

@@ -1,0 +1,367 @@
+# OAuth global.identity fallback tests for the mcp-kubernetes Helm chart
+#
+# An umbrella chart (agent-platform-standalone) describes the platform's one
+# identity provider under global.identity and its base domain under
+# global.domain. These tests verify that the OAuth settings fall back to that
+# contract only where the local mcpKubernetes.oauth.* value is empty, that an
+# explicit local value always wins, and that a chart installed without
+# global.identity renders exactly as before.
+#
+# Run with: helm unittest ./helm/mcp-kubernetes
+
+suite: OAuth global.identity fallbacks
+templates:
+  - templates/deployment.yaml
+  - templates/oauth-secret.yaml
+release:
+  name: mcp-kubernetes
+  namespace: agent-platform
+tests:
+  - it: should render no OAuth configuration by default (globals declared but empty)
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-oauth=true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_ISSUER_URL
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_TRUSTED_AUDIENCES
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: dex-ca
+          any: true
+
+  - it: should ignore global.identity while OAuth is disabled
+    template: templates/deployment.yaml
+    set:
+      global.domain: example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+      global.identity.existingSecret: agent-platform-idp
+      global.identity.ca.secretName: dex-ca
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-oauth=true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_ISSUER_URL
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: dex-ca
+          any: true
+
+  - it: should configure Dex OAuth from global.identity and global.domain alone
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.enableDownstreamOAuth: true
+      global.domain: example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+      global.identity.existingSecret: agent-platform-idp
+      global.identity.ca.secretName: dex-ca
+      global.identity.ca.key: ca.crt
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-oauth=true
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --oauth-base-url=https://mcp-kubernetes.example.test
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --oauth-provider=dex
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --downstream-oauth
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_ISSUER_URL
+            value: https://dex.example.test/dex
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CLIENT_ID
+            value: agent-platform
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: agent-platform-idp
+                key: dex-client-secret
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CA_FILE
+            value: /etc/ssl/certs/dex-ca/ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_TRUSTED_AUDIENCES
+            value: agent-platform
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: dex-ca
+            mountPath: /etc/ssl/certs/dex-ca
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: dex-ca
+            secret:
+              secretName: dex-ca
+              items:
+                - key: ca.crt
+                  path: ca.crt
+
+  - it: should not create the chart-managed Secret by default
+    template: templates/oauth-secret.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create the chart-managed Secret while OAuth is disabled, whatever global.identity says
+    template: templates/oauth-secret.yaml
+    set:
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+      global.identity.existingSecret: agent-platform-idp
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create the chart-managed Secret when global.identity.existingSecret names the platform Secret
+    template: templates/oauth-secret.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      global.domain: example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+      global.identity.existingSecret: agent-platform-idp
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use global.identity.ca.key when the CA Secret name comes from global.identity
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.baseURL: https://mcp.example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+      global.identity.existingSecret: agent-platform-idp
+      global.identity.ca.secretName: dex-ca
+      global.identity.ca.key: root.pem
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CA_FILE
+            value: /etc/ssl/certs/dex-ca/root.pem
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: dex-ca
+            secret:
+              secretName: dex-ca
+              items:
+                - key: root.pem
+                  path: root.pem
+
+  - it: should let explicit mcpKubernetes.oauth values win over global.identity
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.baseURL: https://mcp-k8s.local.test
+      mcpKubernetes.oauth.dex.issuerURL: https://other
+      mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+      mcpKubernetes.oauth.existingSecret: mcp-k8s-oauth-credentials
+      mcpKubernetes.oauth.dex.caSecret.name: local-ca
+      mcpKubernetes.oauth.dex.caSecret.key: tls.crt
+      mcpKubernetes.oauth.trustedAudiences:
+        - aud-one
+        - aud-two
+      global.domain: example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+      global.identity.existingSecret: agent-platform-idp
+      global.identity.ca.secretName: dex-ca
+      global.identity.ca.key: root.pem
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --oauth-base-url=https://mcp-k8s.local.test
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_ISSUER_URL
+            value: https://other
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CLIENT_ID
+            value: mcp-kubernetes
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: mcp-k8s-oauth-credentials
+                key: dex-client-secret
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CA_FILE
+            value: /etc/ssl/certs/dex-ca/tls.crt
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_TRUSTED_AUDIENCES
+            value: aud-one,aud-two
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: dex-ca
+            secret:
+              secretName: local-ca
+              items:
+                - key: tls.crt
+                  path: tls.crt
+
+  - it: should fall back per value, mixing local and global settings
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+      mcpKubernetes.oauth.trustedAudiences:
+        - agent-platform
+      global.domain: example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+      global.identity.existingSecret: agent-platform-idp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --oauth-base-url=https://mcp-kubernetes.example.test
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_ISSUER_URL
+            value: https://dex.example.test/dex
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CLIENT_ID
+            value: mcp-kubernetes
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_TRUSTED_AUDIENCES
+            value: agent-platform
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: dex-ca
+          any: true
+
+  - it: should fall back to global.identity.clientId as trusted audience for the Google provider too
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.provider: google
+      global.domain: example.test
+      global.identity.clientId: 1234-abc.apps.googleusercontent.com
+      global.identity.existingSecret: agent-platform-idp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: agent-platform-idp
+                key: google-client-id
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_TRUSTED_AUDIENCES
+            value: 1234-abc.apps.googleusercontent.com
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_ISSUER_URL
+          any: true
+
+  - it: should still create the chart-managed Secret when neither existingSecret is set
+    template: templates/oauth-secret.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.allowPublicRegistration: true
+      mcpKubernetes.oauth.dex.clientSecret: local-secret
+      global.domain: example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: mcp-kubernetes-oauth
+
+  - it: should read the chart-managed Secret when neither existingSecret is set
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.allowPublicRegistration: true
+      mcpKubernetes.oauth.dex.clientSecret: local-secret
+      global.domain: example.test
+      global.identity.issuerUrl: https://dex.example.test/dex
+      global.identity.clientId: agent-platform
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEX_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: mcp-kubernetes-oauth
+                key: dex-client-secret
+
+  - it: should still require a base URL when neither mcpKubernetes.oauth.baseURL nor global.domain is set
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.existingSecret: mcp-k8s-oauth-credentials
+      mcpKubernetes.oauth.dex.issuerURL: https://dex.example.test/dex
+      mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+    asserts:
+      - failedTemplate:
+          errorPattern: mcpKubernetes.oauth.baseURL \(or global.domain.*\) is required when OAuth is enabled
+
+  - it: should still require a Dex issuer when neither mcpKubernetes.oauth.dex.issuerURL nor global.identity.issuerUrl is set
+    template: templates/deployment.yaml
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.baseURL: https://mcp-k8s.local.test
+      mcpKubernetes.oauth.existingSecret: mcp-k8s-oauth-credentials
+      mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+    asserts:
+      - failedTemplate:
+          errorPattern: mcpKubernetes.oauth.dex.issuerURL \(or global.identity.issuerUrl\) is required when Dex provider is used

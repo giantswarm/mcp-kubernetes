@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+* Helm chart: the OAuth settings fall back to the platform identity contract an umbrella chart forwards as `global.identity` / `global.domain` (agent-platform-standalone): `mcpKubernetes.oauth.dex.issuerURL` from `global.identity.issuerUrl`, `dex.clientID` from `global.identity.clientId`, `existingSecret` from `global.identity.existingSecret`, `dex.caSecret.{name,key}` from `global.identity.ca.{secretName,key}`, `trustedAudiences` from `[global.identity.clientId]` and `baseURL` from `https://<fullname>.<global.domain>`. A fallback applies only where the local value is empty: explicit `mcpKubernetes.oauth.*` values win, `oauth.enabled` and `enableDownstreamOAuth` stay explicit, and a chart installed without `global.identity` renders exactly as before. `values.yaml` documents the contract under `global`; the schema keeps `global` open for the other keys a parent chart forwards.
+
 ### Fixed
 
 * `values-prometheus-rules-giantswarm.yaml` sets `prometheusRules.team` to `bumblebee`, matching the chart default. It named `planeteers`, so anyone following the example routed the alerts to the wrong team.
