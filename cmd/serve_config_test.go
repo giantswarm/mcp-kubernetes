@@ -87,6 +87,22 @@ func TestValidateSecureURL(t *testing.T) {
 	}
 }
 
+// TestValidateSecureURLAllowPrivateLocalhost: allowPrivate admits localhost, the
+// loopback address by name, exactly like the loopback IPs — the kind-lab shape
+// where the IdP is published on the node and every pod shares the browser's
+// issuer URL (https://localhost:<nodePort>).
+func TestValidateSecureURLAllowPrivateLocalhost(t *testing.T) {
+	if err := validateSecureURL("https://localhost:32000/dex", "Dex issuer URL", true); err != nil {
+		t.Fatalf("localhost with allowPrivate=true should be accepted, got: %v", err)
+	}
+	if err := validateSecureURL("https://LOCALHOST", "Dex issuer URL", true); err != nil {
+		t.Fatalf("LOCALHOST with allowPrivate=true should be accepted, got: %v", err)
+	}
+	if err := validateSecureURL("https://localhost:32000/dex", "Dex issuer URL", false); err == nil {
+		t.Fatal("localhost without allowPrivate must still be rejected")
+	}
+}
+
 // TestValidateSecureURLAllowPrivate tests URL validation with allowPrivate=true
 func TestValidateSecureURLAllowPrivate(t *testing.T) {
 	// With allowPrivate=true, private IPs should be allowed
