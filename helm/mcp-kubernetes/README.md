@@ -20,6 +20,12 @@ A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| global.domain | string | `""` |  |
+| global.identity.issuerUrl | string | `""` |  |
+| global.identity.clientId | string | `""` |  |
+| global.identity.existingSecret | string | `""` |  |
+| global.identity.ca.secretName | string | `""` |  |
+| global.identity.ca.key | string | `"ca.crt"` |  |
 | replicaCount | int | `1` |  |
 | image.registry | string | `"gsoci.azurecr.io"` |  |
 | image.repository | string | `"giantswarm/mcp-kubernetes"` |  |

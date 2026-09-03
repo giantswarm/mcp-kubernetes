@@ -26,12 +26,12 @@
 {{- if .Values.mcpKubernetes.oauth.enabled }}
 
 3. OAuth 2.1 Authentication is ENABLED
-   - OAuth Base URL: {{ .Values.mcpKubernetes.oauth.baseURL }}
-   - Authorization Server Metadata: {{ .Values.mcpKubernetes.oauth.baseURL }}/.well-known/oauth-authorization-server
-   - Protected Resource Metadata: {{ .Values.mcpKubernetes.oauth.baseURL }}/.well-known/oauth-protected-resource
+   - OAuth Base URL: {{ include "mcp-kubernetes.oauth.baseURL" . }}
+   - Authorization Server Metadata: {{ include "mcp-kubernetes.oauth.baseURL" . }}/.well-known/oauth-authorization-server
+   - Protected Resource Metadata: {{ include "mcp-kubernetes.oauth.baseURL" . }}/.well-known/oauth-protected-resource
 
    To access the MCP server, clients must:
-   1. Register with the OAuth server (POST {{ .Values.mcpKubernetes.oauth.baseURL }}/oauth/register)
+   1. Register with the OAuth server (POST {{ include "mcp-kubernetes.oauth.baseURL" . }}/oauth/register)
    2. Authenticate via OAuth 2.1 flow
    3. Use the access token in the Authorization header
 
@@ -117,7 +117,7 @@
    For production deployments, enable TLS:
      mcpKubernetes.oauth.storage.valkey.tls.enabled: true
    {{- end }}
-   {{- $hasPassword := or .Values.mcpKubernetes.oauth.storage.valkey.password .Values.mcpKubernetes.oauth.storage.valkey.existingSecret .Values.mcpKubernetes.oauth.existingSecret }}
+   {{- $hasPassword := or .Values.mcpKubernetes.oauth.storage.valkey.password .Values.mcpKubernetes.oauth.storage.valkey.existingSecret (include "mcp-kubernetes.oauth.existingSecret" .) }}
    {{- if not $hasPassword }}
 
    SECURITY WARNING: Valkey authentication is NOT configured.
