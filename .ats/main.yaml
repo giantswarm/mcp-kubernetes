@@ -1,10 +1,8 @@
 app-tests-app-config-file: tests/test-values.yaml
 app-tests-deploy-namespace: mcp-kubernetes
 
-smoke-tests-cluster-type: kind
 # smoke-tests-cluster-config-file: tests/kind_config.yaml
 
-upgrade-tests-cluster-type: kind
 # upgrade-tests-cluster-config-file: tests/kind_config.yaml
 upgrade-tests-app-catalog-url: https://giantswarm.github.io/giantswarm-catalog
 # upgrade-tests-app-config-file: tests/test-values.yaml
