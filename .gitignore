@@ -73,3 +73,11 @@ tests/ats/*.xml
 
 # graphify knowledge graph (regenerable, rebuilt by the post-commit hook)
 graphify-out/
+
+# Scratch files the architect CI writes next to the sources (.ldflags from
+# go-test, .platforms from go-build) and the devctl Makefile's package dir.
+# Untracked they flip Go's VCS stamp to vcs.modified=true and pkg/project's
+# build-info fallback reports vX.Y.Z+dirty.
+.ldflags
+.platforms
+/bin-dist/
