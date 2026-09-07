@@ -2,14 +2,16 @@ package main
 
 import (
 	"github.com/giantswarm/mcp-kubernetes/cmd"
+	"github.com/giantswarm/mcp-kubernetes/pkg/project"
 )
 
-// version will be set by goreleaser during build
-var version = "dev"
-
 func main() {
-	// Set the version from build-time variable
-	cmd.SetVersion(version)
+	// The version comes from pkg/project: the architect CI and the devctl
+	// Makefile stamp it through -ldflags -X at link time; a plain `go build`
+	// falls back to Go's VCS build info. Nothing sets a variable in main any
+	// more (the goreleaser hook that once did is long gone, so release
+	// binaries printed "dev").
+	cmd.SetVersion(project.Version())
 
 	// Execute the root command
 	cmd.Execute()
