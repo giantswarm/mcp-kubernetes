@@ -1,4 +1,32 @@
 {{- if .Values.prometheusRules.enabled }}
+{{- /*
+Every aggregation below keeps the labels the Giant Swarm Alertmanager works
+with; a plain sum() or sum by (operation) drops them and the notification
+arrives with nothing to say:
+
+  - cluster_id, installation: Alertmanager groups notifications by them, the
+    Slack and PagerDuty templates print them ("Cluster: <installation> /
+    <cluster_id>"), and every cancel_if_* inhibition matches on
+    `equal: [cluster_id]` — an alert without cluster_id is never inhibited,
+    not even by the alert whose cancel_if label it carries.
+  - pipeline, provider: the routing tree selects PagerDuty routes by pipeline.
+  - namespace: names the release when a cluster runs more than one.
+
+The dimension an alert is about (operation, auth_mode) is added per rule.
+Dashboard annotations follow the observability-operator convention:
+__dashboardUid__ plus dashboardQueryParams become the notification's
+Dashboard link. The Giant Swarm organization in every installation's Grafana
+is orgId 2 (the same constant the platform's alert links use), which is what
+the dashboards are provisioned into when grafanaDashboards.giantswarm is on.
+*/}}
+{{- $by := "cluster_id, installation, pipeline, provider, namespace" }}
+{{- $runbook := printf "%s/%%s/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}%%s" .Values.prometheusRules.runbookBaseUrl }}
+{{- $dashboardParams := "var-namespace={{ $labels.namespace }}" }}
+{{- if .Values.grafanaDashboards.giantswarm.enabled }}
+{{- $dashboardParams = printf "orgId=2&%s" $dashboardParams }}
+{{- end }}
+{{- $administratorDashboard := and .Values.grafanaDashboards.enabled .Values.grafanaDashboards.dashboards.administrator.enabled }}
+{{- $clusterOperatorDashboard := and .Values.grafanaDashboards.enabled .Values.grafanaDashboards.dashboards.clusterOperator.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -25,16 +53,20 @@ spec:
         # This is specific to MCP protocol errors, not covered by generic HTTP monitoring
         - alert: MCPKubernetesHighErrorRate
           annotations:
-            description: MCP Kubernetes is returning errors at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate for the last 15 minutes.
-            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-high-error-rate
+            description: '{{`MCP Kubernetes in {{ $labels.namespace }} on {{ $labels.installation }} is answering {{ $value | humanizePercentage }} of MCP requests with HTTP 5xx.`}}'
+            runbook_url: {{ printf $runbook "mcp-kubernetes-high-error-rate" "" | quote }}
+            {{- if $administratorDashboard }}
+            __dashboardUid__: mcp-k8s-administrator
+            dashboardQueryParams: {{ $dashboardParams | quote }}
+            {{- end }}
           expr: |
             (
-              sum(rate(http_requests_total{
+              sum by ({{ $by }}) (rate(http_requests_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 status=~"5.."
               }[10m]))
               /
-              sum(rate(http_requests_total{
+              sum by ({{ $by }}) (rate(http_requests_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}"
               }[10m]))
             ) > 0.1
@@ -52,18 +84,22 @@ spec:
         # Alert when Kubernetes operations performed by MCP are failing
         - alert: MCPKubernetesK8sOperationFailures
           annotations:
-            description: MCP Kubernetes {{ "{{" }} $labels.operation {{ "}}" }} operations are failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
-            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-k8s-operation-failures
+            description: '{{`MCP Kubernetes {{ $labels.operation }} operations against the management cluster are failing at {{ $value | humanizePercentage }} rate in {{ $labels.namespace }} on {{ $labels.installation }}.`}}'
+            runbook_url: {{ printf $runbook "mcp-kubernetes-operation-failures" "" | quote }}
+            {{- if $administratorDashboard }}
+            __dashboardUid__: mcp-k8s-administrator
+            dashboardQueryParams: {{ $dashboardParams | quote }}
+            {{- end }}
           expr: |
             (
-              sum by (operation) (rate(mcp_kubernetes_operations_total{
+              sum by ({{ $by }}, operation) (rate(mcp_kubernetes_operations_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 cluster_scope="management",
                 discovery_mode="single",
                 status="error"
               }[15m]))
               /
-              sum by (operation) (rate(mcp_kubernetes_operations_total{
+              sum by ({{ $by }}, operation) (rate(mcp_kubernetes_operations_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 cluster_scope="management",
                 discovery_mode="single"
@@ -86,16 +122,20 @@ spec:
         # Alert when OAuth authentication is consistently failing
         - alert: MCPKubernetesOAuthFailures
           annotations:
-            description: MCP Kubernetes OAuth authentication is failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
-            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-oauth-failures
+            description: '{{`MCP Kubernetes in {{ $labels.namespace }} on {{ $labels.installation }} could not turn the caller ID token into a per-user Kubernetes client for {{ $value | humanizePercentage }} of requests.`}}'
+            runbook_url: {{ printf $runbook "mcp-kubernetes-auth-failures" "" | quote }}
+            {{- if $administratorDashboard }}
+            __dashboardUid__: mcp-k8s-administrator
+            dashboardQueryParams: {{ $dashboardParams | quote }}
+            {{- end }}
           expr: |
             (
-              sum(rate(oauth_downstream_auth_total{
+              sum by ({{ $by }}) (rate(oauth_downstream_auth_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 result="failure"
               }[15m]))
               /
-              sum(rate(oauth_downstream_auth_total{
+              sum by ({{ $by }}) (rate(oauth_downstream_auth_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}"
               }[15m]))
             ) > 0.3
@@ -117,16 +157,20 @@ spec:
         # Alert when workload cluster authentication is consistently failing
         - alert: MCPKubernetesWorkloadClusterAuthFailures
           annotations:
-            description: MCP Kubernetes workload cluster authentication ({{ "{{" }} $labels.auth_mode {{ "}}" }}) is failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
-            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-workload-cluster-auth-failures
+            description: '{{`MCP Kubernetes in {{ $labels.namespace }} on {{ $labels.installation }} fails {{ $labels.auth_mode }} authentication to workload clusters at {{ $value | humanizePercentage }} rate.`}}'
+            runbook_url: {{ printf $runbook "mcp-kubernetes-auth-failures" "#mcpkubernetesworkloadclusterauthfailures" | quote }}
+            {{- if $clusterOperatorDashboard }}
+            __dashboardUid__: mcp-k8s-cluster-operator
+            dashboardQueryParams: {{ $dashboardParams | quote }}
+            {{- end }}
           expr: |
             (
-              sum by (auth_mode) (rate(mcp_kubernetes_wc_auth_total{
+              sum by ({{ $by }}, auth_mode) (rate(mcp_kubernetes_wc_auth_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 result="error"
               }[15m]))
               /
-              sum by (auth_mode) (rate(mcp_kubernetes_wc_auth_total{
+              sum by ({{ $by }}, auth_mode) (rate(mcp_kubernetes_wc_auth_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}"
               }[15m]))
             ) > 0.3
@@ -144,18 +188,22 @@ spec:
         # Alert when cluster operations are consistently failing
         - alert: MCPKubernetesClusterOperationFailures
           annotations:
-            description: MCP Kubernetes cluster {{ "{{" }} $labels.operation {{ "}}" }} operations are failing at {{ "{{" }} $value | humanizePercentage {{ "}}" }} rate.
-            runbook_url: {{ .Values.prometheusRules.runbookBaseUrl }}/mcp-kubernetes-cluster-operation-failures
+            description: '{{`MCP Kubernetes {{ $labels.operation }} operations against workload clusters are failing at {{ $value | humanizePercentage }} rate in {{ $labels.namespace }} on {{ $labels.installation }}.`}}'
+            runbook_url: {{ printf $runbook "mcp-kubernetes-operation-failures" "#mcpkubernetesclusteroperationfailures" | quote }}
+            {{- if $clusterOperatorDashboard }}
+            __dashboardUid__: mcp-k8s-cluster-operator
+            dashboardQueryParams: {{ $dashboardParams | quote }}
+            {{- end }}
           expr: |
             (
-              sum by (operation) (rate(mcp_kubernetes_operations_total{
+              sum by ({{ $by }}, operation) (rate(mcp_kubernetes_operations_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 cluster_scope="workload",
                 discovery_mode="capi",
                 status="error"
               }[15m]))
               /
-              sum by (operation) (rate(mcp_kubernetes_operations_total{
+              sum by ({{ $by }}, operation) (rate(mcp_kubernetes_operations_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 cluster_scope="workload",
                 discovery_mode="capi"

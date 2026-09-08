@@ -1027,8 +1027,11 @@ prometheusRules:
   annotations: {}  # @schema additionalProperties: true
   # Team responsible for these alerts (used in alert labels)
   team: "bumblebee"
-  # Base URL for runbook links
-  runbookBaseUrl: "https://github.com/giantswarm/mcp-kubernetes/blob/main/docs/runbooks"
+  # Base URL for runbook links. Each alert links <runbookBaseUrl>/<slug>/ with
+  # the Giant Swarm runbook variables (?INSTALLATION=...&CLUSTER=...) filled in
+  # from the alert's labels. The slugs are mcp-kubernetes-high-error-rate,
+  # mcp-kubernetes-operation-failures and mcp-kubernetes-auth-failures.
+  runbookBaseUrl: "https://intranet.giantswarm.io/docs/support-and-ops/runbooks"
 
   # Individual alert rule toggles
   # Only mcp-kubernetes-specific alerts are included here.

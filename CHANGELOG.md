@@ -9,9 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* Alerts link the chart's own Grafana dashboards. When `grafanaDashboards.enabled` is set, every alert carries `__dashboardUid__` (`mcp-k8s-administrator` for the request, management-cluster operation and OAuth alerts; `mcp-k8s-cluster-operator` for the federation alerts) and `dashboardQueryParams` preselecting the release's namespace, which the Giant Swarm Alertmanager turns into the notification's Dashboard link. With `grafanaDashboards.giantswarm.enabled` the params pin `orgId=2`, the Giant Swarm organization the dashboards are provisioned into.
+
 * Helm chart: the OAuth settings fall back to the platform identity contract an umbrella chart forwards as `global.identity` / `global.domain` (agent-platform-standalone): `mcpKubernetes.oauth.dex.issuerURL` from `global.identity.issuerUrl`, `dex.clientID` from `global.identity.clientId`, `existingSecret` from `global.identity.existingSecret`, `dex.caSecret.{name,key}` from `global.identity.ca.{secretName,key}`, `trustedAudiences` from `[global.identity.clientId]` and `baseURL` from `https://<fullname>.<global.domain>`. A fallback applies only where the local value is empty: explicit `mcpKubernetes.oauth.*` values win, `oauth.enabled` and `enableDownstreamOAuth` stay explicit, and a chart installed without `global.identity` renders exactly as before. `values.yaml` documents the contract under `global`; the schema keeps `global` open for the other keys a parent chart forwards.
 
 ### Fixed
+
+* Alert notifications name the cluster again. Every expression in the chart's `PrometheusRule` aggregated with a plain `sum()` or `sum by (operation)`, which dropped the `cluster_id`, `installation`, `pipeline`, `provider` and `namespace` labels the Giant Swarm Alertmanager groups on, prints (`Cluster: <installation> / <cluster_id>`) and inhibits on (`cancel_if_cluster_control_plane_unhealthy` matches `equal: [cluster_id]`, so it never applied). `MCPKubernetesK8sOperationFailures` fired on gazelle on 2026-09-08 with an empty `Cluster:` line. All five alerts now aggregate `by (cluster_id, installation, pipeline, provider, namespace)` plus their own dimension (`operation`, `auth_mode`), and name the installation and namespace in their description.
+
+* Runbook links resolve. `prometheusRules.runbookBaseUrl` defaulted to a `docs/runbooks` directory that does not exist in this repository, so every alert's Runbook link was a 404. It now defaults to the intranet runbooks (`https://intranet.giantswarm.io/docs/support-and-ops/runbooks`); the alerts link `mcp-kubernetes-high-error-rate`, `mcp-kubernetes-operation-failures` and `mcp-kubernetes-auth-failures` with `?INSTALLATION=&CLUSTER=` filled in from the alert's labels, and the two federation alerts jump to their own section of the shared page.
 
 * `values-prometheus-rules-giantswarm.yaml` sets `prometheusRules.team` to `bumblebee`, matching the chart default. It named `planeteers`, so anyone following the example routed the alerts to the wrong team.
 
