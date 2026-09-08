@@ -190,4 +190,160 @@ tests:
     asserts:
       - matchRegex:
           path: spec.groups[0].rules[0].annotations.runbook_url
-          pattern: https://runbooks.example.com/mcp-kubernetes-high-error-rate
+          pattern: '^https://runbooks.example.com/mcp-kubernetes-high-error-rate/\?INSTALLATION='
+
+  # The Giant Swarm Alertmanager groups notifications by cluster_id and
+  # installation, prints them as "Cluster: <installation> / <cluster_id>" and
+  # matches every cancel_if_* inhibition on equal: [cluster_id]. An aggregation
+  # that drops them ships an alert with an empty Cluster line that is never
+  # inhibited — MCPKubernetesK8sOperationFailures did exactly that on
+  # 2026-09-08. Every expression has to keep them.
+  - it: should keep the cluster labels in every alert expression
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: true
+      mcpKubernetes:
+        oauth:
+          enabled: true
+          baseURL: https://test.example.com
+          dex:
+            issuerURL: https://dex.example.com
+            clientID: test-client
+          existingSecret: test-secret
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: 'sum by \(cluster_id, installation, pipeline, provider, namespace\) \(rate\(http_requests_total'
+      - matchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: 'sum by \(cluster_id, installation, pipeline, provider, namespace, operation\) \(rate\(mcp_kubernetes_operations_total'
+      - matchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: 'sum by \(cluster_id, installation, pipeline, provider, namespace\) \(rate\(oauth_downstream_auth_total'
+      - matchRegex:
+          path: spec.groups[2].rules[0].expr
+          pattern: 'sum by \(cluster_id, installation, pipeline, provider, namespace, auth_mode\) \(rate\(mcp_kubernetes_wc_auth_total'
+      - matchRegex:
+          path: spec.groups[2].rules[1].expr
+          pattern: 'sum by \(cluster_id, installation, pipeline, provider, namespace, operation\) \(rate\(mcp_kubernetes_operations_total'
+      - notMatchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: 'sum\('
+      - notMatchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: 'sum\('
+      - notMatchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: 'sum\('
+      - notMatchRegex:
+          path: spec.groups[2].rules[0].expr
+          pattern: 'sum\('
+      - notMatchRegex:
+          path: spec.groups[2].rules[1].expr
+          pattern: 'sum\('
+
+  - it: should name the installation and namespace in every description
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: true
+      mcpKubernetes:
+        oauth:
+          enabled: true
+          baseURL: https://test.example.com
+          dex:
+            issuerURL: https://dex.example.com
+            clientID: test-client
+          existingSecret: test-secret
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].annotations.description
+          pattern: 'in \{\{ \$labels\.namespace \}\} on \{\{ \$labels\.installation \}\}'
+      - matchRegex:
+          path: spec.groups[0].rules[1].annotations.description
+          pattern: 'in \{\{ \$labels\.namespace \}\} on \{\{ \$labels\.installation \}\}'
+      - matchRegex:
+          path: spec.groups[1].rules[0].annotations.description
+          pattern: 'in \{\{ \$labels\.namespace \}\} on \{\{ \$labels\.installation \}\}'
+      - matchRegex:
+          path: spec.groups[2].rules[0].annotations.description
+          pattern: 'in \{\{ \$labels\.namespace \}\} on \{\{ \$labels\.installation \}\}'
+      - matchRegex:
+          path: spec.groups[2].rules[1].annotations.description
+          pattern: 'in \{\{ \$labels\.namespace \}\} on \{\{ \$labels\.installation \}\}'
+
+  # Runbooks live on the intranet and take INSTALLATION and CLUSTER as
+  # variables; the alert fills them in from its own labels so the link opens
+  # with the right kubectl context already set.
+  - it: should link the intranet runbook with the alert's installation and cluster filled in
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].annotations.runbook_url
+          value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/mcp-kubernetes-high-error-rate/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}'
+      - equal:
+          path: spec.groups[0].rules[1].annotations.runbook_url
+          value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/mcp-kubernetes-operation-failures/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}'
+      - equal:
+          path: spec.groups[1].rules[0].annotations.runbook_url
+          value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/mcp-kubernetes-auth-failures/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}#mcpkubernetesworkloadclusterauthfailures'
+      - equal:
+          path: spec.groups[1].rules[1].annotations.runbook_url
+          value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/mcp-kubernetes-operation-failures/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}#mcpkubernetesclusteroperationfailures'
+
+  - it: should not link a dashboard when the chart provisions none
+    set:
+      prometheusRules:
+        enabled: true
+    asserts:
+      - notExists:
+          path: spec.groups[0].rules[0].annotations.__dashboardUid__
+      - notExists:
+          path: spec.groups[0].rules[0].annotations.dashboardQueryParams
+
+  # The Giant Swarm organization is orgId 2 in every installation's Grafana;
+  # the platform's own alert links hardcode the same constant.
+  - it: should link the administrator dashboard in the Giant Swarm organization
+    set:
+      prometheusRules:
+        enabled: true
+      grafanaDashboards:
+        enabled: true
+        giantswarm:
+          enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].annotations.__dashboardUid__
+          value: mcp-k8s-administrator
+      - equal:
+          path: spec.groups[0].rules[1].annotations.__dashboardUid__
+          value: mcp-k8s-administrator
+      - equal:
+          path: spec.groups[0].rules[0].annotations.dashboardQueryParams
+          value: 'orgId=2&var-namespace={{ $labels.namespace }}'
+
+  - it: should link the cluster-operator dashboard for federation alerts and skip the orgId outside Giant Swarm
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: true
+      grafanaDashboards:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[1].rules[0].annotations.__dashboardUid__
+          value: mcp-k8s-cluster-operator
+      - equal:
+          path: spec.groups[1].rules[1].annotations.__dashboardUid__
+          value: mcp-k8s-cluster-operator
+      - equal:
+          path: spec.groups[1].rules[0].annotations.dashboardQueryParams
+          value: 'var-namespace={{ $labels.namespace }}'

@@ -497,6 +497,14 @@ spec:
 
 ## Example Alerts
 
+Aggregate `by` the labels your Alertmanager routes, groups and inhibits on. Giant
+Swarm's groups notifications by `cluster_id` and `installation`, prints them as
+`Cluster: <installation> / <cluster_id>` and matches every `cancel_if_*`
+inhibition on `equal: [cluster_id]`; a plain `sum()` drops those labels and the
+notification cannot say which cluster it is about. The chart's own rules
+(`helm/mcp-kubernetes/templates/prometheusrule.yaml`) keep
+`cluster_id, installation, pipeline, provider, namespace` on every expression.
+
 ### High Error Rate
 
 ```yaml
@@ -506,8 +514,8 @@ groups:
       - alert: HighErrorRate
         expr: |
           (
-            sum(rate(http_requests_total{status=~"5.."}[5m]))
-            / sum(rate(http_requests_total[5m]))
+            sum by (cluster_id, installation, namespace) (rate(http_requests_total{status=~"5.."}[5m]))
+            / sum by (cluster_id, installation, namespace) (rate(http_requests_total[5m]))
           ) > 0.05
         for: 5m
         labels:
@@ -523,7 +531,7 @@ groups:
       - alert: SlowKubernetesOperations
         expr: |
           histogram_quantile(0.95,
-            sum by (le, operation) (
+            sum by (le, cluster_id, installation, namespace, operation) (
               rate(mcp_kubernetes_operation_duration_seconds_bucket{
                 cluster_scope="management",
                 discovery_mode="single"
@@ -558,12 +566,12 @@ groups:
       - alert: HighClusterOperationErrorRate
         expr: |
           (
-            sum(rate(mcp_kubernetes_operations_total{
+            sum by (cluster_id, installation, namespace) (rate(mcp_kubernetes_operations_total{
               cluster_scope="workload",
               discovery_mode="capi",
               status="error"
             }[5m]))
-            / sum(rate(mcp_kubernetes_operations_total{
+            / sum by (cluster_id, installation, namespace) (rate(mcp_kubernetes_operations_total{
               cluster_scope="workload",
               discovery_mode="capi"
             }[5m]))
@@ -598,7 +606,7 @@ groups:
       - alert: SlowRemoteClusterOperations
         expr: |
           histogram_quantile(0.95,
-            sum by (le, cluster_type) (
+            sum by (le, cluster_id, installation, namespace, cluster_type) (
               rate(mcp_kubernetes_operation_duration_seconds_bucket{
                 cluster_scope="workload",
                 discovery_mode="capi"
