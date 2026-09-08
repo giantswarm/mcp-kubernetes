@@ -414,7 +414,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(oauth_downstream_auth_total{namespace=~\"$namespace\", result=\"failure\"}[24h])) or vector(0)",
+          "expr": "sum(increase(oauth_downstream_auth_total{namespace=~\"$namespace\", result=~\"failure|denied\"}[24h])) or vector(0)",
           "legendFormat": "Auth Failures",
           "refId": "A"
         }

@@ -196,7 +196,7 @@ Histogram of pod operation durations.
 Counter of OAuth downstream authentication attempts.
 
 **Labels:**
-- `result`: Authentication result (success, fallback, failure)
+- `result`: Authentication result. `success`: a per-user client was built from the caller's token. `denied`: strict mode (always on with downstream OAuth) refused the request because no ID token reached the tool layer, or the per-user or impersonation client could not be built; the caller got an authentication error. `failure`: the non-strict fallback path could not build the per-user client, or the federation client provider failed to construct a client. `fallback`: non-strict mode served the request with the service account.
 
 **Example:**
 ```promql
@@ -549,9 +549,11 @@ groups:
 ### OAuth Authentication Issues
 
 ```yaml
+      # Strict mode records "denied", not "failure", when it cannot act as the
+      # caller; count both so the alert can fire on a production deployment.
       - alert: OAuthAuthenticationFailures
         expr: |
-          rate(oauth_downstream_auth_total{result="failure"}[5m]) > 0.1
+          rate(oauth_downstream_auth_total{result=~"failure|denied"}[5m]) > 0.1
         for: 5m
         labels:
           severity: warning
