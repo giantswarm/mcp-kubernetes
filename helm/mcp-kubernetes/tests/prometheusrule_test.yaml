@@ -347,3 +347,44 @@ tests:
       - equal:
           path: spec.groups[1].rules[0].annotations.dashboardQueryParams
           value: 'var-namespace={{ $labels.namespace }}'
+
+  # Downstream OAuth always runs in strict mode (cmd/serve.go), and strict mode
+  # records result="denied" when it cannot act as the caller; result="failure"
+  # only exists on the non-strict fallback path and in the federation client
+  # provider. An alert on result="failure" alone never fired on a production
+  # deployment (a week of gazelle traffic held only "success"). The ratio has
+  # to count both, and only those two: "fallback" is a request the service
+  # account served, not a failure the caller saw, and the denominator counts
+  # every result.
+  - it: should count the results strict mode records in the OAuth alert
+    set:
+      prometheusRules:
+        enabled: true
+      mcpKubernetes:
+        oauth:
+          enabled: true
+          baseURL: https://test.example.com
+          dex:
+            issuerURL: https://dex.example.com
+            clientID: test-client
+          existingSecret: test-secret
+    asserts:
+      - equal:
+          path: spec.groups[1].rules[0].alert
+          value: MCPKubernetesOAuthFailures
+      - matchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: 'oauth_downstream_auth_total\{\s*job="RELEASE-NAME-mcp-kubernetes",\s*result=~"failure\|denied"\s*\}\[15m\]'
+      - notMatchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: 'result="failure"'
+      - notMatchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: 'fallback'
+      # The denominator is every result: exactly one selector carries a result matcher.
+      - matchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: '/\s*sum by \(cluster_id, installation, pipeline, provider, namespace\) \(rate\(oauth_downstream_auth_total\{\s*job="RELEASE-NAME-mcp-kubernetes"\s*\}\[15m\]\)\)'
+      - matchRegex:
+          path: spec.groups[1].rules[0].annotations.description
+          pattern: 'could not act as the caller'

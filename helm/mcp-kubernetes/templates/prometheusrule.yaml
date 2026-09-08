@@ -119,10 +119,16 @@ spec:
     - name: mcp-kubernetes.oauth
       rules:
         {{- if .Values.prometheusRules.rules.mcpKubernetesOAuthFailures.enabled }}
-        # Alert when OAuth authentication is consistently failing
+        # Alert when mcp-kubernetes cannot act as the caller: the request passed
+        # the OAuth middleware, but no per-user Kubernetes client came out of it.
+        # Downstream OAuth always runs in strict mode (cmd/serve.go), which
+        # records that as result="denied"; result="failure" is the non-strict
+        # fallback path and the federation client provider's client-construction
+        # error. result="fallback" is a request served by the service account
+        # and not a failure the caller saw, so it is not counted.
         - alert: MCPKubernetesOAuthFailures
           annotations:
-            description: '{{`MCP Kubernetes in {{ $labels.namespace }} on {{ $labels.installation }} could not turn the caller ID token into a per-user Kubernetes client for {{ $value | humanizePercentage }} of requests.`}}'
+            description: '{{`MCP Kubernetes in {{ $labels.namespace }} on {{ $labels.installation }} could not act as the caller for {{ $value | humanizePercentage }} of authenticated requests (per-user Kubernetes client denied or failed).`}}'
             runbook_url: {{ printf $runbook "mcp-kubernetes-auth-failures" "" | quote }}
             {{- if $administratorDashboard }}
             __dashboardUid__: mcp-k8s-administrator
@@ -132,7 +138,7 @@ spec:
             (
               sum by ({{ $by }}) (rate(oauth_downstream_auth_total{
                 job="{{ include "mcp-kubernetes.fullname" . }}",
-                result="failure"
+                result=~"failure|denied"
               }[15m]))
               /
               sum by ({{ $by }}) (rate(oauth_downstream_auth_total{
