@@ -388,3 +388,77 @@ tests:
       - matchRegex:
           path: spec.groups[1].rules[0].annotations.description
           pattern: 'could not act as the caller'
+
+  # Every alert is a ratio, and with downstream OAuth each call runs as the
+  # caller: on a quiet installation one caller denied on one namespace is
+  # 100% of the traffic. MCPKubernetesK8sOperationFailures fired on gazelle on
+  # 2026-09-08 over fifteen failed list calls and nothing else in the window.
+  # Each expression therefore also requires its denominator to have counted
+  # at least prometheusRules.minimumVolume events over the alert's own window,
+  # with the same selector as the denominator (no status/result filter) and
+  # the same by (...) labels, so the `and` matches the ratio series.
+  - it: should require a minimum volume before any ratio is compared with its threshold
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: true
+      mcpKubernetes:
+        oauth:
+          enabled: true
+          baseURL: https://test.example.com
+          dex:
+            issuerURL: https://dex.example.com
+            clientID: test-client
+          existingSecret: test-secret
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: '\) > 0\.1\s+and\s+sum by \(cluster_id, installation, pipeline, provider, namespace\) \(increase\(http_requests_total\{\s+job="RELEASE-NAME-mcp-kubernetes"\s+\}\[10m\]\)\) >= 20\s*$'
+      - matchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: '\) > 0\.2\s+and\s+sum by \(cluster_id, installation, pipeline, provider, namespace, operation\) \(increase\(mcp_kubernetes_operations_total\{\s+job="RELEASE-NAME-mcp-kubernetes",\s+cluster_scope="management",\s+discovery_mode="single"\s+\}\[15m\]\)\) >= 20\s*$'
+      - matchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: '\) > 0\.3\s+and\s+sum by \(cluster_id, installation, pipeline, provider, namespace\) \(increase\(oauth_downstream_auth_total\{\s+job="RELEASE-NAME-mcp-kubernetes"\s+\}\[15m\]\)\) >= 20\s*$'
+      - matchRegex:
+          path: spec.groups[2].rules[0].expr
+          pattern: '\) > 0\.3\s+and\s+sum by \(cluster_id, installation, pipeline, provider, namespace, auth_mode\) \(increase\(mcp_kubernetes_wc_auth_total\{\s+job="RELEASE-NAME-mcp-kubernetes"\s+\}\[15m\]\)\) >= 20\s*$'
+      - matchRegex:
+          path: spec.groups[2].rules[1].expr
+          pattern: '\) > 0\.3\s+and\s+sum by \(cluster_id, installation, pipeline, provider, namespace, operation\) \(increase\(mcp_kubernetes_operations_total\{\s+job="RELEASE-NAME-mcp-kubernetes",\s+cluster_scope="workload",\s+discovery_mode="capi"\s+\}\[15m\]\)\) >= 20\s*$'
+
+  - it: should render the configured minimum volume in every expression
+    set:
+      prometheusRules:
+        enabled: true
+        minimumVolume: 5
+      capiMode:
+        enabled: true
+      mcpKubernetes:
+        oauth:
+          enabled: true
+          baseURL: https://test.example.com
+          dex:
+            issuerURL: https://dex.example.com
+            clientID: test-client
+          existingSecret: test-secret
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: '\[10m\]\)\) >= 5\s*$'
+      - matchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: '\[15m\]\)\) >= 5\s*$'
+      - matchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: '\[15m\]\)\) >= 5\s*$'
+      - matchRegex:
+          path: spec.groups[2].rules[0].expr
+          pattern: '\[15m\]\)\) >= 5\s*$'
+      - matchRegex:
+          path: spec.groups[2].rules[1].expr
+          pattern: '\[15m\]\)\) >= 5\s*$'
+      - notMatchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: '>= 20'
