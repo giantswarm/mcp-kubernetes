@@ -71,3 +71,47 @@ tests:
       - equal:
           path: metadata.annotations["observability.giantswarm.io/folder"]
           value: platform-tools
+
+  - it: should classify the target cluster as target_cluster_type and never emit the platform's cluster_type label
+    set:
+      grafanaDashboards:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["mcp-kubernetes-security.json"]
+          pattern: sum by \(target_cluster_type\) \(rate\(mcp_kubernetes_impersonation_total
+        documentIndex: 1
+      - matchRegex:
+          path: data["mcp-kubernetes-security.json"]
+          pattern: sum by \(target_cluster_type\) \(rate\(mcp_kubernetes_wc_auth_total
+        documentIndex: 1
+      - matchRegex:
+          path: data["mcp-kubernetes-cluster-operator.json"]
+          pattern: sum by \(target_cluster_type\) \(rate\(mcp_kubernetes_operations_total
+        documentIndex: 2
+      - matchRegex:
+          path: data["mcp-kubernetes-cluster-operator.json"]
+          pattern: sum by \(le, target_cluster_type\) \(rate\(mcp_kubernetes_operation_duration_seconds_bucket
+        documentIndex: 2
+      - matchRegex:
+          path: data["mcp-kubernetes-cluster-operator.json"]
+          pattern: sum by \(target_cluster_type, result\) \(rate\(mcp_kubernetes_wc_auth_total
+        documentIndex: 2
+      - matchRegex:
+          path: data["mcp-kubernetes-cluster-operator.json"]
+          pattern: sum by \(target_cluster_type\) \(rate\(mcp_kubernetes_federation_client_creations_total
+        documentIndex: 2
+      # `[^_]cluster_type` is a cluster_type that is not the tail of target_cluster_type;
+      # `by (cluster)` / `{{cluster}}` were the impersonation and federation panels' old label.
+      - notMatchRegex:
+          path: data["mcp-kubernetes-administrator.json"]
+          pattern: '[^_]cluster_type|by \(cluster\)|\{\{cluster\}\}'
+        documentIndex: 0
+      - notMatchRegex:
+          path: data["mcp-kubernetes-security.json"]
+          pattern: '[^_]cluster_type|by \(cluster\)|\{\{cluster\}\}'
+        documentIndex: 1
+      - notMatchRegex:
+          path: data["mcp-kubernetes-cluster-operator.json"]
+          pattern: '[^_]cluster_type|by \(cluster\)|\{\{cluster\}\}'
+        documentIndex: 2

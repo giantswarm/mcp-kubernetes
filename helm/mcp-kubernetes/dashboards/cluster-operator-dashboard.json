@@ -386,8 +386,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster_type) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\"}[$__rate_interval]))",
-          "legendFormat": "{{cluster_type}}",
+          "expr": "sum by (target_cluster_type) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\"}[$__rate_interval]))",
+          "legendFormat": "{{target_cluster_type}}",
           "refId": "A"
         }
       ],
@@ -475,8 +475,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster_type) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\", status=\"error\"}[$__rate_interval]))",
-          "legendFormat": "{{cluster_type}}",
+          "expr": "sum by (target_cluster_type) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\", status=\"error\"}[$__rate_interval]))",
+          "legendFormat": "{{target_cluster_type}}",
           "refId": "A"
         }
       ],
@@ -564,8 +564,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, cluster_type) (rate(mcp_kubernetes_operation_duration_seconds_bucket{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\"}[$__rate_interval])))",
-          "legendFormat": "{{cluster_type}}",
+          "expr": "histogram_quantile(0.95, sum by (le, target_cluster_type) (rate(mcp_kubernetes_operation_duration_seconds_bucket{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\"}[$__rate_interval])))",
+          "legendFormat": "{{target_cluster_type}}",
           "refId": "A"
         }
       ],
@@ -1322,8 +1322,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster_type, result) (rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
-          "legendFormat": "{{cluster_type}} - {{result}}",
+          "expr": "sum by (target_cluster_type, result) (rate(mcp_kubernetes_wc_auth_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{target_cluster_type}} - {{result}}",
           "refId": "A"
         }
       ],
@@ -1559,8 +1559,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (cluster) (rate(mcp_kubernetes_federation_client_creations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
-          "legendFormat": "{{cluster}}",
+          "expr": "sum by (target_cluster_type) (rate(mcp_kubernetes_federation_client_creations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{target_cluster_type}}",
           "refId": "A"
         }
       ],

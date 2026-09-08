@@ -19,8 +19,8 @@
 //   - active_port_forward_sessions: Gauge of active port-forward sessions
 //
 // Kubernetes Operation Metrics:
-//   - mcp_kubernetes_operations_total: Counter of K8s operations by cluster_scope, discovery_mode, cluster_type, operation, status
-//   - mcp_kubernetes_operation_duration_seconds: Histogram of K8s operation durations by cluster_scope, discovery_mode, cluster_type, operation, status
+//   - mcp_kubernetes_operations_total: Counter of K8s operations by cluster_scope, discovery_mode, target_cluster_type, operation, status
+//   - mcp_kubernetes_operation_duration_seconds: Histogram of K8s operation durations by cluster_scope, discovery_mode, target_cluster_type, operation, status
 //
 // Pod Operation Metrics:
 //   - kubernetes_pod_operations_total: Counter of pod operations
@@ -38,10 +38,10 @@
 // CAPI/Federation Metrics (with cardinality controls):
 //   - mcp_kubernetes_operations_total: Covers remote cluster operations with cluster_scope=workload and discovery_mode=capi
 //   - mcp_kubernetes_operation_duration_seconds: Histogram of operation durations for management/workload scopes
-//   - mcp_kubernetes_impersonation_total: Counter of impersonation requests (by user_domain, cluster_type, result)
-//   - mcp_kubernetes_federation_client_creations_total: Counter of federation client creation attempts
+//   - mcp_kubernetes_impersonation_total: Counter of impersonation requests (by user_domain, target_cluster_type, result)
+//   - mcp_kubernetes_federation_client_creations_total: Counter of federation client creation attempts (by target_cluster_type, result)
 //   - mcp_kubernetes_privileged_access_total: Counter of privileged access attempts (secret access + CAPI discovery)
-//   - mcp_kubernetes_wc_auth_total: Counter of workload cluster authentication attempts
+//   - mcp_kubernetes_wc_auth_total: Counter of workload cluster authentication attempts (by auth_mode, target_cluster_type, result)
 //   - mcp_kubernetes_client_cache_hits_total: Counter of client cache hits
 //   - mcp_kubernetes_client_cache_misses_total: Counter of client cache misses
 //   - mcp_kubernetes_client_cache_evictions_total: Counter of client cache evictions
@@ -55,6 +55,14 @@
 //   - User emails are reduced to domains (e.g., "giantswarm.io" instead of "jane@giantswarm.io")
 //   - Cluster names are classified into types (production, staging, development, management, other)
 //   - Use ClassifyClusterName() and ExtractUserDomain() for consistent cardinality control
+//
+// The classification is exported as target_cluster_type (metrics and audit logs)
+// and mcp.target_cluster_type (spans), never as cluster_type: observability
+// platforms stamp every scraped series with their own cluster_type label
+// describing the cluster the exporter runs in (on Giant Swarm installations
+// management_cluster/workload_cluster), and Prometheus external labels do not
+// overwrite a label the series already carries. A series-level cluster_type
+// would shadow the platform's and drop these metrics from fleet-wide filters.
 //
 // For large clusters with >1000 namespaces, keep METRICS_DETAILED_LABELS=false (default)
 // and use traces for per-namespace/resource debugging.
@@ -71,7 +79,7 @@
 //
 // CAPI-specific span attributes include:
 //   - mcp.cluster: Target cluster name
-//   - mcp.cluster_type: Classified cluster type
+//   - mcp.target_cluster_type: Classified type of the target cluster
 //   - mcp.user.email: User email (optional, configurable)
 //   - mcp.user.domain: User's email domain (always included)
 //   - mcp.user.group_count: Number of groups

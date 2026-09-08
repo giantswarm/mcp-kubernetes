@@ -65,14 +65,14 @@ func (ti *ToolInvocation) Status() string {
 //
 // # Cardinality
 //
-// This function uses cardinality-controlled values (user_domain, cluster_type)
+// This function uses cardinality-controlled values (user_domain, target_cluster_type)
 // for metrics-compatible logging. For full audit logging, use LogAuditAttrs.
 func (ti *ToolInvocation) LogAttrs() []slog.Attr {
 	attrs := []slog.Attr{
 		slog.String("tool", ti.Tool),
 		slog.String("user_domain", ti.UserDomain()),
 		slog.Int("group_count", len(ti.Groups)),
-		slog.String("cluster_type", ti.ClusterType()),
+		slog.String("target_cluster_type", ti.ClusterType()),
 		slog.Duration("duration", ti.Duration),
 		slog.Bool("success", ti.Success),
 	}

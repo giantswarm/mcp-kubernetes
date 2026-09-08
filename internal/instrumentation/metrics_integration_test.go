@@ -332,11 +332,11 @@ func TestMetricLabelsAreRecorded(t *testing.T) {
 		{"K8s status label", `status="success"`},
 		{"K8s cluster scope label", `cluster_scope="management"`},
 		{"K8s discovery mode label", `discovery_mode="single"`},
-		{"K8s cluster type label", `cluster_type="management"`},
+		{"K8s target cluster type label", `target_cluster_type="management"`},
 		// Impersonation uses domain extraction
 		{"User domain label (cardinality control)", `user_domain="giantswarm.io"`},
-		// Cluster type classification
-		{"Cluster type label (cardinality control)", `cluster="production"`},
+		// Cluster name classification on the impersonation counter
+		{"Impersonation target cluster type label (cardinality control)", `target_cluster_type="production"`},
 	}
 
 	for _, tc := range labelTests {

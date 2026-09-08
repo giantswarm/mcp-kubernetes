@@ -102,7 +102,7 @@ Counter of Kubernetes operations for both management and workload clusters.
 **Labels:**
 - `cluster_scope`: `management` or `workload`
 - `discovery_mode`: `single` or `capi`
-- `cluster_type`: Classified type (production, staging, other, management)
+- `target_cluster_type`: Classified type of the target cluster (management, production, staging, development, cicd, operations, other) — see [Why `target_cluster_type`](#why-target_cluster_type)
 - `operation`: Operation type (get, list, create, apply, delete, patch)
 - `status`: Operation result (success, error)
 - `resource_type`: Kubernetes resource type (pods, deployments, etc.) **when detailed labels are enabled**
@@ -131,7 +131,7 @@ Histogram of Kubernetes operation durations.
 **Labels:**
 - `cluster_scope`: `management` or `workload`
 - `discovery_mode`: `single` or `capi`
-- `cluster_type`: Classified type (production, staging, other, management)
+- `target_cluster_type`: Classified type of the target cluster (management, production, staging, development, cicd, operations, other) — see [Why `target_cluster_type`](#why-target_cluster_type)
 - `operation`: Operation type
 - `status`: Operation result (success, error)
 - `resource_type`: Kubernetes resource type **when detailed labels are enabled**
@@ -226,13 +226,21 @@ avg_over_time(active_port_forward_sessions[1h])
 
 These metrics are specific to multi-cluster federation mode and use cardinality controls to prevent metric explosion.
 
+#### Why `target_cluster_type`
+
+`ClassifyClusterName` reduces the name of the cluster an operation targets to one of `management`, `production`, `staging`, `development`, `cicd`, `operations` or `other`. That class is exported as `target_cluster_type` on the metrics, `target_cluster_type` in the audit log and `mcp.target_cluster_type` on spans.
+
+It is not called `cluster_type` because observability platforms attach a label of that name to everything they scrape to say **where the exporter runs**: on Giant Swarm installations every remote-written series carries `cluster_type="management_cluster"` or `"workload_cluster"` next to `cluster_id` and `installation`. Prometheus remote-write external labels never overwrite a label the series already has, so a series-level `cluster_type` shadows the platform's, and a fleet-wide query such as `mcp_kubernetes_operations_total{cluster_type="management_cluster"}` returns nothing for mcp-kubernetes. The `target_` prefix keeps the two apart: `cluster_type` is the cluster mcp-kubernetes runs in, `target_cluster_type` is the class of cluster it talked to.
+
+Before this rename the label was `cluster_type` on `mcp_kubernetes_operations_total`, `mcp_kubernetes_operation_duration_seconds` and `mcp_kubernetes_wc_auth_total`, and `cluster` on `mcp_kubernetes_impersonation_total` and `mcp_kubernetes_federation_client_creations_total`. Dashboards, recording rules and saved queries that used either need the new name; the old labels are not emitted alongside, since a compatibility alias would keep the collision.
+
 #### `mcp_kubernetes_operations_total` (workload scope)
 Counter of operations performed on remote clusters.
 
 **Labels:**
 - `cluster_scope`: `workload`
 - `discovery_mode`: `capi`
-- `cluster_type`: Classified cluster type (production, staging, other)
+- `target_cluster_type`: Classified type of the target cluster (production, staging, development, cicd, operations, other)
 - `operation`: Operation type (get, list, create, delete, etc.)
 - `status`: Operation result (success, error)
 
@@ -244,7 +252,7 @@ Counter of operations performed on remote clusters.
 mcp_kubernetes_operations_total{
   cluster_scope="workload",
   discovery_mode="capi",
-  cluster_type="production"
+  target_cluster_type="production"
 }
 
 # Error rate on remote clusters
@@ -265,7 +273,7 @@ Histogram of remote cluster operation durations.
 **Labels:**
 - `cluster_scope`: `workload`
 - `discovery_mode`: `capi`
-- `cluster_type`: Classified cluster type
+- `target_cluster_type`: Classified type of the target cluster
 - `operation`: Operation type
 
 **Buckets:** 0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0 seconds
@@ -277,7 +285,7 @@ histogram_quantile(0.95,
   rate(mcp_kubernetes_operation_duration_seconds_bucket{
     cluster_scope="workload",
     discovery_mode="capi",
-    cluster_type="production"
+    target_cluster_type="production"
   }[5m])
 )
 ```
@@ -287,7 +295,7 @@ Counter of impersonation requests.
 
 **Labels:**
 - `user_domain`: Email domain of the user (e.g., "giantswarm.io")
-- `cluster`: Classified cluster type
+- `target_cluster_type`: Classified type of the target cluster
 - `result`: Result (success, error, denied)
 
 **Note:** User emails are reduced to domains to prevent high cardinality and protect PII.
@@ -306,7 +314,7 @@ rate(mcp_kubernetes_impersonation_total{result="denied"}[5m])
 Counter of federation client creation attempts.
 
 **Labels:**
-- `cluster`: Classified cluster type
+- `target_cluster_type`: Classified type of the target cluster
 - `result`: Result (success, error, cached)
 
 **Example:**
@@ -351,7 +359,7 @@ Counter of workload cluster authentication attempts. Distinguishes between authe
 
 **Labels:**
 - `auth_mode`: Authentication mode (`impersonation` or `sso-passthrough`)
-- `cluster_type`: Classified cluster type (production, staging, development, other)
+- `target_cluster_type`: Classified type of the target cluster (production, staging, development, cicd, operations, other)
 - `result`: Result (`success`, `error`, `token_missing`, `token_expired`)
 
 **Use Cases:**
@@ -608,7 +616,7 @@ groups:
       - alert: SlowRemoteClusterOperations
         expr: |
           histogram_quantile(0.95,
-            sum by (le, cluster_id, installation, namespace, cluster_type) (
+            sum by (le, cluster_id, installation, namespace, target_cluster_type) (
               rate(mcp_kubernetes_operation_duration_seconds_bucket{
                 cluster_scope="workload",
                 discovery_mode="capi"
@@ -620,7 +628,7 @@ groups:
           severity: warning
         annotations:
           summary: "Slow remote cluster operations"
-          description: "P95 duration for {{ $labels.cluster }} clusters is {{ $value }}s"
+          description: "P95 duration for {{ $labels.target_cluster_type }} clusters is {{ $value }}s"
 ```
 
 ## Grafana Dashboards
@@ -674,7 +682,7 @@ Incident investigation, audit trails, and anomaly detection. Designed for securi
 
 **Rows:**
 - **Security Overview (24h)** - Total operations, failures, rate limit violations, impersonation denials
-- **Impersonation Monitoring** - By user domain, denied requests, by cluster type
+- **Impersonation Monitoring** - By user domain, denied requests, by target cluster type
 - **Privileged Access Tracking** - Secret access by domain, rate-limited attempts
 - **OAuth Security Events** - Rate limits, redirect URI rejections, code/token reuse, PKCE failures
 - **Client Registration Security** - New registrations by type, client count, CIMD operations
@@ -691,10 +699,10 @@ Multi-cluster federation visibility and workload cluster operations. For teams m
 
 **Rows:**
 - **Federation Overview** - Cluster operations rate, cached clients, cache hit ratio
-- **Workload Cluster Operations** - By cluster type, error rates, durations
+- **Workload Cluster Operations** - By target cluster type, error rates, durations
 - **Client Cache Performance** - Cache entries, hit/miss ratio, evictions by reason
 - **Workload Cluster Authentication** - Auth mode usage, SSO success rate, results by cluster
-- **Federation Client Lifecycle** - Cached vs new clients, creation by cluster type
+- **Federation Client Lifecycle** - Cached vs new clients, creation by target cluster type
 
 **Data Source Requirements:** Prometheus (required)
 
@@ -759,7 +767,7 @@ For multi-cluster operations, additional attributes are included:
 
 - `mcp.tool`: MCP tool name being executed
 - `mcp.cluster`: Target cluster name
-- `mcp.cluster_type`: Classified cluster type (production, staging, development, management, other)
+- `mcp.target_cluster_type`: Classified type of the target cluster (production, staging, development, cicd, operations, management, other) — the span-attribute form of the `target_cluster_type` metric label
 - `mcp.user.email`: User's email (optional, for audit)
 - `mcp.user.domain`: User's email domain (always included)
 - `mcp.user.group_count`: Number of groups the user belongs to
@@ -805,13 +813,13 @@ This allows correlation between:
 **Jaeger:**
 ```
 service:mcp-kubernetes operation:tool.get
-service:mcp-kubernetes mcp.cluster_type=production
+service:mcp-kubernetes mcp.target_cluster_type=production
 service:mcp-kubernetes mcp.user.domain=giantswarm.io
 ```
 
 **Grafana Tempo:**
 ```
-{ span.mcp.cluster_type = "production" && span.mcp.tool = "delete" }
+{ span.mcp.target_cluster_type = "production" && span.mcp.tool = "delete" }
 ```
 
 ## Health Endpoints
@@ -927,7 +935,7 @@ Every tool invocation produces a structured log entry:
   "tool": "delete",
   "user_domain": "giantswarm.io",
   "group_count": 3,
-  "cluster_type": "production",
+  "target_cluster_type": "production",
   "namespace": "production",
   "resource_type": "pods",
   "duration": "0.523s",
@@ -942,7 +950,7 @@ Every tool invocation produces a structured log entry:
 - `tool`: MCP tool name
 - `user_domain`: User's email domain (not full email)
 - `group_count`: Number of groups
-- `cluster_type`: Classified cluster type
+- `target_cluster_type`: Classified type of the target cluster (same values as the metric label)
 - `duration`: Execution duration
 - `success`: Boolean success indicator
 - `trace_id`: OpenTelemetry trace ID for correlation
@@ -986,7 +994,7 @@ For compliance/audit purposes, a separate log stream can include full details:
 {app="mcp-kubernetes"} |= "tool_executed" | json | user_domain="giantswarm.io"
 
 # Failed operations on production clusters
-{app="mcp-kubernetes"} |= "tool_failed" | json | cluster_type="production"
+{app="mcp-kubernetes"} |= "tool_failed" | json | target_cluster_type="production"
 
 # Delete operations (security audit)
 {app="mcp-kubernetes"} | json | tool="delete"

@@ -17,8 +17,8 @@ const (
 	// SpanAttrCluster is the cluster name attribute.
 	SpanAttrCluster = "mcp.cluster"
 
-	// SpanAttrClusterType is the classified cluster type attribute.
-	SpanAttrClusterType = "mcp.cluster_type"
+	// SpanAttrClusterType is the classified type of the target cluster (see attrTargetClusterType).
+	SpanAttrClusterType = "mcp.target_cluster_type"
 
 	// SpanAttrUserEmail is the user's email attribute (PII - use with care).
 	SpanAttrUserEmail = "mcp.user.email"
