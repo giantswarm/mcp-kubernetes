@@ -13,6 +13,15 @@ arrives with nothing to say:
   - namespace: names the release when a cluster runs more than one.
 
 The dimension an alert is about (operation, auth_mode) is added per rule.
+
+Every alert is a ratio, and a ratio over a handful of calls is noise: with
+downstream OAuth each call runs as the caller, so on a quiet installation one
+caller denied on one namespace is 100% of the traffic (gazelle, 2026-09-08:
+fifteen failed list calls and nothing else in the window). Each expression
+therefore also requires its denominator to have counted at least
+prometheusRules.minimumVolume events over the alert's own window before the
+ratio is compared with its threshold. `and` keeps the ratio as the alert's
+value, so $value still humanizes to a percentage.
 Dashboard annotations follow the observability-operator convention:
 __dashboardUid__ plus dashboardQueryParams become the notification's
 Dashboard link. The Giant Swarm organization in every installation's Grafana
@@ -20,6 +29,7 @@ is orgId 2 (the same constant the platform's alert links use), which is what
 the dashboards are provisioned into when grafanaDashboards.giantswarm is on.
 */}}
 {{- $by := "cluster_id, installation, pipeline, provider, namespace" }}
+{{- $minVolume := .Values.prometheusRules.minimumVolume }}
 {{- $runbook := printf "%s/%%s/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}%%s" .Values.prometheusRules.runbookBaseUrl }}
 {{- $dashboardParams := "var-namespace={{ $labels.namespace }}" }}
 {{- if .Values.grafanaDashboards.giantswarm.enabled }}
@@ -70,6 +80,10 @@ spec:
                 job="{{ include "mcp-kubernetes.fullname" . }}"
               }[10m]))
             ) > 0.1
+            and
+            sum by ({{ $by }}) (increase(http_requests_total{
+              job="{{ include "mcp-kubernetes.fullname" . }}"
+            }[10m])) >= {{ $minVolume }}
           for: 15m
           labels:
             area: platform
@@ -105,6 +119,12 @@ spec:
                 discovery_mode="single"
               }[15m]))
             ) > 0.2
+            and
+            sum by ({{ $by }}, operation) (increase(mcp_kubernetes_operations_total{
+              job="{{ include "mcp-kubernetes.fullname" . }}",
+              cluster_scope="management",
+              discovery_mode="single"
+            }[15m])) >= {{ $minVolume }}
           for: 15m
           labels:
             area: platform
@@ -145,6 +165,10 @@ spec:
                 job="{{ include "mcp-kubernetes.fullname" . }}"
               }[15m]))
             ) > 0.3
+            and
+            sum by ({{ $by }}) (increase(oauth_downstream_auth_total{
+              job="{{ include "mcp-kubernetes.fullname" . }}"
+            }[15m])) >= {{ $minVolume }}
           for: 15m
           labels:
             area: platform
@@ -180,6 +204,10 @@ spec:
                 job="{{ include "mcp-kubernetes.fullname" . }}"
               }[15m]))
             ) > 0.3
+            and
+            sum by ({{ $by }}, auth_mode) (increase(mcp_kubernetes_wc_auth_total{
+              job="{{ include "mcp-kubernetes.fullname" . }}"
+            }[15m])) >= {{ $minVolume }}
           for: 15m
           labels:
             area: platform
@@ -215,6 +243,12 @@ spec:
                 discovery_mode="capi"
               }[15m]))
             ) > 0.3
+            and
+            sum by ({{ $by }}, operation) (increase(mcp_kubernetes_operations_total{
+              job="{{ include "mcp-kubernetes.fullname" . }}",
+              cluster_scope="workload",
+              discovery_mode="capi"
+            }[15m])) >= {{ $minVolume }}
           for: 15m
           labels:
             area: platform

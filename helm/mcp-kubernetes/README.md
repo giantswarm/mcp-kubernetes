@@ -168,6 +168,7 @@ A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 | prometheusRules.annotations | object | `{}` |  |
 | prometheusRules.team | string | `"bumblebee"` |  |
 | prometheusRules.runbookBaseUrl | string | `"https://intranet.giantswarm.io/docs/support-and-ops/runbooks"` |  |
+| prometheusRules.minimumVolume | int | `20` |  |
 | prometheusRules.rules.mcpKubernetesHighErrorRate.enabled | bool | `true` |  |
 | prometheusRules.rules.mcpKubernetesK8sOperationFailures.enabled | bool | `true` |  |
 | prometheusRules.rules.mcpKubernetesOAuthFailures.enabled | bool | `true` |  |
