@@ -167,4 +167,4 @@ require (
 // flags golang.org/x/mod < v0.40.0 (CVE-2026-56864). The module is not needed
 // by any imported package, so a require would be dropped by go mod tidy —
 // only a replace holds the graph at the fixed version.
-replace golang.org/x/mod => golang.org/x/mod v0.40.0
+replace golang.org/x/mod => golang.org/x/mod v0.41.0
