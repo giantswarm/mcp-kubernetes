@@ -65,13 +65,13 @@ Create the name of the service account to use
 {{/*
 Platform identity contract (global.identity) fallbacks for the OAuth settings.
 
-Helm forwards `global.*` to every sub-chart, so an umbrella chart such as
-agent-platform-standalone can describe the platform's single identity provider
+Helm forwards `global.*` to every sub-chart, so a parent chart such as the
+agent-platform meta chart can describe the platform's single identity provider
 once (global.identity.issuerUrl / clientId / existingSecret / ca, global.domain)
 and have this chart pick it up. Each helper returns the explicit local value
 (mcpKubernetes.oauth.*) when it is set and falls back to global.identity only
 when the local value is empty. Without global.identity the helpers reduce to the
-local values, so a standalone install behaves exactly as before.
+local values, so a chart installed on its own behaves exactly as before.
 */}}
 
 {{/*
