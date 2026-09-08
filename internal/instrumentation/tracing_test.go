@@ -59,7 +59,7 @@ func TestSpanAttributeBuilder(t *testing.T) {
 			t.Errorf("Expected cluster %q, got %q", tracingTestCluster, attrMap[SpanAttrCluster].AsString())
 		}
 		if attrMap[SpanAttrClusterType].AsString() != "production" {
-			t.Errorf("Expected cluster_type %q, got %q", "production", attrMap[SpanAttrClusterType].AsString())
+			t.Errorf("Expected target_cluster_type %q, got %q", "production", attrMap[SpanAttrClusterType].AsString())
 		}
 	})
 
@@ -278,7 +278,7 @@ func TestSpanAttributeConstants(t *testing.T) {
 	// Verify constants are defined with expected values
 	expectedValues := map[string]string{
 		"SpanAttrCluster":      "mcp.cluster",
-		"SpanAttrClusterType":  "mcp.cluster_type",
+		"SpanAttrClusterType":  "mcp.target_cluster_type",
 		"SpanAttrUserEmail":    "mcp.user.email",
 		"SpanAttrUserDomain":   "mcp.user.domain",
 		"SpanAttrGroupCount":   "mcp.user.group_count",

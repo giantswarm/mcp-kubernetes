@@ -162,7 +162,7 @@ func TestToolInvocation_LogAttrs(t *testing.T) {
 	}
 
 	// Check required attributes
-	requiredKeys := []string{"tool", "user_domain", "group_count", "cluster_type", "duration", "success"}
+	requiredKeys := []string{"tool", "user_domain", "group_count", "target_cluster_type", "duration", "success"}
 	for _, key := range requiredKeys {
 		if _, ok := attrMap[key]; !ok {
 			t.Errorf("Missing required attribute: %s", key)
@@ -173,8 +173,8 @@ func TestToolInvocation_LogAttrs(t *testing.T) {
 	if domain := attrMap["user_domain"].Value.String(); domain != testDomain {
 		t.Errorf("user_domain = %q, want %q", domain, testDomain)
 	}
-	if ct := attrMap["cluster_type"].Value.String(); ct != "production" {
-		t.Errorf("cluster_type = %q, want %q", ct, "production")
+	if ct := attrMap["target_cluster_type"].Value.String(); ct != "production" {
+		t.Errorf("target_cluster_type = %q, want %q", ct, "production")
 	}
 }
 

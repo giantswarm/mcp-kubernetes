@@ -24,9 +24,17 @@ const (
 	attrReason       = "reason"
 
 	// CAPI/Federation specific attributes (with cardinality controls)
-	attrUserDomain  = "user_domain"
-	attrClusterType = "cluster_type"
-	attrAuthMode    = "auth_mode"
+	attrUserDomain = "user_domain"
+	// attrTargetClusterType carries ClassifyClusterName's class of the cluster an
+	// operation targets (management, production, staging, development, cicd,
+	// operations, other). It is deliberately not named cluster_type: Prometheus
+	// remote-write external labels never overwrite a label a series already
+	// carries, and platforms such as Giant Swarm's stamp every scraped series
+	// with their own cluster_type (management_cluster/workload_cluster) to say
+	// where the exporter runs. A same-named series label would shadow it and
+	// hide these metrics from every fleet-wide cluster_type filter.
+	attrTargetClusterType = "target_cluster_type"
+	attrAuthMode          = "auth_mode"
 
 	// Kubernetes operation scope labels
 	attrClusterScope  = "cluster_scope"
@@ -121,7 +129,7 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// Kubernetes Operation Metrics (management + workload)
 	m.k8sOperationsTotal, err = meter.Int64Counter(
 		"mcp_kubernetes_operations_total",
-		metric.WithDescription("Total number of Kubernetes operations. Labels: cluster_scope, discovery_mode, cluster_type, operation, status"),
+		metric.WithDescription("Total number of Kubernetes operations. Labels: cluster_scope, discovery_mode, target_cluster_type, operation, status"),
 		metric.WithUnit("{operation}"),
 	)
 	if err != nil {
@@ -130,7 +138,7 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 
 	m.k8sOperationDuration, err = meter.Float64Histogram(
 		"mcp_kubernetes_operation_duration_seconds",
-		metric.WithDescription("Kubernetes operation duration in seconds. Labels: cluster_scope, discovery_mode, cluster_type, operation, status"),
+		metric.WithDescription("Kubernetes operation duration in seconds. Labels: cluster_scope, discovery_mode, target_cluster_type, operation, status"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0),
 	)
@@ -221,11 +229,11 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// CAPI/Federation Metrics
 	//
 	// Note on cardinality: These metrics use cardinality controls:
-	// - cluster_type instead of cluster_name (production/staging/other)
+	// - target_cluster_type instead of cluster_name (production/staging/other)
 	// - user_domain instead of full email (e.g., "giantswarm.io")
 	m.impersonationTotal, err = meter.Int64Counter(
 		"mcp_kubernetes_impersonation_total",
-		metric.WithDescription("Total impersonation requests. Labels: user_domain, cluster_type, result"),
+		metric.WithDescription("Total impersonation requests. Labels: user_domain, target_cluster_type, result"),
 		metric.WithUnit("{request}"),
 	)
 	if err != nil {
@@ -234,7 +242,7 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 
 	m.federationClientCreations, err = meter.Int64Counter(
 		"mcp_kubernetes_federation_client_creations_total",
-		metric.WithDescription("Total federation client creation attempts. Labels: cluster_type, result"),
+		metric.WithDescription("Total federation client creation attempts. Labels: target_cluster_type, result"),
 		metric.WithUnit("{creation}"),
 	)
 	if err != nil {
@@ -258,10 +266,10 @@ func NewMetrics(meter metric.Meter, detailedLabels bool) (*Metrics, error) {
 	// Workload Cluster Authentication Metrics
 	//
 	// Note on cardinality: Uses auth_mode (impersonation, sso-passthrough) and result.
-	// cluster_type is used instead of cluster_name for cardinality control.
+	// target_cluster_type is used instead of cluster_name for cardinality control.
 	m.wcAuthTotal, err = meter.Int64Counter(
 		"mcp_kubernetes_wc_auth_total",
-		metric.WithDescription("Total workload cluster authentication attempts. Labels: auth_mode (impersonation, sso-passthrough), cluster_type, result"),
+		metric.WithDescription("Total workload cluster authentication attempts. Labels: auth_mode (impersonation, sso-passthrough), target_cluster_type, result"),
 		metric.WithUnit("{auth}"),
 	)
 	if err != nil {
@@ -485,7 +493,7 @@ func (m *Metrics) kubernetesOperationAttributes(clusterName, operation, status, 
 	return []attribute.KeyValue{
 		attribute.String(attrClusterScope, clusterScope),
 		attribute.String(attrDiscoveryMode, discoveryMode),
-		attribute.String(attrClusterType, clusterType),
+		attribute.String(attrTargetClusterType, clusterType),
 		attribute.String(attrOperation, operation),
 		attribute.String(attrStatus, status),
 	}
@@ -505,7 +513,7 @@ func (m *Metrics) RecordImpersonation(ctx context.Context, userEmail, clusterNam
 
 	attrs := []attribute.KeyValue{
 		attribute.String(attrUserDomain, ExtractUserDomain(userEmail)),
-		attribute.String(attrCluster, ClassifyClusterName(clusterName)),
+		attribute.String(attrTargetClusterType, ClassifyClusterName(clusterName)),
 		attribute.String(attrResult, result),
 	}
 
@@ -523,7 +531,7 @@ func (m *Metrics) RecordFederationClientCreation(ctx context.Context, clusterNam
 	}
 
 	attrs := []attribute.KeyValue{
-		attribute.String(attrCluster, ClassifyClusterName(clusterName)),
+		attribute.String(attrTargetClusterType, ClassifyClusterName(clusterName)),
 		attribute.String(attrResult, result),
 	}
 
@@ -582,7 +590,7 @@ func (m *Metrics) RecordWorkloadClusterAuth(ctx context.Context, authMode, clust
 
 	attrs := []attribute.KeyValue{
 		attribute.String(attrAuthMode, authMode),
-		attribute.String(attrClusterType, ClassifyClusterName(clusterName)),
+		attribute.String(attrTargetClusterType, ClassifyClusterName(clusterName)),
 		attribute.String(attrResult, result),
 	}
 
