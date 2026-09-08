@@ -6,8 +6,9 @@
 # release (Helm forwards `global.*` to every sub-chart). All keys are empty by
 # default: a chart installed on its own configures mcpKubernetes.oauth.*
 # directly and renders exactly as before. When a parent chart (for example
-# agent-platform-standalone) sets them, the OAuth settings fall back to them
-# wherever the local value is empty; an explicit mcpKubernetes.oauth.* value
+# the agent-platform meta chart, of which this chart is the mcp-kubernetes
+# component) sets them, the OAuth settings fall back to them wherever the
+# local value is empty; an explicit mcpKubernetes.oauth.* value
 # always wins:
 #
 #   mcpKubernetes.oauth.dex.issuerURL      <- global.identity.issuerUrl

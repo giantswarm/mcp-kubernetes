@@ -1,6 +1,6 @@
 # OAuth global.identity fallback tests for the mcp-kubernetes Helm chart
 #
-# An umbrella chart (agent-platform-standalone) describes the platform's one
+# A parent chart (the agent-platform meta chart) describes the platform's one
 # identity provider under global.identity and its base domain under
 # global.domain. These tests verify that the OAuth settings fall back to that
 # contract only where the local mcpKubernetes.oauth.* value is empty, that an
