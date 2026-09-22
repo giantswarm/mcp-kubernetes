@@ -600,7 +600,13 @@
                         "encryptionKey": {
                             "type": "boolean"
                         },
+                        "encryptionKeyValue": {
+                            "type": "string"
+                        },
                         "existingSecret": {
+                            "type": "string"
+                        },
+                        "existingSecretChecksum": {
                             "type": "string"
                         },
                         "google": {
@@ -675,6 +681,9 @@
                                             "type": "integer"
                                         },
                                         "existingSecret": {
+                                            "type": "string"
+                                        },
+                                        "existingSecretChecksum": {
                                             "type": "string"
                                         },
                                         "keyPrefix": {

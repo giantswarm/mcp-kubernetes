@@ -169,3 +169,84 @@ following the platform's hostname convention. Empty when neither is set.
 {{- printf "https://%s.%s" (include "mcp-kubernetes.fullname" .) $domain -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Data of the OAuth credentials Secret the chart renders (templates/oauth-secret.yaml),
+key by key with the required-value checks. Its SHA-256 is the pod template's
+checksum/oauth-secret annotation, so the server rolls when a credential changes.
+*/}}
+{{- define "mcp-kubernetes.oauthSecretData" -}}
+{{- $oauth := .Values.mcpKubernetes.oauth -}}
+{{- $data := dict -}}
+{{- if eq ($oauth.provider | default "dex") "google" -}}
+{{- if $oauth.google.clientID -}}
+{{- $_ := set $data "google-client-id" ($oauth.google.clientID | b64enc) -}}
+{{- else -}}
+{{- fail "mcpKubernetes.oauth.google.clientID is required when Google provider is used and existingSecret is not set" -}}
+{{- end -}}
+{{- if $oauth.google.clientSecret -}}
+{{- $_ := set $data "google-client-secret" ($oauth.google.clientSecret | b64enc) -}}
+{{- else -}}
+{{- fail "mcpKubernetes.oauth.google.clientSecret is required when Google provider is used and existingSecret is not set" -}}
+{{- end -}}
+{{- else if eq ($oauth.provider | default "dex") "dex" -}}
+{{- if $oauth.dex.clientSecret -}}
+{{- $_ := set $data "dex-client-secret" ($oauth.dex.clientSecret | b64enc) -}}
+{{- else -}}
+{{- fail "mcpKubernetes.oauth.dex.clientSecret is required when Dex provider is used and existingSecret is not set" -}}
+{{- end -}}
+{{- end -}}
+{{- /* Registration token is required unless:
+      1. allowPublicRegistration is true (anyone can register), OR
+      2. trustedPublicRegistrationSchemes is configured (Cursor/VSCode can register without token)
+*/ -}}
+{{- if not $oauth.allowPublicRegistration -}}
+{{- if $oauth.registrationAccessToken -}}
+{{- $_ := set $data "registration-token" ($oauth.registrationAccessToken | b64enc) -}}
+{{- else if not $oauth.trustedPublicRegistrationSchemes -}}
+{{- fail "mcpKubernetes.oauth.registrationAccessToken is required when OAuth is enabled, allowPublicRegistration is false, trustedPublicRegistrationSchemes is empty, and existingSecret is not set. Either set a registrationAccessToken, enable allowPublicRegistration, or configure trustedPublicRegistrationSchemes for Cursor/VSCode compatibility." -}}
+{{- end -}}
+{{- end -}}
+{{- if $oauth.encryptionKey -}}
+{{- if $oauth.encryptionKeyValue -}}
+{{- $_ := set $data "oauth-encryption-key" ($oauth.encryptionKeyValue | b64enc) -}}
+{{- else -}}
+{{- fail "mcpKubernetes.oauth.encryptionKeyValue is required when encryptionKey is true and existingSecret is not set" -}}
+{{- end -}}
+{{- end -}}
+{{- /* Valkey password - only when Valkey storage is configured and no existing secret holds it */ -}}
+{{- if and (eq $oauth.storage.type "valkey") (not $oauth.storage.valkey.existingSecret) $oauth.storage.valkey.password -}}
+{{- $_ := set $data "valkey-password" ($oauth.storage.valkey.password | b64enc) -}}
+{{- end -}}
+{{- toYaml $data -}}
+{{- end }}
+
+{{/*
+Value of the pod template's checksum/oauth-secret annotation: the SHA-256 of
+the chart-rendered Secret's data, or mcpKubernetes.oauth.existingSecretChecksum
+verbatim when the credentials come from an existing Secret the chart cannot
+read. Empty while OAuth is off, or while nothing marks the existing Secret's
+revision.
+*/}}
+{{- define "mcp-kubernetes.oauthSecretChecksum" -}}
+{{- if .Values.mcpKubernetes.oauth.enabled -}}
+{{- if include "mcp-kubernetes.oauth.existingSecret" . -}}
+{{- .Values.mcpKubernetes.oauth.existingSecretChecksum -}}
+{{- else -}}
+{{- include "mcp-kubernetes.oauthSecretData" . | sha256sum -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Value of the pod template's checksum/valkey-secret annotation:
+mcpKubernetes.oauth.storage.valkey.existingSecretChecksum verbatim while the
+Valkey password comes from its own existing Secret. Empty otherwise: a password
+in the OAuth Secret is covered by checksum/oauth-secret.
+*/}}
+{{- define "mcp-kubernetes.valkeySecretChecksum" -}}
+{{- $valkey := .Values.mcpKubernetes.oauth.storage.valkey -}}
+{{- if and .Values.mcpKubernetes.oauth.enabled (eq .Values.mcpKubernetes.oauth.storage.type "valkey") $valkey.existingSecret -}}
+{{- $valkey.existingSecretChecksum -}}
+{{- end -}}
+{{- end }}
