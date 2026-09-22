@@ -352,6 +352,9 @@ mcpKubernetes:
     # Enable token encryption at rest (AES-256-GCM)
     # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
     encryptionKey: false
+    # The key itself when the chart renders the Secret (32 bytes, base64;
+    # generate with: openssl rand -base64 32). Ignored with existingSecret.
+    encryptionKeyValue: ""
     # Disable streaming for streamable-http transport
     disableStreaming: false
     # Enable downstream OAuth token passthrough to Kubernetes API
@@ -369,7 +372,19 @@ mcpKubernetes:
     enableDownstreamOAuth: false
     # Use an existing secret for OAuth credentials
     # The secret should contain keys: google-client-id, google-client-secret, dex-client-secret, registration-token, oauth-encryption-key (optional)
+    # The server reads the Secret at start and never again; see
+    # existingSecretChecksum for how a rotation reaches it.
     existingSecret: ""
+
+    # Revision mark of existingSecret. The pod template carries a
+    # checksum/oauth-secret annotation so the server rolls when its credentials
+    # change: for a chart-rendered Secret the SHA-256 of the Secret's data, for
+    # an existing Secret, which the chart cannot read, this value verbatim.
+    # Whoever rotates the Secret changes this value in the same change (a hash
+    # over the new data, a counter, a date), a string. While it is empty, a
+    # rotation of the existing Secret alone leaves the running server on the
+    # old values.
+    existingSecretChecksum: ""
 
     # Token storage configuration
     # In-memory storage is default but NOT recommended for production
@@ -408,6 +423,12 @@ mcpKubernetes:
         # Use an existing secret for Valkey password
         # The secret should contain key: valkey-password
         existingSecret: ""
+
+        # Revision mark of the Valkey existingSecret, rendered verbatim as the
+        # pod template's checksum/valkey-secret annotation so the server rolls
+        # when the password rotates; change it in the same change as the
+        # Secret. A password in the OAuth Secret needs no separate mark.
+        existingSecretChecksum: ""
 
         # Key in the secret containing the Valkey password
         secretKeyPassword: "valkey-password"

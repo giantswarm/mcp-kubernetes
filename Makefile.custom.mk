@@ -16,10 +16,19 @@ helm-lint: ## Lint Helm chart
 	@echo "Linting Helm chart..."
 	@helm lint ./helm/mcp-kubernetes
 
+HELM_UNITTEST_VERSION := 1.0.3
+
 .PHONY: helm-test
-helm-test: ## Run Helm chart unit tests (requires helm-unittest plugin)
+helm-test: helm-lint helm-unittest ## Run every chart check (what the chart-test CI job runs).
+
+.PHONY: helm-unittest
+helm-unittest: helm-plugin-unittest ## Run the helm-unittest suites in helm/mcp-kubernetes/tests/.
 	@echo "Running Helm unit tests..."
 	@helm unittest ./helm/mcp-kubernetes
+
+.PHONY: helm-plugin-unittest
+helm-plugin-unittest:
+	@helm plugin list | grep -q '^unittest' || helm plugin install https://github.com/helm-unittest/helm-unittest --version $(HELM_UNITTEST_VERSION)
 
 .PHONY: test-vet
 test-vet: ## Run go test and go vet

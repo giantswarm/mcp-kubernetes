@@ -17,6 +17,12 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- with include "mcp-kubernetes.oauthSecretChecksum" . }}
+        checksum/oauth-secret: {{ . | quote }}
+        {{- end }}
+        {{- with include "mcp-kubernetes.valkeySecretChecksum" . }}
+        checksum/valkey-secret: {{ . | quote }}
+        {{- end }}
         {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
         prometheus.io/scrape: "true"
         prometheus.io/port: "{{ .Values.mcpKubernetes.metrics.port }}"
@@ -248,7 +254,7 @@ spec:
             - name: VALKEY_DB
               value: {{ .Values.mcpKubernetes.oauth.storage.valkey.db | quote }}
             {{- end }}
-            {{- if or .Values.mcpKubernetes.oauth.storage.valkey.existingSecret (include "mcp-kubernetes.oauth.existingSecret" .) }}
+            {{- if or .Values.mcpKubernetes.oauth.storage.valkey.existingSecret (include "mcp-kubernetes.oauth.existingSecret" .) .Values.mcpKubernetes.oauth.storage.valkey.password }}
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:

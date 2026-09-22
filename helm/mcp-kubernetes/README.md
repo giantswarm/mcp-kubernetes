@@ -14,6 +14,28 @@ A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 
 * <https://github.com/giantswarm/mcp-kubernetes>
 
+## Rolling on credential rotation
+
+The server reads its OAuth credentials (the Dex or Google client secret, the
+registration token, the token encryption key, the Valkey password) from a
+Secret at start and never again. The pod template carries a
+`checksum/oauth-secret` annotation so a changed credential restarts the server:
+
+- With `mcpKubernetes.oauth.existingSecret` (and `global.identity.existingSecret`)
+  empty the chart renders the Secret from `mcpKubernetes.oauth.dex.clientSecret`
+  (or `google.clientSecret`), `registrationAccessToken`, `encryptionKeyValue` and
+  `storage.valkey.password`; the annotation is the SHA-256 of that Secret's data
+  and follows every change of those values.
+- With an existing Secret the chart cannot read it; the annotation is
+  `mcpKubernetes.oauth.existingSecretChecksum` verbatim. Change it in the same
+  change that rotates the Secret (a hash over the new data, a counter, a date).
+  A Flux `HelmRelease` can instead feed the Secret's keys into the values above
+  through `valuesFrom` entries with `targetPath`, so the chart renders the
+  Secret itself and the checksum follows the rotation on its own.
+- A Valkey password in its own Secret (`storage.valkey.existingSecret`) is
+  marked the same way by `storage.valkey.existingSecretChecksum`, rendered as
+  `checksum/valkey-secret`.
+
 ## Values
 
 | Key | Type | Default | Description |
@@ -107,9 +129,11 @@ A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 | mcpKubernetes.oauth.allowPrivateURLs | bool | `false` |  |
 | mcpKubernetes.oauth.maxClientsPerIP | int | `10` |  |
 | mcpKubernetes.oauth.encryptionKey | bool | `false` |  |
+| mcpKubernetes.oauth.encryptionKeyValue | string | `""` |  |
 | mcpKubernetes.oauth.disableStreaming | bool | `false` |  |
 | mcpKubernetes.oauth.enableDownstreamOAuth | bool | `false` |  |
 | mcpKubernetes.oauth.existingSecret | string | `""` |  |
+| mcpKubernetes.oauth.existingSecretChecksum | string | `""` |  |
 | mcpKubernetes.oauth.storage.type | string | `"memory"` |  |
 | mcpKubernetes.oauth.storage.valkey.url | string | `""` |  |
 | mcpKubernetes.oauth.storage.valkey.password | string | `""` |  |
@@ -117,6 +141,7 @@ A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 | mcpKubernetes.oauth.storage.valkey.keyPrefix | string | `"mcp:"` |  |
 | mcpKubernetes.oauth.storage.valkey.db | int | `0` |  |
 | mcpKubernetes.oauth.storage.valkey.existingSecret | string | `""` |  |
+| mcpKubernetes.oauth.storage.valkey.existingSecretChecksum | string | `""` |  |
 | mcpKubernetes.oauth.storage.valkey.secretKeyPassword | string | `"valkey-password"` |  |
 | mcpKubernetes.oauth.redirectURISecurity.disableProductionMode | bool | `false` |  |
 | mcpKubernetes.oauth.redirectURISecurity.allowLocalhostRedirectURIs | bool | `false` |  |
