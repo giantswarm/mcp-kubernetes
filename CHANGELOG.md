@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* Server spans for the HTTP and MCP surface. Every request except the probes and `/metrics` is an HTTP server span (`POST /mcp`) joined to the caller's `traceparent`, every JSON-RPC request an `mcp.<method>` server span under it (`mcp.tools/call` carries `mcp.tool.name` and `gen_ai.tool.name`), and every tool handler a `tool.<name>` span. With `TRACING_EXPORTER=otlp` the server used to export no span at all (giantswarm/giantswarm#36711).
+
 * OTLP export over gRPC and with headers. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` sends traces (and OTLP metrics) over gRPC instead of OTLP/HTTP, the default; `OTEL_EXPORTER_OTLP_HEADERS` goes out with every export, e.g. `X-Scope-OrgID` for a multi-tenant collector. Chart: `mcpKubernetes.instrumentation.otlpProtocol` (`""`, `grpc`, `http/protobuf`) and `otlpHeaders` render them only when set, so a default install is unchanged (giantswarm/giantswarm#36711).
 
 * Alerts link the chart's own Grafana dashboards. When `grafanaDashboards.enabled` is set, every alert carries `__dashboardUid__` (`mcp-k8s-administrator` for the request, management-cluster operation and OAuth alerts; `mcp-k8s-cluster-operator` for the federation alerts) and `dashboardQueryParams` preselecting the release's namespace, which the Giant Swarm Alertmanager turns into the notification's Dashboard link. With `grafanaDashboards.giantswarm.enabled` the params pin `orgId=2`, the Giant Swarm organization the dashboards are provisioned into.

@@ -52,7 +52,7 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 		"message_endpoint", messageEndpoint)
 
 	// Limit request bodies, inside the metrics middleware so 413s are recorded
-	handler := middleware.HTTPMetrics(provider)(middleware.MaxRequestBody(maxRequestSize)(mux))
+	handler := middleware.Tracing(middleware.HTTPMetrics(provider)(middleware.MaxRequestBody(maxRequestSize)(mux)))
 
 	// Start metrics server if enabled
 	var metricsServer *server.MetricsServer

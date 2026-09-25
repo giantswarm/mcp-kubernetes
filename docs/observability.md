@@ -765,39 +765,15 @@ mcpKubernetes:
     otlpInsecure: true
 ```
 
-### Trace Attributes
+### Spans
 
-Traces include the following standard attributes:
+Every request except `/healthz`, `/readyz` and `/metrics` is a trace, joined to the caller's `traceparent` (muster's `mcp.tools/call` span, for a call through muster):
 
-- `http.method`: HTTP method
-- `http.route`: Request route
-- `http.status_code`: HTTP status code
-- `k8s.namespace`: Kubernetes namespace
-- `k8s.resource_type`: Resource type
-- `k8s.resource_name`: Resource name
-- `k8s.operation`: Operation type (get, list, create, delete, etc.)
+- `<METHOD> <route>` (e.g. `POST /mcp`): the HTTP server span, with the OpenTelemetry HTTP attributes (`http.request.method`, `http.route`, `http.response.status_code`).
+- `mcp.<method>` (e.g. `mcp.tools/call`, `mcp.tools/list`): a server span per JSON-RPC request under the HTTP span, with `mcp.method`, `mcp.session.id` and `mcp.protocol.version`; `mcp.tools/call` also carries `mcp.tool.name` and `gen_ai.tool.name`.
+- `tool.<name>` (e.g. `tool.capi_list_clusters`): the tool handler, under `mcp.tools/call`.
 
-### CAPI/Federation Trace Attributes
-
-For multi-cluster operations, additional attributes are included:
-
-- `mcp.tool`: MCP tool name being executed
-- `mcp.cluster`: Target cluster name
-- `mcp.target_cluster_type`: Classified type of the target cluster (production, staging, development, cicd, operations, management, other) — the span-attribute form of the `target_cluster_type` metric label
-- `mcp.user.email`: User's email (optional, for audit)
-- `mcp.user.domain`: User's email domain (always included)
-- `mcp.user.group_count`: Number of groups the user belongs to
-- `mcp.cache_hit`: Whether the operation used a cached client
-- `mcp.impersonated`: Whether user impersonation was used
-- `mcp.federated`: Whether federation was used for the operation
-
-### Span Naming Convention
-
-Spans follow a consistent naming convention:
-
-- `tool.<tool_name>`: MCP tool invocations (e.g., `tool.get`)
-- `k8s.<operation>`: Kubernetes API calls (e.g., `k8s.get`, `k8s.list`)
-- `federation.<operation>`: Federation operations (e.g., `federation.GetClient`)
+Sampling is parent-based: a sampled `traceparent` is always followed, a request without one is sampled at `OTEL_TRACES_SAMPLER_ARG` (`mcpKubernetes.instrumentation.traceSamplingRate`, 0.1).
 
 ### Trace ID Propagation
 

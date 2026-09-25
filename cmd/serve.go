@@ -946,7 +946,7 @@ func runServe(config ServeConfig) error {
 		)
 	})
 
-	mcpSrv := mcpserver.NewMCPServer(serviceName, rootCmd.Version,
+	mcpSrv := mcpserver.NewMCPServer(serviceName, rootCmd.Version, append(instrumentation.MCPServerOptions(),
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithHooks(hooks),
 		mcpserver.WithInputSchemaValidation(),
@@ -954,7 +954,7 @@ func runServe(config ServeConfig) error {
 		mcpserver.WithToolFilter(tools.HideDeprecatedAliasesFilter),
 		mcpserver.WithToolHandlerMiddleware(timeout.New(30*time.Second)),
 		mcpserver.WithToolHandlerMiddleware(responsecap.New(responsecap.Options{})),
-	)
+	)...)
 
 	// Register all tool categories
 	if err := resource.RegisterResourceTools(mcpSrv, serverContext); err != nil {
