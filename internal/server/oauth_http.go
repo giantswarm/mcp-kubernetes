@@ -867,15 +867,14 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 	}
 
 	// Create HTTP server with security, CORS, and metrics middleware
-	// Order: Metrics (outermost) -> Security Headers -> CORS -> Request size limit -> Handler
-	// Metrics middleware wraps everything to capture all request metrics
-	handler := middleware.HTTPMetrics(s.instrumentationProvider)(
+	// Order: Tracing (outermost) -> Metrics -> Security Headers -> CORS -> Request size limit -> Handler
+	handler := middleware.Tracing(middleware.HTTPMetrics(s.instrumentationProvider)(
 		middleware.SecurityHeaders(config.EnableHSTS)(
 			middleware.CORS(allowedOrigins)(
 				middleware.MaxRequestBody(config.MaxRequestSize)(mux),
 			),
 		),
-	)
+	))
 
 	s.httpServer = &http.Server{
 		Addr:              addr,
