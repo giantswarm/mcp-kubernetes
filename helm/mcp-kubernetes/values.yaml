@@ -277,7 +277,7 @@ mcpKubernetes:
 
   # Largest request body in bytes the server accepts (default 5 MiB); a
   # larger request gets 413 Request Entity Too Large.
-  maxRequestSize: 5242880
+  maxRequestSize: 5242880  # @schema minimum: 1
 
   # Kubernetes configuration
   kubernetes:
