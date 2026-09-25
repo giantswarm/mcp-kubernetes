@@ -6,16 +6,20 @@ tests:
   - it: passes the default limit of 5 MiB
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].args
-          content: --max-request-size=5242880
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MAX_REQUEST_SIZE
+            value: "5242880"
 
   - it: passes a configured limit
     set:
       mcpKubernetes.maxRequestSize: 1048576
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].args
-          content: --max-request-size=1048576
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MAX_REQUEST_SIZE
+            value: "1048576"
 
   - it: refuses a limit below one byte
     set:

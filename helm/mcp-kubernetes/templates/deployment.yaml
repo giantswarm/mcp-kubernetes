@@ -54,7 +54,6 @@ spec:
             - serve
             - --transport=streamable-http
             - --debug={{ .Values.mcpKubernetes.debug | default false }}
-            - --max-request-size={{ int64 .Values.mcpKubernetes.maxRequestSize }}
             {{- if .Values.mcpKubernetes.kubernetes.inCluster }}
             - --in-cluster=true
             {{- end }}
@@ -157,6 +156,9 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
           env:
+            {{- /* An env var, not the flag: an image.tag pinned to a release before the limit ignores it */}}
+            - name: MAX_REQUEST_SIZE
+              value: {{ int64 .Values.mcpKubernetes.maxRequestSize | quote }}
             {{- if .Values.mcpKubernetes.kubernetes.inCluster }}
             - name: KUBERNETES_IN_CLUSTER
               value: "true"
