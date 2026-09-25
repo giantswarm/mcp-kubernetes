@@ -245,6 +245,9 @@ spec:
             {{- end }}
             # Valkey storage configuration
             {{- if eq .Values.mcpKubernetes.oauth.storage.type "valkey" }}
+            {{- if not .Values.mcpKubernetes.oauth.encryptionKey }}
+            {{- fail "mcpKubernetes.oauth.encryptionKey must be true with Valkey storage: the server refuses to store tokens unencrypted in Valkey (the key comes from oauth-encryption-key in the OAuth Secret)" }}
+            {{- end }}
             - name: OAUTH_STORAGE_TYPE
               value: "valkey"
             - name: VALKEY_URL

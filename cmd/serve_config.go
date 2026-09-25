@@ -564,6 +564,18 @@ func validateOAuthBaseURL(baseURL string) error {
 // authTokenEnv carries the static bearer token of the HTTP transports.
 const authTokenEnv = "MCP_KUBERNETES_AUTH_TOKEN" //nolint:gosec // G101: an environment variable name, not a credential
 
+// validateOAuthEncryption refuses Valkey token storage without an encryption
+// key: the tokens would sit in plaintext in a store other workloads can reach
+// and that outlives the pod. In-memory storage without a key stays possible
+// for development; it only warns.
+func validateOAuthEncryption(config OAuthServeConfig) error {
+	if config.Storage.Type == OAuthStorageTypeValkey && config.EncryptionKey == "" {
+		return fmt.Errorf("OAUTH_ENCRYPTION_KEY (--oauth-encryption-key) is required with valkey storage: " +
+			"tokens would be stored unencrypted in Valkey (generate a key with: openssl rand -base64 32)")
+	}
+	return nil
+}
+
 // minAuthTokenLength is the shortest static bearer token accepted (32 bytes,
 // e.g. `openssl rand -hex 16`).
 const minAuthTokenLength = 32

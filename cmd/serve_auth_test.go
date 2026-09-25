@@ -59,3 +59,27 @@ func TestValidateHTTPAuth(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateOAuthEncryption(t *testing.T) {
+	const key = "c2VjcmV0LWtleS10aGF0LWlzLTMyLWJ5dGVzLWxvbmch"
+	tests := []struct {
+		name    string
+		config  OAuthServeConfig
+		wantErr bool
+	}{
+		{name: "valkey with a key", config: OAuthServeConfig{Storage: OAuthStorageConfig{Type: OAuthStorageTypeValkey}, EncryptionKey: key}},
+		{name: "valkey without a key is refused", config: OAuthServeConfig{Storage: OAuthStorageConfig{Type: OAuthStorageTypeValkey}}, wantErr: true},
+		{name: "memory without a key", config: OAuthServeConfig{Storage: OAuthStorageConfig{Type: OAuthStorageTypeMemory}}},
+		{name: "default storage without a key", config: OAuthServeConfig{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthEncryption(tt.config)
+			if tt.wantErr {
+				assert.ErrorContains(t, err, "OAUTH_ENCRYPTION_KEY (--oauth-encryption-key) is required with valkey storage")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
