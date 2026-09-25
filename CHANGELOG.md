@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+* OAuth with in-memory token storage (the default) logs a startup warning: sessions are lost on every pod restart and rolling update and are not shared between replicas; configure Valkey for production. The Helm chart's install notes say the same, and warn that OAuth does not work reliably with more than one replica or autoscaling on in-memory storage (giantswarm/mcp-kubernetes#229).
+
 * The `sse` and `streamable-http` transports refuse to start without authentication. Without OAuth they accepted every request that reached them and ran it with the server's Kubernetes credentials. `streamable-http` authenticates with OAuth (`--enable-oauth`, unchanged) or a static bearer token, `sse` with the bearer token: the token (at least 32 characters) comes from `MCP_KUBERNETES_AUTH_TOKEN`, and every request to the MCP endpoints must send `Authorization: Bearer <token>`, otherwise it gets `401`. The health endpoints stay open. `--enable-oauth` with `--transport sse`, which used to start without any authentication, and OAuth together with a bearer token are refused as well. `stdio` is unchanged. Helm chart: with `mcpKubernetes.oauth.enabled: false` the server reads the token from the `auth-token` key of `mcpKubernetes.auth.existingSecret`, or from the chart-managed `<fullname>-auth-token` Secret with a generated token that upgrades keep; with OAuth nothing changes (giantswarm/mcp-kubernetes#233).
 
 ### Added

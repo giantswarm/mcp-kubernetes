@@ -1,0 +1,45 @@
+# The install notes warn about in-memory OAuth token storage, and more loudly
+# when more than one replica would split the sessions between pods.
+suite: NOTES storage warning tests
+templates:
+  - templates/NOTES.txt
+set:
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+tests:
+  - it: warns about in-memory token storage
+    asserts:
+      - matchRegexRaw:
+          pattern: "WARNING: OAuth tokens are stored in memory"
+      - notMatchRegexRaw:
+          pattern: "more than one replica"
+
+  - it: warns about split sessions with more than one replica
+    set:
+      replicaCount: 2
+    asserts:
+      - matchRegexRaw:
+          pattern: "With more than one replica OAuth does not work reliably"
+
+  - it: warns about split sessions with autoscaling
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "With more than one replica OAuth does not work reliably"
+
+  - it: stays quiet with Valkey storage
+    set:
+      mcpKubernetes.oauth.storage.type: valkey
+      mcpKubernetes.oauth.storage.valkey.url: valkey.mcp-kubernetes.svc:6379
+      replicaCount: 2
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "stored in memory"
+
+  - it: says nothing about token storage without OAuth
+    set:
+      mcpKubernetes.oauth.enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "stored in memory"

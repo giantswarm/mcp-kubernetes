@@ -59,3 +59,9 @@ func TestValidateHTTPAuth(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryStorageWarning(t *testing.T) {
+	assert.Contains(t, memoryStorageWarning(OAuthStorageTypeMemory), "in-memory token storage")
+	assert.Contains(t, memoryStorageWarning(""), "in-memory token storage")
+	assert.Empty(t, memoryStorageWarning(OAuthStorageTypeValkey))
+}
