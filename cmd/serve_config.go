@@ -578,6 +578,18 @@ func memoryStorageWarning(storageType OAuthStorageType) string {
 	return ""
 }
 
+// validateOAuthEncryption refuses Valkey token storage without an encryption
+// key: the tokens would sit in plaintext in a store other workloads can reach
+// and that outlives the pod. In-memory storage without a key stays possible
+// for development; it only warns.
+func validateOAuthEncryption(config OAuthServeConfig) error {
+	if config.Storage.Type == OAuthStorageTypeValkey && config.EncryptionKey == "" {
+		return fmt.Errorf("OAUTH_ENCRYPTION_KEY (--oauth-encryption-key) is required with valkey storage: " +
+			"tokens would be stored unencrypted in Valkey (generate a key with: openssl rand -base64 32)")
+	}
+	return nil
+}
+
 // validateMaxRequestSize refuses a request size limit that would reject every
 // request with a body.
 func validateMaxRequestSize(config ServeConfig) error {

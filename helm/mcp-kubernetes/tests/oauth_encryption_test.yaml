@@ -1,0 +1,40 @@
+# Valkey token storage requires the encryption key: the server refuses to
+# store tokens unencrypted in Valkey, so the chart refuses the render instead
+# of rolling a pod that cannot start.
+suite: OAuth encryption tests
+templates:
+  - templates/deployment.yaml
+set:
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+  mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+  mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+  mcpKubernetes.oauth.existingSecret: mcp-kubernetes-oauth
+  mcpKubernetes.oauth.storage.valkey.url: valkey.mcp-kubernetes.svc:6379
+tests:
+  - it: refuses Valkey storage without the encryption key
+    set:
+      mcpKubernetes.oauth.storage.type: valkey
+    asserts:
+      - failedTemplate:
+          errorPattern: mcpKubernetes.oauth.encryptionKey must be true with Valkey storage
+
+  - it: passes the encryption key with Valkey storage
+    set:
+      mcpKubernetes.oauth.storage.type: valkey
+      mcpKubernetes.oauth.encryptionKey: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_ENCRYPTION_KEY
+            valueFrom:
+              secretKeyRef:
+                name: mcp-kubernetes-oauth
+                key: oauth-encryption-key
+
+  - it: allows in-memory storage without the encryption key
+    set:
+      mcpKubernetes.oauth.storage.type: memory
+    asserts:
+      - notFailedTemplate: {}
