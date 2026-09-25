@@ -568,6 +568,16 @@ func validateOAuthBaseURL(baseURL string) error {
 // authTokenEnv carries the static bearer token of the HTTP transports.
 const authTokenEnv = "MCP_KUBERNETES_AUTH_TOKEN" //nolint:gosec // G101: an environment variable name, not a credential
 
+// memoryStorageWarning returns the startup warning for OAuth with in-memory
+// token storage (the default), or "" for persistent storage.
+func memoryStorageWarning(storageType OAuthStorageType) string {
+	if storageType == OAuthStorageTypeMemory || storageType == "" {
+		return "OAuth is enabled with in-memory token storage: sessions are lost on every pod restart " +
+			"and rolling update, and are not shared between replicas"
+	}
+	return ""
+}
+
 // validateOAuthEncryption refuses Valkey token storage without an encryption
 // key: the tokens would sit in plaintext in a store other workloads can reach
 // and that outlives the pod. In-memory storage without a key stays possible

@@ -1117,6 +1117,10 @@ func runServe(config ServeConfig) error {
 			}
 
 			// Warn about insecure configuration options
+			if warning := memoryStorageWarning(config.OAuth.Storage.Type); warning != "" {
+				slog.Warn(warning,
+					"recommendation", "configure Valkey storage (--oauth-storage-type=valkey) for production, see docs/oauth.md")
+			}
 			if config.OAuth.AllowPublicRegistration {
 				slog.Warn("public client registration is enabled - this allows unlimited client registration and may lead to DoS",
 					"recommendation", "set --allow-public-registration=false and use --registration-token")
