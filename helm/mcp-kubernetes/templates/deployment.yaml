@@ -276,6 +276,14 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.mcpKubernetes.instrumentation.otlpEndpoint | quote }}
             {{- end }}
+            {{- with .Values.mcpKubernetes.instrumentation.otlpProtocol }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.mcpKubernetes.instrumentation.otlpHeaders }}
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.mcpKubernetes.instrumentation.otlpInsecure }}
             - name: OTEL_EXPORTER_OTLP_INSECURE
               value: "true"

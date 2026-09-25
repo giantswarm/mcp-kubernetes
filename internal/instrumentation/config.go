@@ -41,6 +41,9 @@ type Config struct {
 	// Example: "localhost:4318" (without protocol prefix)
 	OTLPEndpoint string
 
+	// OTLPProtocol is the OTLP transport: "http/protobuf" (default) or "grpc".
+	OTLPProtocol string
+
 	// OTLPInsecure controls whether to use insecure HTTP for OTLP export
 	// When false (default), uses TLS for secure transport
 	// Set to true only for local development or testing with unencrypted endpoints
@@ -74,6 +77,7 @@ func DefaultConfig() Config {
 		MetricsExporter:    getEnvOrDefault("METRICS_EXPORTER", ExporterPrometheus),
 		TracingExporter:    getEnvOrDefault("TRACING_EXPORTER", ExporterNone),
 		OTLPEndpoint:       getEnvOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		OTLPProtocol:       getEnvOrDefault("OTEL_EXPORTER_OTLP_PROTOCOL", ProtocolHTTPProtobuf),
 		OTLPInsecure:       getEnvBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", false),
 		TraceSamplingRate:  getEnvFloatOrDefault("OTEL_TRACES_SAMPLER_ARG", 0.1),
 		PrometheusEndpoint: getEnvOrDefault("PROMETHEUS_ENDPOINT", "/metrics"),
@@ -100,6 +104,10 @@ func (c *Config) Validate() error {
 	validTracingExporters := map[string]bool{ExporterOTLP: true, ExporterStdout: true, ExporterNone: true}
 	if c.TracingExporter != "" && !validTracingExporters[c.TracingExporter] {
 		return fmt.Errorf("invalid tracing exporter %q, must be one of: otlp, stdout, none", c.TracingExporter)
+	}
+
+	if c.OTLPProtocol != "" && c.OTLPProtocol != ProtocolHTTPProtobuf && c.OTLPProtocol != ProtocolGRPC {
+		return fmt.Errorf("invalid OTLP protocol %q, must be one of: http/protobuf, grpc", c.OTLPProtocol)
 	}
 
 	// OTLP endpoint required when using OTLP exporters
@@ -175,6 +183,10 @@ const (
 	ExporterOTLP       = "otlp"
 	ExporterStdout     = "stdout"
 	ExporterNone       = "none"
+
+	// OTLP transports (OTEL_EXPORTER_OTLP_PROTOCOL)
+	ProtocolHTTPProtobuf = "http/protobuf"
+	ProtocolGRPC         = "grpc"
 
 	// Metric recording intervals
 	DefaultMetricInterval = 10 * time.Second

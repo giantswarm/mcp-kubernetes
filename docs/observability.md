@@ -32,6 +32,12 @@ TRACING_EXPORTER=otlp
 # Format: hostname:port (without protocol prefix)
 OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4318
 
+# OTLP transport: http/protobuf (default) or grpc, for traces and OTLP metrics
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+# Extra export headers, e.g. the tenant of a multi-tenant collector
+OTEL_EXPORTER_OTLP_HEADERS=X-Scope-OrgID=giantswarm
+
 # Use insecure (HTTP) transport for OTLP (default: false, uses HTTPS)
 # WARNING: Only enable for local development/testing
 OTEL_EXPORTER_OTLP_INSECURE=false
@@ -747,7 +753,17 @@ All dashboards support these template variables:
 
 ## Tracing
 
-When `TRACING_EXPORTER=otlp` is set, distributed traces are exported to an OTLP collector.
+When `TRACING_EXPORTER=otlp` is set, distributed traces are exported to an OTLP collector, over OTLP/HTTP or, with `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, over gRPC. The exporter sends `OTEL_EXPORTER_OTLP_HEADERS` with every export. The Helm chart renders both from `mcpKubernetes.instrumentation.otlpProtocol` and `otlpHeaders`:
+
+```yaml
+mcpKubernetes:
+  instrumentation:
+    tracingExporter: otlp
+    otlpEndpoint: otlp-gateway.kube-system.svc:4317
+    otlpProtocol: grpc
+    otlpHeaders: X-Scope-OrgID=giantswarm
+    otlpInsecure: true
+```
 
 ### Trace Attributes
 

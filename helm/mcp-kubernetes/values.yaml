@@ -650,6 +650,12 @@ mcpKubernetes:
     # OTLP endpoint for traces/metrics (required for otlp exporters)
     # Format: hostname:port (without protocol prefix)
     otlpEndpoint: ""
+    # OTLP transport: "grpc" or "http/protobuf". Empty keeps the binary's
+    # default, http/protobuf.
+    otlpProtocol: ""  # @schema enum: ["", grpc, http/protobuf]
+    # Extra OTLP export headers, "key=value" pairs separated by commas,
+    # e.g. "X-Scope-OrgID=giantswarm" for a multi-tenant collector.
+    otlpHeaders: ""
     # Use insecure (HTTP) transport for OTLP (default: false, uses HTTPS)
     # WARNING: Only enable for local development/testing
     otlpInsecure: false

@@ -9,7 +9,9 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
@@ -131,15 +133,7 @@ func (p *Provider) initMeterProvider(ctx context.Context, res *resource.Resource
 			return fmt.Errorf("OTLP endpoint is required for OTLP metrics exporter; set OTEL_EXPORTER_OTLP_ENDPOINT or use 'prometheus' exporter")
 		}
 
-		opts := []otlpmetrichttp.Option{
-			otlpmetrichttp.WithEndpoint(p.config.OTLPEndpoint),
-		}
-
-		if p.config.OTLPInsecure {
-			opts = append(opts, otlpmetrichttp.WithInsecure())
-		}
-
-		exporter, err := otlpmetrichttp.New(ctx, opts...)
+		exporter, err := p.newOTLPMetricExporter(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create OTLP metrics exporter: %w", err)
 		}
@@ -190,10 +184,6 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 			return fmt.Errorf("OTLP endpoint is required for OTLP tracing exporter")
 		}
 
-		opts := []otlptracehttp.Option{
-			otlptracehttp.WithEndpoint(p.config.OTLPEndpoint),
-		}
-
 		if p.config.OTLPInsecure {
 			// SECURITY WARNING: Traces may contain sensitive metadata
 			// Only use insecure transport for local development/testing
@@ -202,11 +192,9 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 				"exporter", ExporterOTLP,
 				"endpoint", p.config.OTLPEndpoint,
 			)
-			opts = append(opts, otlptracehttp.WithInsecure())
 		}
-		// If not insecure, the exporter will use TLS by default
 
-		exporter, err = otlptracehttp.New(ctx, opts...)
+		exporter, err = p.newOTLPTraceExporter(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 		}
@@ -238,6 +226,41 @@ func (p *Provider) initTracerProvider(ctx context.Context, res *resource.Resourc
 	)
 
 	return nil
+}
+
+// newOTLPTraceExporter builds the OTLP span exporter for the configured
+// protocol. Headers (OTEL_EXPORTER_OTLP_HEADERS) and the other OTEL_EXPORTER_OTLP_*
+// variables are read by the exporter itself; the options set here win over them.
+func (p *Provider) newOTLPTraceExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
+	if p.config.OTLPProtocol == ProtocolGRPC {
+		opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(p.config.OTLPEndpoint)}
+		if p.config.OTLPInsecure {
+			opts = append(opts, otlptracegrpc.WithInsecure())
+		}
+		return otlptracegrpc.New(ctx, opts...)
+	}
+	opts := []otlptracehttp.Option{otlptracehttp.WithEndpoint(p.config.OTLPEndpoint)}
+	if p.config.OTLPInsecure {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	}
+	return otlptracehttp.New(ctx, opts...)
+}
+
+// newOTLPMetricExporter builds the OTLP metric exporter for the configured
+// protocol, reading the same OTEL_EXPORTER_OTLP_* variables as the span exporter.
+func (p *Provider) newOTLPMetricExporter(ctx context.Context) (metric.Exporter, error) {
+	if p.config.OTLPProtocol == ProtocolGRPC {
+		opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(p.config.OTLPEndpoint)}
+		if p.config.OTLPInsecure {
+			opts = append(opts, otlpmetricgrpc.WithInsecure())
+		}
+		return otlpmetricgrpc.New(ctx, opts...)
+	}
+	opts := []otlpmetrichttp.Option{otlpmetrichttp.WithEndpoint(p.config.OTLPEndpoint)}
+	if p.config.OTLPInsecure {
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	}
+	return otlpmetrichttp.New(ctx, opts...)
 }
 
 // Metrics returns the metrics recorder for recording observability metrics.

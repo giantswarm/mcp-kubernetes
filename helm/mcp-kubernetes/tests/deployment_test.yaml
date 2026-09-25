@@ -90,3 +90,34 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--debug=true"
+
+  - it: should render the OTLP protocol and headers when set
+    set:
+      mcpKubernetes.instrumentation.tracingExporter: otlp
+      mcpKubernetes.instrumentation.otlpEndpoint: otlp-gateway.kube-system.svc:4317
+      mcpKubernetes.instrumentation.otlpProtocol: grpc
+      mcpKubernetes.instrumentation.otlpHeaders: X-Scope-OrgID=giantswarm
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: grpc
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+            value: X-Scope-OrgID=giantswarm
+
+  - it: should render neither OTLP protocol nor headers by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_PROTOCOL
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+          any: true
