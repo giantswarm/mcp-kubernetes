@@ -15,8 +15,9 @@ import (
 )
 
 // runSSEServer runs the server with SSE transport; both endpoints require the
-// static bearer token authToken.
-func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint, authToken string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, metricsConfig MetricsServeConfig) error {
+// static bearer token authToken and request bodies are limited to
+// maxRequestSize bytes.
+func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint, authToken string, maxRequestSize int64, ctx context.Context, debugMode bool, provider *instrumentation.Provider, metricsConfig MetricsServeConfig) error {
 	if debugMode {
 		slog.Debug("initializing SSE server",
 			"address", addr,
@@ -50,9 +51,8 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 		"sse_endpoint", sseEndpoint,
 		"message_endpoint", messageEndpoint)
 
-	// Apply HTTP metrics middleware to record request metrics
-	var handler http.Handler = mux
-	handler = middleware.HTTPMetrics(provider)(handler)
+	// Limit request bodies, inside the metrics middleware so 413s are recorded
+	handler := middleware.HTTPMetrics(provider)(middleware.MaxRequestBody(maxRequestSize)(mux))
 
 	// Start metrics server if enabled
 	var metricsServer *server.MetricsServer

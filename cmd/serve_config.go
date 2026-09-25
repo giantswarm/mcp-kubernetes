@@ -35,6 +35,10 @@ type ServeConfig struct {
 	MessageEndpoint string
 	HTTPEndpoint    string
 
+	// MaxRequestSize is the largest request body in bytes the HTTP transports
+	// accept; a larger one gets 413 Request Entity Too Large.
+	MaxRequestSize int64
+
 	// Kubernetes client settings
 	NonDestructiveMode bool
 	DryRun             bool
@@ -563,6 +567,15 @@ func validateOAuthBaseURL(baseURL string) error {
 
 // authTokenEnv carries the static bearer token of the HTTP transports.
 const authTokenEnv = "MCP_KUBERNETES_AUTH_TOKEN" //nolint:gosec // G101: an environment variable name, not a credential
+
+// validateMaxRequestSize refuses a request size limit that would reject every
+// request with a body.
+func validateMaxRequestSize(config ServeConfig) error {
+	if config.Transport != transportStdio && config.MaxRequestSize <= 0 {
+		return fmt.Errorf("--max-request-size must be a positive number of bytes, got %d", config.MaxRequestSize)
+	}
+	return nil
+}
 
 // minAuthTokenLength is the shortest static bearer token accepted (32 bytes,
 // e.g. `openssl rand -hex 16`).

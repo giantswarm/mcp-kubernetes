@@ -225,6 +225,7 @@ The `sse` transport authenticates with the bearer token only.
 --transport string            # Transport type: stdio or streamable-http
 --http-addr :8080            # HTTP server address (for streamable-http)
 --http-endpoint /mcp         # HTTP endpoint path (default: /mcp)
+--max-request-size 5242880   # Largest request body in bytes, larger gets 413 (default: 5 MiB, env MAX_REQUEST_SIZE)
 --disable-streaming          # Disable streaming for streamable-http transport
 ```
 

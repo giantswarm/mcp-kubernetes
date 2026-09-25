@@ -1,0 +1,24 @@
+# The server limits request bodies to mcpKubernetes.maxRequestSize bytes.
+suite: Max request size tests
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: passes the default limit of 5 MiB
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --max-request-size=5242880
+
+  - it: passes a configured limit
+    set:
+      mcpKubernetes.maxRequestSize: 1048576
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --max-request-size=1048576
+
+  - it: refuses a limit below one byte
+    set:
+      mcpKubernetes.maxRequestSize: 0
+    asserts:
+      - failedTemplate: {}

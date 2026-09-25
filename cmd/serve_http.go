@@ -15,8 +15,9 @@ import (
 )
 
 // runStreamableHTTPServer runs the server with Streamable HTTP transport; the
-// MCP endpoint requires the static bearer token authToken.
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint, authToken string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig) error {
+// MCP endpoint requires the static bearer token authToken and request bodies
+// are limited to maxRequestSize bytes.
+func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint, authToken string, maxRequestSize int64, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig) error {
 	// Create a custom HTTP server (metrics are now on a separate server)
 	mux := http.NewServeMux()
 
@@ -40,9 +41,8 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint, authTo
 		"endpoint", endpoint,
 		"health_endpoints", []string{"/healthz", "/readyz"})
 
-	// Apply HTTP metrics middleware to record request metrics
-	var handler http.Handler = mux
-	handler = middleware.HTTPMetrics(provider)(handler)
+	// Limit request bodies, inside the metrics middleware so 413s are recorded
+	handler := middleware.HTTPMetrics(provider)(middleware.MaxRequestBody(maxRequestSize)(mux))
 
 	// Start metrics server if enabled
 	var metricsServer *server.MetricsServer

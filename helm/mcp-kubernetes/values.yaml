@@ -275,6 +275,10 @@ mcpKubernetes:
   # Only enable for development or troubleshooting, never in production.
   debug: false
 
+  # Largest request body in bytes the server accepts (default 5 MiB); a
+  # larger request gets 413 Request Entity Too Large.
+  maxRequestSize: 5242880
+
   # Kubernetes configuration
   kubernetes:
     # If true, use in-cluster configuration

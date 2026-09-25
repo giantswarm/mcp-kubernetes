@@ -54,6 +54,7 @@ spec:
             - serve
             - --transport=streamable-http
             - --debug={{ .Values.mcpKubernetes.debug | default false }}
+            - --max-request-size={{ int64 .Values.mcpKubernetes.maxRequestSize }}
             {{- if .Values.mcpKubernetes.kubernetes.inCluster }}
             - --in-cluster=true
             {{- end }}
