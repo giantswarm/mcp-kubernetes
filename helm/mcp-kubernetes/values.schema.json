@@ -532,6 +532,10 @@
                         }
                     }
                 },
+                "maxRequestSize": {
+                    "type": "integer",
+                    "minimum": 1
+                },
                 "metrics": {
                     "type": "object",
                     "additionalProperties": false,
