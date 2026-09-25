@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+* The `sse` and `streamable-http` transports limit request bodies to `--max-request-size` bytes (default 5 MiB, also `MAX_REQUEST_SIZE`); a larger request gets `413 Request Entity Too Large` before it reaches a handler, a body without `Content-Length` is cut off at the limit. The limit covers the MCP, OAuth and health endpoints. Helm chart: `mcpKubernetes.maxRequestSize`, passed as `MAX_REQUEST_SIZE` so an `image.tag` pinned to an older release still starts (giantswarm/mcp-kubernetes#235).
+
 * The `sse` and `streamable-http` transports refuse to start without authentication. Without OAuth they accepted every request that reached them and ran it with the server's Kubernetes credentials. `streamable-http` authenticates with OAuth (`--enable-oauth`, unchanged) or a static bearer token, `sse` with the bearer token: the token (at least 32 characters) comes from `MCP_KUBERNETES_AUTH_TOKEN`, and every request to the MCP endpoints must send `Authorization: Bearer <token>`, otherwise it gets `401`. The health endpoints stay open. `--enable-oauth` with `--transport sse`, which used to start without any authentication, and OAuth together with a bearer token are refused as well. `stdio` is unchanged. Helm chart: with `mcpKubernetes.oauth.enabled: false` the server reads the token from the `auth-token` key of `mcpKubernetes.auth.existingSecret`, or from the chart-managed `<fullname>-auth-token` Secret with a generated token that upgrades keep; with OAuth nothing changes (giantswarm/mcp-kubernetes#233).
 
 ### Added

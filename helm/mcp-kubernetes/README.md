@@ -109,6 +109,7 @@ Secret at start and never again. The pod template carries a
 | tolerations | list | `[]` |  |
 | affinity | object | `{}` |  |
 | mcpKubernetes.debug | bool | `false` |  |
+| mcpKubernetes.maxRequestSize | int | `5242880` |  |
 | mcpKubernetes.kubernetes.inCluster | bool | `true` |  |
 | mcpKubernetes.kubernetes.kubeconfig | string | `""` |  |
 | mcpKubernetes.auth.existingSecret | string | `""` |  |
