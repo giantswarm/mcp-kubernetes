@@ -188,10 +188,15 @@ mcp-kubernetes serve --transport stdio
 ```
 
 #### Streamable HTTP (Recommended for Production)
-For network-accessible deployments with OAuth support:
+For network-accessible deployments. The HTTP transports refuse to start without
+authentication: OAuth 2.1 (see [docs/oauth.md](docs/oauth.md)) or a static
+bearer token of at least 32 characters, which every request to `/mcp` must send
+as `Authorization: Bearer <token>`:
 ```bash
+export MCP_KUBERNETES_AUTH_TOKEN="$(openssl rand -hex 32)"
 mcp-kubernetes serve --transport streamable-http --http-addr :8080
 ```
+The `sse` transport authenticates with the bearer token only.
 
 ### Configuration Options
 

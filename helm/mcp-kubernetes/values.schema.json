@@ -438,6 +438,15 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
+                "auth": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "existingSecret": {
+                            "type": "string"
+                        }
+                    }
+                },
                 "debug": {
                     "type": "boolean"
                 },

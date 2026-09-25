@@ -254,3 +254,12 @@ in the OAuth Secret is covered by checksum/oauth-secret.
 {{- $valkey.existingSecretChecksum -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Secret holding the static bearer token of the MCP endpoint while OAuth is
+disabled: mcpKubernetes.auth.existingSecret, else the chart-managed
+<fullname>-auth-token.
+*/}}
+{{- define "mcp-kubernetes.auth.secretName" -}}
+{{- .Values.mcpKubernetes.auth.existingSecret | default (printf "%s-auth-token" (include "mcp-kubernetes.fullname" .)) -}}
+{{- end }}

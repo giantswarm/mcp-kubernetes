@@ -282,6 +282,16 @@ mcpKubernetes:
     # Kubeconfig path (if not using in-cluster config)
     kubeconfig: ""
 
+  # Authentication of the MCP endpoint while OAuth is disabled. The server
+  # refuses to start its HTTP transport without authentication: with
+  # oauth.enabled false every request to /mcp must carry
+  # "Authorization: Bearer <token>", the token taken from the auth-token key
+  # of the Secret below (at least 32 characters).
+  auth:
+    # Existing Secret holding the key auth-token. Empty: the chart manages
+    # <fullname>-auth-token with a generated token that upgrades keep.
+    existingSecret: ""
+
   # OAuth 2.1 configuration
   oauth:
     # Enable OAuth 2.1 authentication

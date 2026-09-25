@@ -222,6 +222,13 @@ Authentication modes:
   - In-cluster: Uses service account token when running inside a Kubernetes pod
   - OAuth (optional): Enable OAuth 2.1 authentication for HTTP transports
 
+HTTP authentication:
+  The sse and streamable-http transports refuse to start without authentication.
+  streamable-http authenticates with OAuth (--enable-oauth) or a static bearer
+  token; sse with the static bearer token. The token (at least 32 characters) is
+  read from the MCP_KUBERNETES_AUTH_TOKEN environment variable and every request
+  to the MCP endpoints must carry it as "Authorization: Bearer <token>".
+
 Downstream OAuth (--downstream-oauth):
   When enabled with --enable-oauth and --in-cluster, the server will use each user's
   OAuth access token to authenticate with the Kubernetes API instead of the service
@@ -307,6 +314,7 @@ Downstream OAuth (--downstream-oauth):
 				BurstLimit:         burstLimit,
 				DebugMode:          debugMode,
 				InCluster:          inCluster,
+				AuthToken:          os.Getenv(authTokenEnv),
 				OAuth: OAuthServeConfig{
 					Enabled:                            enableOAuth,
 					BaseURL:                            oauthBaseURL,
@@ -511,6 +519,10 @@ func runServe(config ServeConfig) error {
 		}
 	}()
 	slog.SetDefault(logger)
+
+	if err := validateHTTPAuth(config); err != nil {
+		return err
+	}
 
 	// Create Kubernetes client configuration with structured logging
 	var k8sLogger = logging.NewSlogAdapter(slog.Default())
@@ -957,7 +969,7 @@ func runServe(config ServeConfig) error {
 		return runStdioServer(mcpSrv)
 	case transportSSE:
 		slog.Info("starting MCP Kubernetes server", "transport", config.Transport)
-		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, config.Metrics)
+		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, config.AuthToken, shutdownCtx, config.DebugMode, instrumentationProvider, config.Metrics)
 	case transportStreamableHTTP:
 		slog.Info("starting MCP Kubernetes server", "transport", config.Transport)
 		if config.OAuth.Enabled {
@@ -1144,7 +1156,7 @@ func runServe(config ServeConfig) error {
 				TrustedIssuers:     config.OAuth.TrustedIssuers,
 			}, serverContext, config.Metrics)
 		}
-		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, config.AuthToken, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}

@@ -14,8 +14,9 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
 
-// runStreamableHTTPServer runs the server with Streamable HTTP transport
-func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig) error {
+// runStreamableHTTPServer runs the server with Streamable HTTP transport; the
+// MCP endpoint requires the static bearer token authToken.
+func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint, authToken string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, sc *server.ServerContext, metricsConfig MetricsServeConfig) error {
 	// Create a custom HTTP server (metrics are now on a separate server)
 	mux := http.NewServeMux()
 
@@ -24,8 +25,8 @@ func runStreamableHTTPServer(mcpSrv *mcpserver.MCPServer, addr, endpoint string,
 		mcpserver.WithEndpointPath(endpoint),
 	)
 
-	// Add MCP endpoint
-	mux.Handle(endpoint, mcpHandler)
+	// Add MCP endpoint behind the bearer token; health checks stay open
+	mux.Handle(endpoint, middleware.RequireBearerToken(authToken)(mcpHandler))
 
 	// Note: Metrics are served on a separate metrics server for security
 	// See startMetricsServer() for the dedicated /metrics endpoint

@@ -1,0 +1,70 @@
+# Static bearer token of the MCP endpoint while OAuth is disabled: the server
+# refuses to start its HTTP transport without authentication, so the chart
+# always hands it a token (a generated one unless auth.existingSecret names
+# one) and hands it none once OAuth is on.
+suite: Auth token tests
+templates:
+  - templates/auth-secret.yaml
+  - templates/deployment.yaml
+tests:
+  - it: generates a token Secret without OAuth
+    template: templates/auth-secret.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-mcp-kubernetes-auth-token
+      - matchRegex:
+          path: data.auth-token
+          pattern: ^[A-Za-z0-9+/=]{64}$
+
+  - it: injects the generated token without OAuth
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MCP_KUBERNETES_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-mcp-kubernetes-auth-token
+                key: auth-token
+
+  - it: injects an existing Secret's token and renders none itself
+    set:
+      mcpKubernetes.auth.existingSecret: my-token
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/auth-secret.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MCP_KUBERNETES_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: my-token
+                key: auth-token
+        template: templates/deployment.yaml
+
+  - it: renders no token with OAuth
+    set:
+      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.baseURL: https://mcp.example.com
+      mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+      mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+      mcpKubernetes.oauth.existingSecret: mcp-kubernetes-oauth
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/auth-secret.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MCP_KUBERNETES_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-mcp-kubernetes-auth-token
+                key: auth-token
+        template: templates/deployment.yaml
