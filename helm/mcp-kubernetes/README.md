@@ -161,6 +161,8 @@ Secret at start and never again. The pod template carries a
 | mcpKubernetes.instrumentation.metricsExporter | string | `"prometheus"` |  |
 | mcpKubernetes.instrumentation.tracingExporter | string | `"none"` |  |
 | mcpKubernetes.instrumentation.otlpEndpoint | string | `""` |  |
+| mcpKubernetes.instrumentation.otlpProtocol | string | `""` |  |
+| mcpKubernetes.instrumentation.otlpHeaders | string | `""` |  |
 | mcpKubernetes.instrumentation.otlpInsecure | bool | `false` |  |
 | mcpKubernetes.instrumentation.traceSamplingRate | float | `0.1` |  |
 | mcpKubernetes.instrumentation.detailedLabels | bool | `false` |  |
