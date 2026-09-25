@@ -83,3 +83,26 @@ func TestValidateOAuthEncryption(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMaxRequestSize(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  ServeConfig
+		wantErr bool
+	}{
+		{name: "positive limit", config: ServeConfig{Transport: transportStreamableHTTP, MaxRequestSize: 1}},
+		{name: "stdio ignores the limit", config: ServeConfig{Transport: transportStdio}},
+		{name: "zero is refused", config: ServeConfig{Transport: transportStreamableHTTP}, wantErr: true},
+		{name: "negative is refused", config: ServeConfig{Transport: transportSSE, MaxRequestSize: -1}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateMaxRequestSize(tt.config)
+			if tt.wantErr {
+				assert.ErrorContains(t, err, "--max-request-size must be a positive number")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

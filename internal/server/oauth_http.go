@@ -204,6 +204,10 @@ type OAuthConfig struct {
 	// If empty, tokens are stored unencrypted in memory
 	EncryptionKey []byte
 
+	// MaxRequestSize is the largest request body in bytes the server accepts;
+	// a larger one gets 413 Request Entity Too Large.
+	MaxRequestSize int64
+
 	// RegistrationAccessToken is the token required for client registration
 	// Required if AllowPublicClientRegistration is false
 	RegistrationAccessToken string
@@ -863,11 +867,13 @@ func (s *OAuthHTTPServer) Start(addr string, config OAuthConfig) error {
 	}
 
 	// Create HTTP server with security, CORS, and metrics middleware
-	// Order: Metrics (outermost) -> Security Headers -> CORS -> Handler
+	// Order: Metrics (outermost) -> Security Headers -> CORS -> Request size limit -> Handler
 	// Metrics middleware wraps everything to capture all request metrics
 	handler := middleware.HTTPMetrics(s.instrumentationProvider)(
 		middleware.SecurityHeaders(config.EnableHSTS)(
-			middleware.CORS(allowedOrigins)(mux),
+			middleware.CORS(allowedOrigins)(
+				middleware.MaxRequestBody(config.MaxRequestSize)(mux),
+			),
 		),
 	)
 

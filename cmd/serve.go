@@ -27,6 +27,7 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/capi"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/cluster"
@@ -148,6 +149,7 @@ func newServeCmd() *cobra.Command {
 		sseEndpoint     string
 		messageEndpoint string
 		httpEndpoint    string
+		maxRequestSize  int64
 
 		// Metrics server options
 		metricsEnabled bool
@@ -239,6 +241,15 @@ Downstream OAuth (--downstream-oauth):
 			loadEnvIfEmpty(&tlsCertFile, "TLS_CERT_FILE")
 			loadEnvIfEmpty(&tlsKeyFile, "TLS_KEY_FILE")
 
+			// Request size limit from the environment if the flag was not set
+			if v := os.Getenv("MAX_REQUEST_SIZE"); v != "" && !cmd.Flags().Changed("max-request-size") {
+				n, err := strconv.ParseInt(v, 10, 64)
+				if err != nil {
+					return fmt.Errorf("MAX_REQUEST_SIZE must be a number of bytes: %w", err)
+				}
+				maxRequestSize = n
+			}
+
 			// Build OAuth storage config from flags
 			storageConfig := server.OAuthStorageConfig{
 				Type: server.OAuthStorageType(oauthStorageType),
@@ -308,6 +319,7 @@ Downstream OAuth (--downstream-oauth):
 				SSEEndpoint:        sseEndpoint,
 				MessageEndpoint:    messageEndpoint,
 				HTTPEndpoint:       httpEndpoint,
+				MaxRequestSize:     maxRequestSize,
 				NonDestructiveMode: nonDestructiveMode,
 				DryRun:             dryRun,
 				QPSLimit:           qpsLimit,
@@ -377,6 +389,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&sseEndpoint, "sse-endpoint", "/sse", "SSE endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&messageEndpoint, "message-endpoint", "/message", "Message endpoint path (for sse transport)")
 	cmd.Flags().StringVar(&httpEndpoint, "http-endpoint", "/mcp", "HTTP endpoint path (for streamable-http transport)")
+	cmd.Flags().Int64Var(&maxRequestSize, "max-request-size", middleware.DefaultMaxRequestSize, "Maximum request body size in bytes for the HTTP transports; larger requests get 413 (can also be set via MAX_REQUEST_SIZE env var)")
 
 	// Metrics server flags
 	cmd.Flags().BoolVar(&metricsEnabled, "metrics-enabled", true, "Enable dedicated metrics server (default: true)")
@@ -521,6 +534,9 @@ func runServe(config ServeConfig) error {
 	slog.SetDefault(logger)
 
 	if err := validateHTTPAuth(config); err != nil {
+		return err
+	}
+	if err := validateMaxRequestSize(config); err != nil {
 		return err
 	}
 
@@ -969,7 +985,7 @@ func runServe(config ServeConfig) error {
 		return runStdioServer(mcpSrv)
 	case transportSSE:
 		slog.Info("starting MCP Kubernetes server", "transport", config.Transport)
-		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, config.AuthToken, shutdownCtx, config.DebugMode, instrumentationProvider, config.Metrics)
+		return runSSEServer(mcpSrv, config.HTTPAddr, config.SSEEndpoint, config.MessageEndpoint, config.AuthToken, config.MaxRequestSize, shutdownCtx, config.DebugMode, instrumentationProvider, config.Metrics)
 	case transportStreamableHTTP:
 		slog.Info("starting MCP Kubernetes server", "transport", config.Transport)
 		if config.OAuth.Enabled {
@@ -1141,6 +1157,7 @@ func runServe(config ServeConfig) error {
 				AllowInsecureAuthWithoutState:      config.OAuth.AllowInsecureAuthWithoutState,
 				MaxClientsPerIP:                    config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                      encryptionKey,
+				MaxRequestSize:                     config.MaxRequestSize,
 				EnableHSTS:                         os.Getenv("ENABLE_HSTS") == envValueTrue,
 				AllowedOrigins:                     os.Getenv("ALLOWED_ORIGINS"),
 				TLSCertFile:                        config.OAuth.TLSCertFile,
@@ -1160,7 +1177,7 @@ func runServe(config ServeConfig) error {
 				TrustedIssuers:     config.OAuth.TrustedIssuers,
 			}, serverContext, config.Metrics)
 		}
-		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, config.AuthToken, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
+		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, config.AuthToken, config.MaxRequestSize, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)
 	default:
 		return fmt.Errorf("unsupported transport type: %s (supported: stdio, sse, streamable-http)", config.Transport)
 	}
