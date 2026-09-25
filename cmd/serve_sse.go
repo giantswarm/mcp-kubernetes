@@ -14,8 +14,9 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
 )
 
-// runSSEServer runs the server with SSE transport
-func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, metricsConfig MetricsServeConfig) error {
+// runSSEServer runs the server with SSE transport; both endpoints require the
+// static bearer token authToken.
+func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoint, authToken string, ctx context.Context, debugMode bool, provider *instrumentation.Provider, metricsConfig MetricsServeConfig) error {
 	if debugMode {
 		slog.Debug("initializing SSE server",
 			"address", addr,
@@ -33,8 +34,9 @@ func runSSEServer(mcpSrv *mcpserver.MCPServer, addr, sseEndpoint, messageEndpoin
 	)
 
 	// Add SSE and message endpoints
-	mux.Handle(sseEndpoint, sseHandler)
-	mux.Handle(messageEndpoint, sseHandler)
+	requireToken := middleware.RequireBearerToken(authToken)
+	mux.Handle(sseEndpoint, requireToken(sseHandler))
+	mux.Handle(messageEndpoint, requireToken(sseHandler))
 
 	// Note: Metrics are served on a separate metrics server for security
 	// See startMetricsServer() for the dedicated /metrics endpoint

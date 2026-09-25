@@ -163,6 +163,13 @@ spec:
             - name: KUBECONFIG
               value: {{ .Values.mcpKubernetes.kubernetes.kubeconfig }}
             {{- end }}
+            {{- if not .Values.mcpKubernetes.oauth.enabled }}
+            - name: MCP_KUBERNETES_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mcp-kubernetes.auth.secretName" . }}
+                  key: auth-token
+            {{- end }}
             {{- if .Values.mcpKubernetes.oauth.enabled }}
             {{- if eq (.Values.mcpKubernetes.oauth.provider | default "dex") "google" }}
             - name: GOOGLE_CLIENT_ID

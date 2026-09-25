@@ -111,6 +111,7 @@ Secret at start and never again. The pod template carries a
 | mcpKubernetes.debug | bool | `false` |  |
 | mcpKubernetes.kubernetes.inCluster | bool | `true` |  |
 | mcpKubernetes.kubernetes.kubeconfig | string | `""` |  |
+| mcpKubernetes.auth.existingSecret | string | `""` |  |
 | mcpKubernetes.oauth.enabled | bool | `false` |  |
 | mcpKubernetes.oauth.baseURL | string | `""` |  |
 | mcpKubernetes.oauth.provider | string | `"dex"` |  |

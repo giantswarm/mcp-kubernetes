@@ -47,6 +47,10 @@ type ServeConfig struct {
 	OAuth           OAuthServeConfig
 	DownstreamOAuth bool
 
+	// AuthToken is the static bearer token the HTTP transports require when
+	// OAuth is not enabled (MCP_KUBERNETES_AUTH_TOKEN).
+	AuthToken string
+
 	// CAPI Mode configuration (multi-cluster federation)
 	CAPIMode CAPIModeConfig
 
@@ -554,5 +558,41 @@ func validateOAuthBaseURL(baseURL string) error {
 	}
 
 	// HTTPS is always allowed (including localhost with HTTPS)
+	return nil
+}
+
+// authTokenEnv carries the static bearer token of the HTTP transports.
+const authTokenEnv = "MCP_KUBERNETES_AUTH_TOKEN" //nolint:gosec // G101: an environment variable name, not a credential
+
+// minAuthTokenLength is the shortest static bearer token accepted (32 bytes,
+// e.g. `openssl rand -hex 16`).
+const minAuthTokenLength = 32
+
+// validateHTTPAuth refuses a network transport without authentication: the
+// server acts with its Kubernetes credentials for every caller it accepts.
+// streamable-http authenticates through OAuth 2.1 or a static bearer token,
+// sse through the static bearer token only; stdio is a local process.
+func validateHTTPAuth(config ServeConfig) error {
+	switch config.Transport {
+	case transportStreamableHTTP:
+		if config.OAuth.Enabled {
+			if config.AuthToken != "" {
+				return fmt.Errorf("%s and --enable-oauth are mutually exclusive: choose one authentication for the streamable-http transport", authTokenEnv)
+			}
+			return nil
+		}
+	case transportSSE:
+		if config.OAuth.Enabled {
+			return fmt.Errorf("--enable-oauth is supported on the streamable-http transport only; the sse transport authenticates with %s", authTokenEnv)
+		}
+	default:
+		return nil
+	}
+	if config.AuthToken == "" {
+		return fmt.Errorf("the %s transport requires authentication: enable OAuth (--enable-oauth, streamable-http only) or set %s to a bearer token of at least %d characters", config.Transport, authTokenEnv, minAuthTokenLength)
+	}
+	if len(config.AuthToken) < minAuthTokenLength {
+		return fmt.Errorf("%s must be at least %d characters long", authTokenEnv, minAuthTokenLength)
+	}
 	return nil
 }
