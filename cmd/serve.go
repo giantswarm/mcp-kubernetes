@@ -1092,6 +1092,10 @@ func runServe(config ServeConfig) error {
 					"configure --trusted-public-registration-schemes, or enable --enable-cimd")
 			}
 
+			if err := validateOAuthEncryption(config.OAuth); err != nil {
+				return err
+			}
+
 			// Prepare encryption key if provided (must be base64 encoded)
 			var encryptionKey []byte
 			if config.OAuth.EncryptionKey != "" {
@@ -1109,7 +1113,7 @@ func runServe(config ServeConfig) error {
 				encryptionKey = decoded
 				slog.Info("OAuth token encryption at rest enabled", "algorithm", "AES-256-GCM")
 			} else {
-				slog.Warn("OAuth encryption key not set - tokens will be stored unencrypted")
+				slog.Warn("OAuth encryption key not set - tokens will be stored unencrypted in memory")
 			}
 
 			// Warn about insecure configuration options

@@ -365,6 +365,8 @@ mcpKubernetes:
     maxClientsPerIP: 10
     # Enable token encryption at rest (AES-256-GCM)
     # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
+    # Required with storage.type "valkey": the server refuses to store tokens
+    # unencrypted in Valkey.
     encryptionKey: false
     # The key itself when the chart renders the Secret (32 bytes, base64;
     # generate with: openssl rand -base64 32). Ignored with existingSecret.
