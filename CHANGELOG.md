@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* OAuth with Valkey token storage waits for Valkey at start instead of exiting: while Valkey is not accepting connections yet (a credential rotation restarts both together), the server retries with backoff for up to 60 s, not ready meanwhile, rather than crash-looping; a wrong password still fails at once (mcp-oauth v1.4.9, giantswarm/mcp-oauth#591).
+
 * `self-update` replaces the binary, symbolic links resolved, with a single rename (`selfupdatecosign.Install`, selfupdate-cosign v0.3.0). go-selfupdate's own swap moved the binary aside before it moved the new one in, so a process started in between found none, and concurrent updates could lose it. Now a process started meanwhile runs the old binary or the new one, several updates may run at once, and the binary keeps its mode.
 * The `helm.sh/chart` label is valid for any chart version. The label is `<name>-<version>` cut to 63 characters, and the cut of a long version (a branch build's `X.Y.Z-dev.<branch>.<date>.<time>.h<sha7>`, or the `<tag>+<digest>` helm-controller installs) could end in `.`, `_` or `--.`, which the API server refuses for every labelled object; the whole run of `-`, `.` and `_` at the ends of the cut is now trimmed, and a helm-unittest suite renders the label for such versions ([#634](https://github.com/giantswarm/mcp-kubernetes/issues/634)).
 
