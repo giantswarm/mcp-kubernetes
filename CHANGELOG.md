@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+* Helm chart: `mcpKubernetes.oauth.registrationAccessToken` works. The chart passed `--registration-access-token`, a flag the server does not know, so a configured token crashed the pod at start; it now passes `--registration-token=$(REGISTRATION_TOKEN)`, expanded from the OAuth Secret, and the token no longer appears in the pod spec.
+
 * OAuth with in-memory token storage (the default) logs a startup warning: sessions are lost on every pod restart and rolling update and are not shared between replicas; configure Valkey for production. The Helm chart's install notes say the same, and warn that OAuth does not work reliably with more than one replica or autoscaling on in-memory storage (giantswarm/mcp-kubernetes#229).
 
 * OAuth with Valkey token storage refuses to start without a token encryption key (`OAUTH_ENCRYPTION_KEY` / `--oauth-encryption-key`): the tokens would sit in plaintext in a store that outlives the pod and that other workloads can reach. In-memory storage without a key still starts and warns. Helm chart: `mcpKubernetes.oauth.storage.type: valkey` requires `mcpKubernetes.oauth.encryptionKey: true`, otherwise the render fails (giantswarm/mcp-kubernetes#234).
