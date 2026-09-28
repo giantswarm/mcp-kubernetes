@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -411,11 +410,12 @@ var eventListSlimFields = []string{
 	"reportingInstance",
 }
 
-// normalizeResourceType lower-cases a resourceType for switch comparison.
-// Stays a free function (rather than inline strings.ToLower) so future
-// shortname/aliasing rules have one place to land.
+// normalizeResourceType lower-cases a resourceType for switch comparison and
+// drops the group and version of kubectl's qualified form, so
+// "events.events.k8s.io" gets the rules of "events". Stays a free function so
+// future shortname/aliasing rules have one place to land.
 func normalizeResourceType(resourceType string) string {
-	return strings.ToLower(resourceType)
+	return k8s.UnqualifiedResourceType(resourceType)
 }
 
 // slimMetadataMap applies "metadata.X"-anchored exclusion paths to a flat,

@@ -396,7 +396,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
-			mcp.Description("Type of scalable Kubernetes resource (deployment, replicaset, statefulset)"),
+			mcp.Description("Type of scalable Kubernetes resource (deployment, replicaset, statefulset), optionally qualified with its API group as kubectl does (e.g., deployments.apps)"),
 		),
 		mcp.WithString("apiGroup",
 			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),

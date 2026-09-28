@@ -522,8 +522,9 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 	}
 
 	// Handle different scalable resource types
-	switch strings.ToLower(resourceType) {
-	case "deployment", "deployments":
+	kind, _ := scalableAppsKind(resourceType)
+	switch kind {
+	case "deployment":
 		scale, err := clientset.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get deployment scale: %w", err)
@@ -534,7 +535,7 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 			return nil, fmt.Errorf("failed to scale deployment: %w", err)
 		}
 
-	case "replicaset", "replicasets":
+	case "replicaset":
 		scale, err := clientset.AppsV1().ReplicaSets(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get replicaset scale: %w", err)
@@ -545,7 +546,7 @@ func (c *kubernetesClient) Scale(ctx context.Context, kubeContext, namespace, re
 			return nil, fmt.Errorf("failed to scale replicaset: %w", err)
 		}
 
-	case "statefulset", "statefulsets":
+	case "statefulset":
 		scale, err := clientset.AppsV1().StatefulSets(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get statefulset scale: %w", err)

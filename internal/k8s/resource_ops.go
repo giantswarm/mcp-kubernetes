@@ -447,13 +447,9 @@ func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 func scaleResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
 	namespaced bool, namespace, resourceType, name string, replicas int32, dryRun bool) error {
 
-	// Validate this is a scalable resource
-	switch strings.ToLower(resourceType) {
-	case "deployment", "deployments", "deploy",
-		"replicaset", "replicasets", "rs",
-		"statefulset", "statefulsets", "sts":
-		// OK, these are scalable
-	default:
+	// Validate this is a scalable resource. The resolved GVR decides, so every
+	// spelling the resolver accepts (short names, kubectl's qualified form) works.
+	if !isScalableGVR(gvr) {
 		return fmt.Errorf("resource type %q is not scalable", resourceType)
 	}
 
@@ -915,6 +911,53 @@ func splitQualifiedResourceType(resourceType string) (name, group, version strin
 	return name, rest, "", true
 }
 
+// UnqualifiedResourceType is resourceType lower-cased and without the group or
+// version of kubectl's qualified form: "events.v1.events.k8s.io" gives "events".
+// Rules keyed by resource name use it, so every accepted spelling finds them.
+func UnqualifiedResourceType(resourceType string) string {
+	resourceType = strings.ToLower(resourceType)
+	if name, _, _, ok := splitQualifiedResourceType(resourceType); ok {
+		return name
+	}
+	return resourceType
+}
+
+// isScalableGVR reports whether gvr is one of the apps resources the scale
+// operation supports.
+func isScalableGVR(gvr schema.GroupVersionResource) bool {
+	if gvr.Group != "apps" {
+		return false
+	}
+	switch gvr.Resource {
+	case "deployments", "replicasets", "statefulsets":
+		return true
+	}
+	return false
+}
+
+// scalableAppsKind names the apps kind a scale request is for — "deployment",
+// "replicaset" or "statefulset" — from the resource type as the caller wrote
+// it, plain or in kubectl's qualified form in the apps group. ok is false for
+// any other type.
+func scalableAppsKind(resourceType string) (kind string, ok bool) {
+	resourceType = strings.ToLower(resourceType)
+	if name, group, _, qualified := splitQualifiedResourceType(resourceType); qualified {
+		if group != "apps" {
+			return "", false
+		}
+		resourceType = name
+	}
+	switch resourceType {
+	case "deployment", "deployments":
+		return "deployment", true
+	case "replicaset", "replicasets":
+		return "replicaset", true
+	case "statefulset", "statefulsets":
+		return "statefulset", true
+	}
+	return "", false
+}
+
 // resolveResourceTypeShared determines the GroupVersionResource for a given resource type.
 // It uses the Kubernetes API discovery to resolve resources and determine their scope.
 // Discovery results are cached by the discovery client.
@@ -928,14 +971,21 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	// kubectl's qualified form names the group in the type itself
 	// ("clusters.cluster.x-k8s.io", "deployments.v1.apps"). A resource name,
 	// kind or short name never holds a dot, so a dot always means that form.
+	// A version named there is required, as kubectl requires it; the version
+	// of apiGroup ("apps/v1") stays a preference.
+	requiredVersion := ""
 	if name, group, version, ok := splitQualifiedResourceType(resourceType); ok {
 		if requestedGroup != "" && !groupsMatch(requestedGroup, group) {
 			return schema.GroupVersionResource{}, false, fmt.Errorf(
 				"resource type %q names API group %q, but apiGroup is %q", resourceType, group, requestedGroup)
 		}
+		if version != "" && preferredVersion != "" && version != preferredVersion {
+			return schema.GroupVersionResource{}, false, fmt.Errorf(
+				"resource type %q names API version %q, but apiGroup names %q", resourceType, version, preferredVersion)
+		}
 		resourceType, requestedGroup = name, group
-		if preferredVersion == "" {
-			preferredVersion = version
+		if version != "" {
+			preferredVersion, requiredVersion = version, version
 		}
 	}
 
@@ -1018,6 +1068,9 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	if preferredVersion != "" {
 		if gvr, namespaced, found := searchResources(preferredVersion); found {
 			return gvr, namespaced, nil
+		}
+		if requiredVersion != "" {
+			return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", requested)
 		}
 	}
 
