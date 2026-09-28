@@ -95,6 +95,9 @@ Secret at start and never again. The pod template carries a
 | gatewayAPI.backendTrafficPolicy.timeout | string | `"0s"` |  |
 | gatewayAPI.backendTrafficPolicy.annotations | object | `{}` |  |
 | gatewayAPI.backendTrafficPolicy.labels | object | `{}` |  |
+| startupProbe.periodSeconds | int | `5` |  |
+| startupProbe.timeoutSeconds | int | `5` |  |
+| startupProbe.failureThreshold | int | `18` |  |
 | resources.limits.cpu | string | `"500m"` |  |
 | resources.limits.memory | string | `"512Mi"` |  |
 | resources.requests.cpu | string | `"100m"` |  |
