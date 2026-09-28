@@ -12,6 +12,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1081,6 +1082,11 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 				groupVersion = requiredVersion // the core group has no group prefix
 			}
 			list, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion)
+			if err != nil && !apierrors.IsNotFound(err) {
+				// A refused or failed lookup is not an unknown type: say what broke.
+				return schema.GroupVersionResource{}, false, fmt.Errorf(
+					"resolve resource type %s: discovery of %s failed: %w", requested, groupVersion, err)
+			}
 			if err == nil && list != nil {
 				resourceLists = []*metav1.APIResourceList{list}
 				if gvr, namespaced, found := searchResources(requiredVersion); found {

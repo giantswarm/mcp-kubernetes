@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +25,8 @@ type preferredResourcesDiscovery struct {
 	*fakediscovery.FakeDiscovery
 	lists        []*metav1.APIResourceList
 	notPreferred []*metav1.APIResourceList
+	// groupVersionErr, when set, is what ServerResourcesForGroupVersion fails with.
+	groupVersionErr error
 }
 
 func (d *preferredResourcesDiscovery) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
@@ -31,12 +34,15 @@ func (d *preferredResourcesDiscovery) ServerPreferredResources() ([]*metav1.APIR
 }
 
 func (d *preferredResourcesDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
+	if d.groupVersionErr != nil {
+		return nil, d.groupVersionErr
+	}
 	for _, list := range append(slices.Clone(d.lists), d.notPreferred...) {
 		if list.GroupVersion == groupVersion {
 			return list, nil
 		}
 	}
-	return nil, fmt.Errorf("the server could not find the requested resource: %s", groupVersion)
+	return nil, apierrors.NewNotFound(schema.GroupResource{}, groupVersion)
 }
 
 func testDiscovery() *preferredResourcesDiscovery {
@@ -136,6 +142,19 @@ func TestResolveResourceType_QualifiedVersionNotPreferred(t *testing.T) {
 	gvr, _, err = resolveResourceTypeShared("clusters.v1beta2.cluster.x-k8s.io", "", testDiscovery())
 	require.NoError(t, err)
 	assert.Equal(t, "v1beta2", gvr.Version, "the preferred version still resolves from the preferred lists")
+}
+
+// A lookup of the version that is refused or fails is reported as such, not
+// as an unknown type, so the caller learns what broke.
+func TestResolveResourceType_QualifiedVersionLookupFails(t *testing.T) {
+	d := testDiscovery()
+	d.groupVersionErr = apierrors.NewForbidden(schema.GroupResource{Group: "cluster.x-k8s.io"}, "", fmt.Errorf("no access"))
+
+	_, _, err := resolveResourceTypeShared("clusters.v1beta1.cluster.x-k8s.io", "", d)
+	require.Error(t, err)
+	assert.True(t, apierrors.IsForbidden(err), "the discovery error is wrapped: %v", err)
+	assert.Contains(t, err.Error(), "discovery of cluster.x-k8s.io/v1beta1 failed")
+	assert.NotContains(t, err.Error(), "unknown resource type")
 }
 
 func TestScalableAppsKind(t *testing.T) {
