@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Helm chart: a `startupProbe` on `/healthz` (90 s by default, `startupProbe.*` in values) holds the liveness probe off while the server waits up to 60 s for Valkey at start, so a Valkey that restarts with the server no longer gets the container restarted.
+
 * OAuth with Valkey token storage waits for Valkey at start instead of exiting: while Valkey is not accepting connections yet (a credential rotation restarts both together), the server retries with backoff for up to 60 s, not ready meanwhile, rather than crash-looping; a wrong password still fails at once (mcp-oauth v1.4.9, giantswarm/mcp-oauth#591).
 
 * `self-update` replaces the binary, symbolic links resolved, with a single rename (`selfupdatecosign.Install`, selfupdate-cosign v0.3.0). go-selfupdate's own swap moved the binary aside before it moved the new one in, so a process started in between found none, and concurrent updates could lose it. Now a process started meanwhile runs the old binary or the new one, several updates may run at once, and the binary keeps its mode.
