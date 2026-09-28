@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -897,6 +898,23 @@ func parseAPIGroup(apiGroup string) (group, preferredVersion string) {
 	return group, preferredVersion
 }
 
+// versionSegment matches a Kubernetes API version such as v1, v1beta2 or v2alpha1.
+var versionSegment = regexp.MustCompile(`^v[0-9]+((alpha|beta)[0-9]+)?$`)
+
+// splitQualifiedResourceType splits a resource type in kubectl's qualified
+// form, <resource>.<group> or <resource>.<version>.<group>, into its parts.
+// ok is false for a plain resource type.
+func splitQualifiedResourceType(resourceType string) (name, group, version string, ok bool) {
+	name, rest, found := strings.Cut(resourceType, ".")
+	if !found || name == "" || rest == "" {
+		return "", "", "", false
+	}
+	if v, g, hasGroup := strings.Cut(rest, "."); hasGroup && g != "" && versionSegment.MatchString(v) {
+		return name, g, v, true
+	}
+	return name, rest, "", true
+}
+
 // resolveResourceTypeShared determines the GroupVersionResource for a given resource type.
 // It uses the Kubernetes API discovery to resolve resources and determine their scope.
 // Discovery results are cached by the discovery client.
@@ -904,7 +922,22 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	discoveryClient discovery.DiscoveryInterface) (schema.GroupVersionResource, bool, error) {
 
 	resourceType = strings.ToLower(resourceType)
+	requested := resourceType
 	requestedGroup, preferredVersion := parseAPIGroup(apiGroup)
+
+	// kubectl's qualified form names the group in the type itself
+	// ("clusters.cluster.x-k8s.io", "deployments.v1.apps"). A resource name,
+	// kind or short name never holds a dot, so a dot always means that form.
+	if name, group, version, ok := splitQualifiedResourceType(resourceType); ok {
+		if requestedGroup != "" && !groupsMatch(requestedGroup, group) {
+			return schema.GroupVersionResource{}, false, fmt.Errorf(
+				"resource type %q names API group %q, but apiGroup is %q", resourceType, group, requestedGroup)
+		}
+		resourceType, requestedGroup = name, group
+		if preferredVersion == "" {
+			preferredVersion = version
+		}
+	}
 
 	// Always use discovery for resource resolution and scope determination.
 	// The discovery client caches results, so this is efficient.
@@ -993,7 +1026,7 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 		return gvr, namespaced, nil
 	}
 
-	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", resourceType)
+	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", requested)
 }
 
 // resolveGVRFromObjectShared resolves GroupVersionResource from an unstructured object.
