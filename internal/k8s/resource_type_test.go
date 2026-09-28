@@ -1,6 +1,8 @@
 package k8s
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,19 +17,36 @@ import (
 )
 
 // preferredResourcesDiscovery serves a fixed resource list from
-// ServerPreferredResources, which the client-go fake leaves empty.
+// ServerPreferredResources, which the client-go fake leaves empty. Like a real
+// server, it lists each resource at its preferred version only; a group
+// version that is not preferred is served by ServerResourcesForGroupVersion.
 type preferredResourcesDiscovery struct {
 	*fakediscovery.FakeDiscovery
-	lists []*metav1.APIResourceList
+	lists        []*metav1.APIResourceList
+	notPreferred []*metav1.APIResourceList
 }
 
 func (d *preferredResourcesDiscovery) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
 	return d.lists, nil
 }
 
+func (d *preferredResourcesDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
+	for _, list := range append(slices.Clone(d.lists), d.notPreferred...) {
+		if list.GroupVersion == groupVersion {
+			return list, nil
+		}
+	}
+	return nil, fmt.Errorf("the server could not find the requested resource: %s", groupVersion)
+}
+
 func testDiscovery() *preferredResourcesDiscovery {
 	return &preferredResourcesDiscovery{
 		FakeDiscovery: &fakediscovery.FakeDiscovery{Fake: &clienttesting.Fake{}},
+		notPreferred: []*metav1.APIResourceList{
+			{GroupVersion: "cluster.x-k8s.io/v1beta1", APIResources: []metav1.APIResource{
+				{Name: "clusters", SingularName: "cluster", Kind: "Cluster", Namespaced: true, ShortNames: []string{"cl"}},
+			}},
+		},
 		lists: []*metav1.APIResourceList{
 			{GroupVersion: "v1", APIResources: []metav1.APIResource{
 				{Name: "pods", SingularName: "pod", Kind: "Pod", Namespaced: true, ShortNames: []string{"po"}},
@@ -100,6 +119,23 @@ func TestResolveResourceType_QualifiedVersionIsRequired(t *testing.T) {
 	gvr, _, err := resolveResourceTypeShared("deployments.v1.apps", "apps/v1", testDiscovery())
 	require.NoError(t, err, "the same version in both places is no conflict")
 	assert.Equal(t, schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, gvr)
+
+	_, _, err = resolveResourceTypeShared("clusters.v1alpha9.cluster.x-k8s.io", "", testDiscovery())
+	require.Error(t, err, "a version the group does not serve at all")
+	assert.Equal(t, "unknown resource type: clusters.v1alpha9.cluster.x-k8s.io", err.Error())
+}
+
+// A version the server serves but does not prefer resolves, as in kubectl:
+// the preferred lists hold each resource at its preferred version only.
+func TestResolveResourceType_QualifiedVersionNotPreferred(t *testing.T) {
+	gvr, namespaced, err := resolveResourceTypeShared("clusters.v1beta1.cluster.x-k8s.io", "", testDiscovery())
+	require.NoError(t, err)
+	assert.Equal(t, schema.GroupVersionResource{Group: "cluster.x-k8s.io", Version: "v1beta1", Resource: "clusters"}, gvr)
+	assert.True(t, namespaced)
+
+	gvr, _, err = resolveResourceTypeShared("clusters.v1beta2.cluster.x-k8s.io", "", testDiscovery())
+	require.NoError(t, err)
+	assert.Equal(t, "v1beta2", gvr.Version, "the preferred version still resolves from the preferred lists")
 }
 
 func TestScalableAppsKind(t *testing.T) {
@@ -111,7 +147,7 @@ func TestScalableAppsKind(t *testing.T) {
 		assert.True(t, ok, resourceType)
 		assert.Equal(t, want, kind, resourceType)
 	}
-	for _, resourceType := range []string{"pods", "deployments.example.com", "clusters.cluster.x-k8s.io"} {
+	for _, resourceType := range []string{"pods", "deployments.example.com", "clusters.cluster.x-k8s.io", "deployments.v9.apps"} {
 		_, ok := scalableAppsKind(resourceType)
 		assert.False(t, ok, resourceType)
 	}

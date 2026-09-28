@@ -938,11 +938,14 @@ func isScalableGVR(gvr schema.GroupVersionResource) bool {
 // scalableAppsKind names the apps kind a scale request is for — "deployment",
 // "replicaset" or "statefulset" — from the resource type as the caller wrote
 // it, plain or in kubectl's qualified form in the apps group. ok is false for
-// any other type.
+// any other type. The typed client scales through apps/v1 only, so a qualified
+// version other than v1 is refused. Unlike the dynamic path (isScalableGVR),
+// which accepts every spelling the resolver does, this one does not take the
+// short names deploy, rs and sts, as before the qualified form existed.
 func scalableAppsKind(resourceType string) (kind string, ok bool) {
 	resourceType = strings.ToLower(resourceType)
-	if name, group, _, qualified := splitQualifiedResourceType(resourceType); qualified {
-		if group != "apps" {
+	if name, group, version, qualified := splitQualifiedResourceType(resourceType); qualified {
+		if group != "apps" || (version != "" && version != "v1") {
 			return "", false
 		}
 		resourceType = name
@@ -971,8 +974,9 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	// kubectl's qualified form names the group in the type itself
 	// ("clusters.cluster.x-k8s.io", "deployments.v1.apps"). A resource name,
 	// kind or short name never holds a dot, so a dot always means that form.
-	// A version named there is required, as kubectl requires it; the version
-	// of apiGroup ("apps/v1") stays a preference.
+	// A version named there is required, as kubectl requires it, and may be any
+	// version the server serves, not only the preferred one; the version of
+	// apiGroup ("apps/v1") stays a preference.
 	requiredVersion := ""
 	if name, group, version, ok := splitQualifiedResourceType(resourceType); ok {
 		if requestedGroup != "" && !groupsMatch(requestedGroup, group) {
@@ -1070,6 +1074,19 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 			return gvr, namespaced, nil
 		}
 		if requiredVersion != "" {
+			// The preferred lists hold each resource at its preferred version
+			// only. Another version the server serves is in its own list.
+			groupVersion := requestedGroup + "/" + requiredVersion
+			if groupsMatch("", requestedGroup) {
+				groupVersion = requiredVersion // the core group has no group prefix
+			}
+			list, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion)
+			if err == nil && list != nil {
+				resourceLists = []*metav1.APIResourceList{list}
+				if gvr, namespaced, found := searchResources(requiredVersion); found {
+					return gvr, namespaced, nil
+				}
+			}
 			return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", requested)
 		}
 	}
