@@ -78,9 +78,8 @@ func TestToRuntimeObjects(t *testing.T) {
 
 func TestProcessRuntimeObjects(t *testing.T) {
 	cfg := &Config{
-		MaxItems:    10,
-		SlimOutput:  true,
-		MaskSecrets: true,
+		MaxItems:   10,
+		SlimOutput: true,
 	}
 	processor := NewProcessor(cfg)
 
@@ -122,9 +121,8 @@ func TestProcessRuntimeObjects(t *testing.T) {
 
 func TestProcessRuntimeObjectsWithLimit(t *testing.T) {
 	cfg := &Config{
-		MaxItems:    100,
-		SlimOutput:  false,
-		MaskSecrets: false,
+		MaxItems:   100,
+		SlimOutput: false,
 	}
 	processor := NewProcessor(cfg)
 
@@ -158,8 +156,7 @@ func TestProcessRuntimeObjectsWithLimit(t *testing.T) {
 
 func TestProcessSingleRuntimeObject(t *testing.T) {
 	cfg := &Config{
-		SlimOutput:  true,
-		MaskSecrets: true,
+		SlimOutput: true,
 	}
 	processor := NewProcessor(cfg)
 

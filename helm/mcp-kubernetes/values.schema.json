@@ -84,7 +84,8 @@
                     "additionalProperties": false,
                     "properties": {
                         "maskSecrets": {
-                            "type": "boolean"
+                            "type": "boolean",
+                            "deprecated": true
                         },
                         "maxClusters": {
                             "type": "integer"

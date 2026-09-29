@@ -16,8 +16,7 @@ func TestNewProcessor(t *testing.T) {
 
 	// With custom config
 	cfg := &Config{
-		MaxItems:    50,
-		MaskSecrets: false,
+		MaxItems: 50,
 	}
 	p = NewProcessor(cfg)
 	if p.config.MaxItems != 50 {
@@ -28,9 +27,8 @@ func TestNewProcessor(t *testing.T) {
 func TestProcessor_Process(t *testing.T) {
 	// Create processor with slim output and secret masking
 	cfg := &Config{
-		MaxItems:    10,
-		SlimOutput:  true,
-		MaskSecrets: true,
+		MaxItems:   10,
+		SlimOutput: true,
 	}
 	p := NewProcessor(cfg)
 
@@ -96,9 +94,8 @@ func TestProcessor_Process_EmptyList(t *testing.T) {
 
 func TestProcessor_Process_Truncation(t *testing.T) {
 	cfg := &Config{
-		MaxItems:    5,
-		SlimOutput:  false,
-		MaskSecrets: false,
+		MaxItems:   5,
+		SlimOutput: false,
 	}
 	p := NewProcessor(cfg)
 
@@ -118,9 +115,8 @@ func TestProcessor_Process_Truncation(t *testing.T) {
 
 func TestProcessor_ProcessWithLimit(t *testing.T) {
 	cfg := &Config{
-		MaxItems:    100,
-		SlimOutput:  false,
-		MaskSecrets: false,
+		MaxItems:   100,
+		SlimOutput: false,
 	}
 	p := NewProcessor(cfg)
 
@@ -139,9 +135,8 @@ func TestProcessor_ProcessWithLimit(t *testing.T) {
 
 func TestProcessor_ProcessWithLimit_Zero(t *testing.T) {
 	cfg := &Config{
-		MaxItems:    10,
-		SlimOutput:  false,
-		MaskSecrets: false,
+		MaxItems:   10,
+		SlimOutput: false,
 	}
 	p := NewProcessor(cfg)
 
@@ -157,8 +152,7 @@ func TestProcessor_ProcessWithLimit_Zero(t *testing.T) {
 
 func TestProcessor_ProcessSingle(t *testing.T) {
 	cfg := &Config{
-		SlimOutput:  true,
-		MaskSecrets: true,
+		SlimOutput: true,
 	}
 	p := NewProcessor(cfg)
 
@@ -222,9 +216,8 @@ func TestProcessor_ShouldSuggestSummary(t *testing.T) {
 
 func TestProcessor_Config(t *testing.T) {
 	cfg := &Config{
-		MaxItems:    42,
-		SlimOutput:  true,
-		MaskSecrets: false,
+		MaxItems:   42,
+		SlimOutput: true,
 	}
 	p := NewProcessor(cfg)
 
@@ -235,9 +228,8 @@ func TestProcessor_Config(t *testing.T) {
 
 func TestProcessWithStats(t *testing.T) {
 	cfg := &Config{
-		MaxItems:    5,
-		SlimOutput:  true,
-		MaskSecrets: true,
+		MaxItems:   5,
+		SlimOutput: true,
 	}
 	p := NewProcessor(cfg)
 

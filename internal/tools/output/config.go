@@ -52,10 +52,6 @@ type Config struct {
 	// blacklist-only "normal" output.
 	KindShaping bool `json:"kindShaping" yaml:"kindShaping"`
 
-	// MaskSecrets replaces secret data with "***REDACTED***".
-	// Default: true (security critical - should rarely be disabled)
-	MaskSecrets bool `json:"maskSecrets" yaml:"maskSecrets"`
-
 	// SummaryThreshold is the item count above which summary mode is suggested.
 	// Default: 500
 	SummaryThreshold int `json:"summaryThreshold" yaml:"summaryThreshold"`
@@ -73,7 +69,6 @@ func DefaultConfig() *Config {
 		MaxResponseBytes: DefaultMaxResponseBytes,
 		SlimOutput:       true,
 		KindShaping:      true,
-		MaskSecrets:      true,
 		SummaryThreshold: 500,
 		ExcludedFields:   DefaultExcludedFields(),
 	}

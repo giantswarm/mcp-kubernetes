@@ -392,8 +392,6 @@ spec:
               value: {{ .Values.capiMode.output.maxResponseBytes | quote }}
             - name: OUTPUT_SLIM_MODE
               value: {{ .Values.capiMode.output.slimOutput | quote }}
-            - name: OUTPUT_MASK_SECRETS
-              value: {{ .Values.capiMode.output.maskSecrets | quote }}
             {{- end }}
             # Kubernetes metadata for OpenTelemetry resource attributes
             - name: K8S_NAMESPACE

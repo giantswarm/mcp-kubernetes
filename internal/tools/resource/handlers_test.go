@@ -17,6 +17,7 @@ import (
 
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 	"github.com/giantswarm/mcp-kubernetes/internal/tools/resource/testdata"
 )
 
@@ -735,8 +736,12 @@ func TestGetOutputProcessorForFormat(t *testing.T) {
 				"SlimOutput for output=%q", tt.outputFormat)
 			assert.Equal(t, tt.wantKindShaping, cfg.KindShaping,
 				"KindShaping for output=%q", tt.outputFormat)
-			assert.True(t, cfg.MaskSecrets,
-				"MaskSecrets must stay enabled for output=%q", tt.outputFormat)
+			masked := processor.ProcessSingle(map[string]interface{}{
+				"kind": "Secret",
+				"data": map[string]interface{}{"token": "c2VjcmV0"}, //nolint:gosec // G101: test fixture, not a real credential
+			})
+			assert.Equal(t, output.RedactedValue, masked["data"].(map[string]interface{})["token"],
+				"secret data must be masked for output=%q", tt.outputFormat)
 		})
 	}
 }

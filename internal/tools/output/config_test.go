@@ -29,9 +29,6 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.SlimOutput {
 		t.Error("SlimOutput should be true by default")
 	}
-	if !cfg.MaskSecrets {
-		t.Error("MaskSecrets should be true by default")
-	}
 	if cfg.SummaryThreshold != 500 {
 		t.Errorf("SummaryThreshold = %d, want 500", cfg.SummaryThreshold)
 	}
@@ -138,7 +135,6 @@ func TestConfigClone(t *testing.T) {
 		MaxClusters:      10,
 		MaxResponseBytes: 1024,
 		SlimOutput:       true,
-		MaskSecrets:      true,
 		SummaryThreshold: 100,
 		ExcludedFields:   []string{"field1", "field2"},
 	}

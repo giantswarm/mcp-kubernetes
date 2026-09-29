@@ -112,7 +112,6 @@ capiMode:
     maxClusters: 20
     maxResponseBytes: 524288  # 512KB
     slimOutput: true
-    maskSecrets: true
 
   # RBAC for CAPI mode - namespace-scoped (recommended)
   # SECURITY: ServiceAccount needs secret access to read kubeconfigs

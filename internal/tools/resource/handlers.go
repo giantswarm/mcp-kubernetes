@@ -121,9 +121,8 @@ func handleGetResource(ctx context.Context, request mcp.CallToolRequest, sc *ser
 //     and status.history; Deployment / StatefulSet / DaemonSet collapse long
 //     container env lists). This is the LLM-friendly default per #410.
 //
-// Secret masking is always driven by the server-level MaskSecrets setting
-// and is never disabled by output format — every read tool honours that
-// contract uniformly.
+// Secret masking is not configurable and runs for every format — every
+// tool honours that contract uniformly.
 func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) *output.Processor {
 	outputCfg := sc.OutputConfig()
 	slim := outputCfg.SlimOutput
@@ -144,7 +143,6 @@ func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) 
 		MaxResponseBytes: outputCfg.MaxResponseBytes,
 		SlimOutput:       slim,
 		KindShaping:      kindShaping,
-		MaskSecrets:      outputCfg.MaskSecrets,
 		SummaryThreshold: outputCfg.SummaryThreshold,
 	}
 	return output.NewProcessor(cfg)
@@ -771,6 +769,7 @@ func handleDescribeResource(ctx context.Context, request mcp.CallToolRequest, sc
 		processedMetadata = slimMetadataMap(description.Metadata, processor.Config().ExcludedFields)
 	}
 
+	processedMetadata = maskedDescribeMetadata(processedMetadata, processedResource)
 	result := buildDescribeOutput(processedResource, processedMetadata, description.Meta, description.Events, eventsLimit)
 
 	jsonData, err := json.MarshalIndent(result, "", "  ")
@@ -878,6 +877,25 @@ func effectiveEventTime(ev corev1.Event) time.Time {
 	return ev.FirstTimestamp.Time
 }
 
+// maskedDescribeMetadata returns the describe metadata with the annotations
+// of the masked resource, so a Secret's last-applied configuration cannot
+// return its data through the metadata block.
+func maskedDescribeMetadata(metadata map[string]interface{}, resource runtime.Object) map[string]interface{} {
+	if _, ok := metadata["annotations"]; !ok {
+		return metadata
+	}
+	u, ok := resource.(*unstructured.Unstructured)
+	if !ok {
+		return metadata
+	}
+	masked := make(map[string]interface{}, len(metadata))
+	for k, v := range metadata {
+		masked[k] = v
+	}
+	masked["annotations"] = u.GetAnnotations()
+	return masked
+}
+
 // handleCreateResource handles kubectl create operations
 func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *server.ServerContext) (*mcp.CallToolResult, error) {
 	if result := checkMutatingOperation(sc, "create"); result != nil {
@@ -904,8 +922,8 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal manifest: %v", err)), nil
 	}
 
-	var obj runtime.Object
-	if err := json.Unmarshal(manifestJSON, &obj); err != nil {
+	obj := &unstructured.Unstructured{}
+	if err := obj.UnmarshalJSON(manifestJSON); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse manifest: %v", err)), nil
 	}
 
@@ -934,6 +952,12 @@ func handleCreateResource(ctx context.Context, request mcp.CallToolRequest, sc *
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationCreate, resourceType, namespace, instrumentation.StatusSuccess, duration)
+
+	// Mask secret data; the full manifest otherwise (output: wide)
+	createdObj, err = output.ProcessSingleRuntimeObject(getOutputProcessorForFormat(sc, "wide"), createdObj)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process created resource: %v", err)), nil
+	}
 
 	// Convert the created resource to JSON for output
 	jsonData, err := json.MarshalIndent(createdObj, "", "  ")
@@ -970,8 +994,8 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal manifest: %v", err)), nil
 	}
 
-	var obj runtime.Object
-	if err := json.Unmarshal(manifestJSON, &obj); err != nil {
+	obj := &unstructured.Unstructured{}
+	if err := obj.UnmarshalJSON(manifestJSON); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse manifest: %v", err)), nil
 	}
 
@@ -1000,6 +1024,12 @@ func handleApplyResource(ctx context.Context, request mcp.CallToolRequest, sc *s
 	}
 
 	recordK8sOperation(ctx, sc, clusterName, instrumentation.OperationApply, resourceType, namespace, instrumentation.StatusSuccess, duration)
+
+	// Mask secret data; the full manifest otherwise (output: wide)
+	appliedObj, err = output.ProcessSingleRuntimeObject(getOutputProcessorForFormat(sc, "wide"), appliedObj)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to process applied resource: %v", err)), nil
+	}
 
 	// Convert the applied resource to JSON for output
 	jsonData, err := json.MarshalIndent(appliedObj, "", "  ")

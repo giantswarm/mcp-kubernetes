@@ -585,10 +585,6 @@ type OutputConfig struct {
 	// Default: true
 	SlimOutput bool `json:"slimOutput" yaml:"slimOutput"`
 
-	// MaskSecrets replaces secret data with "***REDACTED***".
-	// Default: true (security critical - should rarely be disabled)
-	MaskSecrets bool `json:"maskSecrets" yaml:"maskSecrets"`
-
 	// SummaryThreshold is the item count above which summary mode is suggested.
 	// Default: 500
 	SummaryThreshold int `json:"summaryThreshold" yaml:"summaryThreshold"`
@@ -618,7 +614,6 @@ func NewDefaultOutputConfig() *OutputConfig {
 		MaxClusters:      20,
 		MaxResponseBytes: 512 * 1024, // 512KB
 		SlimOutput:       true,
-		MaskSecrets:      true,
 		SummaryThreshold: 500,
 	}
 }
