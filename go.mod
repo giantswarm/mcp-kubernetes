@@ -171,3 +171,7 @@ require (
 // by any imported package, so a require would be dropped by go mod tidy —
 // only a replace holds the graph at the fixed version.
 replace golang.org/x/mod => golang.org/x/mod v0.41.0
+
+replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/prometheus v0.315.0
+
+replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
