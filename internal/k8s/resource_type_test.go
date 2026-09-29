@@ -97,6 +97,7 @@ func TestResolveResourceType_GroupQualified(t *testing.T) {
 			schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}},
 		{"plain name and apiGroup, unchanged", "clusters", "cluster.x-k8s.io", capiClusters},
 		{"plain name, unchanged", "pods", "", schema.GroupVersionResource{Version: "v1", Resource: "pods"}},
+		{"core group, qualified", "pods.v1.", "", schema.GroupVersionResource{Version: "v1", Resource: "pods"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

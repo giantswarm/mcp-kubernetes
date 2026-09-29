@@ -1003,6 +1003,9 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	name := schema.ParseGroupResource(resourceType).Resource
 	served := func(group, version string) bool {
 		groupVersion := group + "/" + version
+		if group == "" {
+			groupVersion = version // the core group has no group prefix ("pods.v1.")
+		}
 		list, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
