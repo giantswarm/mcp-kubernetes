@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -895,32 +894,31 @@ func parseAPIGroup(apiGroup string) (group, preferredVersion string) {
 	return group, preferredVersion
 }
 
-// versionSegment matches a Kubernetes API version such as v1, v1beta2 or v2alpha1.
-var versionSegment = regexp.MustCompile(`^v[0-9]+((alpha|beta)[0-9]+)?$`)
-
-// splitQualifiedResourceType splits a resource type in kubectl's qualified
-// form, <resource>.<group> or <resource>.<version>.<group>, into its parts.
-// ok is false for a plain resource type.
-func splitQualifiedResourceType(resourceType string) (name, group, version string, ok bool) {
-	name, rest, found := strings.Cut(resourceType, ".")
-	if !found || name == "" || rest == "" {
+// parseQualifiedResourceType reads a resource type in kubectl's qualified form,
+// <resource>.<group> or <resource>.<version>.<group>. schema.ParseResourceArg
+// gives both readings of a type with two dots or more; as in kubectl, the
+// version reading wins when served says the server serves that group version,
+// and otherwise all after the first dot is the group. ok is false for a plain
+// resource type.
+func parseQualifiedResourceType(resourceType string, served func(group, version string) bool) (name, group, version string, ok bool) {
+	if !strings.Contains(resourceType, ".") {
 		return "", "", "", false
 	}
-	if v, g, hasGroup := strings.Cut(rest, "."); hasGroup && g != "" && versionSegment.MatchString(v) {
-		return name, g, v, true
+	gvr, gr := schema.ParseResourceArg(resourceType)
+	if gvr != nil && served(gvr.Group, gvr.Version) {
+		return gvr.Resource, gvr.Group, gvr.Version, true
 	}
-	return name, rest, "", true
+	if gr.Resource == "" || gr.Group == "" {
+		return "", "", "", false
+	}
+	return gr.Resource, gr.Group, "", true
 }
 
 // UnqualifiedResourceType is resourceType lower-cased and without the group or
 // version of kubectl's qualified form: "events.v1.events.k8s.io" gives "events".
 // Rules keyed by resource name use it, so every accepted spelling finds them.
 func UnqualifiedResourceType(resourceType string) string {
-	resourceType = strings.ToLower(resourceType)
-	if name, _, _, ok := splitQualifiedResourceType(resourceType); ok {
-		return name
-	}
-	return resourceType
+	return schema.ParseGroupResource(strings.ToLower(resourceType)).Resource
 }
 
 // isScalableGVR reports whether gvr is one of the apps resources the scale
@@ -945,8 +943,9 @@ func isScalableGVR(gvr schema.GroupVersionResource) bool {
 // short names deploy, rs and sts, as before the qualified form existed.
 func scalableAppsKind(resourceType string) (kind string, ok bool) {
 	resourceType = strings.ToLower(resourceType)
-	if name, group, version, qualified := splitQualifiedResourceType(resourceType); qualified {
-		if group != "apps" || (version != "" && version != "v1") {
+	appsV1 := func(group, version string) bool { return group == "apps" && version == "v1" }
+	if name, group, _, qualified := parseQualifiedResourceType(resourceType, appsV1); qualified {
+		if group != "apps" {
 			return "", false
 		}
 		resourceType = name
@@ -978,8 +977,32 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	// A version named there is required, as kubectl requires it, and may be any
 	// version the server serves, not only the preferred one; the version of
 	// apiGroup ("apps/v1") stays a preference.
+	var groupsErr error
+	served := func(group, version string) bool {
+		groups, err := discoveryClient.ServerGroups()
+		if err != nil {
+			groupsErr = err
+			return false
+		}
+		for _, g := range groups.Groups {
+			if g.Name != group {
+				continue
+			}
+			for _, v := range g.Versions {
+				if v.Version == version {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	requiredVersion := ""
-	if name, group, version, ok := splitQualifiedResourceType(resourceType); ok {
+	name, group, version, ok := parseQualifiedResourceType(resourceType, served)
+	if groupsErr != nil {
+		return schema.GroupVersionResource{}, false, fmt.Errorf(
+			"resolve resource type %s: discovery of the API groups failed: %w", requested, groupsErr)
+	}
+	if ok {
 		if requestedGroup != "" && !groupsMatch(requestedGroup, group) {
 			return schema.GroupVersionResource{}, false, fmt.Errorf(
 				"resource type %q names API group %q, but apiGroup is %q", resourceType, group, requestedGroup)

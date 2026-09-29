@@ -27,10 +27,36 @@ type preferredResourcesDiscovery struct {
 	notPreferred []*metav1.APIResourceList
 	// groupVersionErr, when set, is what ServerResourcesForGroupVersion fails with.
 	groupVersionErr error
+	// groupsErr, when set, is what ServerGroups fails with.
+	groupsErr error
 }
 
 func (d *preferredResourcesDiscovery) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
 	return d.lists, nil
+}
+
+// ServerGroups lists every group version the stub serves, preferred or not.
+func (d *preferredResourcesDiscovery) ServerGroups() (*metav1.APIGroupList, error) {
+	if d.groupsErr != nil {
+		return nil, d.groupsErr
+	}
+	groups := &metav1.APIGroupList{}
+	index := map[string]int{}
+	for _, list := range append(slices.Clone(d.lists), d.notPreferred...) {
+		gv, err := schema.ParseGroupVersion(list.GroupVersion)
+		if err != nil {
+			return nil, err
+		}
+		i, ok := index[gv.Group]
+		if !ok {
+			i = len(groups.Groups)
+			index[gv.Group] = i
+			groups.Groups = append(groups.Groups, metav1.APIGroup{Name: gv.Group})
+		}
+		groups.Groups[i].Versions = append(groups.Groups[i].Versions,
+			metav1.GroupVersionForDiscovery{GroupVersion: list.GroupVersion, Version: gv.Version})
+	}
+	return groups, nil
 }
 
 func (d *preferredResourcesDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
@@ -65,6 +91,10 @@ func testDiscovery() *preferredResourcesDiscovery {
 			}},
 			{GroupVersion: "infrastructure.cluster.x-k8s.io/v1beta2", APIResources: []metav1.APIResource{
 				{Name: "awsclusters", SingularName: "awscluster", Kind: "AWSCluster", Namespaced: true},
+			}},
+			// A group whose first label looks like an API version.
+			{GroupVersion: "v1.example.com/v1alpha1", APIResources: []metav1.APIResource{
+				{Name: "widgets", SingularName: "widget", Kind: "Widget", Namespaced: true},
 			}},
 		},
 	}
@@ -142,6 +172,24 @@ func TestResolveResourceType_QualifiedVersionNotPreferred(t *testing.T) {
 	gvr, _, err = resolveResourceTypeShared("clusters.v1beta2.cluster.x-k8s.io", "", testDiscovery())
 	require.NoError(t, err)
 	assert.Equal(t, "v1beta2", gvr.Version, "the preferred version still resolves from the preferred lists")
+}
+
+// Which reading of <a>.<b>.<rest> applies — <b> as the version of group <rest>,
+// or <b>.<rest> as the group — is what the server serves that decides, as in
+// kubectl, not how <b> looks.
+func TestResolveResourceType_DiscoveryPicksTheReading(t *testing.T) {
+	gvr, _, err := resolveResourceTypeShared("widgets.v1.example.com", "", testDiscovery())
+	require.NoError(t, err, "no group example.com is served, so v1.example.com is the group")
+	assert.Equal(t, schema.GroupVersionResource{Group: "v1.example.com", Version: "v1alpha1", Resource: "widgets"}, gvr)
+
+	d := testDiscovery()
+	d.groupsErr = fmt.Errorf("connection refused")
+	_, _, err = resolveResourceTypeShared("deployments.v1.apps", "", d)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "discovery of the API groups failed: connection refused")
+
+	_, _, err = resolveResourceTypeShared("deployments.apps", "", d)
+	require.NoError(t, err, "a type with one dot has a single reading and needs no group list")
 }
 
 // A lookup of the version that is refused or fails is reported as such, not
