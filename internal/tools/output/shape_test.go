@@ -269,21 +269,21 @@ func TestProcessor_KindShapingFollowsSlim(t *testing.T) {
 	}
 
 	t.Run("wide preserves everything", func(t *testing.T) {
-		p := NewProcessor(&Config{SlimOutput: false, KindShaping: true, MaskSecrets: false})
+		p := NewProcessor(&Config{SlimOutput: false, KindShaping: true})
 		out := p.ProcessSingle(hr())
 		assert.NotNil(t, out["spec"].(map[string]interface{})["values"], "spec.values must survive output: wide even with KindShaping=true")
 		assert.NotNil(t, out["status"].(map[string]interface{})["history"], "status.history must survive output: wide")
 	})
 
 	t.Run("normal preserves Kind-specific blobs", func(t *testing.T) {
-		p := NewProcessor(&Config{SlimOutput: true, KindShaping: false, MaskSecrets: false})
+		p := NewProcessor(&Config{SlimOutput: true, KindShaping: false})
 		out := p.ProcessSingle(hr())
 		assert.NotNil(t, out["spec"].(map[string]interface{})["values"], "spec.values must survive output: normal (no Kind shaping)")
 		assert.NotNil(t, out["status"].(map[string]interface{})["history"], "status.history must survive output: normal")
 	})
 
 	t.Run("slim drops Kind-specific blobs", func(t *testing.T) {
-		p := NewProcessor(&Config{SlimOutput: true, KindShaping: true, MaskSecrets: false})
+		p := NewProcessor(&Config{SlimOutput: true, KindShaping: true})
 		out := p.ProcessSingle(hr())
 		_, hasValues := out["spec"].(map[string]interface{})["values"]
 		assert.False(t, hasValues, "spec.values must be dropped on output: slim")

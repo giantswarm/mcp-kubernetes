@@ -791,8 +791,9 @@ capiMode:
     maxResponseBytes: 524288  # 512KB
     # Enable slim output (removes verbose fields)
     slimOutput: true
-    # Mask secret data with "***REDACTED***"
-    maskSecrets: true
+    # Deprecated and ignored: secret data is always masked with "***REDACTED***".
+    # Kept so values that still set it stay valid.
+    maskSecrets: true  # @schema deprecated: true
 
   # RBAC configuration for CAPI mode
   #

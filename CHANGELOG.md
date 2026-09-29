@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+* Secret masking is always on: no server configuration returns Secret data. The `MaskSecrets` output setting is gone; the Helm chart accepts and ignores `capiMode.output.maskSecrets` and no longer sets `OUTPUT_MASK_SECRETS`, which the server never read. Masking now also covers the `kubectl.kubernetes.io/last-applied-configuration` annotation, which repeats a Secret's data, in the resource and in `describe`'s metadata block with `output: wide`; the `data` and `binaryData` of a ConfigMap whose name marks it as sensitive (`credentials`, `password`, `secret`, `auth`, `token`, `kubeconfig`); and the objects `create` and `apply` return (giantswarm/mcp-kubernetes#660).
+
+* `create` and `apply` parse their manifest: they failed on every call with `cannot unmarshal object into Go value of type runtime.Object`.
+
 * Helm chart: `mcpKubernetes.oauth.registrationAccessToken` works. The chart passed `--registration-access-token`, a flag the server does not know, so a configured token crashed the pod at start; it now passes `--registration-token=$(REGISTRATION_TOKEN)`, expanded from the OAuth Secret, and the token no longer appears in the pod spec.
 
 * OAuth with in-memory token storage (the default) logs a startup warning: sessions are lost on every pod restart and rolling update and are not shared between replicas; configure Valkey for production. The Helm chart's install notes say the same, and warn that OAuth does not work reliably with more than one replica or autoscaling on in-memory storage (giantswarm/mcp-kubernetes#229).
@@ -94,6 +98,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Dex CA trust for the SSO forwarded-ID-token JWKS path is now passed to mcp-oauth as explicit config instead of being installed on `http.DefaultTransport`. `--dex-ca-file` / `oauth.dex.caSecret` now builds a CA pool that is set on the mcp-oauth server config (`JWKSRootCAs`) and trusted-issuer entries, and on the Dex provider client — removing `installDexCAOnDefaultTransport`. Pairs with the mcp-oauth change that drops the `http.DefaultTransport` CA read ([mcp-oauth#498](https://github.com/giantswarm/mcp-oauth/pull/498) / [#495](https://github.com/giantswarm/mcp-oauth/issues/495)), released in mcp-oauth v1.0.0. No behavior change for garm and other internal-CA installs once deployed. See https://github.com/giantswarm/giantswarm/issues/37059.
 * External-issuer tokens are classified as `trusted-issuer`; the on-behalf-of branch keys off `UserInfo.IsOBO()` (the RFC 8693 `act` claim) and the email-check bypass off `UserInfo.IsExternalIssuer()`.
 * **deps:** update module github.com/giantswarm/mcp-oauth to v1.0.0.
+
+### Refactored
+
+* CI: an empty `.nancy-ignore` is committed, so the "Fix Go vulnerabilities" workflow can commit the ignore entries that nancy-fixer adds to it.
 
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 

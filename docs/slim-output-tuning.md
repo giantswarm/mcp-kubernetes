@@ -264,4 +264,4 @@ repository.
 The bench specifically pinned that `secret.data.*` is replaced with
 `***REDACTED***` for all three values of `output` on both `get`
 and `describe`. Secret masking is independent of `output` and
-follows the server-level `MaskSecrets` config (default `true`).
+always applied; no server configuration turns it off.

@@ -417,3 +417,44 @@ func TestRedactedValue(t *testing.T) {
 		t.Errorf("RedactedValue = %q, want %q", RedactedValue, "***REDACTED***")
 	}
 }
+
+func TestMaskSecrets_LastAppliedAndSensitiveConfigMaps(t *testing.T) {
+	const lastApplied = "kubectl.kubernetes.io/last-applied-configuration"
+
+	secret := MaskSecrets(map[string]interface{}{
+		"kind": "Secret",
+		"metadata": map[string]interface{}{
+			"name":        "db",
+			"annotations": map[string]interface{}{lastApplied: `{"data":{"password":"cGFzcw=="}}`, "team": "a"},
+		},
+	})
+	annotations := secret["metadata"].(map[string]interface{})["annotations"].(map[string]interface{})
+	if annotations[lastApplied] != RedactedValue {
+		t.Errorf("secret last-applied-configuration = %v, want redacted", annotations[lastApplied])
+	}
+	if annotations["team"] != "a" {
+		t.Errorf("other annotations must be kept, got %v", annotations["team"])
+	}
+
+	cm := MaskSecrets(map[string]interface{}{
+		"kind":       "ConfigMap",
+		"metadata":   map[string]interface{}{"name": "db-credentials"},
+		"data":       map[string]interface{}{"password": "plain"},
+		"binaryData": map[string]interface{}{"key": "YmluYXJ5"},
+	})
+	if cm["data"].(map[string]interface{})["password"] != RedactedValue {
+		t.Error("sensitive ConfigMap data must be redacted")
+	}
+	if cm["binaryData"].(map[string]interface{})["key"] != RedactedValue {
+		t.Error("sensitive ConfigMap binaryData must be redacted")
+	}
+
+	plain := MaskSecrets(map[string]interface{}{
+		"kind":     "ConfigMap",
+		"metadata": map[string]interface{}{"name": "app-settings"},
+		"data":     map[string]interface{}{"level": "debug"},
+	})
+	if plain["data"].(map[string]interface{})["level"] != "debug" {
+		t.Error("a ConfigMap without a sensitive name must be returned as is")
+	}
+}
