@@ -139,5 +139,5 @@ For `logs` the parameter is currently a no-op (log output is plain
 text and not affected by manifest field stripping). Use `tailLines` and
 `sinceTime` to shape log volume.
 
-Secret masking is independent of `output` and is always applied when the
-server is configured with `MaskSecrets=true` (the default).
+Secret masking is independent of `output` and always applied; no server
+configuration turns it off.

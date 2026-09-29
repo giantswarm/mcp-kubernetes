@@ -25,12 +25,11 @@
 //	cfg := output.DefaultConfig()
 //	cfg.MaxItems = 50     // Limit items per response
 //	cfg.SlimOutput = true // Enable field exclusion
-//	cfg.MaskSecrets = true // Redact secret data
 //
 // # Security Considerations
 //
 // This package implements several security controls:
-//   - Secret masking prevents credential leakage
+//   - Secret masking prevents credential leakage; it is always on
 //   - Response size limits prevent DoS via context exhaustion
 //   - Configurable limits allow operators to tune for their environment
 //

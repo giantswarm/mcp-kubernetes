@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+* Secret masking is always on: no server configuration returns Secret data. The `MaskSecrets` output setting is gone; the Helm chart accepts and ignores `capiMode.output.maskSecrets` and no longer sets `OUTPUT_MASK_SECRETS`, which the server never read. Masking now also covers the `kubectl.kubernetes.io/last-applied-configuration` annotation, which repeats a Secret's data, in the resource and in `describe`'s metadata block with `output: wide`; the `data` and `binaryData` of a ConfigMap whose name marks it as sensitive (`credentials`, `password`, `secret`, `auth`, `token`, `kubeconfig`); and the objects `create` and `apply` return (giantswarm/mcp-kubernetes#660).
+
+* `create` and `apply` parse their manifest: they failed on every call with `cannot unmarshal object into Go value of type runtime.Object`.
+
 * Helm chart: `mcpKubernetes.oauth.registrationAccessToken` works. The chart passed `--registration-access-token`, a flag the server does not know, so a configured token crashed the pod at start; it now passes `--registration-token=$(REGISTRATION_TOKEN)`, expanded from the OAuth Secret, and the token no longer appears in the pod spec.
 
 * OAuth with in-memory token storage (the default) logs a startup warning: sessions are lost on every pod restart and rolling update and are not shared between replicas; configure Valkey for production. The Helm chart's install notes say the same, and warn that OAuth does not work reliably with more than one replica or autoscaling on in-memory storage (giantswarm/mcp-kubernetes#229).

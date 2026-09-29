@@ -37,8 +37,14 @@ var sensitiveConfigMapPatterns = []string{
 	"kubeconfig",
 }
 
-// MaskSecrets replaces secret data with redacted placeholders.
-// This prevents accidental exposure of sensitive data in tool responses.
+// lastAppliedAnnotation carries the full manifest of an object applied with
+// kubectl apply, data included.
+const lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+// MaskSecrets replaces the data of a Secret, and of a ConfigMap whose name
+// flags it as sensitive, with redacted placeholders. Masking is not
+// configurable: the server is the only path from a cluster to an agent, so no
+// tool may return Secret data.
 func MaskSecrets(obj map[string]interface{}) map[string]interface{} {
 	if obj == nil {
 		return nil
@@ -47,10 +53,13 @@ func MaskSecrets(obj map[string]interface{}) map[string]interface{} {
 	// Create a deep copy to avoid modifying the original
 	result := deepCopyMap(obj)
 
-	// Check if this is a Secret resource
-	kind, _ := result["kind"].(string)
-	if strings.EqualFold(kind, "Secret") {
-		maskSecretData(result)
+	switch {
+	case IsSecretResource(result):
+		redactValues(result, "data", "stringData")
+		maskSensitiveAnnotations(result, true)
+	case isSensitiveConfigMap(result):
+		redactValues(result, "data", "binaryData")
+		maskSensitiveAnnotations(result, false)
 	}
 
 	return result
@@ -70,33 +79,25 @@ func MaskSecretsInList(objects []map[string]interface{}) []map[string]interface{
 	return result
 }
 
-// maskSecretData masks the data and stringData fields of a Secret.
-func maskSecretData(secret map[string]interface{}) {
-	// Mask data field (base64 encoded values)
-	if data, ok := secret["data"].(map[string]interface{}); ok {
-		maskedData := make(map[string]interface{}, len(data))
-		for key := range data {
-			maskedData[key] = RedactedValue
+// redactValues replaces every value of the named map fields, keeping the keys
+// visible for context.
+func redactValues(obj map[string]interface{}, fields ...string) {
+	for _, field := range fields {
+		values, ok := obj[field].(map[string]interface{})
+		if !ok {
+			continue
 		}
-		secret["data"] = maskedData
-	}
-
-	// Mask stringData field (plain text values)
-	if stringData, ok := secret["stringData"].(map[string]interface{}); ok {
-		maskedStringData := make(map[string]interface{}, len(stringData))
-		for key := range stringData {
-			maskedStringData[key] = RedactedValue
+		masked := make(map[string]interface{}, len(values))
+		for key := range values {
+			masked[key] = RedactedValue
 		}
-		secret["stringData"] = maskedStringData
+		obj[field] = masked
 	}
-
-	// Keep type field visible for context (e.g., kubernetes.io/tls)
-	// but mask sensitive annotations
-	maskSensitiveAnnotations(secret)
 }
 
-// maskSensitiveAnnotations masks known sensitive annotations.
-func maskSensitiveAnnotations(obj map[string]interface{}) {
+// maskSensitiveAnnotations masks the last-applied configuration, which
+// repeats the object's data, and for a Secret the known sensitive annotations.
+func maskSensitiveAnnotations(obj map[string]interface{}, secret bool) {
 	metadata, ok := obj["metadata"].(map[string]interface{})
 	if !ok {
 		return
@@ -108,10 +109,17 @@ func maskSensitiveAnnotations(obj map[string]interface{}) {
 	}
 
 	for key := range annotations {
-		if sensitiveAnnotations[key] {
+		if key == lastAppliedAnnotation || (secret && sensitiveAnnotations[key]) {
 			annotations[key] = RedactedValue
 		}
 	}
+}
+
+// isSensitiveConfigMap reports whether obj is a ConfigMap whose name matches
+// a sensitive pattern.
+func isSensitiveConfigMap(obj map[string]interface{}) bool {
+	kind, _ := obj["kind"].(string)
+	return strings.EqualFold(kind, "ConfigMap") && ContainsSensitiveData(obj)
 }
 
 // IsSecretResource checks if a resource is a Kubernetes Secret.

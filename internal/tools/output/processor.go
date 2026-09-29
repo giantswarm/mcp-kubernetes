@@ -52,11 +52,9 @@ func (p *Processor) processInternal(items []map[string]interface{}, limit int) *
 
 	processed := items
 
-	// Apply secret masking first (security critical)
-	if p.config.MaskSecrets {
-		processed = MaskSecretsInList(processed)
-		result.Metadata.SecretsMasked = true
-	}
+	// Apply secret masking first (security critical, never disabled)
+	processed = MaskSecretsInList(processed)
+	result.Metadata.SecretsMasked = true
 
 	// Apply slim output (remove verbose fields), then layer Kind-aware
 	// shaping on top. KindShaping is gated on SlimOutput because it
@@ -105,12 +103,8 @@ func (p *Processor) ProcessSingle(item map[string]interface{}) map[string]interf
 		return nil
 	}
 
-	processed := item
-
-	// Apply secret masking first (security critical)
-	if p.config.MaskSecrets {
-		processed = MaskSecrets(processed)
-	}
+	// Apply secret masking first (security critical, never disabled)
+	processed := MaskSecrets(item)
 
 	// Apply slim output, then layer Kind-aware shaping (HelmRelease drops
 	// spec.values / status.history; workload templates collapse long env
