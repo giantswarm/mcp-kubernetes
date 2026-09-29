@@ -961,9 +961,27 @@ func scalableAppsKind(resourceType string) (kind string, ok bool) {
 	return "", false
 }
 
+// findResource returns the resource of list that resourceType names by its
+// name, kind, singular name or a short name.
+func findResource(list *metav1.APIResourceList, resourceType string) (metav1.APIResource, bool) {
+	for _, resource := range list.APIResources {
+		if strings.ToLower(resource.Name) == resourceType ||
+			strings.ToLower(resource.Kind) == resourceType ||
+			strings.ToLower(resource.SingularName) == resourceType {
+			return resource, true
+		}
+		for _, shortName := range resource.ShortNames {
+			if strings.ToLower(shortName) == resourceType {
+				return resource, true
+			}
+		}
+	}
+	return metav1.APIResource{}, false
+}
+
 // resolveResourceTypeShared determines the GroupVersionResource for a given resource type.
 // It uses the Kubernetes API discovery to resolve resources and determine their scope.
-// Discovery results are cached by the discovery client.
+// The discovery clients have no cache: every call asks the server.
 func resolveResourceTypeShared(resourceType, apiGroup string,
 	discoveryClient discovery.DiscoveryInterface) (schema.GroupVersionResource, bool, error) {
 
@@ -974,33 +992,38 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	// kubectl's qualified form names the group in the type itself
 	// ("clusters.cluster.x-k8s.io", "deployments.v1.apps"). A resource name,
 	// kind or short name never holds a dot, so a dot always means that form.
-	// A version named there is required, as kubectl requires it, and may be any
-	// version the server serves, not only the preferred one; the version of
-	// apiGroup ("apps/v1") stays a preference.
-	var groupsErr error
+	// The version reading is checked, as kubectl checks it, against the one
+	// group version it names: it applies when that version serves the
+	// resource, and the resource is then resolved from that list alone, any
+	// version the server serves, preferred or not. The version of apiGroup
+	// ("apps/v1") stays a preference.
+	var versionList *metav1.APIResourceList
+	var lookupErr error
+	lookupGroupVersion := ""
+	name := schema.ParseGroupResource(resourceType).Resource
 	served := func(group, version string) bool {
-		groups, err := discoveryClient.ServerGroups()
+		groupVersion := group + "/" + version
+		list, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion)
 		if err != nil {
-			groupsErr = err
+			if !apierrors.IsNotFound(err) {
+				lookupErr, lookupGroupVersion = err, groupVersion
+			}
 			return false
 		}
-		for _, g := range groups.Groups {
-			if g.Name != group {
-				continue
-			}
-			for _, v := range g.Versions {
-				if v.Version == version {
-					return true
-				}
-			}
+		if list == nil {
+			return false
 		}
-		return false
+		if _, found := findResource(list, name); !found {
+			return false
+		}
+		versionList = list
+		return true
 	}
-	requiredVersion := ""
 	name, group, version, ok := parseQualifiedResourceType(resourceType, served)
-	if groupsErr != nil {
+	if lookupErr != nil {
+		// A refused or failed lookup is not an unknown type: say what broke.
 		return schema.GroupVersionResource{}, false, fmt.Errorf(
-			"resolve resource type %s: discovery of the API groups failed: %w", requested, groupsErr)
+			"resolve resource type %s: discovery of %s failed: %w", requested, lookupGroupVersion, lookupErr)
 	}
 	if ok {
 		if requestedGroup != "" && !groupsMatch(requestedGroup, group) {
@@ -1011,14 +1034,14 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 			return schema.GroupVersionResource{}, false, fmt.Errorf(
 				"resource type %q names API version %q, but apiGroup names %q", resourceType, version, preferredVersion)
 		}
-		resourceType, requestedGroup = name, group
 		if version != "" {
-			preferredVersion, requiredVersion = version, version
+			resource, _ := findResource(versionList, name)
+			return schema.GroupVersionResource{Group: group, Version: version, Resource: resource.Name}, resource.Namespaced, nil
 		}
+		resourceType, requestedGroup = name, group
 	}
 
 	// Always use discovery for resource resolution and scope determination.
-	// The discovery client caches results, so this is efficient.
 	// Set up timeout for discovery API call
 	ctx, cancel := context.WithTimeout(context.Background(), DiscoveryTimeoutSeconds*time.Second)
 	defer cancel()
@@ -1065,27 +1088,13 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 				continue
 			}
 
-			for _, resource := range resourceList.APIResources {
-				matches := []string{
-					strings.ToLower(resource.Name),
-					strings.ToLower(resource.Kind),
-					strings.ToLower(resource.SingularName),
+			if resource, found := findResource(resourceList, resourceType); found {
+				gvr := schema.GroupVersionResource{
+					Group:    gv.Group,
+					Version:  gv.Version,
+					Resource: resource.Name,
 				}
-
-				for _, shortName := range resource.ShortNames {
-					matches = append(matches, strings.ToLower(shortName))
-				}
-
-				for _, match := range matches {
-					if match == resourceType {
-						gvr := schema.GroupVersionResource{
-							Group:    gv.Group,
-							Version:  gv.Version,
-							Resource: resource.Name,
-						}
-						return gvr, resource.Namespaced, true
-					}
-				}
+				return gvr, resource.Namespaced, true
 			}
 		}
 
@@ -1096,27 +1105,6 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	if preferredVersion != "" {
 		if gvr, namespaced, found := searchResources(preferredVersion); found {
 			return gvr, namespaced, nil
-		}
-		if requiredVersion != "" {
-			// The preferred lists hold each resource at its preferred version
-			// only. Another version the server serves is in its own list.
-			groupVersion := requestedGroup + "/" + requiredVersion
-			if groupsMatch("", requestedGroup) {
-				groupVersion = requiredVersion // the core group has no group prefix
-			}
-			list, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion)
-			if err != nil && !apierrors.IsNotFound(err) {
-				// A refused or failed lookup is not an unknown type: say what broke.
-				return schema.GroupVersionResource{}, false, fmt.Errorf(
-					"resolve resource type %s: discovery of %s failed: %w", requested, groupVersion, err)
-			}
-			if err == nil && list != nil {
-				resourceLists = []*metav1.APIResourceList{list}
-				if gvr, namespaced, found := searchResources(requiredVersion); found {
-					return gvr, namespaced, nil
-				}
-			}
-			return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", requested)
 		}
 	}
 

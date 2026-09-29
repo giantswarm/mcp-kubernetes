@@ -27,36 +27,14 @@ type preferredResourcesDiscovery struct {
 	notPreferred []*metav1.APIResourceList
 	// groupVersionErr, when set, is what ServerResourcesForGroupVersion fails with.
 	groupVersionErr error
-	// groupsErr, when set, is what ServerGroups fails with.
-	groupsErr error
+	// preferredCalls counts the ServerPreferredResources calls: each one is a
+	// download of the server's whole discovery data.
+	preferredCalls int
 }
 
 func (d *preferredResourcesDiscovery) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
+	d.preferredCalls++
 	return d.lists, nil
-}
-
-// ServerGroups lists every group version the stub serves, preferred or not.
-func (d *preferredResourcesDiscovery) ServerGroups() (*metav1.APIGroupList, error) {
-	if d.groupsErr != nil {
-		return nil, d.groupsErr
-	}
-	groups := &metav1.APIGroupList{}
-	index := map[string]int{}
-	for _, list := range append(slices.Clone(d.lists), d.notPreferred...) {
-		gv, err := schema.ParseGroupVersion(list.GroupVersion)
-		if err != nil {
-			return nil, err
-		}
-		i, ok := index[gv.Group]
-		if !ok {
-			i = len(groups.Groups)
-			index[gv.Group] = i
-			groups.Groups = append(groups.Groups, metav1.APIGroup{Name: gv.Group})
-		}
-		groups.Groups[i].Versions = append(groups.Groups[i].Versions,
-			metav1.GroupVersionForDiscovery{GroupVersion: list.GroupVersion, Version: gv.Version})
-	}
-	return groups, nil
 }
 
 func (d *preferredResourcesDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
@@ -183,13 +161,30 @@ func TestResolveResourceType_DiscoveryPicksTheReading(t *testing.T) {
 	assert.Equal(t, schema.GroupVersionResource{Group: "v1.example.com", Version: "v1alpha1", Resource: "widgets"}, gvr)
 
 	d := testDiscovery()
-	d.groupsErr = fmt.Errorf("connection refused")
+	d.groupVersionErr = fmt.Errorf("connection refused")
 	_, _, err = resolveResourceTypeShared("deployments.v1.apps", "", d)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "discovery of the API groups failed: connection refused")
+	assert.Contains(t, err.Error(), "discovery of apps/v1 failed: connection refused")
 
 	_, _, err = resolveResourceTypeShared("deployments.apps", "", d)
-	require.NoError(t, err, "a type with one dot has a single reading and needs no group list")
+	require.NoError(t, err, "a type with one dot has a single reading and needs no version lookup")
+}
+
+// The version reading is checked against its one group version, and a type it
+// applies to resolves from that small list: no download of the whole
+// discovery data. The group reading still searches the preferred lists once.
+func TestResolveResourceType_VersionReadingNeedsNoFullDiscovery(t *testing.T) {
+	d := testDiscovery()
+	gvr, namespaced, err := resolveResourceTypeShared("deployments.v1.apps", "", d)
+	require.NoError(t, err)
+	assert.Equal(t, schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, gvr)
+	assert.True(t, namespaced)
+	assert.Zero(t, d.preferredCalls)
+
+	d = testDiscovery()
+	_, _, err = resolveResourceTypeShared("clusters.cluster.x-k8s.io", "", d)
+	require.NoError(t, err)
+	assert.Equal(t, 1, d.preferredCalls, "x-k8s.io/cluster is not served, so the group reading searches once")
 }
 
 // A lookup of the version that is refused or fails is reported as such, not
