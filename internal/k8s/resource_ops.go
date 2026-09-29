@@ -11,6 +11,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -446,13 +447,9 @@ func scaleResource(ctx context.Context, dynamicClient dynamic.Interface, discove
 func scaleResourceWithGVR(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource,
 	namespaced bool, namespace, resourceType, name string, replicas int32, dryRun bool) error {
 
-	// Validate this is a scalable resource
-	switch strings.ToLower(resourceType) {
-	case "deployment", "deployments", "deploy",
-		"replicaset", "replicasets", "rs",
-		"statefulset", "statefulsets", "sts":
-		// OK, these are scalable
-	default:
+	// Validate this is a scalable resource. The resolved GVR decides, so every
+	// spelling the resolver accepts (short names, kubectl's qualified form) works.
+	if !isScalableGVR(gvr) {
 		return fmt.Errorf("resource type %q is not scalable", resourceType)
 	}
 
@@ -897,17 +894,157 @@ func parseAPIGroup(apiGroup string) (group, preferredVersion string) {
 	return group, preferredVersion
 }
 
+// parseQualifiedResourceType reads a resource type in kubectl's qualified form,
+// <resource>.<group> or <resource>.<version>.<group>. schema.ParseResourceArg
+// gives both readings of a type with two dots or more; as in kubectl, the
+// version reading wins when served says the server serves that group version,
+// and otherwise all after the first dot is the group. ok is false for a plain
+// resource type.
+func parseQualifiedResourceType(resourceType string, served func(group, version string) bool) (name, group, version string, ok bool) {
+	if !strings.Contains(resourceType, ".") {
+		return "", "", "", false
+	}
+	gvr, gr := schema.ParseResourceArg(resourceType)
+	if gvr != nil && served(gvr.Group, gvr.Version) {
+		return gvr.Resource, gvr.Group, gvr.Version, true
+	}
+	if gr.Resource == "" || gr.Group == "" {
+		return "", "", "", false
+	}
+	return gr.Resource, gr.Group, "", true
+}
+
+// UnqualifiedResourceType is resourceType lower-cased and without the group or
+// version of kubectl's qualified form: "events.v1.events.k8s.io" gives "events".
+// Rules keyed by resource name use it, so every accepted spelling finds them.
+func UnqualifiedResourceType(resourceType string) string {
+	return schema.ParseGroupResource(strings.ToLower(resourceType)).Resource
+}
+
+// isScalableGVR reports whether gvr is one of the apps resources the scale
+// operation supports.
+func isScalableGVR(gvr schema.GroupVersionResource) bool {
+	if gvr.Group != "apps" {
+		return false
+	}
+	switch gvr.Resource {
+	case "deployments", "replicasets", "statefulsets":
+		return true
+	}
+	return false
+}
+
+// scalableAppsKind names the apps kind a scale request is for — "deployment",
+// "replicaset" or "statefulset" — from the resource type as the caller wrote
+// it, plain or in kubectl's qualified form in the apps group. ok is false for
+// any other type. The typed client scales through apps/v1 only, so a qualified
+// version other than v1 is refused. Unlike the dynamic path (isScalableGVR),
+// which accepts every spelling the resolver does, this one does not take the
+// short names deploy, rs and sts, as before the qualified form existed.
+func scalableAppsKind(resourceType string) (kind string, ok bool) {
+	resourceType = strings.ToLower(resourceType)
+	appsV1 := func(group, version string) bool { return group == "apps" && version == "v1" }
+	if name, group, _, qualified := parseQualifiedResourceType(resourceType, appsV1); qualified {
+		if group != "apps" {
+			return "", false
+		}
+		resourceType = name
+	}
+	switch resourceType {
+	case "deployment", "deployments":
+		return "deployment", true
+	case "replicaset", "replicasets":
+		return "replicaset", true
+	case "statefulset", "statefulsets":
+		return "statefulset", true
+	}
+	return "", false
+}
+
+// findResource returns the resource of list that resourceType names by its
+// name, kind, singular name or a short name.
+func findResource(list *metav1.APIResourceList, resourceType string) (metav1.APIResource, bool) {
+	for _, resource := range list.APIResources {
+		if strings.ToLower(resource.Name) == resourceType ||
+			strings.ToLower(resource.Kind) == resourceType ||
+			strings.ToLower(resource.SingularName) == resourceType {
+			return resource, true
+		}
+		for _, shortName := range resource.ShortNames {
+			if strings.ToLower(shortName) == resourceType {
+				return resource, true
+			}
+		}
+	}
+	return metav1.APIResource{}, false
+}
+
 // resolveResourceTypeShared determines the GroupVersionResource for a given resource type.
 // It uses the Kubernetes API discovery to resolve resources and determine their scope.
-// Discovery results are cached by the discovery client.
+// The discovery clients have no cache: every call asks the server.
 func resolveResourceTypeShared(resourceType, apiGroup string,
 	discoveryClient discovery.DiscoveryInterface) (schema.GroupVersionResource, bool, error) {
 
 	resourceType = strings.ToLower(resourceType)
+	requested := resourceType
 	requestedGroup, preferredVersion := parseAPIGroup(apiGroup)
 
+	// kubectl's qualified form names the group in the type itself
+	// ("clusters.cluster.x-k8s.io", "deployments.v1.apps"). A resource name,
+	// kind or short name never holds a dot, so a dot always means that form.
+	// The version reading is checked, as kubectl checks it, against the one
+	// group version it names: it applies when that version serves the
+	// resource, and the resource is then resolved from that list alone, any
+	// version the server serves, preferred or not. The version of apiGroup
+	// ("apps/v1") stays a preference.
+	var versionList *metav1.APIResourceList
+	var lookupErr error
+	lookupGroupVersion := ""
+	name := schema.ParseGroupResource(resourceType).Resource
+	served := func(group, version string) bool {
+		groupVersion := group + "/" + version
+		if group == "" {
+			groupVersion = version // the core group has no group prefix ("pods.v1.")
+		}
+		list, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				lookupErr, lookupGroupVersion = err, groupVersion
+			}
+			return false
+		}
+		if list == nil {
+			return false
+		}
+		if _, found := findResource(list, name); !found {
+			return false
+		}
+		versionList = list
+		return true
+	}
+	name, group, version, ok := parseQualifiedResourceType(resourceType, served)
+	if lookupErr != nil {
+		// A refused or failed lookup is not an unknown type: say what broke.
+		return schema.GroupVersionResource{}, false, fmt.Errorf(
+			"resolve resource type %s: discovery of %s failed: %w", requested, lookupGroupVersion, lookupErr)
+	}
+	if ok {
+		if requestedGroup != "" && !groupsMatch(requestedGroup, group) {
+			return schema.GroupVersionResource{}, false, fmt.Errorf(
+				"resource type %q names API group %q, but apiGroup is %q", resourceType, group, requestedGroup)
+		}
+		if version != "" && preferredVersion != "" && version != preferredVersion {
+			return schema.GroupVersionResource{}, false, fmt.Errorf(
+				"resource type %q names API version %q, but apiGroup names %q", resourceType, version, preferredVersion)
+		}
+		if version != "" {
+			resource, _ := findResource(versionList, name)
+			return schema.GroupVersionResource{Group: group, Version: version, Resource: resource.Name}, resource.Namespaced, nil
+		}
+		resourceType, requestedGroup = name, group
+	}
+
 	// Always use discovery for resource resolution and scope determination.
-	// The discovery client caches results, so this is efficient.
 	// Set up timeout for discovery API call
 	ctx, cancel := context.WithTimeout(context.Background(), DiscoveryTimeoutSeconds*time.Second)
 	defer cancel()
@@ -954,27 +1091,13 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 				continue
 			}
 
-			for _, resource := range resourceList.APIResources {
-				matches := []string{
-					strings.ToLower(resource.Name),
-					strings.ToLower(resource.Kind),
-					strings.ToLower(resource.SingularName),
+			if resource, found := findResource(resourceList, resourceType); found {
+				gvr := schema.GroupVersionResource{
+					Group:    gv.Group,
+					Version:  gv.Version,
+					Resource: resource.Name,
 				}
-
-				for _, shortName := range resource.ShortNames {
-					matches = append(matches, strings.ToLower(shortName))
-				}
-
-				for _, match := range matches {
-					if match == resourceType {
-						gvr := schema.GroupVersionResource{
-							Group:    gv.Group,
-							Version:  gv.Version,
-							Resource: resource.Name,
-						}
-						return gvr, resource.Namespaced, true
-					}
-				}
+				return gvr, resource.Namespaced, true
 			}
 		}
 
@@ -993,7 +1116,7 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 		return gvr, namespaced, nil
 	}
 
-	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", resourceType)
+	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", requested)
 }
 
 // resolveGVRFromObjectShared resolves GroupVersionResource from an unstructured object.

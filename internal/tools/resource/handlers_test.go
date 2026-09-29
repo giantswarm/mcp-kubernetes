@@ -795,7 +795,7 @@ func TestSortItemsForResourceType_Events(t *testing.T) {
 	})
 
 	t.Run("all accepted resourceType spellings sort", func(t *testing.T) {
-		for _, resourceType := range []string{"events", "event", "ev", "Events", "EVENT"} {
+		for _, resourceType := range []string{"events", "event", "ev", "Events", "EVENT", "events.events.k8s.io", "events.v1.events.k8s.io"} {
 			items := []runtime.Object{
 				eventObj("old", "lastTimestamp", "2026-07-29T10:00:00Z"),
 				eventObj("new", "lastTimestamp", "2026-07-29T12:00:00Z"),
@@ -948,7 +948,7 @@ func TestUnstructuredEventTime_MatchesEffectiveEventTime(t *testing.T) {
 // everything else.
 func TestLocallyOrderedResourceType(t *testing.T) {
 	t.Run("events are ordered locally", func(t *testing.T) {
-		for _, resourceType := range []string{"events", "event", "ev", "Events", "EVENT"} {
+		for _, resourceType := range []string{"events", "event", "ev", "Events", "EVENT", "events.events.k8s.io", "events.v1.events.k8s.io"} {
 			assert.True(t, locallyOrderedResourceType(resourceType, ""),
 				"resourceType %q must use the widened scan", resourceType)
 		}
