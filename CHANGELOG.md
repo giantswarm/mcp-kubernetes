@@ -97,6 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * External-issuer tokens are classified as `trusted-issuer`; the on-behalf-of branch keys off `UserInfo.IsOBO()` (the RFC 8693 `act` claim) and the email-check bypass off `UserInfo.IsExternalIssuer()`.
 * **deps:** update module github.com/giantswarm/mcp-oauth to v1.0.0.
 
+### Refactored
+
+* CI: an empty `.nancy-ignore` is committed, so the "Fix Go vulnerabilities" workflow can commit the ignore entries that nancy-fixer adds to it.
+
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 
 
