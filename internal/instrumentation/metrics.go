@@ -22,6 +22,7 @@ const (
 	attrResult       = "result"
 	attrCluster      = "cluster"
 	attrReason       = "reason"
+	attrErrorClass   = "error_class"
 
 	// CAPI/Federation specific attributes (with cardinality controls)
 	attrUserDomain = "user_domain"
@@ -296,19 +297,20 @@ func (m *Metrics) RecordHTTPRequest(ctx context.Context, method, path string, st
 }
 
 // RecordK8sOperation records a Kubernetes operation with operation type, resource type,
-// namespace, status, and duration.
+// namespace, status, and duration. A nil err records status="success"; a non-nil
+// err records status="error" and its error_class (see ErrorClass).
 //
 // CARDINALITY NOTE: When detailedLabels is false (default), only operation and status
 // labels are recorded to avoid cardinality explosion in large clusters.
 // When detailedLabels is true, namespace and resource_type are also included.
 // For large clusters with >1000 namespaces, keep detailedLabels disabled and use
 // traces for per-namespace/resource debugging instead.
-func (m *Metrics) RecordK8sOperation(ctx context.Context, clusterName, operation, resourceType, namespace, status string, duration time.Duration) {
+func (m *Metrics) RecordK8sOperation(ctx context.Context, clusterName, operation, resourceType, namespace string, err error, duration time.Duration) {
 	if m.k8sOperationsTotal == nil || m.k8sOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
-	attrs := m.kubernetesOperationAttributes(clusterName, operation, status, resourceType, namespace)
+	attrs := m.kubernetesOperationAttributes(clusterName, operation, err)
 
 	// Only add high-cardinality labels if explicitly enabled
 	if m.detailedLabels {
@@ -467,20 +469,23 @@ func (m *Metrics) SetCacheSize(ctx context.Context, size int) {
 // Parameters:
 //   - clusterName: Original cluster name (will be classified)
 //   - operation: The operation type (get, list, create, delete, etc.)
-//   - status: Result status ("success" or "error")
+//   - err: The operation's error; nil records status="success", anything else
+//     status="error" with its error_class
 //   - duration: Time taken for the operation
-func (m *Metrics) RecordClusterOperation(ctx context.Context, clusterName, operation, status string, duration time.Duration) {
+func (m *Metrics) RecordClusterOperation(ctx context.Context, clusterName, operation string, err error, duration time.Duration) {
 	if m.k8sOperationsTotal == nil || m.k8sOperationDuration == nil {
 		return // Instrumentation not initialized
 	}
 
-	attrs := m.kubernetesOperationAttributes(clusterName, operation, status, "", "")
+	attrs := m.kubernetesOperationAttributes(clusterName, operation, err)
 
 	m.k8sOperationsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 	m.k8sOperationDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
 }
 
-func (m *Metrics) kubernetesOperationAttributes(clusterName, operation, status, resourceType, namespace string) []attribute.KeyValue {
+// kubernetesOperationAttributes returns the always-on labels of an operation.
+// A failed operation also carries error_class; a successful one has none.
+func (m *Metrics) kubernetesOperationAttributes(clusterName, operation string, err error) []attribute.KeyValue {
 	clusterScope := clusterScopeManagement
 	discoveryMode := discoveryModeSingle
 	clusterType := clusterScopeManagement
@@ -490,13 +495,19 @@ func (m *Metrics) kubernetesOperationAttributes(clusterName, operation, status, 
 		clusterType = ClassifyClusterName(clusterName)
 	}
 
-	return []attribute.KeyValue{
+	attrs := []attribute.KeyValue{
 		attribute.String(attrClusterScope, clusterScope),
 		attribute.String(attrDiscoveryMode, discoveryMode),
 		attribute.String(attrTargetClusterType, clusterType),
 		attribute.String(attrOperation, operation),
-		attribute.String(attrStatus, status),
 	}
+	if err == nil {
+		return append(attrs, attribute.String(attrStatus, StatusSuccess))
+	}
+	return append(attrs,
+		attribute.String(attrStatus, StatusError),
+		attribute.String(attrErrorClass, ErrorClass(err)),
+	)
 }
 
 // RecordImpersonation records an impersonation request with cardinality controls.

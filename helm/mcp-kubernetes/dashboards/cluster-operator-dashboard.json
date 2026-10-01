@@ -399,7 +399,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Error rates by cluster classification",
+      "description": "Error rates by cluster classification and error class. forbidden, unauthorized, not_found, conflict, invalid and canceled are the caller's (RBAC, input, timing); timeout, unavailable, server_error and other are the platform's, and only those count in MCPKubernetesClusterOperationFailures.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -475,12 +475,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (target_cluster_type) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\", status=\"error\"}[$__rate_interval]))",
-          "legendFormat": "{{target_cluster_type}}",
+          "expr": "sum by (target_cluster_type, error_class) (rate(mcp_kubernetes_operations_total{namespace=~\"$namespace\", cluster_scope=\"workload\", discovery_mode=\"capi\", status=\"error\"}[$__rate_interval]))",
+          "legendFormat": "{{target_cluster_type}} {{error_class}}",
           "refId": "A"
         }
       ],
-      "title": "Errors by Cluster Classification",
+      "title": "Errors by Cluster Classification and Class",
       "type": "timeseries"
     },
     {

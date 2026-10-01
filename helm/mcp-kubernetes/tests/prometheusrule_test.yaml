@@ -389,6 +389,39 @@ tests:
           path: spec.groups[1].rules[0].annotations.description
           pattern: 'could not act as the caller'
 
+  # A failed operation carries an error_class. The caller classes (denied,
+  # unauthenticated, not found, conflicting, invalid, canceled) are the
+  # caller's RBAC, input or timing; the operation alerts count only the
+  # platform's classes (timeout, unavailable, server_error, other) over every
+  # operation. The class set is pinned here and in
+  # internal/instrumentation/errorclass_test.go.
+  - it: should count only the platform's error classes in both operation alerts
+    set:
+      prometheusRules:
+        enabled: true
+      capiMode:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[1].alert
+          value: MCPKubernetesK8sOperationFailures
+      - matchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: 'status="error",\s+error_class!~"forbidden\|unauthorized\|not_found\|conflict\|invalid\|canceled"\s+\}\[15m\]\)\)\s+/'
+      - equal:
+          path: spec.groups[1].rules[1].alert
+          value: MCPKubernetesClusterOperationFailures
+      - matchRegex:
+          path: spec.groups[1].rules[1].expr
+          pattern: 'status="error",\s+error_class!~"forbidden\|unauthorized\|not_found\|conflict\|invalid\|canceled"\s+\}\[15m\]\)\)\s+/'
+      # The denominator and the volume floor still count every operation.
+      - notMatchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: '/\s*sum by \([^)]*\) \(rate\(mcp_kubernetes_operations_total\{[^}]*error_class'
+      - notMatchRegex:
+          path: spec.groups[1].rules[1].expr
+          pattern: '/\s*sum by \([^)]*\) \(rate\(mcp_kubernetes_operations_total\{[^}]*error_class'
+
   # Every alert is a ratio, and with downstream OAuth each call runs as the
   # caller: on a quiet installation one caller denied on one namespace is
   # 100% of the traffic. MCPKubernetesK8sOperationFailures fired on gazelle on

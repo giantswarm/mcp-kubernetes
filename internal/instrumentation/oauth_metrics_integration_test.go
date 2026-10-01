@@ -278,8 +278,8 @@ func recordMCPKubernetesMetrics(ctx context.Context, m *Metrics) {
 	m.RecordHTTPRequest(ctx, "POST", "/mcp", 200, 100*time.Millisecond)
 
 	// Kubernetes operation metrics
-	m.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
-	m.RecordK8sOperation(ctx, "", OperationList, "namespaces", "", StatusSuccess, 100*time.Millisecond)
+	m.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", nil, 50*time.Millisecond)
+	m.RecordK8sOperation(ctx, "", OperationList, "namespaces", "", nil, 100*time.Millisecond)
 
 	// OAuth downstream auth metrics (mcp-kubernetes, not mcp-oauth library)
 	m.RecordOAuthDownstreamAuth(ctx, OAuthResultSuccess)

@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `mcp_kubernetes_operations_total` and `mcp_kubernetes_operation_duration_seconds` carry an `error_class` on `status="error"`: one of ten fixed classes from the API status reason or the transport error, never the error text. `forbidden`, `unauthorized`, `not_found` (including a resource type the cluster does not serve), `conflict`, `invalid` and `canceled` are the caller's; `timeout`, `unavailable`, `server_error` and `other` the platform's. Helm chart: `MCPKubernetesK8sOperationFailures` and `MCPKubernetesClusterOperationFailures` count only the platform's classes over all operations, so a caller denied by RBAC no longer moves their ratio; the administrator and cluster-operator dashboards show the operation errors by class (giantswarm/mcp-kubernetes#611).
+
 * Server spans for the HTTP and MCP surface. Every request except the probes and `/metrics` is an HTTP server span (`POST /mcp`) joined to the caller's `traceparent`, every JSON-RPC request an `mcp.<method>` server span under it (`mcp.tools/call` carries `mcp.tool.name` and `gen_ai.tool.name`), and every tool handler a `tool.<name>` span. With `TRACING_EXPORTER=otlp` the server used to export no span at all (giantswarm/giantswarm#36711).
 
 * OTLP export over gRPC and with headers. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` sends traces (and OTLP metrics) over gRPC instead of OTLP/HTTP, the default; `OTEL_EXPORTER_OTLP_HEADERS` goes out with every export, e.g. `X-Scope-OrgID` for a multi-tenant collector. Chart: `mcpKubernetes.instrumentation.otlpProtocol` (`""`, `grpc`, `http/protobuf`) and `otlpHeaders` render them only when set, so a default install is unchanged (giantswarm/giantswarm#36711).

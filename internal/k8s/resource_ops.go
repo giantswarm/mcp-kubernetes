@@ -12,6 +12,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1030,12 +1031,12 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	}
 	if ok {
 		if requestedGroup != "" && !groupsMatch(requestedGroup, group) {
-			return schema.GroupVersionResource{}, false, fmt.Errorf(
-				"resource type %q names API group %q, but apiGroup is %q", resourceType, group, requestedGroup)
+			return schema.GroupVersionResource{}, false, apierrors.NewBadRequest(fmt.Sprintf(
+				"resource type %q names API group %q, but apiGroup is %q", resourceType, group, requestedGroup))
 		}
 		if version != "" && preferredVersion != "" && version != preferredVersion {
-			return schema.GroupVersionResource{}, false, fmt.Errorf(
-				"resource type %q names API version %q, but apiGroup names %q", resourceType, version, preferredVersion)
+			return schema.GroupVersionResource{}, false, apierrors.NewBadRequest(fmt.Sprintf(
+				"resource type %q names API version %q, but apiGroup names %q", resourceType, version, preferredVersion))
 		}
 		if version != "" {
 			resource, _ := findResource(versionList, name)
@@ -1066,7 +1067,7 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 		resourceLists = result.resourceLists
 		// Continue with partial results even on error
 	case <-ctx.Done():
-		return schema.GroupVersionResource{}, false, fmt.Errorf("API discovery timed out after 30 seconds")
+		return schema.GroupVersionResource{}, false, fmt.Errorf("API discovery timed out after 30 seconds: %w", ctx.Err())
 	}
 
 	// Helper to search API resources with optional group/version preference
@@ -1116,7 +1117,23 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 		return gvr, namespaced, nil
 	}
 
-	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource type: %s", requested)
+	return schema.GroupVersionResource{}, false, &unknownResourceTypeError{resourceType: requested}
+}
+
+// unknownResourceTypeError is a resource type the cluster does not serve. It
+// matches meta.IsNoMatchError, so the operation metric classes it not_found,
+// while its message stays what the caller reads.
+type unknownResourceTypeError struct {
+	resourceType string
+}
+
+func (e *unknownResourceTypeError) Error() string {
+	return "unknown resource type: " + e.resourceType
+}
+
+func (e *unknownResourceTypeError) Is(target error) bool {
+	_, ok := target.(*apimeta.NoResourceMatchError)
+	return ok
 }
 
 // resolveGVRFromObjectShared resolves GroupVersionResource from an unstructured object.
