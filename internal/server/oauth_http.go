@@ -25,7 +25,6 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
-	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/logging"
 	mcpoauth "github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server/middleware"
@@ -291,49 +290,6 @@ type OAuthConfig struct {
 	// WARNING: Reduces SSRF protection. Only enable for internal deployments.
 	// Default: false (blocked for security)
 	SSOAllowPrivateIPs bool
-
-	// TrustedIssuers lists external JWT issuers whose tokens are accepted at /mcp.
-	// Each entry's JWKS is used to verify the Bearer JWT's signature when its `iss`
-	// matches. AllowedAudiences restricts the accepted `aud` values; when empty,
-	// any audience is accepted.
-	TrustedIssuers []TrustedIssuerConfig
-}
-
-// TrustedIssuerConfig holds the configuration for a single trusted external JWT issuer.
-type TrustedIssuerConfig struct {
-	// Issuer is the expected `iss` claim value in the JWT.
-	Issuer string `json:"issuer"`
-	// JwksURL is the JWKS endpoint used to verify signatures.
-	JwksURL string `json:"jwksURL"`
-	// AllowedAudiences restricts accepted `aud` values. Empty means any audience.
-	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
-	// AllowedTargetClusters limits which management/workload cluster names this
-	// issuer's tokens may be impersonated onto. Empty means any cluster.
-	AllowedTargetClusters []string `json:"allowedTargetClusters,omitempty"`
-	// AllowedClaims constrains accepted tokens to those whose JWT claims match
-	// all entries exactly (e.g. {"sub": "system:serviceaccount:kagent:*"}).
-	// Wildcard suffix matching is supported for the "sub" claim only.
-	// When SubjectClaim is set, the entry under that key (not "sub") gates the
-	// impersonated subject; mcp-oauth evaluates AllowedClaims against the raw
-	// token before the subject is remapped, so the opaque sub cannot carry the
-	// remapped pattern.
-	AllowedClaims map[string]string `json:"allowedClaims,omitempty"`
-	// SubjectClaim names the verified claim whose value becomes the impersonated
-	// subject, replacing the standard sub claim. Set to "email" on the muster-obo
-	// issuer so muster's opaque sub is remapped to the human email. mcp-oauth
-	// fails closed if the claim is absent or not a non-empty string.
-	SubjectClaim string `json:"subjectClaim,omitempty"`
-	// AcceptedTypHeaders overrides the default RFC 9068 typ=at+jwt check.
-	// Set to ["", "JWT"] to accept Kubernetes ServiceAccount tokens.
-	AcceptedTypHeaders []string `json:"acceptedTypHeaders,omitempty"`
-	// AllowPrivateIPJWKS permits JWKS endpoints on private/loopback addresses.
-	// Prefer AllowPrivateIPJWKSHosts for a narrower escape hatch.
-	AllowPrivateIPJWKS bool `json:"allowPrivateIPJWKS,omitempty"`
-	// AllowPrivateIPJWKSHosts lists the specific hostnames whose JWKS URL is
-	// permitted to resolve to a private IP. All other hosts retain SSRF
-	// protection. Use instead of AllowPrivateIPJWKS when the endpoint is a
-	// known in-cluster service (e.g. muster.agentic-platform.svc.cluster.local).
-	AllowPrivateIPJWKSHosts []string `json:"allowPrivateIPJWKSHosts,omitempty"`
 }
 
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
@@ -372,9 +328,6 @@ type OAuthHTTPServer struct {
 	disableStreaming        bool
 	instrumentationProvider *instrumentation.Provider
 	healthChecker           *HealthChecker
-	// trustedIssuersByIssuer maps issuer URL to its configured entry (one per
-	// issuer URL, enforced by startup validation).
-	trustedIssuersByIssuer map[string]TrustedIssuerConfig
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
@@ -662,29 +615,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		opts = append(opts, oauthserver.WithTrustedAudiences(config.TrustedAudiences))
 	}
 
-	if len(config.TrustedIssuers) > 0 {
-		// One entry per issuer URL (enforced by startup validation). mcp-oauth
-		// validates the signature, audience, typ, and allowedClaims subject pattern;
-		// a token whose subject does not match allowedClaims is rejected upstream.
-		issuers := make([]oauthserver.TrustedIssuer, 0, len(config.TrustedIssuers))
-		for _, ti := range config.TrustedIssuers {
-			issuers = append(issuers, oauthserver.TrustedIssuer{
-				Issuer:                  ti.Issuer,
-				JwksURL:                 ti.JwksURL,
-				AllowedAudiences:        ti.AllowedAudiences,
-				AllowedClaims:           ti.AllowedClaims,
-				SubjectClaim:            ti.SubjectClaim,
-				AcceptedTypHeaders:      ti.AcceptedTypHeaders,
-				AllowPrivateIPJWKS:      ti.AllowPrivateIPJWKS,
-				AllowPrivateIPJWKSHosts: ti.AllowPrivateIPJWKSHosts,
-				// Trust the internal Dex CA for the issuer's JWKS TLS when a
-				// DexCAFile is configured (mcp-oauth #495/#498). nil = system pool.
-				RootCAs: dexCAPool,
-			})
-		}
-		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
-	}
-
 	// Create OAuth server
 	server, err := oauth.NewServer(
 		provider,
@@ -709,14 +639,6 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Build issuer→config lookup for the access-token injector middleware. One
-	// entry per issuer URL (enforced by startup validation); mcp-oauth has already
-	// validated the token (including allowedClaims) by the time the injector runs.
-	issuerMap := make(map[string]TrustedIssuerConfig, len(config.TrustedIssuers))
-	for _, ti := range config.TrustedIssuers {
-		issuerMap[ti.Issuer] = ti
-	}
-
 	// Create HTTP handler
 	oauthHandler := handler.New(oauthServer, oauthServer.Logger)
 
@@ -728,7 +650,6 @@ func NewOAuthHTTPServer(mcpServer *mcpserver.MCPServer, serverType string, confi
 		serverType:              serverType,
 		disableStreaming:        config.DisableStreaming,
 		instrumentationProvider: config.InstrumentationProvider,
-		trustedIssuersByIssuer:  issuerMap,
 	}, nil
 }
 
@@ -1003,47 +924,6 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				"user_id", userInfo.ID)
 			recordMetric(ctx, "no_token")
 			next.ServeHTTP(w, r)
-			return
-		}
-
-		// External-issuer path: token was validated against a TrustedIssuer entry.
-		// The Bearer's aud is the muster STS, not kube-apiserver — passthrough
-		// would be rejected. Derive an ImpersonationIdentity for an on-behalf-of
-		// token (act claim present); a token with no actor is rejected.
-		if userInfo.IsExternalIssuer() {
-			tiConfig, ok := s.trustedIssuersByIssuer[userInfo.Issuer]
-			if !ok {
-				slog.Warn("AccessTokenInjector: external-issuer token with unknown issuer, rejecting",
-					"issuer", userInfo.Issuer)
-				http.Error(w, "forbidden: unknown trusted issuer", http.StatusForbidden)
-				return
-			}
-
-			// OBO path: sub=human, act.sub=agent SA. Any validated trusted-issuer
-			// actor is accepted; the impersonated human's downstream RBAC governs
-			// access. Only Impersonate-User and Impersonate-Group are sent.
-			if userInfo.IsOBO() {
-				identity := k8s.ImpersonationIdentity{
-					UserName: userInfo.ID,
-					// system:authenticated must be explicit; impersonation does not
-					// inherit the real-auth group set.
-					Groups:                []string{"system:authenticated"},
-					AllowedTargetClusters: tiConfig.AllowedTargetClusters,
-				}
-				ctx = ContextWithImpersonationIdentity(ctx, identity)
-				r = r.WithContext(ctx)
-				recordMetric(ctx, "obo_success")
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// A trusted-issuer token with no actor (act) claim is not accepted:
-			// the supported flow is on-behalf-of, where muster mints a token
-			// carrying the agent as the actor. A bare-subject (machine) token has
-			// no delegation to impersonate, so reject it.
-			slog.Warn("AccessTokenInjector: trusted-issuer token carries no actor (act) claim, rejecting",
-				"issuer", userInfo.Issuer, "subject", userInfo.ID)
-			http.Error(w, "forbidden: trusted-issuer token requires an on-behalf-of (act) claim", http.StatusForbidden)
 			return
 		}
 

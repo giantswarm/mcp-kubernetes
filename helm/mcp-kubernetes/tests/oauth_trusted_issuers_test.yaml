@@ -1,0 +1,32 @@
+# The trusted-issuer path was removed: the server accepts Dex-issued tokens
+# through trustedAudiences only. An empty trustedIssuers list (what existing
+# values files set) still renders; a non-empty one refuses the render instead
+# of rolling a server that would silently reject those tokens.
+suite: OAuth trusted issuers tests
+templates:
+  - templates/deployment.yaml
+set:
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+  mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+  mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+  mcpKubernetes.oauth.existingSecret: mcp-kubernetes-oauth
+tests:
+  - it: refuses a non-empty trustedIssuers list
+    set:
+      mcpKubernetes.oauth.trustedIssuers:
+        - issuer: https://oidc.example.com
+          jwksURL: https://oidc.example.com/keys
+    asserts:
+      - failedTemplate:
+          errorPattern: mcpKubernetes.oauth.trustedIssuers was removed
+
+  - it: renders with an empty trustedIssuers list and no OAUTH_TRUSTED_ISSUERS
+    set:
+      mcpKubernetes.oauth.trustedIssuers: []
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_TRUSTED_ISSUERS
+          any: true

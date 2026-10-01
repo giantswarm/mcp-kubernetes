@@ -104,38 +104,13 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 
 	// If a cluster is specified, we need federation support
 	if clusterName != "" {
-		var user *federation.UserInfo
-
-		// For external-issuer (OBO) tokens the middleware sets an ImpersonationIdentity
-		// instead of an ID token. Use the impersonated human subject as Impersonate-User
-		// so workload-cluster clients carry the same identity as the local cluster path.
-		if identity, ok := server.ImpersonationIdentityFromContext(ctx); ok {
-			if len(identity.AllowedTargetClusters) > 0 {
-				allowed := false
-				for _, c := range identity.AllowedTargetClusters {
-					if c == clusterName {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					return nil, fmt.Sprintf("cluster %q is not in the allowed target clusters for this identity", clusterName)
-				}
-			}
-			user = &federation.UserInfo{
-				Email:  identity.UserName,
-				Groups: identity.Groups,
-			}
-		} else {
-			// SSO / normal OAuth path: extract user info from context
-			oauthUser, ok := oauth.UserInfoFromContext(ctx)
-			if !ok || oauthUser == nil {
-				return nil, "authentication required: no user info in context"
-			}
-			user = oauth.ToFederationUserInfo(oauthUser)
-			if user == nil {
-				return nil, "failed to convert user info for federation"
-			}
+		oauthUser, ok := oauth.UserInfoFromContext(ctx)
+		if !ok || oauthUser == nil {
+			return nil, "authentication required: no user info in context"
+		}
+		user := oauth.ToFederationUserInfo(oauthUser)
+		if user == nil {
+			return nil, "failed to convert user info for federation"
 		}
 
 		// Get clients from federation manager for the target cluster
@@ -189,12 +164,6 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 	}
 
 	// No cluster specified - use local client (management cluster).
-	// OBO identities with AllowedTargetClusters restrictions cannot access the MC.
-	if identity, ok := server.ImpersonationIdentityFromContext(ctx); ok {
-		if len(identity.AllowedTargetClusters) > 0 {
-			return nil, "management cluster access is not permitted for this identity (restricted to specific workload clusters)"
-		}
-	}
 	k8sClient, err := sc.K8sClientForContext(ctx)
 	if err != nil {
 		// Authentication failed in strict mode
