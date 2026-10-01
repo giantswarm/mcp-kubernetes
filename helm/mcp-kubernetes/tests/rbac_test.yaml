@@ -802,61 +802,15 @@ tests:
         documentIndex: 4
 
   # ==========================================
-  # On-behalf-of (OBO) impersonation RBAC Tests
-  # ===========================================
+  # No impersonation RBAC on the management cluster
+  # ==========================================
 
-  - it: should create OBO impersonation ClusterRole and binding when trustedIssuers is set
+  - it: should render no impersonation RBAC with OAuth and an empty trustedIssuers list
     set:
       serviceAccount.create: true
       rbac.create: true
       mcpKubernetes.oauth.enabled: true
-      mcpKubernetes.oauth.trustedIssuers:
-        - issuer: "https://oidc.example.com"
-          jwksURL: "https://oidc.example.com/jwks"
-    asserts:
-      # base ClusterRole + ClusterRoleBinding + OBO ClusterRole + ClusterRoleBinding
-      - hasDocuments:
-          count: 4
-      - isKind:
-          of: ClusterRole
-        documentIndex: 2
-      - matchRegex:
-          path: metadata.name
-          pattern: obo-impersonate$
-        documentIndex: 2
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: ["users"]
-            verbs: ["impersonate"]
-        documentIndex: 2
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: ["groups"]
-            verbs: ["impersonate"]
-            resourceNames: ["system:authenticated"]
-        documentIndex: 2
-      # only Impersonate-User and Impersonate-Group are sent; no user-extras
-      - notContains:
-          path: rules
-          content:
-            apiGroups: ["authentication.k8s.io"]
-            resources: ["userextras/actor"]
-            verbs: ["impersonate"]
-        documentIndex: 2
-      - lengthEqual:
-          path: rules
-          count: 2
-        documentIndex: 2
-
-  - it: should not create OBO RBAC when no trustedIssuers are set
-    set:
-      serviceAccount.create: true
-      rbac.create: true
-      mcpKubernetes.oauth.enabled: true
+      mcpKubernetes.oauth.trustedIssuers: []
     asserts:
       - hasDocuments:
           count: 2

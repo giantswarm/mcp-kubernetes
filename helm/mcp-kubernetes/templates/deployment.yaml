@@ -243,10 +243,8 @@ spec:
             - name: OAUTH_TRUSTED_AUDIENCES
               value: {{ include "mcp-kubernetes.oauth.trustedAudiences" . | quote }}
             {{- end }}
-            {{- /* Trusted external issuers for on-behalf-of JWT acceptance */ -}}
             {{- if .Values.mcpKubernetes.oauth.trustedIssuers }}
-            - name: OAUTH_TRUSTED_ISSUERS
-              value: {{ .Values.mcpKubernetes.oauth.trustedIssuers | toJson | quote }}
+            {{- fail "mcpKubernetes.oauth.trustedIssuers was removed: mcp-kubernetes no longer accepts tokens from external issuers. Forward Dex-issued tokens through mcpKubernetes.oauth.trustedAudiences and remove trustedIssuers from your values." }}
             {{- end }}
             {{- /* SSO Security (mcp-oauth v0.2.40+) */ -}}
             {{- if and .Values.mcpKubernetes.oauth.sso .Values.mcpKubernetes.oauth.sso.allowPrivateIPs }}

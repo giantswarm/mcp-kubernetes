@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -454,32 +453,6 @@ Downstream OAuth (--downstream-oauth):
 }
 
 // validateEncryptionKey validates an AES-256 encryption key for security weaknesses
-// validateTrustedIssuers checks per-issuer invariants:
-//   - issuer and jwksURL are required.
-//   - allowedClaims values may not be bare '*'.
-//   - issuer URLs are unique (one entry per issuer).
-func validateTrustedIssuers(issuers []server.TrustedIssuerConfig) error {
-	seen := make(map[string]struct{}, len(issuers))
-	for _, ti := range issuers {
-		if ti.Issuer == "" {
-			return fmt.Errorf("trusted issuer entry has empty issuer URL")
-		}
-		if ti.JwksURL == "" {
-			return fmt.Errorf("trusted issuer %q: jwksURL is required", ti.Issuer)
-		}
-		if _, dup := seen[ti.Issuer]; dup {
-			return fmt.Errorf("trusted issuer %q is configured more than once; one entry per issuer URL", ti.Issuer)
-		}
-		seen[ti.Issuer] = struct{}{}
-		for claim, pattern := range ti.AllowedClaims {
-			if pattern == "*" {
-				return fmt.Errorf("trusted issuer %q: allowedClaims.%s must not be bare '*'", ti.Issuer, claim)
-			}
-		}
-	}
-	return nil
-}
-
 func validateEncryptionKey(key []byte) error {
 	if len(key) != 32 {
 		return fmt.Errorf("encryption key must be exactly 32 bytes, got %d bytes", len(key))
@@ -624,34 +597,6 @@ func runServe(config ServeConfig) error {
 
 		slog.Info("downstream OAuth enabled: requests without valid tokens will fail",
 			"strict_mode", true)
-	}
-
-	if len(config.OAuth.TrustedIssuers) == 0 {
-		if envVal := os.Getenv("OAUTH_TRUSTED_ISSUERS"); envVal != "" {
-			if err := json.Unmarshal([]byte(envVal), &config.OAuth.TrustedIssuers); err != nil {
-				return fmt.Errorf("OAUTH_TRUSTED_ISSUERS: invalid JSON: %w", err)
-			}
-		}
-	}
-
-	if len(config.OAuth.TrustedIssuers) > 0 {
-		if !config.DownstreamOAuth {
-			return fmt.Errorf("trusted issuers require downstream OAuth to be enabled (--downstream-oauth); " +
-				"without it the server falls back to its own SA client instead of impersonating the agent identity")
-		}
-		if !config.InCluster {
-			return fmt.Errorf("trusted issuers require in-cluster mode (--in-cluster)")
-		}
-		if err := validateTrustedIssuers(config.OAuth.TrustedIssuers); err != nil {
-			return err
-		}
-		impersonationFactory, err := k8s.NewInClusterImpersonationFactory(k8sConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create impersonation factory: %w", err)
-		}
-		serverContextOptions = append(serverContextOptions, server.WithImpersonationFactory(impersonationFactory))
-		slog.Info("trusted-issuer impersonation enabled",
-			"issuer_count", len(config.OAuth.TrustedIssuers))
 	}
 
 	// Load CAPI mode configuration from environment variables
@@ -1178,7 +1123,6 @@ func runServe(config ServeConfig) error {
 				// Trusted audiences for SSO token forwarding from upstream aggregators
 				TrustedAudiences:   config.OAuth.TrustedAudiences,
 				SSOAllowPrivateIPs: config.OAuth.SSOAllowPrivateIPs,
-				TrustedIssuers:     config.OAuth.TrustedIssuers,
 			}, serverContext, config.Metrics)
 		}
 		return runStreamableHTTPServer(mcpSrv, config.HTTPAddr, config.HTTPEndpoint, config.AuthToken, config.MaxRequestSize, shutdownCtx, config.DebugMode, instrumentationProvider, serverContext, config.Metrics)

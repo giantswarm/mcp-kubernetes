@@ -160,7 +160,6 @@ Secret at start and never again. The pod template carries a
 | mcpKubernetes.oauth.enableCIMD | bool | `true` |  |
 | mcpKubernetes.oauth.cimd.allowPrivateIPs | bool | `false` |  |
 | mcpKubernetes.oauth.trustedAudiences | list | `[]` |  |
-| mcpKubernetes.oauth.trustedIssuers | list | `[]` |  |
 | mcpKubernetes.oauth.sso.allowPrivateIPs | bool | `false` |  |
 | mcpKubernetes.instrumentation.enabled | bool | `true` |  |
 | mcpKubernetes.instrumentation.metricsExporter | string | `"prometheus"` |  |
