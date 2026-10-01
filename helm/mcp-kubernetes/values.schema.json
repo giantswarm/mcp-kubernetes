@@ -740,9 +740,7 @@
                             "type": "array"
                         },
                         "trustedIssuers": {
-                            "description": "Removed. Only an empty list is accepted; a non-empty list fails rendering.",
-                            "type": "array",
-                            "deprecated": true
+                            "type": "array"
                         },
                         "trustedPublicRegistrationSchemes": {
                             "type": "array"

@@ -597,6 +597,12 @@ mcpKubernetes:
     # Default: [] (only accept tokens issued directly to this server's client_id)
     trustedAudiences: []
 
+    # Removed: mcp-kubernetes no longer accepts tokens from external issuers;
+    # forward Dex-issued tokens through trustedAudiences instead. Only an empty
+    # list is accepted, so values that still set `trustedIssuers: []` render; a
+    # non-empty list fails the render.
+    trustedIssuers: []
+
     # SSO Security Configuration (mcp-oauth v0.2.40+)
     sso:
       # Allow JWKS endpoints to resolve to private IP addresses during SSO token validation.
