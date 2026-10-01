@@ -22,6 +22,14 @@ therefore also requires its denominator to have counted at least
 prometheusRules.minimumVolume events over the alert's own window before the
 ratio is compared with its threshold. `and` keeps the ratio as the alert's
 value, so $value still humanizes to a percentage.
+
+The two operation alerts count only the platform's failures: a failed
+operation carries an error_class (internal/instrumentation/errorclass.go), and
+the caller classes, a caller denied, unauthenticated, asking for what does not
+exist, conflicting, sending an invalid request or going away, say nothing
+about the platform's health. The numerator drops them, the denominator still
+counts every operation, so one denied caller does not move the ratio at all.
+
 Dashboard annotations follow the observability-operator convention:
 __dashboardUid__ plus dashboardQueryParams become the notification's
 Dashboard link. The Giant Swarm organization in every installation's Grafana
@@ -30,6 +38,7 @@ the dashboards are provisioned into when grafanaDashboards.giantswarm is on.
 */}}
 {{- $by := "cluster_id, installation, pipeline, provider, namespace" }}
 {{- $minVolume := .Values.prometheusRules.minimumVolume }}
+{{- $callerErrorClasses := "forbidden|unauthorized|not_found|conflict|invalid|canceled" }}
 {{- $runbook := printf "%s/%%s/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}%%s" .Values.prometheusRules.runbookBaseUrl }}
 {{- $dashboardParams := "var-namespace={{ $labels.namespace }}" }}
 {{- if .Values.grafanaDashboards.giantswarm.enabled }}
@@ -110,7 +119,8 @@ spec:
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 cluster_scope="management",
                 discovery_mode="single",
-                status="error"
+                status="error",
+                error_class!~"{{ $callerErrorClasses }}"
               }[15m]))
               /
               sum by ({{ $by }}, operation) (rate(mcp_kubernetes_operations_total{
@@ -234,7 +244,8 @@ spec:
                 job="{{ include "mcp-kubernetes.fullname" . }}",
                 cluster_scope="workload",
                 discovery_mode="capi",
-                status="error"
+                status="error",
+                error_class!~"{{ $callerErrorClasses }}"
               }[15m]))
               /
               sum by ({{ $by }}, operation) (rate(mcp_kubernetes_operations_total{

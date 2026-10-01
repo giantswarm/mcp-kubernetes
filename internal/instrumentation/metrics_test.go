@@ -106,9 +106,9 @@ func TestMetrics_RecordK8sOperation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
-	metrics.RecordK8sOperation(ctx, "", OperationList, "deployments", "kube-system", StatusSuccess, 100*time.Millisecond)
-	metrics.RecordK8sOperation(ctx, "", OperationDelete, "pods", "default", StatusError, 75*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", nil, 50*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationList, "deployments", "kube-system", nil, 100*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationDelete, "pods", "default", errTestOperation, 75*time.Millisecond)
 }
 
 func TestMetrics_RecordK8sOperation_NilMetrics(t *testing.T) {
@@ -116,7 +116,7 @@ func TestMetrics_RecordK8sOperation_NilMetrics(t *testing.T) {
 	ctx := context.Background()
 
 	// Should not panic
-	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", nil, 50*time.Millisecond)
 }
 
 func TestMetrics_RecordPodOperation(t *testing.T) {
@@ -288,7 +288,7 @@ func TestMetrics_ConcurrentK8sOperationRecording(t *testing.T) {
 			if id%3 == 0 {
 				namespace = "kube-system"
 			}
-			metrics.RecordK8sOperation(ctx, "", operation, "pods", namespace, StatusSuccess, 50*time.Millisecond)
+			metrics.RecordK8sOperation(ctx, "", operation, "pods", namespace, nil, 50*time.Millisecond)
 		}(i)
 	}
 
@@ -412,19 +412,19 @@ func TestMetrics_RecordClusterOperation(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with production cluster
-	metrics.RecordClusterOperation(ctx, "prod-wc-01", OperationGet, StatusSuccess, 50*time.Millisecond)
+	metrics.RecordClusterOperation(ctx, "prod-wc-01", OperationGet, nil, 50*time.Millisecond)
 
 	// Test with staging cluster
-	metrics.RecordClusterOperation(ctx, "staging-cluster", OperationList, StatusSuccess, 100*time.Millisecond)
+	metrics.RecordClusterOperation(ctx, "staging-cluster", OperationList, nil, 100*time.Millisecond)
 
 	// Test with error status
-	metrics.RecordClusterOperation(ctx, "dev-cluster", OperationCreate, StatusError, 200*time.Millisecond)
+	metrics.RecordClusterOperation(ctx, "dev-cluster", OperationCreate, errTestOperation, 200*time.Millisecond)
 
 	// Test with management cluster (empty name)
-	metrics.RecordClusterOperation(ctx, "", OperationDelete, StatusSuccess, 75*time.Millisecond)
+	metrics.RecordClusterOperation(ctx, "", OperationDelete, nil, 75*time.Millisecond)
 
 	// Test with unclassified cluster
-	metrics.RecordClusterOperation(ctx, "my-random-cluster", OperationPatch, StatusSuccess, 30*time.Millisecond)
+	metrics.RecordClusterOperation(ctx, "my-random-cluster", OperationPatch, nil, 30*time.Millisecond)
 }
 
 func TestMetrics_RecordClusterOperation_NilMetrics(t *testing.T) {
@@ -432,7 +432,7 @@ func TestMetrics_RecordClusterOperation_NilMetrics(t *testing.T) {
 	ctx := context.Background()
 
 	// Should not panic with nil metrics
-	metrics.RecordClusterOperation(ctx, "prod-wc-01", OperationGet, StatusSuccess, 50*time.Millisecond)
+	metrics.RecordClusterOperation(ctx, "prod-wc-01", OperationGet, nil, 50*time.Millisecond)
 }
 
 func TestMetrics_RecordImpersonation(t *testing.T) {
@@ -517,11 +517,11 @@ func TestMetrics_ConcurrentClusterOperationRecording(t *testing.T) {
 			if id%2 == 0 {
 				operation = OperationList
 			}
-			status := StatusSuccess
+			var opErr error
 			if id%5 == 0 {
-				status = StatusError
+				opErr = errTestOperation
 			}
-			metrics.RecordClusterOperation(ctx, cluster, operation, status, 50*time.Millisecond)
+			metrics.RecordClusterOperation(ctx, cluster, operation, opErr, 50*time.Millisecond)
 		}(i)
 	}
 

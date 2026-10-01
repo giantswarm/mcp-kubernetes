@@ -19,8 +19,9 @@
 //   - active_port_forward_sessions: Gauge of active port-forward sessions
 //
 // Kubernetes Operation Metrics:
-//   - mcp_kubernetes_operations_total: Counter of K8s operations by cluster_scope, discovery_mode, target_cluster_type, operation, status
-//   - mcp_kubernetes_operation_duration_seconds: Histogram of K8s operation durations by cluster_scope, discovery_mode, target_cluster_type, operation, status
+//   - mcp_kubernetes_operations_total: Counter of K8s operations by cluster_scope, discovery_mode, target_cluster_type, operation, status,
+//     and error_class on status="error" (see ErrorClass)
+//   - mcp_kubernetes_operation_duration_seconds: Histogram of K8s operation durations by the same labels
 //
 // Pod Operation Metrics:
 //   - kubernetes_pod_operations_total: Counter of pod operations
@@ -55,6 +56,10 @@
 //   - User emails are reduced to domains (e.g., "giantswarm.io" instead of "jane@giantswarm.io")
 //   - Cluster names are classified into types (production, staging, development, management, other)
 //   - Use ClassifyClusterName() and ExtractUserDomain() for consistent cardinality control
+//   - A failed operation's error is reduced to one of the ten ErrorClasses
+//     (forbidden, unauthorized, not_found, conflict, invalid, canceled: the
+//     caller's; timeout, unavailable, server_error, other: the platform's),
+//     derived from the API status reason or the transport error, never its text
 //
 // The classification is exported as target_cluster_type (metrics and audit logs)
 // and mcp.target_cluster_type (spans), never as cluster_type: observability
@@ -147,10 +152,10 @@
 //	recorder.RecordHTTPRequest(ctx, "POST", "/mcp", 200, time.Since(start))
 //
 //	// Record a Kubernetes operation
-//	recorder.RecordK8sOperation(ctx, "", "get", "pods", "default", "success", time.Since(start))
+//	recorder.RecordK8sOperation(ctx, "", "get", "pods", "default", err, time.Since(start))
 //
 //	// Record a CAPI cluster operation with cardinality control
-//	recorder.RecordClusterOperation(ctx, "prod-wc-01", "list", "success", time.Since(start))
+//	recorder.RecordClusterOperation(ctx, "prod-wc-01", "list", err, time.Since(start))
 //
 //	// Record impersonation with cardinality control
 //	recorder.RecordImpersonation(ctx, "jane@giantswarm.io", "prod-wc-01", "success")

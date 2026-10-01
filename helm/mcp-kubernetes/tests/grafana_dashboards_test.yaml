@@ -115,3 +115,20 @@ tests:
           path: data["mcp-kubernetes-cluster-operator.json"]
           pattern: '[^_]cluster_type|by \(cluster\)|\{\{cluster\}\}'
         documentIndex: 2
+
+  # The operation alerts drop the caller's error classes; the dashboards the
+  # alerts link show the errors by class, so the operator reads at once
+  # whether the failures are denied callers or the platform.
+  - it: should show the operation errors by error class
+    set:
+      grafanaDashboards:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["mcp-kubernetes-administrator.json"]
+          pattern: sum by \(operation, error_class\) \(rate\(mcp_kubernetes_operations_total\{[^}]*status=\\"error\\"
+        documentIndex: 0
+      - matchRegex:
+          path: data["mcp-kubernetes-cluster-operator.json"]
+          pattern: sum by \(target_cluster_type, error_class\) \(rate\(mcp_kubernetes_operations_total\{[^}]*status=\\"error\\"
+        documentIndex: 2

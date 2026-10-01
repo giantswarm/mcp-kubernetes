@@ -111,6 +111,7 @@ Counter of Kubernetes operations for both management and workload clusters.
 - `target_cluster_type`: Classified type of the target cluster (management, production, staging, development, cicd, operations, other) — see [Why `target_cluster_type`](#why-target_cluster_type)
 - `operation`: Operation type (get, list, create, apply, delete, patch)
 - `status`: Operation result (success, error)
+- `error_class`: Why a failed operation failed, on `status="error"` only (see [Error classes](#error-classes))
 - `resource_type`: Kubernetes resource type (pods, deployments, etc.) **when detailed labels are enabled**
 - `namespace`: Kubernetes namespace **when detailed labels are enabled**
 
@@ -131,6 +132,47 @@ rate(mcp_kubernetes_operations_total{
 }[5m])
 ```
 
+##### Error classes
+
+With downstream OAuth every operation runs as the caller, so a failure is
+either the caller's (RBAC, input, timing) or the platform's. `error_class`
+says which, from the API status reason or the transport error, never from the
+error text: the set is fixed, so the label adds at most ten series per
+operation and stays independent of callers, namespaces and clusters.
+
+| Class | Whose | Cause |
+|---|---|---|
+| `forbidden` | caller | 403: RBAC denied the caller |
+| `unauthorized` | caller | 401: the caller's credentials were rejected |
+| `not_found` | caller | 404, 410, or a resource type the cluster does not serve |
+| `conflict` | caller | 409: already exists or a stale resourceVersion |
+| `invalid` | caller | 400, 405, 406, 413, 415, 422: the request itself is wrong |
+| `canceled` | caller | the caller went away before the answer arrived |
+| `timeout` | platform | 504, a server timeout, or a deadline exceeded on the way |
+| `unavailable` | platform | 503, 429, or the API server could not be reached |
+| `server_error` | platform | any other 5xx |
+| `other` | platform | everything else |
+
+`MCPKubernetesK8sOperationFailures` and `MCPKubernetesClusterOperationFailures`
+count only the platform's classes over all operations, so a denied caller does
+not move their ratio:
+
+```promql
+# Failures by class (management cluster)
+sum by (operation, error_class) (rate(mcp_kubernetes_operations_total{
+  cluster_scope="management",
+  status="error"
+}[5m]))
+
+# Platform failure ratio, as the alert computes it
+sum(rate(mcp_kubernetes_operations_total{
+  status="error",
+  error_class!~"forbidden|unauthorized|not_found|conflict|invalid|canceled"
+}[15m]))
+/
+sum(rate(mcp_kubernetes_operations_total[15m]))
+```
+
 #### `mcp_kubernetes_operation_duration_seconds`
 Histogram of Kubernetes operation durations.
 
@@ -140,6 +182,7 @@ Histogram of Kubernetes operation durations.
 - `target_cluster_type`: Classified type of the target cluster (management, production, staging, development, cicd, operations, other) — see [Why `target_cluster_type`](#why-target_cluster_type)
 - `operation`: Operation type
 - `status`: Operation result (success, error)
+- `error_class`: Why a failed operation failed, on `status="error"` only (see [Error classes](#error-classes))
 - `resource_type`: Kubernetes resource type **when detailed labels are enabled**
 - `namespace`: Kubernetes namespace **when detailed labels are enabled**
 

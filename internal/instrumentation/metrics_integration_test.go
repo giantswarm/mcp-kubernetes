@@ -183,9 +183,9 @@ func recordAllMetrics(ctx context.Context, m *Metrics) {
 	m.DecrementActiveSessions(ctx)
 
 	// Kubernetes operation metrics
-	m.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", StatusSuccess, 50*time.Millisecond)
-	m.RecordK8sOperation(ctx, "", OperationList, "namespaces", "", StatusSuccess, 100*time.Millisecond)
-	m.RecordK8sOperation(ctx, "", OperationCreate, "configmaps", "kube-system", StatusError, 150*time.Millisecond)
+	m.RecordK8sOperation(ctx, "", OperationGet, "pods", "default", nil, 50*time.Millisecond)
+	m.RecordK8sOperation(ctx, "", OperationList, "namespaces", "", nil, 100*time.Millisecond)
+	m.RecordK8sOperation(ctx, "", OperationCreate, "configmaps", "kube-system", errTestOperation, 150*time.Millisecond)
 
 	// Pod operation metrics
 	m.RecordPodOperation(ctx, OperationLogs, "default", StatusSuccess, 200*time.Millisecond)
@@ -215,10 +215,10 @@ func recordAllMetrics(ctx context.Context, m *Metrics) {
 	m.SetCacheSize(ctx, 42)
 
 	// CAPI/Federation cluster operation metrics
-	m.RecordClusterOperation(ctx, "prod-wc-01", OperationGet, StatusSuccess, 100*time.Millisecond)
-	m.RecordClusterOperation(ctx, "staging-cluster", OperationList, StatusSuccess, 150*time.Millisecond)
-	m.RecordClusterOperation(ctx, "dev-cluster", OperationCreate, StatusError, 200*time.Millisecond)
-	m.RecordClusterOperation(ctx, "", OperationDelete, StatusSuccess, 50*time.Millisecond) // management cluster
+	m.RecordClusterOperation(ctx, "prod-wc-01", OperationGet, nil, 100*time.Millisecond)
+	m.RecordClusterOperation(ctx, "staging-cluster", OperationList, nil, 150*time.Millisecond)
+	m.RecordClusterOperation(ctx, "dev-cluster", OperationCreate, errTestOperation, 200*time.Millisecond)
+	m.RecordClusterOperation(ctx, "", OperationDelete, nil, 50*time.Millisecond) // management cluster
 
 	// Impersonation metrics
 	m.RecordImpersonation(ctx, "jane@giantswarm.io", "prod-wc-01", ImpersonationResultSuccess)
@@ -296,7 +296,7 @@ func TestMetricLabelsAreRecorded(t *testing.T) {
 
 	// Record some metrics with specific labels
 	metrics.RecordHTTPRequest(ctx, "POST", "/mcp", 201, 50*time.Millisecond)
-	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "production", StatusSuccess, 100*time.Millisecond)
+	metrics.RecordK8sOperation(ctx, "", OperationGet, "pods", "production", nil, 100*time.Millisecond)
 	metrics.RecordImpersonation(ctx, "jane@giantswarm.io", "prod-wc-01", ImpersonationResultSuccess)
 	metrics.RecordPrivilegedAccess(ctx, "giantswarm.io", "secret_access", "success")
 
@@ -380,7 +380,7 @@ func TestMetricsAreThreadSafe(t *testing.T) {
 			// Record various metrics concurrently
 			for j := 0; j < 10; j++ {
 				metrics.RecordHTTPRequest(ctx, "GET", "/test", 200, time.Duration(id)*time.Millisecond)
-				metrics.RecordK8sOperation(ctx, "", OperationList, "pods", "default", StatusSuccess, 50*time.Millisecond)
+				metrics.RecordK8sOperation(ctx, "", OperationList, "pods", "default", nil, 50*time.Millisecond)
 				metrics.RecordCacheHit(ctx, "cluster-1")
 				metrics.RecordImpersonation(ctx, "user@test.io", "cluster", ImpersonationResultSuccess)
 				metrics.IncrementActiveSessions(ctx)

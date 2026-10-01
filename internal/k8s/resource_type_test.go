@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -245,4 +246,19 @@ func TestScaleResourceWithGVR_QualifiedType(t *testing.T) {
 		"default", "clusters.cluster.x-k8s.io", "c1", 3, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is not scalable")
+}
+
+// TestResolveResourceType_UnknownIsNoMatch keeps an unknown type's message and
+// lets the operation metric class it not_found through meta.IsNoMatchError.
+func TestResolveResourceType_UnknownIsNoMatch(t *testing.T) {
+	_, _, err := resolveResourceTypeShared("gizmos", "", testDiscovery())
+	if err == nil {
+		t.Fatal("expected an error for an unknown resource type")
+	}
+	if got, want := err.Error(), "unknown resource type: gizmos"; got != want {
+		t.Errorf("message = %q, want %q", got, want)
+	}
+	if !apimeta.IsNoMatchError(err) {
+		t.Errorf("meta.IsNoMatchError(%v) = false, want true", err)
+	}
 }
