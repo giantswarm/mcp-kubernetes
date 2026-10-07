@@ -2,7 +2,8 @@
 # workflow in config.yml deep-merges this file into it at pipeline runtime;
 # devctl never touches it.
 #
-#   - chart-test: helm lint plus the helm-unittest suites in
+#   - chart-test: helm lint, a render with every example values-*.yaml
+#     against values.schema.json, and the helm-unittest suites in
 #     helm/mcp-kubernetes/tests/ (what the Deployment and the Secret render
 #     from the values). Not reachable from `make test`: the unittest plugin is
 #     not in the architect go image, so the job runs in a plain container with

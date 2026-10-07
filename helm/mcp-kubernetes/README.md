@@ -106,6 +106,7 @@ Secret at start and never again. The pod template carries a
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.maxReplicas | int | `100` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
+| autoscaling.targetMemoryUtilizationPercentage | int | `0` | Average memory utilization the HPA targets; 0 leaves memory out of its metrics. |
 | volumes | list | `[]` |  |
 | volumeMounts | list | `[]` |  |
 | nodeSelector | object | `{}` |  |

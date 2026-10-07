@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Helm chart: `autoscaling.targetMemoryUtilizationPercentage` is in `values.yaml` (default `0`, memory left out of the HPA's metrics) and the schema, so the example values files that set it (`values-capi-production.yaml`, `values-oauth-dex-example.yaml`, `values-oauth-example.yaml`) render again; the `chart-test` CI job now renders the chart with every `values-*.yaml` (`make helm-render-examples`), so an example cannot drift from the schema unnoticed (giantswarm/mcp-kubernetes#679).
+
 * Helm chart: a `startupProbe` on `/healthz` (90 s by default, `startupProbe.*` in values) holds the liveness probe off while the server waits up to 60 s for Valkey at start, so a Valkey that restarts with the server no longer gets the container restarted.
 
 * OAuth with Valkey token storage waits for Valkey at start instead of exiting: while Valkey is not accepting connections yet (a credential rotation restarts both together), the server retries with backoff for up to 60 s, not ready meanwhile, rather than crash-looping; a wrong password still fails at once (mcp-oauth v1.4.9, giantswarm/mcp-oauth#591).

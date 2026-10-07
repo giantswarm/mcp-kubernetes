@@ -255,7 +255,8 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 100
   targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
+  # -- Average memory utilization the HPA targets; 0 leaves memory out of its metrics.
+  targetMemoryUtilizationPercentage: 0  # @schema minimum: 0
 
 # Additional volumes on the output Deployment definition.
 volumes: []
