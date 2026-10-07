@@ -207,3 +207,8 @@ Secret at start and never again. The pod template carries a
 | ciliumNetworkPolicy.enabled | bool | `true` |  |
 | ciliumNetworkPolicy.labels | object | `{}` |  |
 | ciliumNetworkPolicy.annotations | object | `{}` |  |
+| ciliumNetworkPolicy.ingress.muster.namespace | string | `"agent-platform"` |  |
+| ciliumNetworkPolicy.ingress.muster.matchLabels."app.kubernetes.io/name" | string | `"muster"` |  |
+| ciliumNetworkPolicy.ingress.metricsScrapers[0].namespace | string | `"kube-system"` |  |
+| ciliumNetworkPolicy.ingress.metricsScrapers[0].matchLabels."app.kubernetes.io/instance" | string | `"alloy-metrics"` |  |
+| ciliumNetworkPolicy.ingress.additionalPeers | list | `[]` |  |

@@ -1,4 +1,21 @@
+{{- /*
+The server's network policy. Egress: the API server, the cluster and, with
+OAuth, the world (the identity provider, CIMD metadata). Ingress: muster is the
+only client. A direct call would skip muster's sign-in, audit trail and
+per-user authorization, and Cilium policies are additive, so an open rule here
+(the cluster entity) could not be narrowed by any other policy. The policy
+admits:
+
+  - muster (ciliumNetworkPolicy.ingress.muster: its pods in its namespace) and
+    ciliumNetworkPolicy.ingress.additionalPeers on the server port;
+  - ciliumNetworkPolicy.ingress.metricsScrapers on the metrics port while
+    metrics are served;
+  - the kubelet's liveness, readiness and startup probes on every port: they
+    arrive from the host entity.
+*/ -}}
 {{- if .Values.ciliumNetworkPolicy.enabled }}
+{{- $ingress := .Values.ciliumNetworkPolicy.ingress }}
+{{- $metrics := and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -24,8 +41,33 @@ spec:
     - world
   {{- end }}
   ingress:
+  - fromEndpoints:
+    - matchLabels:
+        {{- toYaml $ingress.muster.matchLabels | nindent 8 }}
+        io.kubernetes.pod.namespace: {{ $ingress.muster.namespace }}
+    {{- range $ingress.additionalPeers }}
+    - matchLabels:
+        {{- toYaml .matchLabels | nindent 8 }}
+        io.kubernetes.pod.namespace: {{ .namespace }}
+    {{- end }}
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+  {{- if and $metrics $ingress.metricsScrapers }}
+  - fromEndpoints:
+    {{- range $ingress.metricsScrapers }}
+    - matchLabels:
+        {{- toYaml .matchLabels | nindent 8 }}
+        io.kubernetes.pod.namespace: {{ .namespace }}
+    {{- end }}
+    toPorts:
+    - ports:
+      - port: {{ .Values.mcpKubernetes.metrics.port | quote }}
+        protocol: TCP
+  {{- end }}
   - fromEntities:
-    - cluster
+    - host
   endpointSelector:
     matchLabels:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
