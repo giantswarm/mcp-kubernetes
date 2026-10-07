@@ -13,7 +13,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: admits muster from the agent-platform namespace on the server port by default
+  - it: admits muster from the agent-platform namespace and the Teleport agent on the server port by default
     asserts:
       - isKind:
           of: CiliumNetworkPolicy
@@ -24,6 +24,9 @@ tests:
               - matchLabels:
                   app.kubernetes.io/name: muster
                   io.kubernetes.pod.namespace: agent-platform
+              - matchLabels:
+                  app: teleport-kube-agent
+                  io.kubernetes.pod.namespace: kube-system
             toPorts:
               - ports:
                   - port: "8080"
@@ -50,28 +53,39 @@ tests:
       ciliumNetworkPolicy.ingress.muster.namespace: muster
     asserts:
       - equal:
+          path: spec.ingress[0].fromEndpoints[0]
+          value:
+            matchLabels:
+              app.kubernetes.io/name: muster
+              io.kubernetes.pod.namespace: muster
+
+  - it: admits no Teleport agent without one
+    set:
+      ciliumNetworkPolicy.ingress.teleportPeers: []
+    asserts:
+      - equal:
           path: spec.ingress[0].fromEndpoints
           value:
             - matchLabels:
                 app.kubernetes.io/name: muster
-                io.kubernetes.pod.namespace: muster
+                io.kubernetes.pod.namespace: agent-platform
 
   - it: admits additional peers on the server port only
     set:
       ciliumNetworkPolicy.ingress.additionalPeers:
-        - namespace: envoy-gateway-system
+        - namespace: kube-system
           matchLabels:
-            app.kubernetes.io/name: envoy
+            app.kubernetes.io/name: ingress-nginx
     asserts:
       - equal:
-          path: spec.ingress[0].fromEndpoints[1]
+          path: spec.ingress[0].fromEndpoints[2]
           value:
             matchLabels:
-              app.kubernetes.io/name: envoy
-              io.kubernetes.pod.namespace: envoy-gateway-system
+              app.kubernetes.io/name: ingress-nginx
+              io.kubernetes.pod.namespace: kube-system
       - lengthEqual:
           path: spec.ingress[0].fromEndpoints
-          count: 2
+          count: 3
       - lengthEqual:
           path: spec.ingress[1].fromEndpoints
           count: 1
@@ -90,6 +104,9 @@ tests:
                 app.kubernetes.io/name: muster
                 io.kubernetes.pod.namespace: agent-platform
             - matchLabels:
+                app: teleport-kube-agent
+                io.kubernetes.pod.namespace: kube-system
+            - matchLabels:
                 app.kubernetes.io/name: envoy
                 io.kubernetes.pod.namespace: envoy-gateway-system
       - lengthEqual:
@@ -100,9 +117,9 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.ingress[0].fromEndpoints
-          count: 1
+          count: 2
 
-  - it: admits the gateway's proxies ahead of the additional peers
+  - it: orders the peers muster, Teleport, gateway, additional
     set:
       gatewayAPI.enabled: true
       gatewayAPI.httpRoute.parentRefs:
@@ -117,17 +134,23 @@ tests:
           path: spec.ingress[0].fromEndpoints[1]
           value:
             matchLabels:
+              app: teleport-kube-agent
+              io.kubernetes.pod.namespace: kube-system
+      - equal:
+          path: spec.ingress[0].fromEndpoints[2]
+          value:
+            matchLabels:
               app.kubernetes.io/name: envoy
               io.kubernetes.pod.namespace: envoy-gateway-system
       - equal:
-          path: spec.ingress[0].fromEndpoints[2]
+          path: spec.ingress[0].fromEndpoints[3]
           value:
             matchLabels:
               app.kubernetes.io/name: ingress-nginx
               io.kubernetes.pod.namespace: kube-system
       - lengthEqual:
           path: spec.ingress[0].fromEndpoints
-          count: 3
+          count: 4
 
   - it: admits the metrics scrapers on the metrics port by default
     asserts:

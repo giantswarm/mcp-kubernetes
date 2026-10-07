@@ -7,6 +7,8 @@ per-user authorization, and Cilium policies are additive, so an open rule here
 admits:
 
   - muster (ciliumNetworkPolicy.ingress.muster: its pods in its namespace),
+    ciliumNetworkPolicy.ingress.teleportPeers (the Teleport agent through
+    which a muster on another cluster calls this server),
     ciliumNetworkPolicy.ingress.gatewayPeers while the HTTPRoute renders
     (gatewayAPI.enabled: the gateway's proxies carry the public route) and
     ciliumNetworkPolicy.ingress.additionalPeers on the server port;
@@ -47,7 +49,7 @@ spec:
     - matchLabels:
         {{- toYaml $ingress.muster.matchLabels | nindent 8 }}
         io.kubernetes.pod.namespace: {{ $ingress.muster.namespace }}
-    {{- range concat (ternary $ingress.gatewayPeers (list) .Values.gatewayAPI.enabled) ($ingress.additionalPeers | default list) }}
+    {{- range concat ($ingress.teleportPeers | default list) (ternary $ingress.gatewayPeers (list) .Values.gatewayAPI.enabled) ($ingress.additionalPeers | default list) }}
     - matchLabels:
         {{- toYaml .matchLabels | nindent 8 }}
         io.kubernetes.pod.namespace: {{ .namespace }}
