@@ -1093,17 +1093,24 @@ ciliumNetworkPolicy:
   # Ingress to the server. Muster is the only client: a direct call would skip
   # its sign-in, audit trail and per-user authorization, and Cilium policies
   # are additive, so an open rule here could not be narrowed by another policy.
-  # The policy admits `muster`, `gatewayPeers` while gatewayAPI.enabled and
-  # `additionalPeers` on the server port, the `metricsScrapers` on
-  # mcpKubernetes.metrics.port while metrics are served, and the kubelet's
-  # probes (the host entity) on every port. Each peer is a namespace and the
-  # labels of its pods.
+  # The policy admits `muster`, `teleportPeers`, `gatewayPeers` while
+  # gatewayAPI.enabled and `additionalPeers` on the server port, the
+  # `metricsScrapers` on mcpKubernetes.metrics.port while metrics are served,
+  # and the kubelet's probes (the host entity) on every port. Each peer is a
+  # namespace and the labels of its pods.
   ingress:
     # The muster this server is registered with.
     muster:
       namespace: agent-platform  # @schema minLength: 1
       matchLabels:  # @schema type: object; minProperties: 1; additionalProperties: {"type": "string"}; skipProperties: true
         app.kubernetes.io/name: muster
+    # The Teleport agent through which a muster on another cluster calls this
+    # server (Teleport app access): on this cluster the call arrives from the
+    # agent's pods. [] on a cluster without one.
+    teleportPeers:  # @schema item: object; itemRequired: [namespace, matchLabels]; itemProperties: {"namespace": {"type": "string", "minLength": 1}, "matchLabels": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}}}
+      - namespace: kube-system
+        matchLabels:
+          app: teleport-kube-agent
     # The gateway's proxies that carry the HTTPRoute (gatewayAPI.httpRoute),
     # admitted only while gatewayAPI.enabled: Envoy Gateway's data plane by
     # default. The controller (app.kubernetes.io/name: envoy-gateway) is not
