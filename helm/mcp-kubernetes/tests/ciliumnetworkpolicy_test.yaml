@@ -76,6 +76,59 @@ tests:
           path: spec.ingress[1].fromEndpoints
           count: 1
 
+  - it: admits the gateway's proxies on the server port while the HTTPRoute renders
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: giantswarm-default
+          namespace: envoy-gateway-system
+    asserts:
+      - equal:
+          path: spec.ingress[0].fromEndpoints
+          value:
+            - matchLabels:
+                app.kubernetes.io/name: muster
+                io.kubernetes.pod.namespace: agent-platform
+            - matchLabels:
+                app.kubernetes.io/name: envoy
+                io.kubernetes.pod.namespace: envoy-gateway-system
+      - lengthEqual:
+          path: spec.ingress[0].toPorts[0].ports
+          count: 1
+
+  - it: admits no gateway proxy without the HTTPRoute
+    asserts:
+      - lengthEqual:
+          path: spec.ingress[0].fromEndpoints
+          count: 1
+
+  - it: admits the gateway's proxies ahead of the additional peers
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: giantswarm-default
+          namespace: envoy-gateway-system
+      ciliumNetworkPolicy.ingress.additionalPeers:
+        - namespace: kube-system
+          matchLabels:
+            app.kubernetes.io/name: ingress-nginx
+    asserts:
+      - equal:
+          path: spec.ingress[0].fromEndpoints[1]
+          value:
+            matchLabels:
+              app.kubernetes.io/name: envoy
+              io.kubernetes.pod.namespace: envoy-gateway-system
+      - equal:
+          path: spec.ingress[0].fromEndpoints[2]
+          value:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              io.kubernetes.pod.namespace: kube-system
+      - lengthEqual:
+          path: spec.ingress[0].fromEndpoints
+          count: 3
+
   - it: admits the metrics scrapers on the metrics port by default
     asserts:
       - equal:
