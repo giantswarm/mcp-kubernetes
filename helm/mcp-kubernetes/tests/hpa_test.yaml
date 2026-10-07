@@ -1,0 +1,42 @@
+# The HPA scales on CPU and, when autoscaling.targetMemoryUtilizationPercentage is set, on memory.
+suite: HorizontalPodAutoscaler tests
+templates:
+  - templates/hpa.yaml
+tests:
+  - it: renders no HPA while autoscaling is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: scales on CPU only by default
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.metrics
+          count: 1
+      - equal:
+          path: spec.metrics[0].resource.name
+          value: cpu
+
+  - it: scales on memory when a memory target is set
+    set:
+      autoscaling.enabled: true
+      autoscaling.targetMemoryUtilizationPercentage: 80
+    asserts:
+      - contains:
+          path: spec.metrics
+          content:
+            type: Resource
+            resource:
+              name: memory
+              target:
+                type: Utilization
+                averageUtilization: 80
+
+  - it: refuses a negative memory target
+    set:
+      autoscaling.enabled: true
+      autoscaling.targetMemoryUtilizationPercentage: -1
+    asserts:
+      - failedTemplate: {}

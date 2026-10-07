@@ -22,6 +22,11 @@
                 },
                 "targetCPUUtilizationPercentage": {
                     "type": "integer"
+                },
+                "targetMemoryUtilizationPercentage": {
+                    "type": "integer",
+                    "description": "Average memory utilization the HPA targets; 0 leaves memory out of its metrics.",
+                    "minimum": 0
                 }
             }
         },

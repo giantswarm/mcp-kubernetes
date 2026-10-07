@@ -19,7 +19,15 @@ helm-lint: ## Lint Helm chart
 HELM_UNITTEST_VERSION := 1.0.3
 
 .PHONY: helm-test
-helm-test: helm-lint helm-unittest ## Run every chart check (what the chart-test CI job runs).
+helm-test: helm-lint helm-render-examples helm-unittest ## Run every chart check (what the chart-test CI job runs).
+
+.PHONY: helm-render-examples
+helm-render-examples: ## Render the chart with every example values-*.yaml against values.schema.json.
+	@echo "Rendering the chart with each example values file..."
+	@set -e; for f in ./helm/mcp-kubernetes/values-*.yaml; do \
+		echo "  $$f"; \
+		helm template mcp-kubernetes ./helm/mcp-kubernetes -f "$$f" > /dev/null; \
+	done
 
 .PHONY: helm-unittest
 helm-unittest: helm-plugin-unittest ## Run the helm-unittest suites in helm/mcp-kubernetes/tests/.
