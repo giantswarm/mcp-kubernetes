@@ -36,6 +36,27 @@ Secret at start and never again. The pod template carries a
   marked the same way by `storage.valkey.existingSecretChecksum`, rendered as
   `checksum/valkey-secret`.
 
+## Ingress callers
+
+The `CiliumNetworkPolicy` (`ciliumNetworkPolicy.enabled`) admits only the
+callers listed here. Cilium policies are additive, so no other policy can
+widen or narrow this one: a caller missing from the list cannot reach the
+server, and its calls time out. Every caller is a namespace and the labels of
+its pods; the defaults are Giant Swarm's.
+
+| Caller | Port | Admitted by | Default |
+|---|---|---|---|
+| muster, the only client of the MCP endpoint | server (`8080`) | `ciliumNetworkPolicy.ingress.muster` | `agent-platform`, `app.kubernetes.io/name: muster` |
+| Teleport agent, through which a muster on another cluster calls this server (Teleport app access) | server (`8080`) | `ciliumNetworkPolicy.ingress.teleportPeers` | `kube-system`, `app: teleport-kube-agent`; `[]` on a cluster without Teleport |
+| Gateway proxies carrying the HTTPRoute, only while `gatewayAPI.enabled` | server (`8080`) | `ciliumNetworkPolicy.ingress.gatewayPeers` | `envoy-gateway-system`, `app.kubernetes.io/name: envoy` |
+| Metrics collector, only while `mcpKubernetes.instrumentation.enabled` and `mcpKubernetes.metrics.enabled` | metrics (`mcpKubernetes.metrics.port`, `9090`) | `ciliumNetworkPolicy.ingress.metricsScrapers` | `kube-system`, `app.kubernetes.io/instance: alloy-metrics` |
+| Kubelet probes (liveness, readiness, startup) | every port | the `host` entity, always | |
+| Any further client, e.g. the ingress controller in front of `ingress.enabled` | server (`8080`) | `ciliumNetworkPolicy.ingress.additionalPeers` | none |
+
+A new caller is a row here, the value that admits it and a test in
+`tests/ingress_callers_test.yaml`, which renders the defaults and fails when a
+listed caller is no longer admitted.
+
 ## Values
 
 | Key | Type | Default | Description |
