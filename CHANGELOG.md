@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* Helm chart: the README lists every caller the `CiliumNetworkPolicy` admits (muster, the Teleport agent, the gateway's proxies, alloy-metrics, the kubelet's probes, `additionalPeers`) with the value that admits each, and the `Ingress callers` helm-unittest suite fails by the caller's name when one is no longer admitted. The rendered manifests are unchanged ([#681](https://github.com/giantswarm/mcp-kubernetes/issues/681)).
+
 * `mcp_kubernetes_operations_total` and `mcp_kubernetes_operation_duration_seconds` carry an `error_class` on `status="error"`: one of ten fixed classes from the API status reason or the transport error, never the error text. `forbidden`, `unauthorized`, `not_found` (including a resource type the cluster does not serve), `conflict`, `invalid` and `canceled` are the caller's; `timeout`, `unavailable`, `server_error` and `other` the platform's. Helm chart: `MCPKubernetesK8sOperationFailures` and `MCPKubernetesClusterOperationFailures` count only the platform's classes over all operations, so a caller denied by RBAC no longer moves their ratio; the administrator and cluster-operator dashboards show the operation errors by class (giantswarm/mcp-kubernetes#611).
 
 * Server spans for the HTTP and MCP surface. Every request except the probes and `/metrics` is an HTTP server span (`POST /mcp`) joined to the caller's `traceparent`, every JSON-RPC request an `mcp.<method>` server span under it (`mcp.tools/call` carries `mcp.tool.name` and `gen_ai.tool.name`), and every tool handler a `tool.<name>` span. With `TRACING_EXPORTER=otlp` the server used to export no span at all (giantswarm/giantswarm#36711).
