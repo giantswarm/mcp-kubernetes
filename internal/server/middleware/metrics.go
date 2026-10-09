@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"net/http"
-	"regexp"
 	"time"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
@@ -56,10 +55,12 @@ func (rw *responseWriter) Flush() {
 // It records the total number of requests and request duration for each
 // method/path/status combination.
 //
-// The middleware normalizes paths to prevent high cardinality:
-// - /mcp/{session_id} -> /mcp/:session (for session-based endpoints)
-// - UUID patterns are replaced with :uuid
-// - Numeric IDs are replaced with :id
+// The path label is the route pattern the http.ServeMux inside the handler
+// chain matched (http.Request.Pattern), never the raw request path: the label
+// set stays bounded by the registered routes, and a path that is not valid
+// UTF-8, which the Prometheus registry refuses at scrape time and which would
+// fail every later scrape, never reaches a label. A request no route matched
+// is labelled unmatchedRoute.
 //
 // The provider parameter can be nil, in which case the middleware is a no-op
 // that just passes through to the next handler.
@@ -77,50 +78,29 @@ func HTTPMetrics(provider *instrumentation.Provider) func(http.Handler) http.Han
 			// Wrap the response writer to capture the status code
 			wrapped := newResponseWriter(w)
 
-			// Call the next handler
+			// Call the next handler; the ServeMux it reaches sets r.Pattern
 			next.ServeHTTP(wrapped, r)
-
-			// Record the metrics
-			duration := time.Since(start)
-			path := normalizePath(r.URL.Path)
 
 			provider.Metrics().RecordHTTPRequest(
 				r.Context(),
 				r.Method,
-				path,
+				routeLabel(r),
 				wrapped.statusCode,
-				duration,
+				time.Since(start),
 			)
 		})
 	}
 }
 
-// Regex patterns for path normalization to control metric cardinality
-var (
-	// UUID pattern (e.g., 550e8400-e29b-41d4-a716-446655440000)
-	uuidPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+// unmatchedRoute is the path label of a request no registered route matched.
+const unmatchedRoute = "unmatched"
 
-	// Session ID pattern for MCP streamable HTTP (alphanumeric, typically 8-32 chars)
-	sessionIDPattern = regexp.MustCompile(`^/mcp/[a-zA-Z0-9_-]{8,64}$`)
-
-	// Generic numeric ID pattern in paths
-	numericIDPattern = regexp.MustCompile(`/\d+(/|$)`)
-)
-
-// normalizePath normalizes URL paths to prevent high cardinality in metrics.
-// This replaces dynamic path segments (UUIDs, session IDs, numeric IDs) with
-// placeholder values to ensure bounded metric cardinality.
-func normalizePath(path string) string {
-	// Handle MCP session endpoints (e.g., /mcp/abc123xyz)
-	if sessionIDPattern.MatchString(path) {
-		return "/mcp/:session"
+// routeLabel returns the bounded path label of a served request: the pattern
+// the ServeMux matched, or unmatchedRoute when none did (a 404, a redirect to
+// the clean path, or a handler chain without a ServeMux).
+func routeLabel(r *http.Request) string {
+	if r.Pattern == "" {
+		return unmatchedRoute
 	}
-
-	// Replace UUIDs with :uuid
-	path = uuidPattern.ReplaceAllString(path, ":uuid")
-
-	// Replace numeric IDs in paths with :id
-	path = numericIDPattern.ReplaceAllString(path, "/:id$1")
-
-	return path
+	return r.Pattern
 }
