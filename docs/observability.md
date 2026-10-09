@@ -66,7 +66,7 @@ Counter of HTTP requests.
 
 **Labels:**
 - `method`: HTTP method (GET, POST, etc.)
-- `path`: Request path (/mcp, /metrics, etc.)
+- `path`: The route the request matched (`/mcp`, `/healthz`, `/oauth/token`, …), never the raw request path; a request no route matched is `unmatched`. The label set is bounded by the registered routes, so a scanner's random or invalid-UTF-8 paths neither create series nor break the scrape.
 - `status`: HTTP status code
 
 **Example:**
@@ -83,7 +83,7 @@ Histogram of HTTP request durations.
 
 **Labels:**
 - `method`: HTTP method
-- `path`: Request path
+- `path`: The matched route, as for `http_requests_total`
 - `status`: HTTP status code
 
 **Buckets:** 0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0 seconds
