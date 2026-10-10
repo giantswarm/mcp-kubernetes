@@ -121,8 +121,10 @@ listed caller is no longer admitted.
 | startupProbe.failureThreshold | int | `18` |  |
 | resources.limits.cpu | string | `"500m"` |  |
 | resources.limits.memory | string | `"512Mi"` |  |
+| resources.limits.ephemeral-storage | string | `"100Mi"` |  |
 | resources.requests.cpu | string | `"100m"` |  |
 | resources.requests.memory | string | `"128Mi"` |  |
+| resources.requests.ephemeral-storage | string | `"50Mi"` |  |
 | autoscaling.enabled | bool | `false` |  |
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.maxReplicas | int | `100` |  |
