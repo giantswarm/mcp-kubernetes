@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Helm chart: the `mcp-kubernetes` container sets `resources.requests.ephemeral-storage` (default `50Mi`) and `resources.limits.ephemeral-storage` (default `100Mi`) for the `tmp` emptyDir it mounts at `/tmp`, so the Deployment passes Kyverno's `require-emptydir-requests-and-limits` policy on Giant Swarm clusters; the schema and the chart unit tests cover both (giantswarm/mcp-kubernetes#702).
+
 * Helm chart: `autoscaling.targetMemoryUtilizationPercentage` is in `values.yaml` (default `0`, memory left out of the HPA's metrics) and the schema, so the example values files that set it (`values-capi-production.yaml`, `values-oauth-dex-example.yaml`, `values-oauth-example.yaml`) render again; the `chart-test` CI job now renders the chart with every `values-*.yaml` (`make helm-render-examples`), so an example cannot drift from the schema unnoticed (giantswarm/mcp-kubernetes#679).
 
 * Helm chart: a `startupProbe` on `/healthz` (90 s by default, `startupProbe.*` in values) holds the liveness probe off while the server waits up to 60 s for Valkey at start, so a Valkey that restarts with the server no longer gets the container restarted.

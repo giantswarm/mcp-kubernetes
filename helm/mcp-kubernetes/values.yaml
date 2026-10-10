@@ -246,9 +246,16 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+    # `/tmp` is an emptyDir, the only writable path with
+    # `readOnlyRootFilesystem`. Kyverno's require-emptydir-requests-and-limits
+    # policy on Giant Swarm clusters reports (audit) or rejects (enforce) a
+    # container that mounts an emptyDir without ephemeral-storage requests
+    # and limits, so both are set here.
+    ephemeral-storage: 100Mi
   requests:
     cpu: 100m
     memory: 128Mi
+    ephemeral-storage: 50Mi
 
 autoscaling:
   enabled: false
