@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+* The scan ignores CVE-2026-108859 until 2026-11-12: mcp-go through v1.2.1 (no fixed release yet) reads a Streamable HTTP POST body whole, and every HTTP transport already refuses a body over `--max-request-size` (5 MiB by default) before mcp-go reads it ([#707](https://github.com/giantswarm/mcp-kubernetes/issues/707)).
+
 * Secret masking is always on: no server configuration returns Secret data. The `MaskSecrets` output setting is gone; the Helm chart accepts and ignores `capiMode.output.maskSecrets` and no longer sets `OUTPUT_MASK_SECRETS`, which the server never read. Masking now also covers the `kubectl.kubernetes.io/last-applied-configuration` annotation, which repeats a Secret's data, in the resource and in `describe`'s metadata block with `output: wide`; the `data` and `binaryData` of a ConfigMap whose name marks it as sensitive (`credentials`, `password`, `secret`, `auth`, `token`, `kubeconfig`); and the objects `create` and `apply` return (giantswarm/mcp-kubernetes#660).
 
 * `create` and `apply` parse their manifest: they failed on every call with `cannot unmarshal object into Go value of type runtime.Object`.
