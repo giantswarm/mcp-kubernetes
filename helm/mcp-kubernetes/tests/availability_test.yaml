@@ -65,6 +65,9 @@ tests:
           path: spec.minAvailable
           value: 1
       - equal:
+          path: spec.unhealthyPodEvictionPolicy
+          value: AlwaysAllow
+      - equal:
           path: spec.selector.matchLabels
           value:
             app.kubernetes.io/name: mcp-kubernetes

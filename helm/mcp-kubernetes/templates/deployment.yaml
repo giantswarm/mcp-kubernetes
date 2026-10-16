@@ -4,6 +4,8 @@ metadata:
   name: {{ include "mcp-kubernetes.fullname" . }}
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+  annotations:
+    ignore-check.kube-linter.io/no-anti-affinity: "topologySpreadConstraints spread the replicas across nodes"
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}

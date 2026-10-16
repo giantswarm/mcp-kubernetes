@@ -9,6 +9,8 @@ metadata:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
 spec:
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  # A pod that is not Ready protects nothing; evicting it never blocks a drain.
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
