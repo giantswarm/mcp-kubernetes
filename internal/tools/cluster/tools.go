@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -15,8 +16,9 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 
 	// api_resources tool
 	apiResourcesOpts := []mcp.ToolOption{
-		mcp.WithDescription("List available API resources in the cluster"),
+		tooldesc.Describe("List available API resources in the cluster", ""),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
@@ -45,8 +47,9 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 
 	// cluster_health tool
 	clusterHealthOpts := []mcp.ToolOption{
-		mcp.WithDescription("Check the health status of cluster components. Returns overall status, component health, and a node list (capped by nodesLimit). Per-node conditions are omitted by default; set includeNodeConditions=true to include them."),
+		tooldesc.Describe("Check the health of the cluster's components and nodes: overall status, component health and a node list.", "The node list is capped by nodesLimit; per-node conditions only with includeNodeConditions: true."),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
@@ -55,7 +58,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithNumber("nodesLimit",
 			mcp.Min(1),
 			mcp.Max(MaxNodesLimit),
-			mcp.Description("Maximum number of nodes to include in the response. Default: 20. Maximum: 1000. Use readyNodes/totalNodes to detect readiness issues even when truncated."),
+			mcp.Description("Most nodes to include (default 20, at most 1000); readyNodes and totalNodes count them all."),
 		),
 		mcp.WithBoolean("includeNodeConditions",
 			mcp.Description("Include the full per-node conditions array in the response (default: false). The Ready field on each node already conveys overall readiness."),
