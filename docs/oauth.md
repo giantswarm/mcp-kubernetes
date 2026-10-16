@@ -1119,63 +1119,44 @@ resources:
 - Staff changes: Within 24 hours
 - Suspected compromise: Immediately
 
-**Zero-Downtime Rotation Procedure:**
+**Rotation Procedure:**
 
-1. **Generate new encryption key:**
+The server reads a single key (`OAUTH_ENCRYPTION_KEY` / `--oauth-encryption-key`). It has no second key for decryption, so a rotation is not zero-downtime: tokens already stored under the old key cannot be decrypted with the new one.
+
+What a key change does:
+
+- Stored tokens written under the old key are undecryptable. A refresh request whose stored token cannot be decrypted is answered with "re-login required", and a stored provider token that cannot be decrypted is skipped in favour of provider validation (a warning is logged).
+- Every user signs in again once. Nothing is lost beyond the stored tokens.
+- A client sees the failure at its next token refresh, not at the rotation.
+
+Steps:
+
+1. **Generate the new key:**
    ```bash
    NEW_KEY=$(openssl rand -base64 32)
    ```
 
-2. **Deploy with dual-key support** (if supported by your secret manager):
+2. **Update the secret** that backs `OAUTH_ENCRYPTION_KEY`:
    ```bash
-   # Add new key while keeping old key
    kubectl patch secret mcp-oauth-credentials \
      --type=merge \
-     -p '{"data":{"oauth-encryption-key-new":"'$(echo -n "$NEW_KEY" | base64)'"}}'
+     -p '{"data":{"oauth-encryption-key":"'$(echo -n "$NEW_KEY" | base64 -w0)'"}}'
    ```
 
-3. **Update application configuration** to use new key for encryption while keeping old key for decryption:
-   ```yaml
-   env:
-   - name: OAUTH_ENCRYPTION_KEY
-     valueFrom:
-       secretKeyRef:
-         name: mcp-oauth-credentials
-         key: oauth-encryption-key-new
-   - name: OAUTH_ENCRYPTION_KEY_OLD
-     valueFrom:
-       secretKeyRef:
-         name: mcp-oauth-credentials
-         key: oauth-encryption-key
-   ```
-
-4. **Wait for token expiration** (or force re-authentication):
+3. **Restart the deployment** so every replica loads the new key together (replicas on different keys cannot read each other's tokens in a shared Valkey store):
    ```bash
-   # Check token expiration times
-   # Wait at least 1 hour (typical token lifetime)
+   kubectl rollout restart deploy/mcp-kubernetes
+   kubectl rollout status deploy/mcp-kubernetes
    ```
 
-5. **Remove old encryption key:**
-   ```bash
-   kubectl patch secret mcp-oauth-credentials \
-     --type=json \
-     -p '[{"op":"remove","path":"/data/oauth-encryption-key"}]'
-
-   # Rename new key to primary
-   kubectl patch secret mcp-oauth-credentials \
-     --type=json \
-     -p '[
-       {"op":"copy","from":"/data/oauth-encryption-key-new","path":"/data/oauth-encryption-key"},
-       {"op":"remove","path":"/data/oauth-encryption-key-new"}
-     ]'
-   ```
+4. **Tell users to sign in again.** The undecryptable records stay in the store until they expire.
 
 **Verification:**
 ```bash
-# Verify new key is in use
-kubectl exec -it deploy/mcp-kubernetes -- env | grep OAUTH_ENCRYPTION_KEY
+# The new key is configured (names only; never print the value)
+kubectl get deploy/mcp-kubernetes -o jsonpath='{.spec.template.spec.containers[0].env[*].name}' | tr ' ' '\n' | grep OAUTH_ENCRYPTION_KEY
 
-# Test OAuth flow works
+# The server is up
 curl -k https://YOUR_DOMAIN/.well-known/oauth-authorization-server
 ```
 
