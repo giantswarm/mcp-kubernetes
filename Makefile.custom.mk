@@ -63,3 +63,7 @@ test-ci-pr: ## Run 'act' to simulate CI checks for a pull request
 test-ci-push: ## Run 'act' to simulate CI checks for a push to main
 	@echo "Simulating CI workflow (push event)..."
 	@act push --job check
+
+.PHONY: tools-doc
+tools-doc: ## Regenerate docs/tools.md from the registered tools (the test TestToolsDocIsCurrent keeps it current).
+	TOOLS_DOC_UPDATE=1 go test -count=1 -run TestToolsDocIsCurrent ./internal/tools

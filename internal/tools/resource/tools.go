@@ -3,6 +3,7 @@ package resource
 import (
 	"fmt"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -95,26 +96,15 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// get tool
 	getResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription(`Get a specific Kubernetes resource by name.
-
-Namespace Handling:
-- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
-- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
-- The tool automatically determines resource scope via Kubernetes API discovery`),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("Get a specific Kubernetes resource by name.", ""),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
 	getResourceOpts = append(getResourceOpts, clusterContextParams...)
 	getResourceOpts = append(getResourceOpts,
-		mcp.WithString("namespace",
-			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
-For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
-		),
-		mcp.WithString("resourceType",
-			mcp.Required(),
-			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment). A custom resource may name its API group as kubectl does (e.g., clusters.cluster.x-k8s.io)"),
-		),
+		tools.NamespaceParam(),
+		tools.ResourceTypeParam(),
 		mcp.WithString("apiGroup",
 			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
@@ -123,7 +113,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 			mcp.Description("Name of the resource to get"),
 		),
 		mcp.WithString("output",
-			mcp.Description("Output format: 'slim' (default; blacklist exclusion + per-Kind shaping — HelmRelease drops spec.values / status.history, Deployment / StatefulSet / DaemonSet collapse long container env lists), 'normal' (blacklist exclusion only — managedFields, last-applied-configuration, transition timestamps), 'wide' / 'full' (no field stripping, full manifest). Secret data is always masked regardless of output. See docs/slim-output-tuning.md."),
+			mcp.Description("slim (default: HelmRelease values and history dropped, long env lists counted), normal (only noise stripped), or wide/full. Secrets always masked."),
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
@@ -134,39 +124,19 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 
 	// list tool
 	listResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription(`List Kubernetes resources with optional filtering.
-
-Namespace Handling:
-- Namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
-- Cluster-scoped resources (nodes, namespaces, persistentvolumes, clusterroles): Namespace is automatically ignored
-- Use 'allNamespaces=true' to list namespaced resources across all namespaces
-- The tool automatically determines whether a resource is namespaced or cluster-scoped via Kubernetes API discovery
-
-Examples:
-- List nodes: {"resourceType": "nodes"}
-- List pods in default namespace: {"resourceType": "pods"}
-- List pods in kube-system: {"resourceType": "pods", "namespace": "kube-system"}
-- List all pods: {"resourceType": "pods", "allNamespaces": true}
-- List CAPI clusters: {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}
-
-Ordering: events are returned newest-first (by lastTimestamp, then eventTime, then firstTimestamp). To make that ordering real, an event query is scanned up to an internal ceiling of 5000 matching events before 'limit' is applied, so 'limit' selects the most recent activity rather than an alphabetical slice. If a scan reaches that ceiling the response says so under 'metadata.ordering' (or '_meta.hint' with fullOutput) and older events were not read — narrow the query with namespace/fieldSelector/labelSelector for a complete answer. Since recency ordering cannot be expressed as a server-side page position, an event query returns no 'continue' token; passing one falls back to unsorted API order. All other resource types are returned in the API server's own order (namespace/name), so 'limit' selects an alphabetical prefix, not the newest or the worst.
-
-Supports both server-side selectors (labelSelector, fieldSelector) and client-side filtering for advanced scenarios.`),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("List Kubernetes resources of a type, narrowed by namespace, label or field selectors, or a client-side filter.", fmt.Sprintf("limit takes events newest first: an event query scans at most %d matches (the answer says when it hit that: narrow it) and returns no continue token; passing one gives unsorted API order. Every other type comes in API order (namespace/name), so limit takes an alphabetical prefix, not the newest or the worst. Nothing selects by age: filter matches exact values. Examples: {\"resourceType\": \"pods\", \"allNamespaces\": true}, {\"resourceType\": \"clusters\", \"apiGroup\": \"cluster.x-k8s.io\"}.", listSortScanLimit)),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
 	listResourceOpts = append(listResourceOpts, clusterContextParams...)
 	listResourceOpts = append(listResourceOpts,
 		mcp.WithString("namespace",
-			mcp.Description(`Namespace for namespaced resources (pods, services, deployments, etc.).
-- For namespaced resources: Uses 'default' if not specified.
-- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): This parameter is ignored.
-- The tool automatically determines resource scope via Kubernetes API discovery.`),
+			mcp.Description("Namespace of a namespaced resource; default 'default', allNamespaces for every one. Ignored for cluster-scoped resources (nodes, PVs, …)."),
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
-			mcp.Description("Type of Kubernetes resource to list (e.g., pods, services, deployments, nodes). A custom resource may name its API group as kubectl does (e.g., clusters.cluster.x-k8s.io)"),
+			mcp.Description("Resource type to list (pods, services, nodes, …); a custom resource may name its API group as kubectl does (clusters.cluster.x-k8s.io)."),
 		),
 		mcp.WithString("apiGroup",
 			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
@@ -175,19 +145,16 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 			mcp.Description("Server-side label selector for efficient filtering (e.g., 'app=nginx,env=prod'). Use this when possible for better performance."),
 		),
 		mcp.WithString("fieldSelector",
-			mcp.Description("Server-side field selector. Only fields the API server indexes for that Kind are selectable, and the set differs per Kind: pods support metadata.name, metadata.namespace, spec.nodeName and status.phase; events additionally support reason, type, involvedObject.kind, involvedObject.name, involvedObject.namespace and involvedObject.fieldPath. No Kind exposes a timestamp field, so age cannot be selected server-side. For fields that are not selectable, use 'filter' instead."),
+			mcp.Description("Indexed fields only: metadata.name and .namespace on any Kind; pods also spec.nodeName, status.phase; events reason, type, involvedObject.*."),
 		),
 		mcp.WithObject("filter",
-			mcp.Description("Client-side filter for advanced scenarios not supported by fieldSelector (e.g., filtering nodes by taints). Supports dot notation for nested fields and [*] for array matching. Examples: {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"} or {\"metadata.labels.app\": \"nginx\"}. See docs/client-side-filtering.md for full syntax and use cases. Performance note: Prefer labelSelector/fieldSelector when available as they filter server-side."),
+			mcp.Description("Client-side filter for what selectors cannot do: dot paths, [*] over arrays, e.g. {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"}."),
 		),
 		mcp.WithBoolean("allNamespaces",
-			mcp.Description(`List namespaced resources across ALL namespaces.
-- Applies only to namespaced resources (pods, services, etc.)
-- Ignored for cluster-scoped resources (nodes, PVs, etc.)
-- When true, overrides the 'namespace' parameter.`),
+			mcp.Description("List a namespaced resource across all namespaces; overrides namespace. Ignored for cluster-scoped resources."),
 		),
 		mcp.WithBoolean("fullOutput",
-			mcp.Description("Return full resource manifests instead of summary (default: false, returns compact summary). The 'output' format only takes effect when this is true; the compact summary has its own fixed per-Kind shape."),
+			mcp.Description("Return full manifests instead of the compact per-Kind summary (default false); output applies only then."),
 		),
 		mcp.WithBoolean("includeLabels",
 			mcp.Description("Include resource labels in summary output (default: false)"),
@@ -205,7 +172,7 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 			mcp.Description("Return aggregated counts (by status, namespace) instead of full objects. Useful for fleet-scale operations with many results. Default: false"),
 		),
 		mcp.WithString("output",
-			mcp.Description("Output format for full manifests, i.e. only meaningful together with fullOutput=true: 'slim' (default; blacklist exclusion + per-Kind shaping), 'normal' (blacklist exclusion only), 'wide' / 'full' (no field stripping — the only formats that retain metadata.ownerReferences). Secret data is always masked regardless of output. See docs/slim-output-tuning.md for the full per-Kind shape table."),
+			mcp.Description("With fullOutput: slim (default, noise stripped), normal, or wide/full (whole, the only ones keeping ownerReferences). Secrets are always masked."),
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
@@ -216,26 +183,15 @@ Supports both server-side selectors (labelSelector, fieldSelector) and client-si
 
 	// describe tool
 	describeResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription(`Get detailed information about a Kubernetes resource including events.
-
-Namespace Handling:
-- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
-- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
-- The tool automatically determines resource scope via Kubernetes API discovery`),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("Get detailed information about a Kubernetes resource, including its events.", ""),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
 	describeResourceOpts = append(describeResourceOpts, clusterContextParams...)
 	describeResourceOpts = append(describeResourceOpts,
-		mcp.WithString("namespace",
-			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
-For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
-		),
-		mcp.WithString("resourceType",
-			mcp.Required(),
-			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment). A custom resource may name its API group as kubectl does (e.g., clusters.cluster.x-k8s.io)"),
-		),
+		tools.NamespaceParam(),
+		tools.ResourceTypeParam(),
 		mcp.WithString("apiGroup",
 			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
@@ -246,10 +202,10 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 		mcp.WithNumber("eventsLimit",
 			mcp.Min(1),
 			mcp.Max(MaxEventsLimit),
-			mcp.Description(fmt.Sprintf("Maximum number of events to return, sorted newest-first by lastTimestamp. Default: %d. Range: [1, %d]. Use totalEvents/eventsTruncated in the response to detect clipping.", DefaultEventsLimit, MaxEventsLimit)),
+			mcp.Description(fmt.Sprintf("Most events to return, newest first (default %d, at most %d); totalEvents and eventsTruncated tell when clipped.", DefaultEventsLimit, MaxEventsLimit)),
 		),
 		mcp.WithString("output",
-			mcp.Description("Output format: 'slim' (default; blacklist exclusion + per-Kind shaping for the resource — HelmRelease drops spec.values / status.history, workload templates collapse long env lists), 'normal' (blacklist exclusion only), 'wide' / 'full' (no field stripping). Secret data is always masked regardless of output. Event-list shaping is controlled by eventsLimit, not by this parameter."),
+			mcp.Description("slim (default: HelmRelease values and history dropped, long env lists counted), normal (only noise stripped), or wide/full. Events: eventsLimit."),
 			mcp.Enum("slim", "normal", "wide", "full"),
 		),
 	)
@@ -260,7 +216,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 
 	// create tool
 	createResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("Create a new Kubernetes resource from a manifest"),
+		tooldesc.Describe("Create a new Kubernetes resource from a manifest", ""),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(false),
@@ -282,7 +238,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 
 	// apply tool
 	applyResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("Apply a Kubernetes manifest (create or update)"),
+		tooldesc.Describe("Apply a Kubernetes manifest (create or update)", ""),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
@@ -304,12 +260,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 
 	// delete tool
 	deleteResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription(`Delete a Kubernetes resource.
-
-Namespace Handling:
-- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
-- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
-- The tool automatically determines resource scope via Kubernetes API discovery`),
+		tooldesc.Describe("Delete a Kubernetes resource.", ""),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
@@ -318,14 +269,8 @@ Namespace Handling:
 	}
 	deleteResourceOpts = append(deleteResourceOpts, clusterContextParams...)
 	deleteResourceOpts = append(deleteResourceOpts,
-		mcp.WithString("namespace",
-			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
-For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
-		),
-		mcp.WithString("resourceType",
-			mcp.Required(),
-			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment). A custom resource may name its API group as kubectl does (e.g., clusters.cluster.x-k8s.io)"),
-		),
+		tools.NamespaceParam(),
+		tools.ResourceTypeParam(),
 		mcp.WithString("apiGroup",
 			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
@@ -338,12 +283,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 
 	// patch tool
 	patchResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription(`Patch a Kubernetes resource with specific changes.
-
-Namespace Handling:
-- For namespaced resources (pods, services, deployments): Uses 'default' namespace if not specified
-- For cluster-scoped resources (nodes, namespaces, PVs, clusterroles): Namespace is automatically ignored
-- The tool automatically determines resource scope via Kubernetes API discovery`),
+		tooldesc.Describe("Patch a Kubernetes resource with specific changes.", ""),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(true),
@@ -352,14 +292,8 @@ Namespace Handling:
 	}
 	patchResourceOpts = append(patchResourceOpts, clusterContextParams...)
 	patchResourceOpts = append(patchResourceOpts,
-		mcp.WithString("namespace",
-			mcp.Description(`Namespace for namespaced resources. Uses 'default' if not specified.
-For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ignored.`),
-		),
-		mcp.WithString("resourceType",
-			mcp.Required(),
-			mcp.Description("Type of Kubernetes resource (e.g., pod, service, deployment). A custom resource may name its API group as kubectl does (e.g., clusters.cluster.x-k8s.io)"),
-		),
+		tools.NamespaceParam(),
+		tools.ResourceTypeParam(),
 		mcp.WithString("apiGroup",
 			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),
 		),
@@ -381,7 +315,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 
 	// scale tool
 	scaleResourceOpts := []mcp.ToolOption{
-		mcp.WithDescription("Scale a Kubernetes resource (deployment, replicaset, etc.)"),
+		tooldesc.Describe("Scale a Kubernetes resource (deployment, replicaset, etc.)", ""),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(true),
@@ -396,7 +330,7 @@ For cluster-scoped resources (nodes, namespaces, PVs, clusterroles), this is ign
 		),
 		mcp.WithString("resourceType",
 			mcp.Required(),
-			mcp.Description("Type of scalable Kubernetes resource (deployment, replicaset, statefulset), optionally qualified with its API group as kubectl does (e.g., deployments.apps)"),
+			mcp.Description("Scalable resource type (deployment, replicaset, statefulset), optionally with its API group as kubectl does (deployments.apps)."),
 		),
 		mcp.WithString("apiGroup",
 			mcp.Description("Optional API group for the resource (e.g., 'apps', 'networking.k8s.io', or 'apps/v1')"),

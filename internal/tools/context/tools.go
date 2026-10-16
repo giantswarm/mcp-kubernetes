@@ -1,6 +1,7 @@
 package contexttools
 
 import (
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -20,8 +21,8 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 
 	// context_list tool
 	listContextsOpts := []mcp.ToolOption{
-		mcp.WithDescription("List all available Kubernetes contexts"),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("List all available Kubernetes contexts", ""),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
@@ -30,8 +31,8 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 
 	// context_get_current tool
 	getCurrentContextOpts := []mcp.ToolOption{
-		mcp.WithDescription("Get the current Kubernetes context"),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("Get the current Kubernetes context", ""),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
@@ -40,7 +41,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 
 	// context_use tool
 	useContextOpts := []mcp.ToolOption{
-		mcp.WithDescription("Switch to a different Kubernetes context"),
+		tooldesc.Describe("Switch to a different Kubernetes context", ""),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),

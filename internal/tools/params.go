@@ -26,14 +26,14 @@ func AddClusterContextParams(sc *server.ServerContext) []mcp.ToolOption {
 	// Add cluster parameter only when federation (CAPI mode) is enabled
 	if sc.FederationEnabled() {
 		opts = append(opts, mcp.WithString("cluster",
-			mcp.Description("Target cluster name for multi-cluster operations (optional, empty for local/default cluster)"),
+			mcp.Description("Target cluster; empty for the local one."),
 		))
 	}
 
 	// Add kubeContext parameter only when NOT in in-cluster mode
 	if !sc.InClusterMode() {
 		opts = append(opts, mcp.WithString("kubeContext",
-			mcp.Description("Kubernetes context to use (optional, uses current context if not specified)"),
+			mcp.Description("Kubernetes context; default: the current one."),
 		))
 	}
 
