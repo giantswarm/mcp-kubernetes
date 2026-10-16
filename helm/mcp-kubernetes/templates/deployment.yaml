@@ -4,6 +4,8 @@ metadata:
   name: {{ include "mcp-kubernetes.fullname" . }}
   labels:
     {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+  annotations:
+    ignore-check.kube-linter.io/no-anti-affinity: "topologySpreadConstraints spread the replicas across nodes"
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -457,6 +459,19 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      topologySpreadConstraints:
+        {{- with .Values.topologySpreadConstraints }}
+        {{- toYaml . | nindent 8 }}
+        {{- else }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "mcp-kubernetes.selectorLabels" . | nindent 14 }}
+          matchLabelKeys:
+            - pod-template-hash
+        {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

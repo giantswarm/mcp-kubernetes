@@ -1,0 +1,118 @@
+# The default install keeps the tools reachable while one pod is rescheduled:
+# two replicas spread across nodes and a PodDisruptionBudget that never lets a
+# drain take the last pod.
+suite: availability tests
+templates:
+  - templates/deployment.yaml
+  - templates/poddisruptionbudget.yaml
+tests:
+  - it: runs two replicas by default
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: spreads the pods across nodes by default without blocking a single-node cluster
+    template: templates/deployment.yaml
+    release:
+      name: mcp-kubernetes
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: mcp-kubernetes
+                  app.kubernetes.io/instance: mcp-kubernetes
+              matchLabelKeys:
+                - pod-template-hash
+
+  - it: takes the spread constraints from values verbatim
+    template: templates/deployment.yaml
+    set:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: custom
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app: custom
+
+  - it: renders a PodDisruptionBudget keeping one pod by default
+    template: templates/poddisruptionbudget.yaml
+    release:
+      name: mcp-kubernetes
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.minAvailable
+          value: 1
+      - equal:
+          path: spec.unhealthyPodEvictionPolicy
+          value: AlwaysAllow
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: mcp-kubernetes
+            app.kubernetes.io/instance: mcp-kubernetes
+
+  - it: renders no PodDisruptionBudget for a single replica, which would block every drain
+    template: templates/poddisruptionbudget.yaml
+    set:
+      replicaCount: 1
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: follows autoscaling.minReplicas while autoscaling is on
+    template: templates/poddisruptionbudget.yaml
+    set:
+      replicaCount: 1
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 3
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: renders no PodDisruptionBudget while autoscaling may scale to one pod
+    template: templates/poddisruptionbudget.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 1
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no PodDisruptionBudget when disabled
+    template: templates/poddisruptionbudget.yaml
+    set:
+      podDisruptionBudget.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: takes a percentage for minAvailable
+    template: templates/poddisruptionbudget.yaml
+    set:
+      podDisruptionBudget.minAvailable: "50%"
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: "50%"
