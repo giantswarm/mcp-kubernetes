@@ -1192,8 +1192,17 @@ curl -k https://YOUR_DOMAIN/.well-known/oauth-authorization-server
 # 1. Rotate ALL affected secrets immediately
 # (Google Client Secret, OAuth Encryption Key, Registration Token)
 
-# 2. Revoke all active tokens
-kubectl exec -it deploy/mcp-kubernetes -- /app/mcp-kubernetes admin revoke-all-tokens
+# 2. Revoke all active tokens (the server has no revoke command; storage decides how)
+# In-memory storage: restarting every pod drops the tokens of all replicas.
+kubectl rollout restart deploy/mcp-kubernetes
+kubectl rollout status deploy/mcp-kubernetes
+# Valkey storage: tokens survive restarts. Delete every key under the
+# --valkey-key-prefix (default "mcp:") in the configured Valkey database,
+# then restart the pods.
+valkey-cli -u "$VALKEY_URL" --scan --pattern 'mcp:*' | xargs -r valkey-cli -u "$VALKEY_URL" DEL
+kubectl rollout restart deploy/mcp-kubernetes
+# Tokens issued by the upstream identity provider (Dex, Google) are not
+# affected; revoke them there as well.
 
 # 3. Clean up logs (if possible)
 # Contact your logging provider to purge sensitive data
