@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+* `docs/oauth.md`: incident response step 2 no longer names the non-existent `admin revoke-all-tokens` command; it describes revoking tokens by restarting every pod (in-memory storage) or deleting the Valkey keys under the key prefix, and notes that identity-provider tokens are revoked at the provider ([#718](https://github.com/giantswarm/mcp-kubernetes/issues/718)).
+
 ### Security
 
 * The scan ignores CVE-2026-108859 until 2026-11-12: mcp-go through v1.2.1 (no fixed release yet) reads a Streamable HTTP POST body whole, and every HTTP transport already refuses a body over `--max-request-size` (5 MiB by default) before mcp-go reads it ([#707](https://github.com/giantswarm/mcp-kubernetes/issues/707)).
