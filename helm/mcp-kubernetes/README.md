@@ -29,7 +29,10 @@ identity provider's token an aggregator such as muster forwards is validated
 by every pod. Tokens the server issues through its own OAuth flow are stored
 in `mcpKubernetes.oauth.storage`; with more than one pod that storage is
 Valkey (`storage.type: valkey`), or a token one pod issued is unknown to the
-others. A port forward opened through the `port_forward` tool stays on the pod
+others, and a token revoked on one pod (`/oauth/revoke`) stays valid
+on the others. The per-user rate limit of
+privileged access (`capiMode.privilegedAccess.rateLimit`) counts per pod: two
+pods admit up to twice the configured rate. A port forward opened through the `port_forward` tool stays on the pod
 that opened it.
 
 ## Rolling on credential rotation

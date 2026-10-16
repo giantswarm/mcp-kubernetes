@@ -957,7 +957,8 @@ capiMode:
     privilegedCAPIDiscovery: true
 
     # Rate limiting for privileged access
-    # Prevents abuse by limiting requests per user
+    # Prevents abuse by limiting requests per user. Each pod counts on its own,
+    # so with N pods (replicaCount) a user gets up to N times these limits.
     rateLimit:
       # Rate limit per user (requests per second)
       # Default: 10.0

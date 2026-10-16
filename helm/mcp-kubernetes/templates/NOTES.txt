@@ -44,7 +44,8 @@
    {{- if or (gt (int .Values.replicaCount) 1) .Values.autoscaling.enabled }}
    With more than one replica a token this server issues through its own
    OAuth flow is unknown to the other pods; an identity provider's token an
-   aggregator such as muster forwards is validated by every pod.
+   aggregator such as muster forwards is validated by every pod. A revocation
+   reaches only the pod that received it.
    {{- end }}
    For production, configure Valkey storage (mcpKubernetes.oauth.storage.type: valkey).
    {{- end }}
