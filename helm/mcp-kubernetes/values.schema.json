@@ -893,6 +893,24 @@
             "type": "object",
             "additionalProperties": true
         },
+        "podDisruptionBudget": {
+            "type": "object",
+            "description": "PodDisruptionBudget of the server, rendered while more than one pod runs (replicaCount, or autoscaling.minReplicas with autoscaling on): a node drain evicts one pod at a time and never the last.",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Renders the budget (while more than one pod runs)."
+                },
+                "minAvailable": {
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "description": "Pods a voluntary disruption leaves running."
+                }
+            }
+        },
         "podLabels": {
             "type": "object",
             "additionalProperties": true
@@ -1024,7 +1042,9 @@
             }
         },
         "replicaCount": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Pods of the server. Two keep the tools reachable while one pod is rescheduled, drained or waits for its image; the server is safe to run more than one: MCP sessions carry no pod-local state (a port forward stays on the pod that opened it), and a token muster forwards is validated by every pod against the identity provider. Tokens the server issues itself (its own OAuth flow) need mcpKubernetes.oauth.storage.type valkey to be known to every pod.",
+            "minimum": 0
         },
         "resources": {
             "type": "object",
@@ -1155,6 +1175,10 @@
         },
         "tolerations": {
             "type": "array"
+        },
+        "topologySpreadConstraints": {
+            "type": "array",
+            "description": "Spread of the pods. Empty: one constraint over kubernetes.io/hostname, whenUnsatisfiable ScheduleAnyway, so the pods land on different nodes where the cluster has them and still schedule on a single node. A list replaces it verbatim."
         },
         "volumeMounts": {
             "type": "array"

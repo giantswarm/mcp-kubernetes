@@ -44,7 +44,29 @@ global:  # @schema additionalProperties: true
       secretName: ""
       key: ca.crt
 
-replicaCount: 1
+# -- Pods of the server. Two keep the tools reachable while one pod is
+# rescheduled, drained or waits for its image; the server is safe to run more
+# than one: MCP sessions carry no pod-local state (a port forward stays on the
+# pod that opened it), and a token muster forwards is validated by every pod
+# against the identity provider. Tokens the server
+# issues itself (its own OAuth flow) need mcpKubernetes.oauth.storage.type
+# valkey to be known to every pod.
+replicaCount: 2  # @schema minimum: 0
+
+# -- PodDisruptionBudget of the server, rendered while more than one pod runs
+# (replicaCount, or autoscaling.minReplicas with autoscaling on): a node drain
+# evicts one pod at a time and never the last.
+podDisruptionBudget:
+  # -- Renders the budget (while more than one pod runs).
+  enabled: true
+  # -- Pods a voluntary disruption leaves running.
+  minAvailable: 1  # @schema type: [integer, string]
+
+# -- Spread of the pods. Empty: one constraint over kubernetes.io/hostname,
+# whenUnsatisfiable ScheduleAnyway, so the pods land on different nodes where
+# the cluster has them and still schedule on a single node. A list replaces it
+# verbatim.
+topologySpreadConstraints: []
 
 image:
   registry: gsoci.azurecr.io
@@ -259,7 +281,7 @@ resources:
 
 autoscaling:
   enabled: false
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 100
   targetCPUUtilizationPercentage: 80
   # -- Average memory utilization the HPA targets; 0 leaves memory out of its metrics.

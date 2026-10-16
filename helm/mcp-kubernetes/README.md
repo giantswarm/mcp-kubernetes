@@ -14,6 +14,24 @@ A Helm chart for mcp-kubernetes - Model Context Protocol server for Kubernetes
 
 * <https://github.com/giantswarm/mcp-kubernetes>
 
+## Availability
+
+The chart runs two replicas by default (`replicaCount: 2`), spread across
+nodes by a topology spread constraint on `kubernetes.io/hostname`
+(`whenUnsatisfiable: ScheduleAnyway`, so a single-node cluster still schedules
+both), and a PodDisruptionBudget with `minAvailable: 1`. When one pod is
+rescheduled, evicted or waits for its image, the other keeps serving the tools.
+The budget renders only while more than one pod runs: with `replicaCount: 1`
+(or autoscaling down to one pod) it would block every node drain.
+
+Any pod serves any request: MCP sessions keep no pod-local state, and an
+identity provider's token an aggregator such as muster forwards is validated
+by every pod. Tokens the server issues through its own OAuth flow are stored
+in `mcpKubernetes.oauth.storage`; with more than one pod that storage is
+Valkey (`storage.type: valkey`), or a token one pod issued is unknown to the
+others. A port forward opened through the `port_forward` tool stays on the pod
+that opened it.
+
 ## Rolling on credential rotation
 
 The server reads its OAuth credentials (the Dex or Google client secret, the
@@ -67,7 +85,11 @@ listed caller is no longer admitted.
 | global.identity.existingSecret | string | `""` |  |
 | global.identity.ca.secretName | string | `""` |  |
 | global.identity.ca.key | string | `"ca.crt"` |  |
-| replicaCount | int | `1` |  |
+| replicaCount | int | `2` | Pods of the server. Two keep the tools reachable while one pod is rescheduled, drained or waits for its image; the server is safe to run more than one: MCP sessions carry no pod-local state (a port forward stays on the pod that opened it), and a token muster forwards is validated by every pod against the identity provider. Tokens the server issues itself (its own OAuth flow) need mcpKubernetes.oauth.storage.type valkey to be known to every pod. |
+| podDisruptionBudget | object | `{"enabled":true,"minAvailable":1}` | PodDisruptionBudget of the server, rendered while more than one pod runs (replicaCount, or autoscaling.minReplicas with autoscaling on): a node drain evicts one pod at a time and never the last. |
+| podDisruptionBudget.enabled | bool | `true` | Renders the budget (while more than one pod runs). |
+| podDisruptionBudget.minAvailable | int | `1` | Pods a voluntary disruption leaves running. |
+| topologySpreadConstraints | list | `[]` | Spread of the pods. Empty: one constraint over kubernetes.io/hostname, whenUnsatisfiable ScheduleAnyway, so the pods land on different nodes where the cluster has them and still schedule on a single node. A list replaces it verbatim. |
 | image.registry | string | `"gsoci.azurecr.io"` |  |
 | image.repository | string | `"giantswarm/mcp-kubernetes"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
@@ -126,7 +148,7 @@ listed caller is no longer admitted.
 | resources.requests.memory | string | `"128Mi"` |  |
 | resources.requests.ephemeral-storage | string | `"50Mi"` |  |
 | autoscaling.enabled | bool | `false` |  |
-| autoscaling.minReplicas | int | `1` |  |
+| autoscaling.minReplicas | int | `2` |  |
 | autoscaling.maxReplicas | int | `100` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
 | autoscaling.targetMemoryUtilizationPercentage | int | `0` | Average memory utilization the HPA targets; 0 leaves memory out of its metrics. |

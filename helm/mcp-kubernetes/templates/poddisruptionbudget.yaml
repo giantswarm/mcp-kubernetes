@@ -1,0 +1,15 @@
+{{- /* A budget over a single pod would block every node drain, so it renders only while more than one pod runs. */ -}}
+{{- $pods := ternary .Values.autoscaling.minReplicas .Values.replicaCount .Values.autoscaling.enabled -}}
+{{- if and .Values.podDisruptionBudget.enabled (gt (int $pods) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "mcp-kubernetes.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -42,8 +42,9 @@
    WARNING: OAuth tokens are stored in memory (mcpKubernetes.oauth.storage.type).
    Every pod restart and rolling update signs all users out.
    {{- if or (gt (int .Values.replicaCount) 1) .Values.autoscaling.enabled }}
-   With more than one replica OAuth does not work reliably: a token issued by
-   one pod is unknown to the others.
+   With more than one replica a token this server issues through its own
+   OAuth flow is unknown to the other pods; an identity provider's token an
+   aggregator such as muster forwards is validated by every pod.
    {{- end }}
    For production, configure Valkey storage (mcpKubernetes.oauth.storage.type: valkey).
    {{- end }}
