@@ -17,8 +17,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// logs tool
 	logsOpts := []mcp.ToolOption{
 		tooldesc.Describe("Get logs from a pod container", ""),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
@@ -145,8 +144,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 		// list_port_forward_sessions tool
 		listSessionsTool := mcp.NewTool("list_port_forward_sessions",
 			tooldesc.Describe("List all active port forwarding sessions", ""),
-			mcp.WithReadOnlyHintAnnotation(true),
-			mcp.WithDestructiveHintAnnotation(false),
+			tools.ReadOnly(),
 			mcp.WithOpenWorldHintAnnotation(false),
 			mcp.WithSchemaAdditionalProperties(false),
 		)

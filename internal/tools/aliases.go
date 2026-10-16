@@ -7,6 +7,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
@@ -84,8 +86,8 @@ func MaybeAddDeprecatedAlias(
 		return
 	}
 	aliasOpts := append([]mcp.ToolOption(nil), opts...)
-	aliasOpts = append(aliasOpts, mcp.WithDescription(
-		fmt.Sprintf("[DEPRECATED] Use `%s` instead. Backward-compat alias for the previous `%s` name; will be removed in a future release.", primaryName, aliasName),
+	aliasOpts = append(aliasOpts, tooldesc.Describe(
+		fmt.Sprintf("[DEPRECATED] Use `%s` instead: this old name goes away in a future release.", primaryName), "",
 	))
 	s.AddTool(mcp.NewTool(aliasName, aliasOpts...), WrapWithAuditLogging(aliasName, handler, sc))
 }

@@ -23,12 +23,12 @@ import (
 
 const docsHeader = "# The tools\n\nGenerated from the registered tools (`make tools-doc`); through muster every tool is `x_<server>_<name>`. " +
 	"This page lists every tool; a deployment serves a subset by its mode: the context tools and port forwarding only outside the cluster, " +
-	"exec and port forwarding only where mutations are allowed, the CAPI tools only with federation."
+	"create, apply, delete, patch, scale, exec and port forwarding only where mutations are allowed, the CAPI tools only with federation."
 
-// allTools registers every tool group as cmd/serve.go does, in the mode that
-// registers the most (outside the cluster, mutations allowed, federation),
-// and lists them as clients see them: without the deprecated aliases.
-func allTools(t *testing.T) []mcp.Tool {
+// registeredTools registers every tool group as cmd/serve.go does, in the
+// mode that registers the most (outside the cluster, mutations allowed,
+// federation), deprecated aliases included.
+func registeredTools(t *testing.T) []mcp.Tool {
 	t.Helper()
 	sc, err := server.NewServerContext(context.Background(),
 		server.WithK8sClient(&resourcetestdata.MockK8sClient{}),
@@ -47,7 +47,13 @@ func allTools(t *testing.T) []mcp.Tool {
 	for _, st := range s.ListTools() {
 		all = append(all, st.Tool)
 	}
-	return tools.HideDeprecatedAliasesFilter(context.Background(), all)
+	return all
+}
+
+// allTools are the registered tools as clients list them: without the
+// deprecated aliases.
+func allTools(t *testing.T) []mcp.Tool {
+	return tools.HideDeprecatedAliasesFilter(context.Background(), registeredTools(t))
 }
 
 // TestToolsDocIsCurrent keeps docs/tools.md — every tool's description and
@@ -57,8 +63,23 @@ func TestToolsDocIsCurrent(t *testing.T) {
 	tooldesctest.AssertDoc(t, allTools(t), docsHeader, "../../docs/tools.md")
 }
 
-// TestToolDescriptionBudgets holds the registered descriptions to the
-// budget of giantswarm/giantswarm#38592.
+// TestToolDescriptionBudgets holds the registered descriptions, the hidden
+// aliases' included, to the budget of giantswarm/giantswarm#38592.
 func TestToolDescriptionBudgets(t *testing.T) {
-	require.NoError(t, tooldesc.Check(allTools(t), tooldesc.DefaultBudget))
+	require.NoError(t, tooldesc.Check(registeredTools(t), tooldesc.DefaultBudget))
+}
+
+// TestReadOnlyToolsAreNotDestructive: a read-only tool says so in full, or
+// mcp-go's defaults report it destructive and not idempotent.
+func TestReadOnlyToolsAreNotDestructive(t *testing.T) {
+	for _, tool := range registeredTools(t) {
+		a := tool.Annotations
+		if a.ReadOnlyHint == nil || !*a.ReadOnlyHint {
+			continue
+		}
+		require.NotNil(t, a.DestructiveHint, tool.Name)
+		require.False(t, *a.DestructiveHint, "%s is read-only but reported destructive", tool.Name)
+		require.NotNil(t, a.IdempotentHint, tool.Name)
+		require.True(t, *a.IdempotentHint, "%s is read-only but not reported idempotent", tool.Name)
+	}
 }

@@ -22,8 +22,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	// context_list tool
 	listContextsOpts := []mcp.ToolOption{
 		tooldesc.Describe("List all available Kubernetes contexts", ""),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
@@ -33,8 +32,7 @@ func RegisterContextTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 	// context_get_current tool
 	getCurrentContextOpts := []mcp.ToolOption{
 		tooldesc.Describe("Get the current Kubernetes context", ""),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}

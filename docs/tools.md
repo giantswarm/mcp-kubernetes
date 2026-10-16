@@ -1,6 +1,6 @@
 # The tools
 
-Generated from the registered tools (`make tools-doc`); through muster every tool is `x_<server>_<name>`. This page lists every tool; a deployment serves a subset by its mode: the context tools and port forwarding only outside the cluster, exec and port forwarding only where mutations are allowed, the CAPI tools only with federation.
+Generated from the registered tools (`make tools-doc`); through muster every tool is `x_<server>_<name>`. This page lists every tool; a deployment serves a subset by its mode: the context tools and port forwarding only outside the cluster, create, apply, delete, patch, scale, exec and port forwarding only where mutations are allowed, the CAPI tools only with federation.
 
 | Tool | Kind |
 |---|---|
@@ -420,7 +420,7 @@ Get detailed information about a Kubernetes resource, including its events.
       "type": "string"
     },
     "output": {
-      "description": "slim (default: noise stripped, HelmRelease values and long env lists dropped), normal, or wide/full. Secrets are masked; events: eventsLimit.",
+      "description": "slim (default: HelmRelease values and history dropped, long env lists counted), normal (only noise stripped), or wide/full. Events: eventsLimit.",
       "enum": [
         "slim",
         "normal",
@@ -524,7 +524,7 @@ Get a specific Kubernetes resource by name.
       "type": "string"
     },
     "output": {
-      "description": "slim (default: noise stripped, HelmRelease values and long env lists dropped), normal, or wide/full (whole manifest). Secrets are always masked.",
+      "description": "slim (default: HelmRelease values and history dropped, long env lists counted), normal (only noise stripped), or wide/full. Secrets always masked.",
       "enum": [
         "slim",
         "normal",
@@ -551,7 +551,7 @@ Get a specific Kubernetes resource by name.
 ```text
 List Kubernetes resources of a type, narrowed by namespace, label or field selectors, or a client-side filter.
 
-limit takes events newest first: an event query scans at most 5000 matches (the answer says when it reached that: narrow it) and returns no continue token. Every other type comes in API order (namespace/name), so limit takes an alphabetical prefix, not the newest or the worst. Examples: {"resourceType": "nodes"}, {"resourceType": "pods", "allNamespaces": true}, {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}.
+limit takes events newest first: an event query scans at most 5000 matches (the answer says when it hit that: narrow it) and returns no continue token; passing one gives unsorted API order. Every other type comes in API order (namespace/name), so limit takes an alphabetical prefix, not the newest or the worst. Nothing selects by age: filter matches exact values. Examples: {"resourceType": "pods", "allNamespaces": true}, {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}.
 ```
 
 ```json
@@ -575,7 +575,7 @@ limit takes events newest first: an event query scans at most 5000 matches (the 
       "type": "string"
     },
     "fieldSelector": {
-      "description": "Server-side, indexed fields only: pods spec.nodeName, status.phase, metadata.*; events also reason, type, involvedObject.*. Never age: use filter.",
+      "description": "Indexed fields only: metadata.name and .namespace on any Kind; pods also spec.nodeName, status.phase; events reason, type, involvedObject.*.",
       "type": "string"
     },
     "filter": {

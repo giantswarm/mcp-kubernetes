@@ -26,8 +26,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// capi_list_clusters tool
 	listClustersTool := mcp.NewTool("capi_list_clusters",
 		tooldesc.Describe("List the workload clusters managed by CAPI that you can access: name, organization, provider, release, status, age.", "Results are limited by default; narrow with the filters or raise limit."),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 		mcp.WithString("organization",
@@ -55,8 +54,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// capi_get_cluster tool
 	getClusterTool := mcp.NewTool("capi_get_cluster",
 		tooldesc.Describe("Get detailed information about a specific CAPI cluster including metadata, status, labels, and annotations.", ""),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 		mcp.WithString("name",
@@ -70,8 +68,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// capi_resolve_cluster tool
 	resolveClusterTool := mcp.NewTool("capi_resolve_cluster",
 		tooldesc.Describe("Resolve a partial cluster name pattern to its full identifier. Useful when you only know part of a cluster name.", ""),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 		mcp.WithString("pattern",
@@ -85,8 +82,7 @@ func RegisterCAPITools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// capi_cluster_health tool
 	clusterHealthTool := mcp.NewTool("capi_cluster_health",
 		tooldesc.Describe("Check the health status of a CAPI cluster. Returns overall health, component status, and individual health checks.", ""),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 		mcp.WithString("name",
