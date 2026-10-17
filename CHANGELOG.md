@@ -7,122 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-* `docs/oauth.md`: incident response step 2 no longer names the non-existent `admin revoke-all-tokens` command; it describes revoking tokens by restarting every pod (in-memory storage) or deleting the Valkey keys under the key prefix, and notes that identity-provider tokens are revoked at the provider ([#718](https://github.com/giantswarm/mcp-kubernetes/issues/718)).
-
-### Security
-
-* The scan ignores CVE-2026-108859 until 2026-11-12: mcp-go through v1.2.1 (no fixed release yet) reads a Streamable HTTP POST body whole, and every HTTP transport already refuses a body over `--max-request-size` (5 MiB by default) before mcp-go reads it ([#707](https://github.com/giantswarm/mcp-kubernetes/issues/707)).
-
-* Secret masking is always on: no server configuration returns Secret data. The `MaskSecrets` output setting is gone; the Helm chart accepts and ignores `capiMode.output.maskSecrets` and no longer sets `OUTPUT_MASK_SECRETS`, which the server never read. Masking now also covers the `kubectl.kubernetes.io/last-applied-configuration` annotation, which repeats a Secret's data, in the resource and in `describe`'s metadata block with `output: wide`; the `data` and `binaryData` of a ConfigMap whose name marks it as sensitive (`credentials`, `password`, `secret`, `auth`, `token`, `kubeconfig`); and the objects `create` and `apply` return (giantswarm/mcp-kubernetes#660).
-
-* `create` and `apply` parse their manifest: they failed on every call with `cannot unmarshal object into Go value of type runtime.Object`.
-
-* Helm chart: `mcpKubernetes.oauth.registrationAccessToken` works. The chart passed `--registration-access-token`, a flag the server does not know, so a configured token crashed the pod at start; it now passes `--registration-token=$(REGISTRATION_TOKEN)`, expanded from the OAuth Secret, and the token no longer appears in the pod spec.
-
-* OAuth with in-memory token storage (the default) logs a startup warning: sessions are lost on every pod restart and rolling update and are not shared between replicas; configure Valkey for production. The Helm chart's install notes say the same, and warn that OAuth does not work reliably with more than one replica or autoscaling on in-memory storage (giantswarm/mcp-kubernetes#229).
-
-* OAuth with Valkey token storage refuses to start without a token encryption key (`OAUTH_ENCRYPTION_KEY` / `--oauth-encryption-key`): the tokens would sit in plaintext in a store that outlives the pod and that other workloads can reach. In-memory storage without a key still starts and warns. Helm chart: `mcpKubernetes.oauth.storage.type: valkey` requires `mcpKubernetes.oauth.encryptionKey: true`, otherwise the render fails (giantswarm/mcp-kubernetes#234).
-
-* The `sse` and `streamable-http` transports limit request bodies to `--max-request-size` bytes (default 5 MiB, also `MAX_REQUEST_SIZE`); a larger request gets `413 Request Entity Too Large` before it reaches a handler, a body without `Content-Length` is cut off at the limit. The limit covers the MCP, OAuth and health endpoints. Helm chart: `mcpKubernetes.maxRequestSize`, passed as `MAX_REQUEST_SIZE` so an `image.tag` pinned to an older release still starts (giantswarm/mcp-kubernetes#235).
-
-* The `sse` and `streamable-http` transports refuse to start without authentication. Without OAuth they accepted every request that reached them and ran it with the server's Kubernetes credentials. `streamable-http` authenticates with OAuth (`--enable-oauth`, unchanged) or a static bearer token, `sse` with the bearer token: the token (at least 32 characters) comes from `MCP_KUBERNETES_AUTH_TOKEN`, and every request to the MCP endpoints must send `Authorization: Bearer <token>`, otherwise it gets `401`. The health endpoints stay open. `--enable-oauth` with `--transport sse`, which used to start without any authentication, and OAuth together with a bearer token are refused as well. `stdio` is unchanged. Helm chart: with `mcpKubernetes.oauth.enabled: false` the server reads the token from the `auth-token` key of `mcpKubernetes.auth.existingSecret`, or from the chart-managed `<fullname>-auth-token` Secret with a generated token that upgrades keep; with OAuth nothing changes (giantswarm/mcp-kubernetes#233).
-
-### Added
-
-* Helm chart: the README lists every caller the `CiliumNetworkPolicy` admits (muster, the Teleport agent, the gateway's proxies, alloy-metrics, the kubelet's probes, `additionalPeers`) with the value that admits each, and the `Ingress callers` helm-unittest suite fails by the caller's name when one is no longer admitted. The rendered manifests are unchanged ([#681](https://github.com/giantswarm/mcp-kubernetes/issues/681)).
-
-* `mcp_kubernetes_operations_total` and `mcp_kubernetes_operation_duration_seconds` carry an `error_class` on `status="error"`: one of ten fixed classes from the API status reason or the transport error, never the error text. `forbidden`, `unauthorized`, `not_found` (including a resource type the cluster does not serve), `conflict`, `invalid` and `canceled` are the caller's; `timeout`, `unavailable`, `server_error` and `other` the platform's. Helm chart: `MCPKubernetesK8sOperationFailures` and `MCPKubernetesClusterOperationFailures` count only the platform's classes over all operations, so a caller denied by RBAC no longer moves their ratio; the administrator and cluster-operator dashboards show the operation errors by class (giantswarm/mcp-kubernetes#611).
-
-* Server spans for the HTTP and MCP surface. Every request except the probes and `/metrics` is an HTTP server span (`POST /mcp`) joined to the caller's `traceparent`, every JSON-RPC request an `mcp.<method>` server span under it (`mcp.tools/call` carries `mcp.tool.name` and `gen_ai.tool.name`), and every tool handler a `tool.<name>` span. With `TRACING_EXPORTER=otlp` the server used to export no span at all (giantswarm/giantswarm#36711).
-
-* OTLP export over gRPC and with headers. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` sends traces (and OTLP metrics) over gRPC instead of OTLP/HTTP, the default; `OTEL_EXPORTER_OTLP_HEADERS` goes out with every export, e.g. `X-Scope-OrgID` for a multi-tenant collector. Chart: `mcpKubernetes.instrumentation.otlpProtocol` (`""`, `grpc`, `http/protobuf`) and `otlpHeaders` render them only when set, so a default install is unchanged (giantswarm/giantswarm#36711).
-
-* Alerts link the chart's own Grafana dashboards. When `grafanaDashboards.enabled` is set, every alert carries `__dashboardUid__` (`mcp-k8s-administrator` for the request, management-cluster operation and OAuth alerts; `mcp-k8s-cluster-operator` for the federation alerts) and `dashboardQueryParams` preselecting the release's namespace, which the Giant Swarm Alertmanager turns into the notification's Dashboard link. With `grafanaDashboards.giantswarm.enabled` the params pin `orgId=2`, the Giant Swarm organization the dashboards are provisioned into.
-
-* Helm chart: the OAuth settings fall back to the platform identity contract a parent chart forwards as `global.identity` / `global.domain` (the agent-platform meta chart): `mcpKubernetes.oauth.dex.issuerURL` from `global.identity.issuerUrl`, `dex.clientID` from `global.identity.clientId`, `existingSecret` from `global.identity.existingSecret`, `dex.caSecret.{name,key}` from `global.identity.ca.{secretName,key}`, `trustedAudiences` from `[global.identity.clientId]` and `baseURL` from `https://<fullname>.<global.domain>`. A fallback applies only where the local value is empty: explicit `mcpKubernetes.oauth.*` values win, `oauth.enabled` and `enableDownstreamOAuth` stay explicit, and a chart installed without `global.identity` renders exactly as before. `values.yaml` documents the contract under `global`; the schema keeps `global` open for the other keys a parent chart forwards.
-
-* `resourceType` accepts kubectl's group-qualified form, `<resource>.<group>` or `<resource>.<version>.<group>` (e.g. `clusters.cluster.x-k8s.io`, `deployments.v1.apps`), in get, list, describe, delete, patch and scale. A version named there can be any version the server serves, preferred or not, and a version it does not serve is refused, as in kubectl. If the server refuses or fails the lookup of that version, the error says so. A group or version that conflicts with `apiGroup` is refused with an error that names both. `list` of `events.events.k8s.io` keeps the events handling: newest first, the wider scan and the slim output.
-
-### Removed
-
-* The trusted-issuer path: the server no longer accepts tokens from external issuers (`OAUTH_TRUSTED_ISSUERS`) or impersonates their on-behalf-of subject on the management cluster. Dex-issued tokens forwarded by an aggregator are accepted through `trustedAudiences` and downstream OAuth, unchanged. Helm chart: the `<fullname>-obo-impersonate` ClusterRole and ClusterRoleBinding are gone; `mcpKubernetes.oauth.trustedIssuers: []` still renders, a non-empty list fails the render (giantswarm/mcp-kubernetes#548).
-
-### Changed
-
-* Helm chart: two replicas by default (`replicaCount: 2`, `autoscaling.minReplicas: 2`), spread across nodes by a topology spread constraint on `kubernetes.io/hostname` (`whenUnsatisfiable: ScheduleAnyway`, overridable through `topologySpreadConstraints`), and a PodDisruptionBudget with `minAvailable: 1` (`podDisruptionBudget`) while more than one pod runs: one rescheduled or evicted pod no longer takes the tools down ([#716](https://github.com/giantswarm/mcp-kubernetes/issues/716)).
-
-* Every alert waits for traffic before it judges a failure rate. The five alerts are error ratios, and with downstream OAuth each call runs as the caller, so on a quiet installation one caller denied on one namespace is 100% of the traffic: `MCPKubernetesK8sOperationFailures` fired on gazelle on 2026-09-08 over fifteen failed `list` calls and nothing else in the window. Each expression now also requires its denominator to have counted at least `prometheusRules.minimumVolume` events (default `20`; HTTP requests, Kubernetes operations or authentication attempts, taken with `increase()` over the alert's own window and the same `by (cluster_id, installation, pipeline, provider, namespace, ...)` labels) before the ratio is compared with its threshold. At the 20% threshold that is at least five failing calls, at 30% at least seven. A week of traffic on gazelle and three customer installations puts 20 above every quarter-hour in which a ratio alert would have fired, including the fifteen-call burst, and within reach of an ordinary agent session (the busiest quarter-hours of the week counted 22 operations and 35 authentications on gazelle). The alert's value and description are unchanged; `0` turns the guard off. Chart unit tests pin the guard on all five expressions.
-
-### Fixed
-
-* Helm chart: the `mcp-kubernetes` container sets `resources.requests.ephemeral-storage` (default `50Mi`) and `resources.limits.ephemeral-storage` (default `100Mi`) for the `tmp` emptyDir it mounts at `/tmp`, so the Deployment passes Kyverno's `require-emptydir-requests-and-limits` policy on Giant Swarm clusters; the schema and the chart unit tests cover both (giantswarm/mcp-kubernetes#702).
-
-* Helm chart: `autoscaling.targetMemoryUtilizationPercentage` is in `values.yaml` (default `0`, memory left out of the HPA's metrics) and the schema, so the example values files that set it (`values-capi-production.yaml`, `values-oauth-dex-example.yaml`, `values-oauth-example.yaml`) render again; the `chart-test` CI job now renders the chart with every `values-*.yaml` (`make helm-render-examples`), so an example cannot drift from the schema unnoticed (giantswarm/mcp-kubernetes#679).
-
-* Helm chart: a `startupProbe` on `/healthz` (90 s by default, `startupProbe.*` in values) holds the liveness probe off while the server waits up to 60 s for Valkey at start, so a Valkey that restarts with the server no longer gets the container restarted.
-
-* OAuth with Valkey token storage waits for Valkey at start instead of exiting: while Valkey is not accepting connections yet (a credential rotation restarts both together), the server retries with backoff for up to 60 s, not ready meanwhile, rather than crash-looping; a wrong password still fails at once (mcp-oauth v1.4.9, giantswarm/mcp-oauth#591).
-
-* `self-update` replaces the binary, symbolic links resolved, with a single rename (`selfupdatecosign.Install`, selfupdate-cosign v0.3.0). go-selfupdate's own swap moved the binary aside before it moved the new one in, so a process started in between found none, and concurrent updates could lose it. Now a process started meanwhile runs the old binary or the new one, several updates may run at once, and the binary keeps its mode.
-* The `helm.sh/chart` label is valid for any chart version. The label is `<name>-<version>` cut to 63 characters, and the cut of a long version (a branch build's `X.Y.Z-dev.<branch>.<date>.<time>.h<sha7>`, or the `<tag>+<digest>` helm-controller installs) could end in `.`, `_` or `--.`, which the API server refuses for every labelled object; the whole run of `-`, `.` and `_` at the ends of the cut is now trimmed, and a helm-unittest suite renders the label for such versions ([#634](https://github.com/giantswarm/mcp-kubernetes/issues/634)).
-
-* The server rolls when its OAuth credentials change. The pod template carries a `checksum/oauth-secret` annotation: the SHA-256 of the chart-rendered Secret's data, or the new `mcpKubernetes.oauth.existingSecretChecksum` value verbatim when the credentials come from an existing Secret the chart cannot read, so whoever rotates that Secret changes the value in the same change; a Valkey password in its own Secret is marked by `storage.valkey.existingSecretChecksum` as `checksum/valkey-secret`. Before, a client secret, registration token, encryption key or Valkey password rotated in the Secret left the running pod on the old values until a hand-run restart, and the server and Dex, or the server and its Valkey, disagreed as soon as one of them restarted. Chart unit tests pin the annotations; the new `chart-test` CircleCI job runs the suites, which no job ran before.
-
-* An inline `mcpKubernetes.oauth.storage.valkey.password` reaches the server. The chart wrote it into its Secret as `valkey-password` but rendered the `VALKEY_PASSWORD` environment variable only for an existing Secret, so the server connected to Valkey without a password. `mcpKubernetes.oauth.encryptionKeyValue`, the key the chart-rendered Secret carries when `encryptionKey` is true, is declared in `values.yaml`; the generated schema rejected it before.
-
-* `MCPKubernetesOAuthFailures` can fire. The alert counted `oauth_downstream_auth_total{result="failure"}`, a result only the non-strict fallback path and the federation client provider record. Downstream OAuth always runs in strict mode, which records `result="denied"` when a request passed the OAuth middleware but mcp-kubernetes could not act as the caller (no ID token reached the tool layer, or the per-user or impersonation client could not be built), so on a production deployment the alert could never fire: a week of gazelle traffic held only `success`. The ratio now counts `result=~"failure|denied"` over every result, still aggregated `by (cluster_id, installation, pipeline, provider, namespace)`; `fallback` stays out because that request was served. The security dashboard's "Auth Failures (24h)" stat counts the same two results, and a chart unit test pins the result set.
-
-* Alert notifications name the cluster again. Every expression in the chart's `PrometheusRule` aggregated with a plain `sum()` or `sum by (operation)`, which dropped the `cluster_id`, `installation`, `pipeline`, `provider` and `namespace` labels the Giant Swarm Alertmanager groups on, prints (`Cluster: <installation> / <cluster_id>`) and inhibits on (`cancel_if_cluster_control_plane_unhealthy` matches `equal: [cluster_id]`, so it never applied). `MCPKubernetesK8sOperationFailures` fired on gazelle on 2026-09-08 with an empty `Cluster:` line. All five alerts now aggregate `by (cluster_id, installation, pipeline, provider, namespace)` plus their own dimension (`operation`, `auth_mode`), and name the installation and namespace in their description.
-
-* Runbook links resolve. `prometheusRules.runbookBaseUrl` defaulted to a `docs/runbooks` directory that does not exist in this repository, so every alert's Runbook link was a 404. It now defaults to the intranet runbooks (`https://intranet.giantswarm.io/docs/support-and-ops/runbooks`); the alerts link `mcp-kubernetes-high-error-rate`, `mcp-kubernetes-operation-failures` and `mcp-kubernetes-auth-failures` with `?INSTALLATION=&CLUSTER=` filled in from the alert's labels, and the two federation alerts jump to their own section of the shared page.
-
-* `values-prometheus-rules-giantswarm.yaml` sets `prometheusRules.team` to `bumblebee`, matching the chart default. It named `planeteers`, so anyone following the example routed the alerts to the wrong team.
-
-* `values.schema.json` accepts user-defined keys again in the chart's free-form maps: `capiMode.workloadClusterAuth.groupMappings`, `podAnnotations`, `podLabels`, `nodeSelector`, `affinity`, `serviceAccount.annotations`, `ingress.annotations`, `gatewayAPI.httpRoute.{annotations,labels}`, `gatewayAPI.backendTrafficPolicy.{annotations,labels}`, `mcpKubernetes.instrumentation.serviceMonitor.{annotations,labels}`, `grafanaDashboards.{labels,annotations}`, `prometheusRules.{labels,annotations}` and `ciliumNetworkPolicy.{labels,annotations}`. Since 1.0.40 these carried `additionalProperties: false` with no allowed properties, so any value set under them was rejected with `additional properties '<key>' not allowed` and the Helm install or upgrade failed.
-
-* `list` now returns events **newest-first** (by `lastTimestamp`, then `eventTime`, then `firstTimestamp` — the same precedence reported as `lastSeen`, and the same ordering `describe` already applied to its embedded events). Previously `list` preserved the API server's namespace/name order and truncation kept a prefix, so `{"resourceType": "events", "limit": 15}` returned an arbitrary alphabetical slice: stale events were returned preferentially while current ones were truncated away, and callers asking for recent activity were reliably handed old events.
-
-  Because the API server applies `limit` in its own key order before any client-side sort can see the data, ordering alone would only have reordered that already-arbitrary page. Event queries are therefore scanned up to an internal ceiling of 5000 matching events, sorted, and only then truncated to `limit` — the same shape as the `describe` path (which fetches every event for the object with no server limit, then sorts and truncates) and as `kubectl get events --sort-by=.lastTimestamp`. Kubernetes offers neither server-side sorting nor a time-based field selector for events, so this is the only way to deliver the guarantee.
-
-  Two visible consequences: a scan that reaches the ceiling is reported (`metadata.ordering` in compact output, `_meta.hint` with `fullOutput: true`) rather than silently passing as complete; and an event query returns no `continue` token, since "the next N by recency" is not expressible as a position in key-order pagination — passing a `continue` token opts out of the widened scan and serves that page in unsorted API order.
-
-  Events with no parseable timestamp sort last. Other resource types are unaffected: they keep API order and their existing server-side paging.
-
-* `summary: true` no longer reports every DaemonSet as `Scaled to Zero`. DaemonSets were routed through the generic workload status extractor, which reads `spec.replicas` / `status.readyReplicas` / `status.availableReplicas` — fields a DaemonSet does not have. `spec.replicas` therefore read as 0 and the whole fleet bucketed as `Scaled to Zero`, hiding genuine degradation behind a benign-looking label. DaemonSets now bucket on `status.desiredNumberScheduled` / `numberReady` / `numberAvailable`, yielding `Ready` / `Partially Ready` / `NotReady` (and `Scaled to Zero` only when `desiredNumberScheduled` really is 0, e.g. no node matches the selector).
-
-* Team ownership: chart now labels resources `application.giantswarm.io/team: bumblebee` (was `team-bumblebee`, which did not match `team="bumblebee"` routing), and defaults the alert team to `bumblebee` (was `planeteers`).
-
-* SSO forwarded-ID-token validation now works against an internal-CA Dex. When `oauth.dex.caSecret` (`DEX_CA_FILE`) is set, the CA is now also installed on `http.DefaultTransport`, which the mcp-oauth SSO forwarded-token JWKS client uses when `oauth.sso.allowPrivateIPs` (`SSO_ALLOW_PRIVATE_IPS`) is enabled. Previously `DEX_CA_FILE` only applied to the Dex provider client, so forwarded ID tokens from an internal-CA Dex were rejected with `x509: certificate signed by unknown authority` and every downstream Kubernetes tool call failed with `authentication required: please log in to access this resource`. This relies on the matching mcp-oauth `getJWKSClient` change (mcp-oauth#492), pulled in by the bump to `mcp-oauth v0.18.8` in this PR. See https://github.com/giantswarm/giantswarm/issues/37059.
-
-* Drop the version badges from the chart README so a release PR's `Chart.yaml` version bump no longer leaves `README.md` stale and fails the helm-docs pre-commit hook.
-
-### Added
-
-* Compact `list` output for Pods now reports four additional `extra` fields, so pod health can be judged from live state instead of from events: `reason` (`status.reason` — `Evicted`, `NodeShutdown`, …), `terminating` (`true` when `metadata.deletionTimestamp` is set), `waitingReasons` (distinct `containerStatuses[*].state.waiting.reason` — `CrashLoopBackOff`, `ImagePullBackOff`, `CreateContainerConfigError`, …) and `lastTerminationReason` (distinct `containerStatuses[*].lastState.terminated.reason` — `OOMKilled`, `Error`, …). This closes two blind spots: a crashlooping pod reports `status.phase: Running`, so restart loops previously had to be inferred from `reason=BackOff` events, which outlive the pod they describe and so kept reporting loops a replacement pod had already resolved; and an evicted husk was indistinguishable from a live failure, since both report `Failed` with `0/N` ready. The reason lists are de-duplicated and sorted, and all four keys are omitted when empty, so healthy pods pay nothing.
-
-* `trustedIssuers[].subjectClaim`: names the verified claim whose value becomes the impersonated subject, replacing the standard `sub` (set to `email` for the muster-obo issuer). When set, the impersonated-subject pattern lives under that key in `allowedClaims` (e.g. `allowedClaims.email`). mcp-oauth evaluates `allowedClaims` against the raw token at validation time and rejects a token whose subject does not match, before the request reaches the access-token injector.
-* External-issuer tokens carrying an RFC 8693 `act` claim take the on-behalf-of impersonation branch. `Impersonate-User` is set to the human subject and `Impersonate-Group` to `system:authenticated`; no `Impersonate-Extra-*` headers are sent. A token without an `act` claim is rejected.
-
-### Removed
-
-* M2M (machine-to-machine) trusted-issuer support. The `trustedIssuers[].impersonateUser`, `impersonateGroups`, `alias`, and `allowedActors` (with per-actor `allowedSubjects`) fields are removed, along with the per-alias Namespace, `impersonate serviceaccounts` Role/RoleBinding, and per-alias ClusterRole. A trusted-issuer token with no RFC 8693 `act` claim is now rejected (403); only on-behalf-of (an agent acting for a human) is accepted, and any validated trusted-issuer actor is allowed (the impersonated human's Kubernetes RBAC governs access). The per-issuer impersonation RBAC is consolidated into a single `*-obo-impersonate` ClusterRole granting `impersonate users` and `impersonate groups` (`system:authenticated`) only; no `userextras/*` grant. Requires mcp-oauth v0.18.7.
-
-### Changed
-
-* The classified-cluster label on the metrics is `target_cluster_type`. It was `cluster_type` on `mcp_kubernetes_operations_total`, `mcp_kubernetes_operation_duration_seconds` and `mcp_kubernetes_wc_auth_total`, and `cluster` on `mcp_kubernetes_impersonation_total` and `mcp_kubernetes_federation_client_creations_total` (whose descriptions already claimed `cluster_type`); the values are unchanged (`management`, `production`, `staging`, `development`, `cicd`, `operations`, `other`). Prometheus remote-write external labels never overwrite a label a series already carries, and Giant Swarm's observability platform stamps every series with its own `cluster_type` (`management_cluster` / `workload_cluster`) to say where the exporter runs, so the series-level label shadowed it: on gazelle `mcp_kubernetes_operations_total` reached Mimir as `cluster_type="management"`, and every fleet-wide query or central rule filtering `cluster_type="management_cluster"` missed mcp-kubernetes entirely. The audit-log field (`cluster_type` → `target_cluster_type`) and the span attribute (`mcp.cluster_type` → `mcp.target_cluster_type`) follow so the three signals share one name. The chart's three dashboards and `docs/observability.md` use the new label. **Breaking for dashboard and query consumers:** the old labels are not emitted alongside, because a compatibility alias would keep the collision; own dashboards, recording rules and saved queries that mention `cluster_type` or `by (cluster)` on these metrics need the new name. On Giant Swarm installations `cluster_type` on these series now means what it means on every other series.
-
-* `prometheusRules.labels` now defaults to `observability.giantswarm.io/tenant: giantswarm`. Mimir's `rule_selector` matches on that label: a PrometheusRule without it is accepted by the API server and never loaded into the ruler, so its alerts silently never evaluate. The chart shipped no default, so enabling `prometheusRules` without also supplying the label produced five alerts that could not fire. Helm merges values maps, so an installation setting an unrelated label keeps the default; override the key to route to another tenant, or set it to `null` to drop the label. See https://github.com/giantswarm/giantswarm/issues/37445.
-
-* Dex CA trust for the SSO forwarded-ID-token JWKS path is now passed to mcp-oauth as explicit config instead of being installed on `http.DefaultTransport`. `--dex-ca-file` / `oauth.dex.caSecret` now builds a CA pool that is set on the mcp-oauth server config (`JWKSRootCAs`) and trusted-issuer entries, and on the Dex provider client — removing `installDexCAOnDefaultTransport`. Pairs with the mcp-oauth change that drops the `http.DefaultTransport` CA read ([mcp-oauth#498](https://github.com/giantswarm/mcp-oauth/pull/498) / [#495](https://github.com/giantswarm/mcp-oauth/issues/495)), released in mcp-oauth v1.0.0. No behavior change for garm and other internal-CA installs once deployed. See https://github.com/giantswarm/giantswarm/issues/37059.
-* External-issuer tokens are classified as `trusted-issuer`; the on-behalf-of branch keys off `UserInfo.IsOBO()` (the RFC 8693 `act` claim) and the email-check bypass off `UserInfo.IsExternalIssuer()`.
-* **deps:** update module github.com/giantswarm/mcp-oauth to v1.0.0.
-
-### Refactored
-
-* CI: an empty `.nancy-ignore` is committed, so the "Fix Go vulnerabilities" workflow can commit the ignore entries that nancy-fixer adds to it.
-
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 
 
@@ -178,6 +62,256 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Event `message` truncation in `list` summary mode is now rune-aware. Previously the 240-character cap sliced on byte boundaries, which could cut multi-byte runes (kyverno-style validation errors commonly contain `→` and accented characters) and emit invalid UTF-8 in the JSON response.
 - Kind-aware workload shaping (`output: slim` on `Deployment` / `StatefulSet` / `DaemonSet`) now also applies to `initContainers` and `ephemeralContainers`, not just the primary `containers` slice. Sidecar and debug containers no longer escape env-collapse and probe-default pruning.
 - The `--non-destructive` and `--dry-run` CLI flags now correctly propagate to the server context. Previously, the values were only applied to the Kubernetes client layer, so the runtime safety check in `CheckMutatingOperation` always read the default values regardless of CLI input.
+
+## [1.12.1-rc.1] - 2026-10-16
+
+### Fixed
+
+* `docs/oauth.md`: incident response step 2 no longer names the non-existent `admin revoke-all-tokens` command; it describes revoking tokens by restarting every pod (in-memory storage) or deleting the Valkey keys under the key prefix, and notes that identity-provider tokens are revoked at the provider ([#718](https://github.com/giantswarm/mcp-kubernetes/issues/718)).
+
+## [1.12.0] - 2026-10-16
+
+### Changed
+
+* Helm chart: two replicas by default (`replicaCount: 2`, `autoscaling.minReplicas: 2`), spread across nodes by a topology spread constraint on `kubernetes.io/hostname` (`whenUnsatisfiable: ScheduleAnyway`, overridable through `topologySpreadConstraints`), and a PodDisruptionBudget with `minAvailable: 1` (`podDisruptionBudget`) while more than one pod runs: one rescheduled or evicted pod no longer takes the tools down ([#716](https://github.com/giantswarm/mcp-kubernetes/issues/716)).
+
+## [1.11.5-rc.1] - 2026-10-12
+
+### Security
+
+* The scan ignores CVE-2026-108859 until 2026-11-12: mcp-go through v1.2.1 (no fixed release yet) reads a Streamable HTTP POST body whole, and every HTTP transport already refuses a body over `--max-request-size` (5 MiB by default) before mcp-go reads it ([#707](https://github.com/giantswarm/mcp-kubernetes/issues/707)).
+
+## [1.11.3] - 2026-10-10
+
+### Fixed
+
+* Helm chart: the `mcp-kubernetes` container sets `resources.requests.ephemeral-storage` (default `50Mi`) and `resources.limits.ephemeral-storage` (default `100Mi`) for the `tmp` emptyDir it mounts at `/tmp`, so the Deployment passes Kyverno's `require-emptydir-requests-and-limits` policy on Giant Swarm clusters; the schema and the chart unit tests cover both (giantswarm/mcp-kubernetes#702).
+
+## [1.11.3-rc.2] - 2026-10-09
+
+### Added
+
+* Helm chart: the README lists every caller the `CiliumNetworkPolicy` admits (muster, the Teleport agent, the gateway's proxies, alloy-metrics, the kubelet's probes, `additionalPeers`) with the value that admits each, and the `Ingress callers` helm-unittest suite fails by the caller's name when one is no longer admitted. The rendered manifests are unchanged ([#681](https://github.com/giantswarm/mcp-kubernetes/issues/681)).
+
+## [1.11.2] - 2026-10-08
+
+### Fixed
+
+* Helm chart: `autoscaling.targetMemoryUtilizationPercentage` is in `values.yaml` (default `0`, memory left out of the HPA's metrics) and the schema, so the example values files that set it (`values-capi-production.yaml`, `values-oauth-dex-example.yaml`, `values-oauth-example.yaml`) render again; the `chart-test` CI job now renders the chart with every `values-*.yaml` (`make helm-render-examples`), so an example cannot drift from the schema unnoticed (giantswarm/mcp-kubernetes#679).
+
+## [1.11.0] - 2026-10-02
+
+### Removed
+
+* The trusted-issuer path: the server no longer accepts tokens from external issuers (`OAUTH_TRUSTED_ISSUERS`) or impersonates their on-behalf-of subject on the management cluster. Dex-issued tokens forwarded by an aggregator are accepted through `trustedAudiences` and downstream OAuth, unchanged. Helm chart: the `<fullname>-obo-impersonate` ClusterRole and ClusterRoleBinding are gone; `mcpKubernetes.oauth.trustedIssuers: []` still renders, a non-empty list fails the render (giantswarm/mcp-kubernetes#548).
+
+## [1.10.0] - 2026-10-01
+
+### Added
+
+* `mcp_kubernetes_operations_total` and `mcp_kubernetes_operation_duration_seconds` carry an `error_class` on `status="error"`: one of ten fixed classes from the API status reason or the transport error, never the error text. `forbidden`, `unauthorized`, `not_found` (including a resource type the cluster does not serve), `conflict`, `invalid` and `canceled` are the caller's; `timeout`, `unavailable`, `server_error` and `other` the platform's. Helm chart: `MCPKubernetesK8sOperationFailures` and `MCPKubernetesClusterOperationFailures` count only the platform's classes over all operations, so a caller denied by RBAC no longer moves their ratio; the administrator and cluster-operator dashboards show the operation errors by class (giantswarm/mcp-kubernetes#611).
+
+## [1.9.0] - 2026-09-29
+
+### Added
+
+* `resourceType` accepts kubectl's group-qualified form, `<resource>.<group>` or `<resource>.<version>.<group>` (e.g. `clusters.cluster.x-k8s.io`, `deployments.v1.apps`), in get, list, describe, delete, patch and scale. A version named there can be any version the server serves, preferred or not, and a version it does not serve is refused, as in kubectl. If the server refuses or fails the lookup of that version, the error says so. A group or version that conflicts with `apiGroup` is refused with an error that names both. `list` of `events.events.k8s.io` keeps the events handling: newest first, the wider scan and the slim output.
+
+## [1.8.7] - 2026-09-29
+
+### Refactored
+
+* CI: an empty `.nancy-ignore` is committed, so the "Fix Go vulnerabilities" workflow can commit the ignore entries that nancy-fixer adds to it.
+
+## [1.8.5] - 2026-09-29
+
+### Security
+
+* Secret masking is always on: no server configuration returns Secret data. The `MaskSecrets` output setting is gone; the Helm chart accepts and ignores `capiMode.output.maskSecrets` and no longer sets `OUTPUT_MASK_SECRETS`, which the server never read. Masking now also covers the `kubectl.kubernetes.io/last-applied-configuration` annotation, which repeats a Secret's data, in the resource and in `describe`'s metadata block with `output: wide`; the `data` and `binaryData` of a ConfigMap whose name marks it as sensitive (`credentials`, `password`, `secret`, `auth`, `token`, `kubeconfig`); and the objects `create` and `apply` return (giantswarm/mcp-kubernetes#660).
+* `create` and `apply` parse their manifest: they failed on every call with `cannot unmarshal object into Go value of type runtime.Object`.
+
+## [1.8.4] - 2026-09-28
+
+### Fixed
+
+* Helm chart: a `startupProbe` on `/healthz` (90 s by default, `startupProbe.*` in values) holds the liveness probe off while the server waits up to 60 s for Valkey at start, so a Valkey that restarts with the server no longer gets the container restarted.
+
+## [1.8.3] - 2026-09-26
+
+### Fixed
+
+* OAuth with Valkey token storage waits for Valkey at start instead of exiting: while Valkey is not accepting connections yet (a credential rotation restarts both together), the server retries with backoff for up to 60 s, not ready meanwhile, rather than crash-looping; a wrong password still fails at once (mcp-oauth v1.4.9, giantswarm/mcp-oauth#591).
+
+## [1.8.2] - 2026-09-26
+
+### Security
+
+* Helm chart: `mcpKubernetes.oauth.registrationAccessToken` works. The chart passed `--registration-access-token`, a flag the server does not know, so a configured token crashed the pod at start; it now passes `--registration-token=$(REGISTRATION_TOKEN)`, expanded from the OAuth Secret, and the token no longer appears in the pod spec.
+
+## [1.8.0] - 2026-09-25
+
+### Security
+
+* OAuth with in-memory token storage (the default) logs a startup warning: sessions are lost on every pod restart and rolling update and are not shared between replicas; configure Valkey for production. The Helm chart's install notes say the same, and warn that OAuth does not work reliably with more than one replica or autoscaling on in-memory storage (giantswarm/mcp-kubernetes#229).
+
+## [1.7.0] - 2026-09-25
+
+### Security
+
+* OAuth with Valkey token storage refuses to start without a token encryption key (`OAUTH_ENCRYPTION_KEY` / `--oauth-encryption-key`): the tokens would sit in plaintext in a store that outlives the pod and that other workloads can reach. In-memory storage without a key still starts and warns. Helm chart: `mcpKubernetes.oauth.storage.type: valkey` requires `mcpKubernetes.oauth.encryptionKey: true`, otherwise the render fails (giantswarm/mcp-kubernetes#234).
+
+## [1.6.0] - 2026-09-25
+
+### Added
+
+* Server spans for the HTTP and MCP surface. Every request except the probes and `/metrics` is an HTTP server span (`POST /mcp`) joined to the caller's `traceparent`, every JSON-RPC request an `mcp.<method>` server span under it (`mcp.tools/call` carries `mcp.tool.name` and `gen_ai.tool.name`), and every tool handler a `tool.<name>` span. With `TRACING_EXPORTER=otlp` the server used to export no span at all (giantswarm/giantswarm#36711).
+
+## [1.5.0] - 2026-09-25
+
+### Security
+
+* The `sse` and `streamable-http` transports limit request bodies to `--max-request-size` bytes (default 5 MiB, also `MAX_REQUEST_SIZE`); a larger request gets `413 Request Entity Too Large` before it reaches a handler, a body without `Content-Length` is cut off at the limit. The limit covers the MCP, OAuth and health endpoints. Helm chart: `mcpKubernetes.maxRequestSize`, passed as `MAX_REQUEST_SIZE` so an `image.tag` pinned to an older release still starts (giantswarm/mcp-kubernetes#235).
+
+## [1.4.0] - 2026-09-25
+
+### Security
+
+* The `sse` and `streamable-http` transports refuse to start without authentication. Without OAuth they accepted every request that reached them and ran it with the server's Kubernetes credentials. `streamable-http` authenticates with OAuth (`--enable-oauth`, unchanged) or a static bearer token, `sse` with the bearer token: the token (at least 32 characters) comes from `MCP_KUBERNETES_AUTH_TOKEN`, and every request to the MCP endpoints must send `Authorization: Bearer <token>`, otherwise it gets `401`. The health endpoints stay open. `--enable-oauth` with `--transport sse`, which used to start without any authentication, and OAuth together with a bearer token are refused as well. `stdio` is unchanged. Helm chart: with `mcpKubernetes.oauth.enabled: false` the server reads the token from the `auth-token` key of `mcpKubernetes.auth.existingSecret`, or from the chart-managed `<fullname>-auth-token` Secret with a generated token that upgrades keep; with OAuth nothing changes (giantswarm/mcp-kubernetes#233).
+
+## [1.3.0] - 2026-09-25
+
+### Added
+
+* OTLP export over gRPC and with headers. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` sends traces (and OTLP metrics) over gRPC instead of OTLP/HTTP, the default; `OTEL_EXPORTER_OTLP_HEADERS` goes out with every export, e.g. `X-Scope-OrgID` for a multi-tenant collector. Chart: `mcpKubernetes.instrumentation.otlpProtocol` (`""`, `grpc`, `http/protobuf`) and `otlpHeaders` render them only when set, so a default install is unchanged (giantswarm/giantswarm#36711).
+
+## [1.2.33] - 2026-09-24
+
+### Fixed
+
+* `self-update` replaces the binary, symbolic links resolved, with a single rename (`selfupdatecosign.Install`, selfupdate-cosign v0.3.0). go-selfupdate's own swap moved the binary aside before it moved the new one in, so a process started in between found none, and concurrent updates could lose it. Now a process started meanwhile runs the old binary or the new one, several updates may run at once, and the binary keeps its mode.
+
+## [1.2.26] - 2026-09-23
+
+### Fixed
+
+* The `helm.sh/chart` label is valid for any chart version. The label is `<name>-<version>` cut to 63 characters, and the cut of a long version (a branch build's `X.Y.Z-dev.<branch>.<date>.<time>.h<sha7>`, or the `<tag>+<digest>` helm-controller installs) could end in `.`, `_` or `--.`, which the API server refuses for every labelled object; the whole run of `-`, `.` and `_` at the ends of the cut is now trimmed, and a helm-unittest suite renders the label for such versions ([#634](https://github.com/giantswarm/mcp-kubernetes/issues/634)).
+
+## [1.2.24] - 2026-09-23
+
+### Fixed
+
+* The server rolls when its OAuth credentials change. The pod template carries a `checksum/oauth-secret` annotation: the SHA-256 of the chart-rendered Secret's data, or the new `mcpKubernetes.oauth.existingSecretChecksum` value verbatim when the credentials come from an existing Secret the chart cannot read, so whoever rotates that Secret changes the value in the same change; a Valkey password in its own Secret is marked by `storage.valkey.existingSecretChecksum` as `checksum/valkey-secret`. Before, a client secret, registration token, encryption key or Valkey password rotated in the Secret left the running pod on the old values until a hand-run restart, and the server and Dex, or the server and its Valkey, disagreed as soon as one of them restarted. Chart unit tests pin the annotations; the new `chart-test` CircleCI job runs the suites, which no job ran before.
+* An inline `mcpKubernetes.oauth.storage.valkey.password` reaches the server. The chart wrote it into its Secret as `valkey-password` but rendered the `VALKEY_PASSWORD` environment variable only for an existing Secret, so the server connected to Valkey without a password. `mcpKubernetes.oauth.encryptionKeyValue`, the key the chart-rendered Secret carries when `encryptionKey` is true, is declared in `values.yaml`; the generated schema rejected it before.
+
+## [1.2.20] - 2026-09-15
+
+### Fixed
+
+* Drop the version badges from the chart README so a release PR's `Chart.yaml` version bump no longer leaves `README.md` stale and fails the helm-docs pre-commit hook.
+
+## [1.2.9] - 2026-09-09
+
+### Added
+
+* Helm chart: the OAuth settings fall back to the platform identity contract a parent chart forwards as `global.identity` / `global.domain` (the agent-platform meta chart): `mcpKubernetes.oauth.dex.issuerURL` from `global.identity.issuerUrl`, `dex.clientID` from `global.identity.clientId`, `existingSecret` from `global.identity.existingSecret`, `dex.caSecret.{name,key}` from `global.identity.ca.{secretName,key}`, `trustedAudiences` from `[global.identity.clientId]` and `baseURL` from `https://<fullname>.<global.domain>`. A fallback applies only where the local value is empty: explicit `mcpKubernetes.oauth.*` values win, `oauth.enabled` and `enableDownstreamOAuth` stay explicit, and a chart installed without `global.identity` renders exactly as before. `values.yaml` documents the contract under `global`; the schema keeps `global` open for the other keys a parent chart forwards.
+
+## [1.2.4] - 2026-09-08
+
+### Changed
+
+* Every alert waits for traffic before it judges a failure rate. The five alerts are error ratios, and with downstream OAuth each call runs as the caller, so on a quiet installation one caller denied on one namespace is 100% of the traffic: `MCPKubernetesK8sOperationFailures` fired on gazelle on 2026-09-08 over fifteen failed `list` calls and nothing else in the window. Each expression now also requires its denominator to have counted at least `prometheusRules.minimumVolume` events (default `20`; HTTP requests, Kubernetes operations or authentication attempts, taken with `increase()` over the alert's own window and the same `by (cluster_id, installation, pipeline, provider, namespace, ...)` labels) before the ratio is compared with its threshold. At the 20% threshold that is at least five failing calls, at 30% at least seven. A week of traffic on gazelle and three customer installations puts 20 above every quarter-hour in which a ratio alert would have fired, including the fifteen-call burst, and within reach of an ordinary agent session (the busiest quarter-hours of the week counted 22 operations and 35 authentications on gazelle). The alert's value and description are unchanged; `0` turns the guard off. Chart unit tests pin the guard on all five expressions.
+
+## [1.2.3] - 2026-09-08
+
+### Changed
+
+* The classified-cluster label on the metrics is `target_cluster_type`. It was `cluster_type` on `mcp_kubernetes_operations_total`, `mcp_kubernetes_operation_duration_seconds` and `mcp_kubernetes_wc_auth_total`, and `cluster` on `mcp_kubernetes_impersonation_total` and `mcp_kubernetes_federation_client_creations_total` (whose descriptions already claimed `cluster_type`); the values are unchanged (`management`, `production`, `staging`, `development`, `cicd`, `operations`, `other`). Prometheus remote-write external labels never overwrite a label a series already carries, and Giant Swarm's observability platform stamps every series with its own `cluster_type` (`management_cluster` / `workload_cluster`) to say where the exporter runs, so the series-level label shadowed it: on gazelle `mcp_kubernetes_operations_total` reached Mimir as `cluster_type="management"`, and every fleet-wide query or central rule filtering `cluster_type="management_cluster"` missed mcp-kubernetes entirely. The audit-log field (`cluster_type` → `target_cluster_type`) and the span attribute (`mcp.cluster_type` → `mcp.target_cluster_type`) follow so the three signals share one name. The chart's three dashboards and `docs/observability.md` use the new label. **Breaking for dashboard and query consumers:** the old labels are not emitted alongside, because a compatibility alias would keep the collision; own dashboards, recording rules and saved queries that mention `cluster_type` or `by (cluster)` on these metrics need the new name. On Giant Swarm installations `cluster_type` on these series now means what it means on every other series.
+
+## [1.2.2] - 2026-09-08
+
+### Fixed
+
+* `MCPKubernetesOAuthFailures` can fire. The alert counted `oauth_downstream_auth_total{result="failure"}`, a result only the non-strict fallback path and the federation client provider record. Downstream OAuth always runs in strict mode, which records `result="denied"` when a request passed the OAuth middleware but mcp-kubernetes could not act as the caller (no ID token reached the tool layer, or the per-user or impersonation client could not be built), so on a production deployment the alert could never fire: a week of gazelle traffic held only `success`. The ratio now counts `result=~"failure|denied"` over every result, still aggregated `by (cluster_id, installation, pipeline, provider, namespace)`; `fallback` stays out because that request was served. The security dashboard's "Auth Failures (24h)" stat counts the same two results, and a chart unit test pins the result set.
+
+## [1.2.1] - 2026-09-08
+
+### Added
+
+* Alerts link the chart's own Grafana dashboards. When `grafanaDashboards.enabled` is set, every alert carries `__dashboardUid__` (`mcp-k8s-administrator` for the request, management-cluster operation and OAuth alerts; `mcp-k8s-cluster-operator` for the federation alerts) and `dashboardQueryParams` preselecting the release's namespace, which the Giant Swarm Alertmanager turns into the notification's Dashboard link. With `grafanaDashboards.giantswarm.enabled` the params pin `orgId=2`, the Giant Swarm organization the dashboards are provisioned into.
+
+### Fixed
+
+* Alert notifications name the cluster again. Every expression in the chart's `PrometheusRule` aggregated with a plain `sum()` or `sum by (operation)`, which dropped the `cluster_id`, `installation`, `pipeline`, `provider` and `namespace` labels the Giant Swarm Alertmanager groups on, prints (`Cluster: <installation> / <cluster_id>`) and inhibits on (`cancel_if_cluster_control_plane_unhealthy` matches `equal: [cluster_id]`, so it never applied). `MCPKubernetesK8sOperationFailures` fired on gazelle on 2026-09-08 with an empty `Cluster:` line. All five alerts now aggregate `by (cluster_id, installation, pipeline, provider, namespace)` plus their own dimension (`operation`, `auth_mode`), and name the installation and namespace in their description.
+* Runbook links resolve. `prometheusRules.runbookBaseUrl` defaulted to a `docs/runbooks` directory that does not exist in this repository, so every alert's Runbook link was a 404. It now defaults to the intranet runbooks (`https://intranet.giantswarm.io/docs/support-and-ops/runbooks`); the alerts link `mcp-kubernetes-high-error-rate`, `mcp-kubernetes-operation-failures` and `mcp-kubernetes-auth-failures` with `?INSTALLATION=&CLUSTER=` filled in from the alert's labels, and the two federation alerts jump to their own section of the shared page.
+
+## [1.0.45] - 2026-08-25
+
+### Changed
+
+* `prometheusRules.labels` now defaults to `observability.giantswarm.io/tenant: giantswarm`. Mimir's `rule_selector` matches on that label: a PrometheusRule without it is accepted by the API server and never loaded into the ruler, so its alerts silently never evaluate. The chart shipped no default, so enabling `prometheusRules` without also supplying the label produced five alerts that could not fire. Helm merges values maps, so an installation setting an unrelated label keeps the default; override the key to route to another tenant, or set it to `null` to drop the label. See https://github.com/giantswarm/giantswarm/issues/37445.
+
+## [1.0.44] - 2026-08-24
+
+### Fixed
+
+* `values-prometheus-rules-giantswarm.yaml` sets `prometheusRules.team` to `bumblebee`, matching the chart default. It named `planeteers`, so anyone following the example routed the alerts to the wrong team.
+
+## [1.0.43] - 2026-08-24
+
+### Fixed
+
+* `values.schema.json` accepts user-defined keys again in the chart's free-form maps: `capiMode.workloadClusterAuth.groupMappings`, `podAnnotations`, `podLabels`, `nodeSelector`, `affinity`, `serviceAccount.annotations`, `ingress.annotations`, `gatewayAPI.httpRoute.{annotations,labels}`, `gatewayAPI.backendTrafficPolicy.{annotations,labels}`, `mcpKubernetes.instrumentation.serviceMonitor.{annotations,labels}`, `grafanaDashboards.{labels,annotations}`, `prometheusRules.{labels,annotations}` and `ciliumNetworkPolicy.{labels,annotations}`. Since 1.0.40 these carried `additionalProperties: false` with no allowed properties, so any value set under them was rejected with `additional properties '<key>' not allowed` and the Helm install or upgrade failed.
+
+## [1.0.23] - 2026-07-30
+
+### Added
+
+* Compact `list` output for Pods now reports four additional `extra` fields, so pod health can be judged from live state instead of from events: `reason` (`status.reason` — `Evicted`, `NodeShutdown`, …), `terminating` (`true` when `metadata.deletionTimestamp` is set), `waitingReasons` (distinct `containerStatuses[*].state.waiting.reason` — `CrashLoopBackOff`, `ImagePullBackOff`, `CreateContainerConfigError`, …) and `lastTerminationReason` (distinct `containerStatuses[*].lastState.terminated.reason` — `OOMKilled`, `Error`, …). This closes two blind spots: a crashlooping pod reports `status.phase: Running`, so restart loops previously had to be inferred from `reason=BackOff` events, which outlive the pod they describe and so kept reporting loops a replacement pod had already resolved; and an evicted husk was indistinguishable from a live failure, since both report `Failed` with `0/N` ready. The reason lists are de-duplicated and sorted, and all four keys are omitted when empty, so healthy pods pay nothing.
+
+### Fixed
+
+* `list` now returns events **newest-first** (by `lastTimestamp`, then `eventTime`, then `firstTimestamp` — the same precedence reported as `lastSeen`, and the same ordering `describe` already applied to its embedded events). Previously `list` preserved the API server's namespace/name order and truncation kept a prefix, so `{"resourceType": "events", "limit": 15}` returned an arbitrary alphabetical slice: stale events were returned preferentially while current ones were truncated away, and callers asking for recent activity were reliably handed old events.
+
+  Because the API server applies `limit` in its own key order before any client-side sort can see the data, ordering alone would only have reordered that already-arbitrary page. Event queries are therefore scanned up to an internal ceiling of 5000 matching events, sorted, and only then truncated to `limit` — the same shape as the `describe` path (which fetches every event for the object with no server limit, then sorts and truncates) and as `kubectl get events --sort-by=.lastTimestamp`. Kubernetes offers neither server-side sorting nor a time-based field selector for events, so this is the only way to deliver the guarantee.
+
+  Two visible consequences: a scan that reaches the ceiling is reported (`metadata.ordering` in compact output, `_meta.hint` with `fullOutput: true`) rather than silently passing as complete; and an event query returns no `continue` token, since "the next N by recency" is not expressible as a position in key-order pagination — passing a `continue` token opts out of the widened scan and serves that page in unsorted API order.
+
+  Events with no parseable timestamp sort last. Other resource types are unaffected: they keep API order and their existing server-side paging.
+* `summary: true` no longer reports every DaemonSet as `Scaled to Zero`. DaemonSets were routed through the generic workload status extractor, which reads `spec.replicas` / `status.readyReplicas` / `status.availableReplicas` — fields a DaemonSet does not have. `spec.replicas` therefore read as 0 and the whole fleet bucketed as `Scaled to Zero`, hiding genuine degradation behind a benign-looking label. DaemonSets now bucket on `status.desiredNumberScheduled` / `numberReady` / `numberAvailable`, yielding `Ready` / `Partially Ready` / `NotReady` (and `Scaled to Zero` only when `desiredNumberScheduled` really is 0, e.g. no node matches the selector).
+
+## [1.0.0] - 2026-07-02
+
+### Changed
+
+* Dex CA trust for the SSO forwarded-ID-token JWKS path is now passed to mcp-oauth as explicit config instead of being installed on `http.DefaultTransport`. `--dex-ca-file` / `oauth.dex.caSecret` now builds a CA pool that is set on the mcp-oauth server config (`JWKSRootCAs`) and trusted-issuer entries, and on the Dex provider client — removing `installDexCAOnDefaultTransport`. Pairs with the mcp-oauth change that drops the `http.DefaultTransport` CA read ([mcp-oauth#498](https://github.com/giantswarm/mcp-oauth/pull/498) / [#495](https://github.com/giantswarm/mcp-oauth/issues/495)), released in mcp-oauth v1.0.0. No behavior change for garm and other internal-CA installs once deployed. See https://github.com/giantswarm/giantswarm/issues/37059.
+* **deps:** update module github.com/giantswarm/mcp-oauth to v1.0.0.
+
+## [0.12.2] - 2026-07-02
+
+### Fixed
+
+* Team ownership: chart now labels resources `application.giantswarm.io/team: bumblebee` (was `team-bumblebee`, which did not match `team="bumblebee"` routing), and defaults the alert team to `bumblebee` (was `planeteers`).
+
+## [0.12.1] - 2026-07-01
+
+### Fixed
+
+* SSO forwarded-ID-token validation now works against an internal-CA Dex. When `oauth.dex.caSecret` (`DEX_CA_FILE`) is set, the CA is now also installed on `http.DefaultTransport`, which the mcp-oauth SSO forwarded-token JWKS client uses when `oauth.sso.allowPrivateIPs` (`SSO_ALLOW_PRIVATE_IPS`) is enabled. Previously `DEX_CA_FILE` only applied to the Dex provider client, so forwarded ID tokens from an internal-CA Dex were rejected with `x509: certificate signed by unknown authority` and every downstream Kubernetes tool call failed with `authentication required: please log in to access this resource`. This relies on the matching mcp-oauth `getJWKSClient` change (mcp-oauth#492), pulled in by the bump to `mcp-oauth v0.18.8` in this PR. See https://github.com/giantswarm/giantswarm/issues/37059.
+
+## [0.12.0] - 2026-07-01
+
+### Added
+
+* `trustedIssuers[].subjectClaim`: names the verified claim whose value becomes the impersonated subject, replacing the standard `sub` (set to `email` for the muster-obo issuer). When set, the impersonated-subject pattern lives under that key in `allowedClaims` (e.g. `allowedClaims.email`). mcp-oauth evaluates `allowedClaims` against the raw token at validation time and rejects a token whose subject does not match, before the request reaches the access-token injector.
+* External-issuer tokens carrying an RFC 8693 `act` claim take the on-behalf-of impersonation branch. `Impersonate-User` is set to the human subject and `Impersonate-Group` to `system:authenticated`; no `Impersonate-Extra-*` headers are sent. A token without an `act` claim is rejected.
+
+### Changed
+
+* External-issuer tokens are classified as `trusted-issuer`; the on-behalf-of branch keys off `UserInfo.IsOBO()` (the RFC 8693 `act` claim) and the email-check bypass off `UserInfo.IsExternalIssuer()`.
+
+### Removed
+
+* M2M (machine-to-machine) trusted-issuer support. The `trustedIssuers[].impersonateUser`, `impersonateGroups`, `alias`, and `allowedActors` (with per-actor `allowedSubjects`) fields are removed, along with the per-alias Namespace, `impersonate serviceaccounts` Role/RoleBinding, and per-alias ClusterRole. A trusted-issuer token with no RFC 8693 `act` claim is now rejected (403); only on-behalf-of (an agent acting for a human) is accepted, and any validated trusted-issuer actor is allowed (the impersonated human's Kubernetes RBAC governs access). The per-issuer impersonation RBAC is consolidated into a single `*-obo-impersonate` ClusterRole granting `impersonate users` and `impersonate groups` (`system:authenticated`) only; no `userextras/*` grant. Requires mcp-oauth v0.18.7.
 
 ## [0.1.73] - 2026-05-05
 
@@ -1702,7 +1836,44 @@ Initial release
 
 - Kubernetes client package implementation ([#3](https://github.com/giantswarm/mcp-kubernetes/pull/3))
 
-[Unreleased]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.73...HEAD
+[Unreleased]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)...HEAD
+[1.12.1-rc.1]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.12.0...v1.12.1-rc.1
+[1.12.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.11.5-rc.1...v1.12.0
+[1.11.5-rc.1]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.11.3...v1.11.5-rc.1
+[1.11.3]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.11.3-rc.2...v1.11.3
+[1.11.3-rc.2]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.11.2...v1.11.3-rc.2
+[1.11.2]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.11.0...v1.11.2
+[1.11.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.10.0...v1.11.0
+[1.10.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.9.0...v1.10.0
+[1.9.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.8.7...v1.9.0
+[1.8.7]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.8.5...v1.8.7
+[1.8.5]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.8.4...v1.8.5
+[1.8.4]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.8.3...v1.8.4
+[1.8.3]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.8.2...v1.8.3
+[1.8.2]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.8.0...v1.8.2
+[1.8.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.33...v1.3.0
+[1.2.33]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.26...v1.2.33
+[1.2.26]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.24...v1.2.26
+[1.2.24]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.20...v1.2.24
+[1.2.20]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.9...v1.2.20
+[1.2.9]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.4...v1.2.9
+[1.2.4]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.3...v1.2.4
+[1.2.3]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.2...v1.2.3
+[1.2.2]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.0.45...v1.2.1
+[1.0.45]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.0.44...v1.0.45
+[1.0.44]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.0.43...v1.0.44
+[1.0.43]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.0.23...v1.0.43
+[1.0.23]: https://github.com/giantswarm/mcp-kubernetes/compare/v1.0.0...v1.0.23
+[1.0.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.12.2...v1.0.0
+[0.12.2]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.12.1...v0.12.2
+[0.12.1]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.73...v0.12.0
 [0.1.73]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.72...v0.1.73
 [0.1.72]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.71...v0.1.72
 [0.1.71]: https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.70...v0.1.71
