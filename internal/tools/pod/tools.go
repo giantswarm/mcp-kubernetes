@@ -1,6 +1,7 @@
 package pod
 
 import (
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -15,8 +16,8 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 
 	// logs tool
 	logsOpts := []mcp.ToolOption{
-		mcp.WithDescription("Get logs from a pod container"),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("Get logs from a pod container", ""),
+		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
 	}
@@ -63,7 +64,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	// exec tool
 	if tools.IsMutatingOperationAllowed(sc, "exec") {
 		execOpts := []mcp.ToolOption{
-			mcp.WithDescription("Execute a command inside a pod container"),
+			tooldesc.Describe("Execute a command inside a pod container", ""),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(false),
@@ -106,7 +107,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 	if !sc.InClusterMode() && tools.IsMutatingOperationAllowed(sc, "port-forward") {
 		// port_forward tool
 		portForwardOpts := []mcp.ToolOption{
-			mcp.WithDescription("Port-forward to a pod or service"),
+			tooldesc.Describe("Port-forward to a pod or service", ""),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(false),
 			mcp.WithIdempotentHintAnnotation(false),
@@ -128,7 +129,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 				mcp.Description("Name of the pod or service to port-forward to"),
 			),
 			mcp.WithString("podName",
-				mcp.Description("Deprecated: use 'resourceName' instead. Retained for backward compatibility with older clients; if set and 'resourceName' is empty, the value is used as the pod name."),
+				mcp.Description("Deprecated: use resourceName. Used as the pod name when resourceName is empty."),
 			),
 			mcp.WithArray("ports",
 				mcp.Required(),
@@ -142,8 +143,8 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 
 		// list_port_forward_sessions tool
 		listSessionsTool := mcp.NewTool("list_port_forward_sessions",
-			mcp.WithDescription("List all active port forwarding sessions"),
-			mcp.WithReadOnlyHintAnnotation(true),
+			tooldesc.Describe("List all active port forwarding sessions", ""),
+			tools.ReadOnly(),
 			mcp.WithOpenWorldHintAnnotation(false),
 			mcp.WithSchemaAdditionalProperties(false),
 		)
@@ -152,7 +153,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 
 		// stop_port_forward_session tool
 		stopSessionTool := mcp.NewTool("stop_port_forward_session",
-			mcp.WithDescription("Stop a specific port forwarding session by ID"),
+			tooldesc.Describe("Stop a specific port forwarding session by ID", ""),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(false),
@@ -168,7 +169,7 @@ func RegisterPodTools(s *mcpserver.MCPServer, sc *server.ServerContext) error {
 
 		// stop_all_port_forward_sessions tool
 		stopAllSessionsTool := mcp.NewTool("stop_all_port_forward_sessions",
-			mcp.WithDescription("Stop all active port forwarding sessions"),
+			tooldesc.Describe("Stop all active port forwarding sessions", ""),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(true),

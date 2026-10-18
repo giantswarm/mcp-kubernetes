@@ -284,6 +284,8 @@ The endpoint path is configurable via `mcpKubernetes.httpEndpoint` in the Helm v
 
 ## Available Tools
 
+Every tool's description and input schema, as a model reads them: [docs/tools.md](docs/tools.md) (generated with `make tools-doc`, kept current by a test).
+
 The MCP server provides the following tools. The 15 tools that previously had a `kubernetes_` prefix remain invokable under their old `kubernetes_<name>` names as deprecated backward-compat aliases, but are hidden from `tools/list` so new clients only see the bare names below. The aliases will be removed in a future release; please migrate.
 
 ### Resource Management
