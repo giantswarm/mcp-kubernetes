@@ -13,9 +13,9 @@ import (
 // comes back. Before cutting any other sentence, find its pull request with
 // git log -S'<sentence>' and read why it is there.
 
-func toolByName(t *testing.T, name string) mcp.Tool {
+func toolByName(t *testing.T, all []mcp.Tool, name string) mcp.Tool {
 	t.Helper()
-	for _, tool := range allTools(t) {
+	for _, tool := range all {
 		if tool.Name == name {
 			return tool
 		}
@@ -35,7 +35,7 @@ func paramDescription(t *testing.T, tool mcp.Tool, param string) string {
 // TestListKeepsItsOrderingFacts: agents reported healthy clusters as broken
 // because a limited event list handed them stale events (#559).
 func TestListKeepsItsOrderingFacts(t *testing.T) {
-	d := toolByName(t, "list").Description
+	d := toolByName(t, allTools(t), "list").Description
 	for fact, why := range map[string]string{
 		"newest first":        "limit on events must read as the most recent activity",
 		"alphabetical prefix": "a limited list of any other type is not the newest or the worst",
@@ -49,8 +49,9 @@ func TestListKeepsItsOrderingFacts(t *testing.T) {
 // TestNamespaceSaysClusterScopedIgnoreIt: agents spent 10+ calls trying
 // namespaces for cluster-scoped resources such as nodes (#191).
 func TestNamespaceSaysClusterScopedIgnoreIt(t *testing.T) {
+	all := allTools(t)
 	for _, name := range []string{"get", "describe", "delete", "patch", "list"} {
-		d := paramDescription(t, toolByName(t, name), "namespace")
+		d := paramDescription(t, toolByName(t, all, name), "namespace")
 		assert.Contains(t, d, "default 'default'", "%s.namespace lost a fact from #191: the default namespace", name)
 		assert.Contains(t, d, "Ignored for cluster-scoped resources", "%s.namespace lost a fact from #191: cluster-scoped resources take no namespace", name)
 	}

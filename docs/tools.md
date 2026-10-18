@@ -1,6 +1,6 @@
 # The tools
 
-Generated from the registered tools (`make tools-doc`); through muster every tool is `x_<server>_<name>`. This page lists every tool; a deployment serves a subset by its mode: the context tools and port forwarding only outside the cluster, create, apply, delete, patch, scale, exec and port forwarding only where mutations are allowed, the CAPI tools only with federation.
+Generated from the registered tools (`make tools-doc`); through muster every tool is `x_<server>_<name>`. This page lists every tool; a deployment serves a subset by its mode: the context tools and port forwarding only outside the cluster, create, apply, delete, patch, scale, exec and port forwarding only where mutations are allowed, the CAPI tools only with federation. Parameters vary the same way: `cluster` only with federation, `kubeContext` only outside the cluster.
 
 | Tool | Kind |
 |---|---|
@@ -387,6 +387,8 @@ Delete a Kubernetes resource.
 
 ```text
 Get detailed information about a Kubernetes resource, including its events.
+
+Secret data is always masked.
 ```
 
 ```json
@@ -402,7 +404,7 @@ Get detailed information about a Kubernetes resource, including its events.
       "type": "string"
     },
     "eventsLimit": {
-      "description": "Most events to return, newest first (default 50, at most 1000); totalEvents and eventsTruncated tell when clipped.",
+      "description": "Most events to return, newest first (default 50, at most 1000); totalEvents and eventsTruncated tell when clipped. output does not shape them.",
       "maximum": 1000,
       "minimum": 1,
       "type": "number"
@@ -420,7 +422,7 @@ Get detailed information about a Kubernetes resource, including its events.
       "type": "string"
     },
     "output": {
-      "description": "slim (default: HelmRelease values and history dropped, long env lists counted), normal (only noise stripped), or wide/full. Events: eventsLimit.",
+      "description": "normal strips managedFields, ownerReferences, finalizers; slim (default) also HelmRelease values/history, long env lists; wide/full keep all.",
       "enum": [
         "slim",
         "normal",
@@ -497,6 +499,8 @@ Execute a command inside a pod container
 
 ```text
 Get a specific Kubernetes resource by name.
+
+Secret data is always masked.
 ```
 
 ```json
@@ -524,7 +528,7 @@ Get a specific Kubernetes resource by name.
       "type": "string"
     },
     "output": {
-      "description": "slim (default: HelmRelease values and history dropped, long env lists counted), normal (only noise stripped), or wide/full. Secrets always masked.",
+      "description": "normal strips managedFields, ownerReferences, finalizers; slim (default) also HelmRelease values/history, long env lists; wide/full keep all.",
       "enum": [
         "slim",
         "normal",
@@ -575,7 +579,7 @@ limit takes events newest first: an event query scans at most 5000 matches (the 
       "type": "string"
     },
     "fieldSelector": {
-      "description": "Indexed fields only: metadata.name and .namespace on any Kind; pods also spec.nodeName, status.phase; events reason, type, involvedObject.*.",
+      "description": "Indexed fields only, per Kind: metadata.name, .namespace on all; e.g. pods spec.nodeName, status.phase; events reason, type, involvedObject.*.",
       "type": "string"
     },
     "filter": {
@@ -612,7 +616,7 @@ limit takes events newest first: an event query scans at most 5000 matches (the 
       "type": "string"
     },
     "output": {
-      "description": "With fullOutput: slim (default, noise stripped), normal, or wide/full (whole, the only ones keeping ownerReferences). Secrets are always masked.",
+      "description": "With fullOutput: normal strips managedFields, ownerReferences, finalizers; slim (default) also per-Kind fields; wide/full keep all. Secrets masked.",
       "enum": [
         "slim",
         "normal",

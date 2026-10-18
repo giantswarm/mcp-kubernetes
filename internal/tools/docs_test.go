@@ -23,7 +23,8 @@ import (
 
 const docsHeader = "# The tools\n\nGenerated from the registered tools (`make tools-doc`); through muster every tool is `x_<server>_<name>`. " +
 	"This page lists every tool; a deployment serves a subset by its mode: the context tools and port forwarding only outside the cluster, " +
-	"create, apply, delete, patch, scale, exec and port forwarding only where mutations are allowed, the CAPI tools only with federation."
+	"create, apply, delete, patch, scale, exec and port forwarding only where mutations are allowed, the CAPI tools only with federation. " +
+	"Parameters vary the same way: `cluster` only with federation, `kubeContext` only outside the cluster."
 
 // registeredTools registers every tool group as cmd/serve.go does, in the
 // mode that registers the most (outside the cluster, mutations allowed,
@@ -77,9 +78,7 @@ func TestReadOnlyToolsAreNotDestructive(t *testing.T) {
 		if a.ReadOnlyHint == nil || !*a.ReadOnlyHint {
 			continue
 		}
-		require.NotNil(t, a.DestructiveHint, tool.Name)
-		require.False(t, *a.DestructiveHint, "%s is read-only but reported destructive", tool.Name)
-		require.NotNil(t, a.IdempotentHint, tool.Name)
-		require.True(t, *a.IdempotentHint, "%s is read-only but not reported idempotent", tool.Name)
+		require.Equal(t, mcp.ToBoolPtr(false), a.DestructiveHint, "%s is read-only but reported destructive", tool.Name)
+		require.Equal(t, mcp.ToBoolPtr(true), a.IdempotentHint, "%s is read-only but not reported idempotent", tool.Name)
 	}
 }

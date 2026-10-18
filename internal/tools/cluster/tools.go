@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"fmt"
+
 	"github.com/giantswarm/mcp-toolkit/tooldesc"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -56,7 +58,7 @@ func RegisterClusterTools(s *mcpserver.MCPServer, sc *server.ServerContext) erro
 		mcp.WithNumber("nodesLimit",
 			mcp.Min(1),
 			mcp.Max(MaxNodesLimit),
-			mcp.Description("Most nodes to include (default 20, at most 1000); readyNodes and totalNodes count them all."),
+			mcp.Description(fmt.Sprintf("Most nodes to include (default %d, at most %d); readyNodes and totalNodes count them all.", DefaultNodesLimit, MaxNodesLimit)),
 		),
 		mcp.WithBoolean("includeNodeConditions",
 			mcp.Description("Include the full per-node conditions array in the response (default: false). The Ready field on each node already conveys overall readiness."),
