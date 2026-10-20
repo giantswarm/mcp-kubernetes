@@ -555,7 +555,7 @@ Secret data is always masked.
 ```text
 List Kubernetes resources of a type, narrowed by namespace, label or field selectors, or a client-side filter.
 
-limit takes events newest first: an event query scans at most 5000 matches (the answer says when it hit that: narrow it) and returns no continue token; passing one gives unsorted API order. Every other type comes in API order (namespace/name), so limit takes an alphabetical prefix, not the newest or the worst. Nothing selects by age: filter matches exact values. Examples: {"resourceType": "pods", "allNamespaces": true}, {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}.
+limit takes events newest first: an event query scans at most 5000 matches (the answer says when it hit that: narrow it) and returns no continue token; passing one gives unsorted API order. Every other type comes in API order (namespace/name), so limit takes an alphabetical prefix, not the newest or the worst. Nothing selects by age, filter included. Examples: {"resourceType": "pods", "allNamespaces": true}, {"resourceType": "clusters", "apiGroup": "cluster.x-k8s.io"}.
 ```
 
 ```json
@@ -583,12 +583,12 @@ limit takes events newest first: an event query scans at most 5000 matches (the 
       "type": "string"
     },
     "filter": {
-      "description": "Client-side filter for what selectors cannot do: dot paths, [*] over arrays, e.g. {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"}.",
+      "description": "Client-side, ANDed: dot path ([*] over arrays; \"images\" = every container image) to a value or {\"op\": \"prefix|suffix|contains|regex\", \"value\": \"…\"}.",
       "properties": {},
       "type": "object"
     },
     "fullOutput": {
-      "description": "Return full manifests instead of the compact per-Kind summary (default false); output applies only then.",
+      "description": "Return full manifests instead of the compact per-Kind summary with images and owner (default false); output applies only then.",
       "type": "boolean"
     },
     "includeAnnotations": {

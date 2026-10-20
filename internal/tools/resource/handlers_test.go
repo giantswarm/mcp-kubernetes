@@ -3,6 +3,7 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -1072,4 +1073,84 @@ func TestAppendHint(t *testing.T) {
 	assert.Equal(t, "existing", appendHint("existing", ""))
 	assert.Equal(t, "existing; note", appendHint("existing", "note"))
 	assert.Equal(t, "", appendHint("", ""))
+}
+
+// listK8sClient answers every list with copies of its items.
+type listK8sClient struct {
+	testdata.MockK8sClient
+	items []*unstructured.Unstructured
+}
+
+func (m *listK8sClient) List(context.Context, string, string, string, string, k8s.ListOptions) (*k8s.PaginatedListResponse, error) {
+	items := make([]runtime.Object, 0, len(m.items))
+	for _, item := range m.items {
+		items = append(items, item.DeepCopy())
+	}
+	return &k8s.PaginatedListResponse{Items: items, TotalItems: len(items)}, nil
+}
+
+// TestListImagePrefixScan is the fleet-scan call: one list with a prefix
+// filter on images returns only the pods using the registry, each with its
+// images and controller in the compact summary, in every output format.
+func TestListImagePrefixScan(t *testing.T) {
+	owned := createTestWorkload("Pod", "web-5d4f8-abcde", map[string][]string{
+		"containers":     {"quay.io/app:1"},
+		"initContainers": {"registry.example/org/migrate:1"},
+	})
+	require.NoError(t, unstructured.SetNestedSlice(owned.Object, []any{
+		map[string]any{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-5d4f8", "uid": "1", "controller": true},
+	}, "metadata", "ownerReferences"))
+	elsewhere := createTestWorkload("Pod", "other", map[string][]string{"containers": {"quay.io/app:1"}})
+
+	sc, err := server.NewServerContext(context.Background(),
+		server.WithK8sClient(&listK8sClient{items: []*unstructured.Unstructured{owned, elsewhere}}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	for _, format := range []string{"", "slim", "normal", "wide", "full"} {
+		t.Run("format "+format, func(t *testing.T) {
+			request := mcp.CallToolRequest{}
+			request.Params.Arguments = map[string]interface{}{
+				"resourceType":  "pods",
+				"allNamespaces": true,
+				"output":        format,
+				"filter": map[string]interface{}{
+					"images": map[string]interface{}{"op": "prefix", "value": "registry.example/org/"},
+				},
+			}
+
+			result, err := handleListResources(context.Background(), request, sc)
+			require.NoError(t, err)
+			require.False(t, result.IsError, "unexpected error: %s", getErrorText(t, result))
+
+			var summary PaginatedSummaryResponse
+			require.NoError(t, json.Unmarshal([]byte(getErrorText(t, result)), &summary))
+			require.Len(t, summary.Items, 1)
+			item := summary.Items[0]
+			assert.Equal(t, "web-5d4f8-abcde", item.Name)
+			assert.Equal(t, "ReplicaSet/web-5d4f8", item.Owner)
+			assert.Equal(t, []interface{}{"quay.io/app:1", "registry.example/org/migrate:1"}, item.Extra["images"])
+		})
+	}
+
+	t.Run("slim full output still strips ownerReferences", func(t *testing.T) {
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{"resourceType": "pods", "fullOutput": true}
+
+		result, err := handleListResources(context.Background(), request, sc)
+		require.NoError(t, err)
+		require.False(t, result.IsError)
+		assert.NotContains(t, getErrorText(t, result), "ownerReferences")
+	})
+}
+
+func TestProcessorKeeping(t *testing.T) {
+	p := output.NewProcessor(&output.Config{SlimOutput: true})
+
+	kept := processorKeeping(p, ownerReferencesField)
+
+	assert.NotContains(t, kept.Config().ExcludedFields, ownerReferencesField)
+	assert.Contains(t, p.Config().ExcludedFields, ownerReferencesField, "the original processor is unchanged")
+	assert.Len(t, kept.Config().ExcludedFields, len(p.Config().ExcludedFields)-1)
 }

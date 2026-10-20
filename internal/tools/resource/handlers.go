@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"time"
 
@@ -157,6 +158,22 @@ func getOutputProcessorForFormat(sc *server.ServerContext, outputFormat string) 
 func processorWithExtraExcluded(p *output.Processor, extra []string) *output.Processor {
 	cfg := p.Config().Clone()
 	cfg.ExcludedFields = append(cfg.ExcludedFields, extra...)
+	return output.NewProcessor(cfg)
+}
+
+// ownerReferencesField is the slim exclusion path of metadata.ownerReferences.
+const ownerReferencesField = "metadata.ownerReferences"
+
+// processorKeeping returns a new Processor whose ExcludedFields no longer
+// strip the paths in keep. Secret masking and every other config knob is
+// preserved. Used by handleListResources so the compact summary can read
+// fields slim output drops from manifests (the controller in
+// metadata.ownerReferences), without mutating the server-level config.
+func processorKeeping(p *output.Processor, keep ...string) *output.Processor {
+	cfg := p.Config().Clone()
+	cfg.ExcludedFields = slices.DeleteFunc(cfg.ExcludedFields, func(field string) bool {
+		return slices.Contains(keep, field)
+	})
 	return output.NewProcessor(cfg)
 }
 
@@ -625,6 +642,13 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// Handle summary mode - return aggregated counts instead of full items
 	if summaryMode {
 		return handleSummaryResponse(paginatedResponse.Items, processor, resourceType)
+	}
+
+	// The compact summary names each item's controller (owner), read from
+	// metadata.ownerReferences, which slim output strips. The summary never
+	// prints the manifest, so keeping the references costs no output.
+	if !fullOutput && processor.Config().SlimOutput {
+		processor = processorKeeping(processor, ownerReferencesField)
 	}
 
 	// Always run items through the processor: slim/normal apply field

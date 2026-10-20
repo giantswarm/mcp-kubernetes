@@ -57,6 +57,46 @@ Use `[*]` wildcard to match any element in an array:
 
 This will match any node that has a taint with the specified key, regardless of where it appears in the taints array.
 
+### String Operators
+
+A criterion's value can be an operator object instead of a plain value:
+exactly the keys `op` and `value`, where `value` is a string.
+
+| `op`       | Matches a string value that…                                     |
+|------------|------------------------------------------------------------------|
+| `prefix`   | starts with `value`                                              |
+| `suffix`   | ends with `value`                                                |
+| `contains` | contains `value`                                                 |
+| `regex`    | matches the regular expression `value` (Go RE2 syntax, unanchored) |
+
+```json
+{
+  "spec.containers[*].image": {"op": "prefix", "value": "registry.example/org/"}
+}
+```
+
+Operators work on plain and `[*]` paths alike; on a `[*]` path any element may
+match. A value that is not a string (a number, a boolean, an object) never
+matches an operator. An unknown `op`, a non-string `value` or an invalid
+regular expression is rejected with an error. Any other object, including one
+with more keys than `op` and `value`, keeps its nested-map meaning, so existing
+filters are unchanged.
+
+### Container Images
+
+`images` is a virtual path: every container, initContainer and
+ephemeralContainer image of a Pod, of a CronJob's job template, or of the pod
+template (`spec.template.spec`) of a Deployment, StatefulSet, DaemonSet,
+ReplicaSet, Job or a custom workload shaped like them. A resource matches when
+any of its images matches; a resource without a pod spec never does. These are
+the images the compact summary reports in `extra.images`.
+
+```json
+{
+  "images": {"op": "prefix", "value": "registry.example/org/"}
+}
+```
+
 ### Multiple Criteria (AND Logic)
 
 All criteria must match for a resource to be included:
@@ -99,7 +139,26 @@ Find all pods with label `app=nginx`:
 }
 ```
 
-### Example 3: Combine with Label Selectors
+### Example 3: Find Workloads Using a Registry
+
+Find every Deployment whose containers, initContainers or ephemeralContainers
+pull from a registry that is being retired:
+
+```json
+{
+  "resourceType": "deployments",
+  "allNamespaces": true,
+  "filter": {
+    "images": {"op": "prefix", "value": "registry.example/org/"}
+  }
+}
+```
+
+The compact answer (without `fullOutput`) lists each match with its images in
+`extra.images` and its controller in `owner`, so a pod resolves to its
+ReplicaSet, Job or StatefulSet without full manifests.
+
+### Example 4: Combine with Label Selectors
 
 You can combine client-side filtering with label selectors for efficient filtering:
 
@@ -172,7 +231,8 @@ Find pods with multiple specific labels:
 
 - **Performance**: Client-side filtering requires fetching all resources first, which can be slow for large result sets. Use server-side selectors when possible.
 - **Pagination**: Filtering happens after pagination, so you may get fewer results than the `limit` parameter specifies.
-- **Complex matching**: The filter currently supports exact matches and array element matching, but not regex or range queries.
+- **Complex matching**: The filter supports exact matches, the string operators `prefix`, `suffix`, `contains` and `regex`, and array element matching, but not numeric ranges or time comparisons.
+- **One array wildcard per path**: `[*]` expands the first array of a path only; to match images across every container field use the `images` path.
 
 ## Troubleshooting
 
@@ -181,7 +241,7 @@ Find pods with multiple specific labels:
 If your filter returns no results:
 
 1. **Check the field path**: Ensure the path is correct (e.g., `spec.taints[*].key`, not `spec.taint[*].key`)
-2. **Check the value**: Make sure the value matches exactly (case-sensitive)
+2. **Check the value**: A plain value matches exactly (case-sensitive); use an operator such as `{"op": "contains", "value": "..."}` for a partial match
 3. **Test without filter**: Try listing without the filter to see what data is available
 
 ### Unexpected Results
@@ -201,7 +261,8 @@ Client-side filtering includes built-in protections against resource exhaustion 
 - **Resource Limits**: To prevent denial-of-service attacks, the following limits are enforced:
   - Maximum 50 filter criteria per request
   - Maximum path depth of 20 levels (e.g., `a.b.c.d...`)
-  - Maximum filter value size of 1024 bytes for string values
+  - Maximum filter value size of 1024 bytes for string values, an operator's `value` included
+  - `regex` patterns use Go's RE2 engine, whose matching time is linear in the input, so a pattern cannot backtrack catastrophically
 
 - **Performance Monitoring**: The system logs a warning when filtered results exceed 1000 items, as this may indicate inefficient filtering. Consider using server-side selectors (`labelSelector`, `fieldSelector`) when possible to reduce data transfer and memory usage.
 

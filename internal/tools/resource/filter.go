@@ -2,6 +2,7 @@ package resource
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -12,10 +13,23 @@ const (
 	// arrayWildcard is the token used to match any element in an array path
 	arrayWildcard = "[*]"
 
+	// imagesPath is the virtual filter path over every container,
+	// initContainer and ephemeralContainer image of a pod or of a workload's
+	// pod template — the images the list summary reports.
+	imagesPath = "images"
+
 	// Security limits to prevent resource exhaustion attacks
 	maxFilterCriteria  = 50   // Maximum number of filter criteria allowed
 	maxPathDepth       = 20   // Maximum depth of nested paths (number of dots)
 	maxFilterValueSize = 1024 // Maximum size of filter values in bytes
+)
+
+// String operators of an operator criterion, {"op": "prefix", "value": "registry.example/"}.
+const (
+	opPrefix   = "prefix"
+	opSuffix   = "suffix"
+	opContains = "contains"
+	opRegex    = "regex"
 )
 
 // FilterCriteria represents client-side filtering criteria for resources.
@@ -23,14 +37,28 @@ const (
 // and the values are the expected values or conditions to match.
 type FilterCriteria map[string]interface{}
 
+// valueMatcher reports whether a value found at a filter path satisfies a
+// criterion.
+type valueMatcher func(actual interface{}) bool
+
+// criterion is a validated filter entry: a path and the matcher its value
+// must satisfy.
+type criterion struct {
+	path  string
+	match valueMatcher
+}
+
 // ApplyClientSideFilter filters a list of resources based on the provided criteria.
 // It supports:
 // - Simple field matching: {"status.phase": "Running"}
 // - Array element matching: {"spec.taints[*].key": "node.kubernetes.io/unschedulable"}
 // - Nested map matching: {"metadata.labels.app": "nginx"}
+// - String operators: {"spec.containers[*].image": {"op": "prefix", "value": "registry.example/"}}
+// - The virtual "images" path over every container image of pods and workloads
 // - Multiple criteria (AND logic): all criteria must match for a resource to pass
 //
-// Returns an error if filter criteria exceed security limits to prevent resource exhaustion.
+// Returns an error if filter criteria exceed security limits to prevent resource exhaustion,
+// or name an unknown operator or an invalid regular expression.
 func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([]runtime.Object, error) {
 	if len(criteria) == 0 {
 		return objects, nil
@@ -42,6 +70,7 @@ func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([
 	}
 
 	// Validate each filter criterion
+	compiled := make([]criterion, 0, len(criteria))
 	for path, value := range criteria {
 		// Validate path depth to prevent deep recursion attacks
 		pathDepth := strings.Count(path, ".")
@@ -57,17 +86,16 @@ func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([
 			return nil, fmt.Errorf("filter path contains invalid pattern '..': %q", path)
 		}
 
-		// Validate filter value size for string values
-		if strValue, ok := value.(string); ok {
-			if len(strValue) > maxFilterValueSize {
-				return nil, fmt.Errorf("filter value too large: %d bytes (maximum allowed: %d)", len(strValue), maxFilterValueSize)
-			}
+		match, err := newValueMatcher(value)
+		if err != nil {
+			return nil, fmt.Errorf("filter %q: %w", path, err)
 		}
+		compiled = append(compiled, criterion{path: path, match: match})
 	}
 
 	filtered := make([]runtime.Object, 0, len(objects))
 	for _, obj := range objects {
-		if matchesFilter(obj, criteria) {
+		if matchesFilter(obj, compiled) {
 			filtered = append(filtered, obj)
 		}
 	}
@@ -75,16 +103,86 @@ func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([
 	return filtered, nil
 }
 
+// newValueMatcher builds the matcher for a criterion's value: a string
+// operator for an operator criterion, equality (valuesMatch) for anything
+// else. String values, the operator's included, are held to
+// maxFilterValueSize.
+func newValueMatcher(expected interface{}) (valueMatcher, error) {
+	op, operand, isOperator := operatorCriterion(expected)
+	if !isOperator {
+		if s, ok := expected.(string); ok && len(s) > maxFilterValueSize {
+			return nil, fmt.Errorf("filter value too large: %d bytes (maximum allowed: %d)", len(s), maxFilterValueSize)
+		}
+		return equals(expected), nil
+	}
+
+	value, ok := operand.(string)
+	if !ok {
+		return nil, fmt.Errorf("op %q needs a string value, got %T", op, operand)
+	}
+	if len(value) > maxFilterValueSize {
+		return nil, fmt.Errorf("filter value too large: %d bytes (maximum allowed: %d)", len(value), maxFilterValueSize)
+	}
+
+	var test func(string) bool
+	switch op {
+	case opPrefix:
+		test = func(s string) bool { return strings.HasPrefix(s, value) }
+	case opSuffix:
+		test = func(s string) bool { return strings.HasSuffix(s, value) }
+	case opContains:
+		test = func(s string) bool { return strings.Contains(s, value) }
+	case opRegex:
+		// RE2: matching is linear in the input, so a caller's pattern
+		// cannot backtrack catastrophically.
+		re, err := regexp.Compile(value)
+		if err != nil {
+			return nil, fmt.Errorf("op %q: invalid regular expression: %w", op, err)
+		}
+		test = re.MatchString
+	default:
+		return nil, fmt.Errorf("unknown op %q (supported: %s, %s, %s, %s)", op, opPrefix, opSuffix, opContains, opRegex)
+	}
+
+	return func(actual interface{}) bool {
+		s, ok := actual.(string)
+		return ok && test(s)
+	}, nil
+}
+
+// operatorCriterion reports whether expected is an operator criterion — an
+// object with exactly the keys "op" (a string) and "value" — and returns its
+// parts. Any other object stays a nested map match, so existing filters on
+// objects keep their meaning.
+func operatorCriterion(expected interface{}) (op string, value interface{}, ok bool) {
+	m, isMap := expected.(map[string]interface{})
+	if !isMap || len(m) != 2 {
+		return "", nil, false
+	}
+	op, isString := m["op"].(string)
+	value, hasValue := m["value"]
+	if !isString || !hasValue {
+		return "", nil, false
+	}
+	return op, value, true
+}
+
+// equals is the matcher of a plain criterion value: equality as valuesMatch
+// defines it.
+func equals(expected interface{}) valueMatcher {
+	return func(actual interface{}) bool { return valuesMatch(actual, expected) }
+}
+
 // matchesFilter checks if a single object matches all filter criteria
-func matchesFilter(obj runtime.Object, criteria FilterCriteria) bool {
+func matchesFilter(obj runtime.Object, criteria []criterion) bool {
 	unstructuredObj, ok := obj.(*unstructured.Unstructured)
 	if !ok {
 		return false
 	}
 
 	// All criteria must match (AND logic)
-	for path, expectedValue := range criteria {
-		if !matchesFieldPath(unstructuredObj, path, expectedValue) {
+	for _, c := range criteria {
+		if !matchesFieldPath(unstructuredObj, c.path, c.match) {
 			return false
 		}
 	}
@@ -92,15 +190,25 @@ func matchesFilter(obj runtime.Object, criteria FilterCriteria) bool {
 	return true
 }
 
-// matchesFieldPath checks if a field path in the object matches the expected value.
+// matchesFieldPath checks if a field path in the object satisfies match.
 // Supports:
 // - Simple paths: "status.phase"
 // - Array wildcard paths: "spec.taints[*].key"
 // - Nested maps: "metadata.labels.app"
-func matchesFieldPath(obj *unstructured.Unstructured, path string, expectedValue interface{}) bool {
+// - The virtual "images" path: any container image of a pod or workload
+func matchesFieldPath(obj *unstructured.Unstructured, path string, match valueMatcher) bool {
+	if path == imagesPath {
+		for _, image := range containerImages(obj) {
+			if match(image) {
+				return true
+			}
+		}
+		return false
+	}
+
 	// Check if this is an array wildcard path (contains [*])
 	if strings.Contains(path, arrayWildcard) {
-		return matchesArrayPath(obj, path, expectedValue)
+		return matchesArrayPath(obj, path, match)
 	}
 
 	// Regular path traversal
@@ -110,11 +218,11 @@ func matchesFieldPath(obj *unstructured.Unstructured, path string, expectedValue
 		return false
 	}
 
-	return valuesMatch(value, expectedValue)
+	return match(value)
 }
 
 // matchesArrayPath handles paths with array wildcards like "spec.taints[*].key"
-func matchesArrayPath(obj *unstructured.Unstructured, path string, expectedValue interface{}) bool {
+func matchesArrayPath(obj *unstructured.Unstructured, path string, match valueMatcher) bool {
 	// Split path into parts: ["spec", "taints[*]", "key"]
 	parts := strings.Split(path, ".")
 
@@ -158,7 +266,7 @@ func matchesArrayPath(obj *unstructured.Unstructured, path string, expectedValue
 	for _, elem := range arraySlice {
 		if len(remainingPath) == 0 {
 			// No remaining path, compare the array element directly
-			if valuesMatch(elem, expectedValue) {
+			if match(elem) {
 				return true
 			}
 		} else {
@@ -169,7 +277,7 @@ func matchesArrayPath(obj *unstructured.Unstructured, path string, expectedValue
 			}
 
 			elemValue, found := getNestedValue(elemMap, remainingPath)
-			if found && valuesMatch(elemValue, expectedValue) {
+			if found && match(elemValue) {
 				return true
 			}
 		}

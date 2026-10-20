@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -30,6 +31,7 @@ type ResourceSummary struct {
 	Age               string            `json:"age"`
 	Status            string            `json:"status,omitempty"`
 	Ready             string            `json:"ready,omitempty"`
+	Owner             string            `json:"owner,omitempty"` // the controller as Kind/name
 	Labels            map[string]string `json:"labels,omitempty"`
 	Annotations       map[string]string `json:"annotations,omitempty"`
 	// Additional fields specific to resource types
@@ -162,10 +164,71 @@ func summarizeResource(obj *unstructured.Unstructured, includeLabels, includeAnn
 		}
 	}
 
+	summary.Owner = controllerOwner(obj)
+
 	// Extract resource-specific information
 	extractResourceSpecificInfo(obj, &summary)
 
+	if images := containerImages(obj); len(images) > 0 {
+		summary.Extra["images"] = images
+	}
+
 	return summary
+}
+
+// controllerOwner names obj's controller as Kind/name — the ReplicaSet of a
+// Deployment's pod, the Job of a CronJob's run — or "" when nothing controls
+// obj.
+func controllerOwner(obj *unstructured.Unstructured) string {
+	ref := metav1.GetControllerOfNoCopy(obj)
+	if ref == nil {
+		return ""
+	}
+	return ref.Kind + "/" + ref.Name
+}
+
+// podContainerKeys are the PodSpec fields that hold containers.
+var podContainerKeys = []string{"containers", "initContainers", "ephemeralContainers"}
+
+// podSpecFields is where a resource of kind keeps its PodSpec: a Pod in its
+// own spec, a CronJob in its job template, every other Kind in
+// spec.template.spec — the pod template of Deployments, StatefulSets,
+// DaemonSets, ReplicaSets, Jobs and the custom workloads shaped like them.
+func podSpecFields(kind string) []string {
+	switch strings.ToLower(kind) {
+	case "pod":
+		return []string{"spec"}
+	case "cronjob":
+		return []string{"spec", "jobTemplate", "spec", "template", "spec"}
+	default:
+		return []string{"spec", "template", "spec"}
+	}
+}
+
+// containerImages returns the images of every container, initContainer and
+// ephemeralContainer in obj's PodSpec, sorted and without duplicates; nil
+// when obj has no PodSpec. The list summary reports them and the "images"
+// filter path matches against them.
+func containerImages(obj *unstructured.Unstructured) []string {
+	field, found, err := unstructured.NestedFieldNoCopy(obj.Object, podSpecFields(obj.GetKind())...)
+	podSpec, isMap := field.(map[string]interface{})
+	if !found || err != nil || !isMap {
+		return nil
+	}
+	var images []string
+	for _, key := range podContainerKeys {
+		containers, _ := podSpec[key].([]interface{})
+		for _, c := range containers {
+			container, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if image, _ := container["image"].(string); image != "" {
+				images = append(images, image)
+			}
+		}
+	}
+	return sortedUnique(images)
 }
 
 // extractResourceSpecificInfo adds resource-type-specific fields to the summary
