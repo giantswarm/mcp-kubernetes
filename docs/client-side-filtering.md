@@ -256,6 +256,8 @@ If you get unexpected results:
 
 Client-side filtering includes built-in protections against resource exhaustion attacks:
 
+- **Secret Masking**: A filter sees every object as the tools show it. A Secret's `data` and `stringData`, a sensitive ConfigMap's `data` and `binaryData`, and their `kubectl.kubernetes.io/last-applied-configuration` annotation hold the placeholder `***REDACTED***` for the filter too, so neither an exact value nor an operator can confirm or reveal data that masking hides. Filtering on the placeholder still finds objects that have a key.
+
 - **RBAC Enforcement**: Client-side filtering respects Kubernetes RBAC. You can only filter resources you have permission to view. Filtering happens after authentication and authorization, so it cannot be used to access unauthorized resources.
 
 - **Resource Limits**: To prevent denial-of-service attacks, the following limits are enforced:

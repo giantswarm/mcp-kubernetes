@@ -7,6 +7,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 )
 
 const (
@@ -173,16 +175,22 @@ func equals(expected interface{}) valueMatcher {
 	return func(actual interface{}) bool { return valuesMatch(actual, expected) }
 }
 
-// matchesFilter checks if a single object matches all filter criteria
+// matchesFilter checks if a single object matches all filter criteria.
+//
+// The criteria see the object as the tools show it (output.MaskedView):
+// matched against the real data of a Secret, a filter would answer whether a
+// value masking hides starts with a guess, and so give it away one prefix at
+// a time.
 func matchesFilter(obj runtime.Object, criteria []criterion) bool {
 	unstructuredObj, ok := obj.(*unstructured.Unstructured)
 	if !ok {
 		return false
 	}
+	view := &unstructured.Unstructured{Object: output.MaskedView(unstructuredObj.Object)}
 
 	// All criteria must match (AND logic)
 	for _, c := range criteria {
-		if !matchesFieldPath(unstructuredObj, c.path, c.match) {
+		if !matchesFieldPath(view, c.path, c.match) {
 			return false
 		}
 	}

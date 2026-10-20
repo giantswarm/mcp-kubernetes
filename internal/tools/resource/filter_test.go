@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 )
 
 func TestApplyClientSideFilter(t *testing.T) {
@@ -691,4 +693,57 @@ func TestNewValueMatcher_StringOperatorsNeedStrings(t *testing.T) {
 	assert.True(t, match("3x"))
 	assert.False(t, match(int64(3)), "a number is not a string")
 	assert.False(t, match(nil))
+}
+
+// TestApplyClientSideFilter_MatchesTheMaskedView: a filter sees a Secret or
+// a sensitive ConfigMap as the tools show it, so neither an exact value nor
+// a prefix confirms data that masking hides, while ordinary data still
+// filters.
+func TestApplyClientSideFilter_MatchesTheMaskedView(t *testing.T) {
+	const (
+		password       = "aHVudGVyMg==" //nolint:gosec // G101: test fixture, not a real credential
+		lastApplied    = `{"data":{"password":"hunter2"}}`
+		lastAppliedKey = "kubectl.kubernetes.io/last-applied-configuration"
+	)
+	object := func(kind, name, field string) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       kind,
+			"metadata": map[string]interface{}{
+				"name":        name,
+				"annotations": map[string]interface{}{lastAppliedKey: lastApplied},
+			},
+			field: map[string]interface{}{"password": password},
+		}}
+	}
+	objects := []runtime.Object{
+		object("Secret", "db", "data"),
+		object("Secret", "db-string", "stringData"),
+		object("ConfigMap", "db-credentials", "data"),
+		object("ConfigMap", "settings", "data"),
+	}
+	op := func(op, value string) map[string]interface{} {
+		return map[string]interface{}{"op": op, "value": value}
+	}
+
+	tests := []struct {
+		name     string
+		criteria FilterCriteria
+		expected []string
+	}{
+		{"exact value", FilterCriteria{"data.password": password}, []string{"settings"}},
+		{"prefix", FilterCriteria{"data.password": op("prefix", "aHVu")}, []string{"settings"}},
+		{"regex", FilterCriteria{"data.password": op("regex", "^aH")}, []string{"settings"}},
+		{"stringData", FilterCriteria{"stringData.password": op("prefix", "a")}, []string{}},
+		// A dotted annotation key is reachable only as a nested-map match.
+		{"last-applied annotation", FilterCriteria{"metadata.annotations": map[string]interface{}{lastAppliedKey: lastApplied}}, []string{"settings"}},
+		{"the placeholder marks the key", FilterCriteria{"data.password": output.RedactedValue}, []string{"db", "db-credentials"}},
+		{"metadata still filters", FilterCriteria{"metadata.name": op("prefix", "db")}, []string{"db", "db-string", "db-credentials"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, filteredNames(t, objects, tt.criteria))
+		})
+	}
 }

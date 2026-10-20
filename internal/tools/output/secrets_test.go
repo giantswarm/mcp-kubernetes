@@ -1,6 +1,7 @@
 package output
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -456,5 +457,35 @@ func TestMaskSecrets_LastAppliedAndSensitiveConfigMaps(t *testing.T) {
 	})
 	if plain["data"].(map[string]interface{})["level"] != "debug" {
 		t.Error("a ConfigMap without a sensitive name must be returned as is")
+	}
+}
+
+// TestMaskedView: a sensitive object is seen masked and the original stays
+// intact; any other object is seen as it is, without a copy.
+func TestMaskedView(t *testing.T) {
+	secret := map[string]interface{}{
+		"kind":     "Secret",
+		"metadata": map[string]interface{}{"name": "db"},
+		"data":     map[string]interface{}{"password": "aHVudGVyMg=="}, //nolint:gosec // G101: test fixture, not a real credential
+	}
+	if got := MaskedView(secret)["data"].(map[string]interface{})["password"]; got != RedactedValue {
+		t.Errorf("Secret view data[password] = %v, want %s", got, RedactedValue)
+	}
+	if got := secret["data"].(map[string]interface{})["password"]; got != "aHVudGVyMg==" {
+		t.Errorf("Secret data[password] = %v after MaskedView, want the original", got)
+	}
+
+	configMap := map[string]interface{}{
+		"kind":     "ConfigMap",
+		"metadata": map[string]interface{}{"name": "db-credentials"},
+		"data":     map[string]interface{}{"password": "hunter2"},
+	}
+	if got := MaskedView(configMap)["data"].(map[string]interface{})["password"]; got != RedactedValue {
+		t.Errorf("sensitive ConfigMap view data[password] = %v, want %s", got, RedactedValue)
+	}
+
+	pod := map[string]interface{}{"kind": "Pod", "metadata": map[string]interface{}{"name": "web"}}
+	if view := MaskedView(pod); reflect.ValueOf(view).Pointer() != reflect.ValueOf(pod).Pointer() {
+		t.Error("MaskedView copied a Pod, which masking leaves alone")
 	}
 }

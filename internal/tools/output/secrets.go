@@ -65,6 +65,18 @@ func MaskSecrets(obj map[string]interface{}) map[string]interface{} {
 	return result
 }
 
+// MaskedView returns obj as every tool may show it: obj itself when masking
+// would change nothing, a masked copy (MaskSecrets) of a Secret or a
+// sensitive ConfigMap. A reader that judges objects without returning them,
+// such as the list filter, matches against this view, so it cannot reveal
+// what masking hides.
+func MaskedView(obj map[string]interface{}) map[string]interface{} {
+	if !IsSecretResource(obj) && !isSensitiveConfigMap(obj) {
+		return obj
+	}
+	return MaskSecrets(obj)
+}
+
 // MaskSecretsInList masks secrets in a list of resources.
 func MaskSecretsInList(objects []map[string]interface{}) []map[string]interface{} {
 	if len(objects) == 0 {
