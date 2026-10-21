@@ -5,9 +5,9 @@ go 1.26.0
 toolchain go1.27.3
 
 require (
-	github.com/giantswarm/go-selfupdate v1.6.5
-	github.com/giantswarm/mcp-oauth v1.7.5
-	github.com/giantswarm/mcp-toolkit v0.4.2
+	github.com/giantswarm/go-selfupdate v1.6.6
+	github.com/giantswarm/mcp-oauth v1.7.6
+	github.com/giantswarm/mcp-toolkit v0.4.3
 	github.com/mark3labs/mcp-go v1.3.0
 	github.com/mark3labs/mcp-go/otel v0.54.0
 	github.com/prometheus/client_golang v1.25.0
@@ -85,7 +85,7 @@ require (
 	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/giantswarm/selfupdate-cosign v0.3.8
+	github.com/giantswarm/selfupdate-cosign v0.3.10
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
