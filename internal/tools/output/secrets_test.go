@@ -489,3 +489,38 @@ func TestMaskedView(t *testing.T) {
 		t.Error("MaskedView copied a Pod, which masking leaves alone")
 	}
 }
+
+// TestMaskedView_ReadsAsMaskSecrets: the shallow view of a sensitive object
+// reads exactly as the masked copy the tools return, leaves the original's
+// annotations intact and shares the fields masking leaves alone.
+func TestMaskedView_ReadsAsMaskSecrets(t *testing.T) {
+	const lastApplied = `{"data":{"password":"hunter2"}}`
+	for _, obj := range []map[string]interface{}{
+		{
+			"kind": "Secret",
+			"type": "helm.sh/release.v1",
+			"metadata": map[string]interface{}{"name": "db", "annotations": map[string]interface{}{
+				lastAppliedAnnotation:                lastApplied,
+				"kubernetes.io/service-account.name": "builder",
+				"team":                               "bumblebee",
+			}},
+			"data":       map[string]interface{}{"release": "H4sI"},
+			"stringData": map[string]interface{}{"token": "t0k3n"},
+		},
+		{
+			"kind":       "ConfigMap",
+			"metadata":   map[string]interface{}{"name": "db-credentials", "annotations": map[string]interface{}{lastAppliedAnnotation: lastApplied}},
+			"data":       map[string]interface{}{"password": "hunter2"},
+			"binaryData": map[string]interface{}{"key": "AAEC"},
+		},
+	} {
+		view := MaskedView(obj)
+		if want := MaskSecrets(obj); !reflect.DeepEqual(view, want) {
+			t.Errorf("%s view = %v, want %v", obj["kind"], view, want)
+		}
+		annotations := obj["metadata"].(map[string]interface{})["annotations"].(map[string]interface{})
+		if annotations[lastAppliedAnnotation] != lastApplied {
+			t.Errorf("%s original last-applied annotation = %v after MaskedView, want it intact", obj["kind"], annotations[lastAppliedAnnotation])
+		}
+	}
+}

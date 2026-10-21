@@ -10,6 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 )
 
 // eventMessageMaxRunes caps event.message length in summary mode. Empirically
@@ -169,7 +171,7 @@ func summarizeResource(obj *unstructured.Unstructured, includeLabels, includeAnn
 	// Extract resource-specific information
 	extractResourceSpecificInfo(obj, &summary)
 
-	if images := containerImages(obj); len(images) > 0 {
+	if images := containerImages(podSpec(obj)); len(images) > 0 {
 		summary.Extra["images"] = images
 	}
 
@@ -187,17 +189,17 @@ func controllerOwner(obj *unstructured.Unstructured) string {
 	return ref.Kind + "/" + ref.Name
 }
 
-// podContainerKeys are the PodSpec fields that hold containers.
-var podContainerKeys = []string{"containers", "initContainers", "ephemeralContainers"}
-
 // podSpecFields is where a resource of kind keeps its PodSpec: a Pod in its
-// own spec, a CronJob in its job template, every other Kind in
-// spec.template.spec — the pod template of Deployments, StatefulSets,
-// DaemonSets, ReplicaSets, Jobs and the custom workloads shaped like them.
+// own spec, a PodTemplate in its template, a CronJob in its job template,
+// every other Kind in spec.template.spec — the pod template of Deployments,
+// StatefulSets, DaemonSets, ReplicaSets, Jobs and the custom workloads shaped
+// like them.
 func podSpecFields(kind string) []string {
 	switch strings.ToLower(kind) {
 	case "pod":
 		return []string{"spec"}
+	case "podtemplate":
+		return []string{"template", "spec"}
 	case "cronjob":
 		return []string{"spec", "jobTemplate", "spec", "template", "spec"}
 	default:
@@ -205,27 +207,22 @@ func podSpecFields(kind string) []string {
 	}
 }
 
+// podSpec returns obj's PodSpec, or nil when its Kind keeps none where
+// podSpecFields looks.
+func podSpec(obj *unstructured.Unstructured) map[string]interface{} {
+	field, _, _ := unstructured.NestedFieldNoCopy(obj.Object, podSpecFields(obj.GetKind())...)
+	spec, _ := field.(map[string]interface{})
+	return spec
+}
+
 // containerImages returns the images of every container, initContainer and
-// ephemeralContainer in obj's PodSpec, sorted and without duplicates; nil
-// when obj has no PodSpec. The list summary reports them and the "images"
-// filter path matches against them.
-func containerImages(obj *unstructured.Unstructured) []string {
-	field, found, err := unstructured.NestedFieldNoCopy(obj.Object, podSpecFields(obj.GetKind())...)
-	podSpec, isMap := field.(map[string]interface{})
-	if !found || err != nil || !isMap {
-		return nil
-	}
+// ephemeralContainer in podSpec, sorted and without duplicates. The list
+// summary reports them and the "images" filter path matches against them.
+func containerImages(podSpec map[string]interface{}) []string {
 	var images []string
-	for _, key := range podContainerKeys {
-		containers, _ := podSpec[key].([]interface{})
-		for _, c := range containers {
-			container, ok := c.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if image, _ := container["image"].(string); image != "" {
-				images = append(images, image)
-			}
+	for _, container := range output.PodSpecContainers(podSpec) {
+		if image, _ := container["image"].(string); image != "" {
+			images = append(images, image)
 		}
 	}
 	return sortedUnique(images)

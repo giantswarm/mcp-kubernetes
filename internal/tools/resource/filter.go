@@ -3,6 +3,7 @@ package resource
 import (
 	"fmt"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,6 +25,13 @@ const (
 	maxFilterCriteria  = 50   // Maximum number of filter criteria allowed
 	maxPathDepth       = 20   // Maximum depth of nested paths (number of dots)
 	maxFilterValueSize = 1024 // Maximum size of filter values in bytes
+
+	// maxRegexInstructions caps the compiled program of a regex operator.
+	// RE2 matching is linear in the input but also in the program size, and
+	// counted repeats such as (?:[a-z]?){1000} compile to tens of thousands
+	// of instructions within maxFilterValueSize. An image or name pattern
+	// needs a few dozen.
+	maxRegexInstructions = 1000
 )
 
 // String operators of an operator criterion, {"op": "prefix", "value": "registry.example/"}.
@@ -33,6 +41,9 @@ const (
 	opContains = "contains"
 	opRegex    = "regex"
 )
+
+// stringOperators are the ops an operator criterion may name.
+var stringOperators = map[string]bool{opPrefix: true, opSuffix: true, opContains: true, opRegex: true}
 
 // FilterCriteria represents client-side filtering criteria for resources.
 // The map keys are JSON paths (e.g., "spec.taints", "metadata.labels.app")
@@ -50,6 +61,10 @@ type criterion struct {
 	match valueMatcher
 }
 
+// clientFilter is a compiled FilterCriteria: every criterion validated once
+// per call, all of which an object must satisfy (AND).
+type clientFilter []criterion
+
 // ApplyClientSideFilter filters a list of resources based on the provided criteria.
 // It supports:
 // - Simple field matching: {"status.phase": "Running"}
@@ -60,10 +75,21 @@ type criterion struct {
 // - Multiple criteria (AND logic): all criteria must match for a resource to pass
 //
 // Returns an error if filter criteria exceed security limits to prevent resource exhaustion,
-// or name an unknown operator or an invalid regular expression.
+// or hold an invalid operator criterion or regular expression.
 func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([]runtime.Object, error) {
+	filter, err := compileFilter(criteria)
+	if err != nil {
+		return nil, err
+	}
+	return filter.apply(objects), nil
+}
+
+// compileFilter validates criteria against the security limits and builds
+// each criterion's matcher. Empty criteria compile to a filter that keeps
+// every object.
+func compileFilter(criteria FilterCriteria) (clientFilter, error) {
 	if len(criteria) == 0 {
-		return objects, nil
+		return nil, nil
 	}
 
 	// Validate number of filter criteria to prevent DoS
@@ -87,6 +113,9 @@ func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([
 		if strings.Contains(path, "..") {
 			return nil, fmt.Errorf("filter path contains invalid pattern '..': %q", path)
 		}
+		if strings.Count(path, arrayWildcard) > 1 {
+			return nil, fmt.Errorf("filter path %q has more than one %s: only one array wildcard per path is supported", path, arrayWildcard)
+		}
 
 		match, err := newValueMatcher(value)
 		if err != nil {
@@ -95,14 +124,21 @@ func ApplyClientSideFilter(objects []runtime.Object, criteria FilterCriteria) ([
 		compiled = append(compiled, criterion{path: path, match: match})
 	}
 
+	return compiled, nil
+}
+
+// apply returns the objects that satisfy every criterion of f.
+func (f clientFilter) apply(objects []runtime.Object) []runtime.Object {
+	if len(f) == 0 {
+		return objects
+	}
 	filtered := make([]runtime.Object, 0, len(objects))
 	for _, obj := range objects {
-		if matchesFilter(obj, compiled) {
+		if matchesFilter(obj, f) {
 			filtered = append(filtered, obj)
 		}
 	}
-
-	return filtered, nil
+	return filtered
 }
 
 // newValueMatcher builds the matcher for a criterion's value: a string
@@ -135,15 +171,11 @@ func newValueMatcher(expected interface{}) (valueMatcher, error) {
 	case opContains:
 		test = func(s string) bool { return strings.Contains(s, value) }
 	case opRegex:
-		// RE2: matching is linear in the input, so a caller's pattern
-		// cannot backtrack catastrophically.
-		re, err := regexp.Compile(value)
+		re, err := compileRegex(value)
 		if err != nil {
-			return nil, fmt.Errorf("op %q: invalid regular expression: %w", op, err)
+			return nil, fmt.Errorf("op %q: %w", op, err)
 		}
 		test = re.MatchString
-	default:
-		return nil, fmt.Errorf("unknown op %q (supported: %s, %s, %s, %s)", op, opPrefix, opSuffix, opContains, opRegex)
 	}
 
 	return func(actual interface{}) bool {
@@ -152,18 +184,37 @@ func newValueMatcher(expected interface{}) (valueMatcher, error) {
 	}, nil
 }
 
+// compileRegex compiles a regex operator's pattern as Go RE2, whose matching
+// cannot backtrack, and refuses a pattern whose compiled program exceeds
+// maxRegexInstructions, since matching time grows with the program too.
+func compileRegex(pattern string) (*regexp.Regexp, error) {
+	parsed, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regular expression: %w", err)
+	}
+	prog, err := syntax.Compile(parsed.Simplify())
+	if err != nil {
+		return nil, fmt.Errorf("invalid regular expression: %w", err)
+	}
+	if len(prog.Inst) > maxRegexInstructions {
+		return nil, fmt.Errorf("regular expression too complex: %d instructions (maximum allowed: %d)", len(prog.Inst), maxRegexInstructions)
+	}
+	return regexp.Compile(pattern)
+}
+
 // operatorCriterion reports whether expected is an operator criterion — an
-// object with exactly the keys "op" (a string) and "value" — and returns its
-// parts. Any other object stays a nested map match, so existing filters on
+// object with exactly the keys "op", naming one of the string operators, and
+// "value" — and returns its parts. Any other object, one whose "op" names
+// anything else included, stays a nested map match, so existing filters on
 // objects keep their meaning.
 func operatorCriterion(expected interface{}) (op string, value interface{}, ok bool) {
 	m, isMap := expected.(map[string]interface{})
 	if !isMap || len(m) != 2 {
 		return "", nil, false
 	}
-	op, isString := m["op"].(string)
+	op, _ = m["op"].(string)
 	value, hasValue := m["value"]
-	if !isString || !hasValue {
+	if !stringOperators[op] || !hasValue {
 		return "", nil, false
 	}
 	return op, value, true
@@ -181,7 +232,7 @@ func equals(expected interface{}) valueMatcher {
 // matched against the real data of a Secret, a filter would answer whether a
 // value masking hides starts with a guess, and so give it away one prefix at
 // a time.
-func matchesFilter(obj runtime.Object, criteria []criterion) bool {
+func matchesFilter(obj runtime.Object, criteria clientFilter) bool {
 	unstructuredObj, ok := obj.(*unstructured.Unstructured)
 	if !ok {
 		return false
@@ -200,18 +251,21 @@ func matchesFilter(obj runtime.Object, criteria []criterion) bool {
 
 // matchesFieldPath checks if a field path in the object satisfies match.
 // Supports:
-// - Simple paths: "status.phase"
-// - Array wildcard paths: "spec.taints[*].key"
-// - Nested maps: "metadata.labels.app"
-// - The virtual "images" path: any container image of a pod or workload
+//   - Simple paths: "status.phase"
+//   - Array wildcard paths: "spec.taints[*].key"
+//   - Nested maps: "metadata.labels.app"
+//   - The virtual "images" path: any container image of a pod or workload; on
+//     a Kind without a PodSpec, "images" is an ordinary field path
 func matchesFieldPath(obj *unstructured.Unstructured, path string, match valueMatcher) bool {
 	if path == imagesPath {
-		for _, image := range containerImages(obj) {
-			if match(image) {
-				return true
+		if spec := podSpec(obj); spec != nil {
+			for _, image := range containerImages(spec) {
+				if match(image) {
+					return true
+				}
 			}
+			return false
 		}
-		return false
 	}
 
 	// Check if this is an array wildcard path (contains [*])

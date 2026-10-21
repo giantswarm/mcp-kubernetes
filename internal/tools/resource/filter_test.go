@@ -502,10 +502,11 @@ func TestSecurityLimits(t *testing.T) {
 // testPodSpecPaths is where each test Kind keeps its PodSpec, spelled out
 // rather than taken from podSpecFields so a wrong path there fails here.
 var testPodSpecPaths = map[string][]string{
-	"Pod":        {"spec"},
-	"Deployment": {"spec", "template", "spec"},
-	"CronJob":    {"spec", "jobTemplate", "spec", "template", "spec"},
-	"Service":    {"spec"},
+	"Pod":         {"spec"},
+	"PodTemplate": {"template", "spec"},
+	"Deployment":  {"spec", "template", "spec"},
+	"CronJob":     {"spec", "jobTemplate", "spec", "template", "spec"},
+	"Service":     {"spec"},
 }
 
 // createTestWorkload builds an object of kind whose PodSpec holds a
@@ -641,13 +642,16 @@ func TestApplyClientSideFilter_ImagesAcrossKinds(t *testing.T) {
 			"containers":          {"quay.io/app:1"},
 			"ephemeralContainers": {"registry.example/org/debug:1"},
 		}),
+		createTestWorkload("PodTemplate", "template", map[string][]string{
+			"containers": {"registry.example/org/template:1"},
+		}),
 		createTestWorkload("Service", "svc", map[string][]string{
 			"containers": {"registry.example/org/not-a-podspec:1"},
 		}),
 	}
 
 	criteria := FilterCriteria{"images": map[string]interface{}{"op": "prefix", "value": "registry.example/org/"}}
-	assert.Equal(t, []string{"deploy-init", "cron", "debugged"}, filteredNames(t, objects, criteria))
+	assert.Equal(t, []string{"deploy-init", "cron", "debugged", "template"}, filteredNames(t, objects, criteria))
 }
 
 func TestApplyClientSideFilter_OperatorErrors(t *testing.T) {
@@ -656,9 +660,9 @@ func TestApplyClientSideFilter_OperatorErrors(t *testing.T) {
 		value         interface{}
 		errorContains string
 	}{
-		{"unknown op", map[string]interface{}{"op": "glob", "value": "x*"}, `unknown op "glob"`},
 		{"non-string value", map[string]interface{}{"op": "prefix", "value": 3}, "needs a string value"},
 		{"invalid regex", map[string]interface{}{"op": "regex", "value": "("}, "invalid regular expression"},
+		{"regex program too large", map[string]interface{}{"op": "regex", "value": strings.Repeat("(?:[a-z]?){1000}", 30) + "Q"}, "regular expression too complex"},
 		{"value too large", map[string]interface{}{"op": "contains", "value": strings.Repeat("a", maxFilterValueSize+1)}, "value too large"},
 	}
 
@@ -673,8 +677,8 @@ func TestApplyClientSideFilter_OperatorErrors(t *testing.T) {
 }
 
 // TestNewValueMatcher_ObjectsStayNestedMatches: only an object of exactly
-// "op" (a string) and "value" is an operator; any other object keeps its
-// nested-map meaning.
+// "op", naming a string operator, and "value" is an operator; any other
+// object keeps its nested-map meaning.
 func TestNewValueMatcher_ObjectsStayNestedMatches(t *testing.T) {
 	actual := map[string]interface{}{"op": "add", "value": "x", "path": "/a"}
 
@@ -685,6 +689,38 @@ func TestNewValueMatcher_ObjectsStayNestedMatches(t *testing.T) {
 	match, err = newValueMatcher(map[string]interface{}{"op": 1, "value": "x"})
 	assert.NoError(t, err)
 	assert.True(t, match(map[string]interface{}{"op": 1, "value": "x"}), "a non-string op is a nested match")
+
+	for _, shaped := range []map[string]interface{}{
+		{"op": "add", "value": "x"},
+		{"op": "eq", "value": int64(5)},
+	} {
+		match, err = newValueMatcher(shaped)
+		assert.NoError(t, err, "op %v is no string operator", shaped["op"])
+		assert.True(t, match(map[string]interface{}{"op": shaped["op"], "value": shaped["value"], "path": "/a"}), "op %v is a nested match", shaped["op"])
+		assert.False(t, match(map[string]interface{}{"op": "remove", "value": shaped["value"]}))
+	}
+}
+
+func TestApplyClientSideFilter_OneArrayWildcardPerPath(t *testing.T) {
+	_, err := ApplyClientSideFilter([]runtime.Object{createTestNode("node1", "Ready")},
+		FilterCriteria{"spec.containers[*].env[*].name": "DEBUG"})
+	assert.ErrorContains(t, err, "more than one [*]")
+}
+
+// TestApplyClientSideFilter_ImagesFieldOfOtherKinds: on a Kind without a
+// PodSpec, "images" is the object's own field.
+func TestApplyClientSideFilter_ImagesFieldOfOtherKinds(t *testing.T) {
+	catalog := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.io/v1",
+		"kind":       "ImageCatalog",
+		"metadata":   map[string]interface{}{"name": "catalog"},
+		"images":     map[string]interface{}{"web": "registry.example/org/web:1"},
+	}}
+	objects := []runtime.Object{catalog, createTestWorkload("Pod", "web", map[string][]string{"containers": {"registry.example/org/web:1"}})}
+
+	assert.Equal(t, []string{"catalog"}, filteredNames(t, objects, FilterCriteria{"images": map[string]interface{}{"web": "registry.example/org/web:1"}}))
+	assert.Equal(t, []string{"catalog"}, filteredNames(t, objects, FilterCriteria{"images.web": map[string]interface{}{"op": "prefix", "value": "registry.example/"}}))
+	assert.Equal(t, []string{"web"}, filteredNames(t, objects, FilterCriteria{"images": map[string]interface{}{"op": "prefix", "value": "registry.example/"}}))
 }
 
 func TestNewValueMatcher_StringOperatorsNeedStrings(t *testing.T) {

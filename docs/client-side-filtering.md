@@ -60,7 +60,8 @@ This will match any node that has a taint with the specified key, regardless of 
 ### String Operators
 
 A criterion's value can be an operator object instead of a plain value:
-exactly the keys `op` and `value`, where `value` is a string.
+exactly the keys `op` and `value`, where `op` is one of the operators below
+and `value` is a string.
 
 | `op`       | Matches a string value that…                                     |
 |------------|------------------------------------------------------------------|
@@ -77,19 +78,21 @@ exactly the keys `op` and `value`, where `value` is a string.
 
 Operators work on plain and `[*]` paths alike; on a `[*]` path any element may
 match. A value that is not a string (a number, a boolean, an object) never
-matches an operator. An unknown `op`, a non-string `value` or an invalid
-regular expression is rejected with an error. Any other object, including one
-with more keys than `op` and `value`, keeps its nested-map meaning, so existing
-filters are unchanged.
+matches an operator. A non-string `value`, an invalid regular expression or one
+that compiles to more than 1,000 instructions is rejected with an error. Any
+other object, including one whose `op` names something else (such as a
+JSON-patch shaped `{"op": "add", "value": "x"}`) or with more keys than `op` and
+`value`, keeps its nested-map meaning, so existing filters are unchanged.
 
 ### Container Images
 
 `images` is a virtual path: every container, initContainer and
-ephemeralContainer image of a Pod, of a CronJob's job template, or of the pod
-template (`spec.template.spec`) of a Deployment, StatefulSet, DaemonSet,
-ReplicaSet, Job or a custom workload shaped like them. A resource matches when
-any of its images matches; a resource without a pod spec never does. These are
-the images the compact summary reports in `extra.images`.
+ephemeralContainer image of a Pod, of a PodTemplate, of a CronJob's job
+template, or of the pod template (`spec.template.spec`) of a Deployment,
+StatefulSet, DaemonSet, ReplicaSet, Job or a custom workload shaped like them.
+A resource matches when any of its images matches. On a resource without a pod
+spec, `images` is an ordinary path to its own top-level `images` field. These
+are the images the compact summary reports in `extra.images`.
 
 ```json
 {
@@ -156,7 +159,9 @@ pull from a registry that is being retired:
 
 The compact answer (without `fullOutput`) lists each match with its images in
 `extra.images` and its controller in `owner`, so a pod resolves to its
-ReplicaSet, Job or StatefulSet without full manifests.
+ReplicaSet, Job or StatefulSet without full manifests. `metadata.filter` says
+how many items the scan read; while the answer carries a `continue` token, pass
+it to read on before concluding nothing else uses the registry.
 
 ### Example 4: Combine with Label Selectors
 
@@ -179,7 +184,7 @@ The label selector runs server-side (more efficient), and the filter runs client
 
 - **Client-side filtering runs after API retrieval**: Resources are fetched from the API server first, then filtered locally.
 - **Combine with server-side selectors**: Use `labelSelector` and `fieldSelector` when possible to reduce the amount of data transferred from the API server.
-- **Pagination works before filtering**: The `limit` parameter affects how many items are retrieved from the API, not how many filtered results you get.
+- **A filtered list scans past the first page**: `list` reads pages of at least 500 items and filters each until `limit` items match, the collection ends, or 5,000 items were scanned. Every match of the pages read is returned, so a page can yield more than `limit` items. The answer says how far the scan got (`metadata.filter` in the compact summary, `_meta.hint` with `fullOutput`), and its `continue` token resumes after the last page read. Events, which are sorted newest first, are filtered within their own 5,000-item scan instead.
 
 ## Use Cases
 
@@ -230,9 +235,9 @@ Find pods with multiple specific labels:
 ## Limitations
 
 - **Performance**: Client-side filtering requires fetching all resources first, which can be slow for large result sets. Use server-side selectors when possible.
-- **Pagination**: Filtering happens after pagination, so you may get fewer results than the `limit` parameter specifies.
+- **Scan ceiling**: One call scans at most 5,000 items. A scan that stops there says so and returns a `continue` token; pass it to scan on, or narrow the list with `namespace`, `labelSelector` or `fieldSelector`.
 - **Complex matching**: The filter supports exact matches, the string operators `prefix`, `suffix`, `contains` and `regex`, and array element matching, but not numeric ranges or time comparisons.
-- **One array wildcard per path**: `[*]` expands the first array of a path only; to match images across every container field use the `images` path.
+- **One array wildcard per path**: A path may hold one `[*]`; a path with more, such as `spec.containers[*].env[*].name`, is rejected with an error. To match images across every container field use the `images` path.
 
 ## Troubleshooting
 
@@ -264,7 +269,8 @@ Client-side filtering includes built-in protections against resource exhaustion 
   - Maximum 50 filter criteria per request
   - Maximum path depth of 20 levels (e.g., `a.b.c.d...`)
   - Maximum filter value size of 1024 bytes for string values, an operator's `value` included
-  - `regex` patterns use Go's RE2 engine, whose matching time is linear in the input, so a pattern cannot backtrack catastrophically
+  - `regex` patterns use Go's RE2 engine, which cannot backtrack; its matching time grows with the input and the compiled program, so a pattern compiling to more than 1,000 instructions (large counted repeats such as `(?:[a-z]?){1000}`) is rejected
+  - At most 5,000 items scanned per call, in pages of at least 500
 
 - **Performance Monitoring**: The system logs a warning when filtered results exceed 1000 items, as this may indicate inefficient filtering. Consider using server-side selectors (`labelSelector`, `fieldSelector`) when possible to reduce data transfer and memory usage.
 
