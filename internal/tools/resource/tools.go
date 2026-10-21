@@ -122,7 +122,7 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 
 	// list tool
 	listResourceOpts := []mcp.ToolOption{
-		tooldesc.Describe("List Kubernetes resources of a type, narrowed by namespace, label or field selectors, or a client-side filter.", fmt.Sprintf("limit takes events newest first: an event query scans at most %d matches (the answer says when it hit that: narrow it) and returns no continue token; passing one gives unsorted API order. Every other type comes in API order (namespace/name), so limit takes an alphabetical prefix, not the newest or the worst. Nothing selects by age: filter matches exact values. Examples: {\"resourceType\": \"pods\", \"allNamespaces\": true}, {\"resourceType\": \"clusters\", \"apiGroup\": \"cluster.x-k8s.io\"}.", listSortScanLimit)),
+		tooldesc.Describe("List Kubernetes resources of a type, narrowed by namespace, label or field selectors, or a client-side filter.", fmt.Sprintf("limit takes events newest first: an event query scans at most %d matches (the answer says when it hit that: narrow it) and returns no continue token; passing one gives unsorted API order. Every other type comes in API order (namespace/name), so limit takes an alphabetical prefix, not the newest or the worst. Nothing selects by age, filter included. Examples: {\"resourceType\": \"pods\", \"allNamespaces\": true}, {\"resourceType\": \"clusters\", \"apiGroup\": \"cluster.x-k8s.io\"}.", listSortScanLimit)),
 		tools.ReadOnly(),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithSchemaAdditionalProperties(false),
@@ -144,13 +144,13 @@ func RegisterResourceTools(s *mcpserver.MCPServer, sc *server.ServerContext) err
 			mcp.Description("Indexed fields only, per Kind: metadata.name, .namespace on all; e.g. pods spec.nodeName, status.phase; events reason, type, involvedObject.*."),
 		),
 		mcp.WithObject("filter",
-			mcp.Description("Client-side filter for what selectors cannot do: dot paths, [*] over arrays, e.g. {\"spec.taints[*].key\": \"karpenter.sh/unregistered\"}."),
+			mcp.Description("Client-side, ANDed: dot path ([*] over arrays; \"images\" = every container image) to a value or {\"op\": \"prefix|suffix|contains|regex\", \"value\": \"…\"}."),
 		),
 		mcp.WithBoolean("allNamespaces",
 			mcp.Description("List a namespaced resource across all namespaces; overrides namespace. Ignored for cluster-scoped resources."),
 		),
 		mcp.WithBoolean("fullOutput",
-			mcp.Description("Return full manifests instead of the compact per-Kind summary (default false); output applies only then."),
+			mcp.Description("Return full manifests instead of the compact per-Kind summary with images and owner (default false); output applies only then."),
 		),
 		mcp.WithBoolean("includeLabels",
 			mcp.Description("Include resource labels in summary output (default: false)"),

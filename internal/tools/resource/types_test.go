@@ -228,3 +228,49 @@ func TestExtractPodInfo_WaitingReasons(t *testing.T) {
 		assert.Equal(t, int64(7), summary.Extra["restarts"])
 	})
 }
+
+// TestSummarizeResource_OwnerAndImages: the compact summary names the
+// controller and lists the images of every container field, so a fleet
+// scan needs no full manifests.
+func TestSummarizeResource_OwnerAndImages(t *testing.T) {
+	t.Run("pod names its controller and every image once", func(t *testing.T) {
+		pod := createTestWorkload("Pod", "web-5d4f8-abcde", map[string][]string{
+			"containers":     {"registry.example/org/web:1.0", "registry.example/org/proxy:2"},
+			"initContainers": {"registry.example/org/web:1.0"},
+		})
+		require.NoError(t, unstructured.SetNestedSlice(pod.Object, []any{
+			map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "name": "settings", "uid": "1"},
+			map[string]any{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-5d4f8", "uid": "2", "controller": true},
+		}, "metadata", "ownerReferences"))
+
+		summary := summarizeResource(pod, false, false)
+
+		assert.Equal(t, "ReplicaSet/web-5d4f8", summary.Owner)
+		assert.Equal(t, []string{"registry.example/org/proxy:2", "registry.example/org/web:1.0"}, summary.Extra["images"])
+	})
+
+	t.Run("an owner that does not control is no owner", func(t *testing.T) {
+		pod := createTestWorkload("Pod", "standalone", map[string][]string{"containers": {"nginx"}})
+		require.NoError(t, unstructured.SetNestedSlice(pod.Object, []any{
+			map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "name": "settings", "uid": "1"},
+		}, "metadata", "ownerReferences"))
+
+		assert.Empty(t, summarizeResource(pod, false, false).Owner)
+	})
+
+	t.Run("cronjob images come from its job template", func(t *testing.T) {
+		cron := createTestWorkload("CronJob", "backup", map[string][]string{"containers": {"registry.example/org/backup:4"}})
+
+		assert.Equal(t, []string{"registry.example/org/backup:4"}, summarizeResource(cron, false, false).Extra["images"])
+	})
+
+	t.Run("a resource without a PodSpec has no images", func(t *testing.T) {
+		svc := createTestWorkload("Service", "web", map[string][]string{"containers": {"nginx"}})
+
+		summary := summarizeResource(svc, false, false)
+
+		_, present := summary.Extra["images"]
+		assert.False(t, present)
+		assert.Empty(t, summary.Owner)
+	})
+}

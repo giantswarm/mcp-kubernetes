@@ -2,11 +2,14 @@ package resource
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/tools/output"
 )
 
 func TestApplyClientSideFilter(t *testing.T) {
@@ -164,7 +167,7 @@ func TestMatchesFieldPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesFieldPath(tt.obj, tt.path, tt.expectedValue)
+			result := matchesFieldPath(tt.obj, tt.path, equals(tt.expectedValue))
 			assert.Equal(t, tt.shouldMatch, result, "unexpected match result")
 		})
 	}
@@ -216,7 +219,7 @@ func TestMatchesArrayPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesArrayPath(tt.obj, tt.path, tt.expectedValue)
+			result := matchesArrayPath(tt.obj, tt.path, equals(tt.expectedValue))
 			assert.Equal(t, tt.shouldMatch, result, "unexpected array path match result")
 		})
 	}
@@ -492,6 +495,291 @@ func TestSecurityLimits(t *testing.T) {
 			} else {
 				assert.NoError(t, err, "unexpected error")
 			}
+		})
+	}
+}
+
+// testPodSpecPaths is where each test Kind keeps its PodSpec, spelled out
+// rather than taken from podSpecFields so a wrong path there fails here.
+var testPodSpecPaths = map[string][]string{
+	"Pod":         {"spec"},
+	"PodTemplate": {"template", "spec"},
+	"Deployment":  {"spec", "template", "spec"},
+	"CronJob":     {"spec", "jobTemplate", "spec", "template", "spec"},
+	"Service":     {"spec"},
+}
+
+// createTestWorkload builds an object of kind whose PodSpec holds a
+// container per image under each PodSpec field (containers,
+// initContainers, ephemeralContainers).
+func createTestWorkload(kind, name string, images map[string][]string) *unstructured.Unstructured {
+	podSpec := map[string]interface{}{}
+	for field, fieldImages := range images {
+		containers := make([]interface{}, 0, len(fieldImages))
+		for i, image := range fieldImages {
+			containers = append(containers, map[string]interface{}{"name": fmt.Sprintf("c%d", i), "image": image})
+		}
+		podSpec[field] = containers
+	}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       kind,
+		"metadata":   map[string]interface{}{"name": name, "namespace": "default"},
+	}}
+	if err := unstructured.SetNestedField(obj.Object, podSpec, testPodSpecPaths[kind]...); err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// filteredNames returns the names of the objects the criteria keep.
+func filteredNames(t *testing.T, objects []runtime.Object, criteria FilterCriteria) []string {
+	t.Helper()
+	result, err := ApplyClientSideFilter(objects, criteria)
+	assert.NoError(t, err)
+	names := []string{}
+	for _, obj := range result {
+		names = append(names, obj.(*unstructured.Unstructured).GetName())
+	}
+	return names
+}
+
+func TestApplyClientSideFilter_Operators(t *testing.T) {
+	objects := []runtime.Object{
+		createTestWorkload("Pod", "web", map[string][]string{
+			"containers": {"registry.example/org/web:1.0"},
+		}),
+		createTestWorkload("Pod", "sidecar", map[string][]string{
+			"containers":     {"docker.io/library/nginx:1.25"},
+			"initContainers": {"registry.example/org/init:2"},
+		}),
+		createTestWorkload("Pod", "other", map[string][]string{
+			"containers": {"quay.io/other/app:3"},
+		}),
+		createTestNode("node1", "Ready"),
+	}
+	op := func(op, value string) map[string]interface{} {
+		return map[string]interface{}{"op": op, "value": value}
+	}
+
+	tests := []struct {
+		name     string
+		criteria FilterCriteria
+		expected []string
+	}{
+		{
+			name:     "prefix on an array path",
+			criteria: FilterCriteria{"spec.containers[*].image": op("prefix", "registry.example/org/")},
+			expected: []string{"web"},
+		},
+		{
+			name:     "prefix on images covers initContainers",
+			criteria: FilterCriteria{"images": op("prefix", "registry.example/org/")},
+			expected: []string{"web", "sidecar"},
+		},
+		{
+			name:     "suffix",
+			criteria: FilterCriteria{"images": op("suffix", ":1.25")},
+			expected: []string{"sidecar"},
+		},
+		{
+			name:     "contains",
+			criteria: FilterCriteria{"images": op("contains", "/other/")},
+			expected: []string{"other"},
+		},
+		{
+			name:     "regex",
+			criteria: FilterCriteria{"images": op("regex", `^(quay|docker)\.io/`)},
+			expected: []string{"sidecar", "other"},
+		},
+		{
+			name:     "exact value on images",
+			criteria: FilterCriteria{"images": "quay.io/other/app:3"},
+			expected: []string{"other"},
+		},
+		{
+			name:     "exact value on an array path keeps working",
+			criteria: FilterCriteria{"spec.containers[*].image": "docker.io/library/nginx:1.25"},
+			expected: []string{"sidecar"},
+		},
+		{
+			name:     "prefix on a scalar path",
+			criteria: FilterCriteria{"metadata.name": op("prefix", "we")},
+			expected: []string{"web"},
+		},
+		{
+			name: "operators AND with other criteria",
+			criteria: FilterCriteria{
+				"images":        op("prefix", "registry.example/"),
+				"metadata.name": op("contains", "car"),
+			},
+			expected: []string{"sidecar"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, filteredNames(t, objects, tt.criteria))
+		})
+	}
+}
+
+// TestApplyClientSideFilter_ImagesAcrossKinds: the images path reads the
+// PodSpec wherever a Kind keeps it, and every container field in it.
+func TestApplyClientSideFilter_ImagesAcrossKinds(t *testing.T) {
+	objects := []runtime.Object{
+		createTestWorkload("Deployment", "deploy-init", map[string][]string{
+			"containers":     {"quay.io/app:1"},
+			"initContainers": {"registry.example/org/migrate:1"},
+		}),
+		createTestWorkload("Deployment", "deploy-elsewhere", map[string][]string{
+			"containers": {"quay.io/app:1"},
+		}),
+		createTestWorkload("CronJob", "cron", map[string][]string{
+			"containers": {"registry.example/org/backup:4"},
+		}),
+		createTestWorkload("Pod", "debugged", map[string][]string{
+			"containers":          {"quay.io/app:1"},
+			"ephemeralContainers": {"registry.example/org/debug:1"},
+		}),
+		createTestWorkload("PodTemplate", "template", map[string][]string{
+			"containers": {"registry.example/org/template:1"},
+		}),
+		createTestWorkload("Service", "svc", map[string][]string{
+			"containers": {"registry.example/org/not-a-podspec:1"},
+		}),
+	}
+
+	criteria := FilterCriteria{"images": map[string]interface{}{"op": "prefix", "value": "registry.example/org/"}}
+	assert.Equal(t, []string{"deploy-init", "cron", "debugged", "template"}, filteredNames(t, objects, criteria))
+}
+
+func TestApplyClientSideFilter_OperatorErrors(t *testing.T) {
+	tests := []struct {
+		name          string
+		value         interface{}
+		errorContains string
+	}{
+		{"non-string value", map[string]interface{}{"op": "prefix", "value": 3}, "needs a string value"},
+		{"invalid regex", map[string]interface{}{"op": "regex", "value": "("}, "invalid regular expression"},
+		{"regex program too large", map[string]interface{}{"op": "regex", "value": strings.Repeat("(?:[a-z]?){1000}", 30) + "Q"}, "regular expression too complex"},
+		{"value too large", map[string]interface{}{"op": "contains", "value": strings.Repeat("a", maxFilterValueSize+1)}, "value too large"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objects := []runtime.Object{createTestNode("node1", "Ready")}
+			_, err := ApplyClientSideFilter(objects, FilterCriteria{"metadata.name": tt.value})
+			assert.ErrorContains(t, err, tt.errorContains)
+			assert.ErrorContains(t, err, `filter "metadata.name"`)
+		})
+	}
+}
+
+// TestNewValueMatcher_ObjectsStayNestedMatches: only an object of exactly
+// "op", naming a string operator, and "value" is an operator; any other
+// object keeps its nested-map meaning.
+func TestNewValueMatcher_ObjectsStayNestedMatches(t *testing.T) {
+	actual := map[string]interface{}{"op": "add", "value": "x", "path": "/a"}
+
+	match, err := newValueMatcher(map[string]interface{}{"op": "add", "value": "x", "path": "/a"})
+	assert.NoError(t, err)
+	assert.True(t, match(actual), "an object with more keys than op and value is a nested match")
+
+	match, err = newValueMatcher(map[string]interface{}{"op": 1, "value": "x"})
+	assert.NoError(t, err)
+	assert.True(t, match(map[string]interface{}{"op": 1, "value": "x"}), "a non-string op is a nested match")
+
+	for _, shaped := range []map[string]interface{}{
+		{"op": "add", "value": "x"},
+		{"op": "eq", "value": int64(5)},
+	} {
+		match, err = newValueMatcher(shaped)
+		assert.NoError(t, err, "op %v is no string operator", shaped["op"])
+		assert.True(t, match(map[string]interface{}{"op": shaped["op"], "value": shaped["value"], "path": "/a"}), "op %v is a nested match", shaped["op"])
+		assert.False(t, match(map[string]interface{}{"op": "remove", "value": shaped["value"]}))
+	}
+}
+
+func TestApplyClientSideFilter_OneArrayWildcardPerPath(t *testing.T) {
+	_, err := ApplyClientSideFilter([]runtime.Object{createTestNode("node1", "Ready")},
+		FilterCriteria{"spec.containers[*].env[*].name": "DEBUG"})
+	assert.ErrorContains(t, err, "more than one [*]")
+}
+
+// TestApplyClientSideFilter_ImagesFieldOfOtherKinds: on a Kind without a
+// PodSpec, "images" is the object's own field.
+func TestApplyClientSideFilter_ImagesFieldOfOtherKinds(t *testing.T) {
+	catalog := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.io/v1",
+		"kind":       "ImageCatalog",
+		"metadata":   map[string]interface{}{"name": "catalog"},
+		"images":     map[string]interface{}{"web": "registry.example/org/web:1"},
+	}}
+	objects := []runtime.Object{catalog, createTestWorkload("Pod", "web", map[string][]string{"containers": {"registry.example/org/web:1"}})}
+
+	assert.Equal(t, []string{"catalog"}, filteredNames(t, objects, FilterCriteria{"images": map[string]interface{}{"web": "registry.example/org/web:1"}}))
+	assert.Equal(t, []string{"catalog"}, filteredNames(t, objects, FilterCriteria{"images.web": map[string]interface{}{"op": "prefix", "value": "registry.example/"}}))
+	assert.Equal(t, []string{"web"}, filteredNames(t, objects, FilterCriteria{"images": map[string]interface{}{"op": "prefix", "value": "registry.example/"}}))
+}
+
+func TestNewValueMatcher_StringOperatorsNeedStrings(t *testing.T) {
+	match, err := newValueMatcher(map[string]interface{}{"op": "prefix", "value": "3"})
+	assert.NoError(t, err)
+	assert.True(t, match("3x"))
+	assert.False(t, match(int64(3)), "a number is not a string")
+	assert.False(t, match(nil))
+}
+
+// TestApplyClientSideFilter_MatchesTheMaskedView: a filter sees a Secret or
+// a sensitive ConfigMap as the tools show it, so neither an exact value nor
+// a prefix confirms data that masking hides, while ordinary data still
+// filters.
+func TestApplyClientSideFilter_MatchesTheMaskedView(t *testing.T) {
+	const (
+		password       = "aHVudGVyMg==" //nolint:gosec // G101: test fixture, not a real credential
+		lastApplied    = `{"data":{"password":"hunter2"}}`
+		lastAppliedKey = "kubectl.kubernetes.io/last-applied-configuration"
+	)
+	object := func(kind, name, field string) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       kind,
+			"metadata": map[string]interface{}{
+				"name":        name,
+				"annotations": map[string]interface{}{lastAppliedKey: lastApplied},
+			},
+			field: map[string]interface{}{"password": password},
+		}}
+	}
+	objects := []runtime.Object{
+		object("Secret", "db", "data"),
+		object("Secret", "db-string", "stringData"),
+		object("ConfigMap", "db-credentials", "data"),
+		object("ConfigMap", "settings", "data"),
+	}
+	op := func(op, value string) map[string]interface{} {
+		return map[string]interface{}{"op": op, "value": value}
+	}
+
+	tests := []struct {
+		name     string
+		criteria FilterCriteria
+		expected []string
+	}{
+		{"exact value", FilterCriteria{"data.password": password}, []string{"settings"}},
+		{"prefix", FilterCriteria{"data.password": op("prefix", "aHVu")}, []string{"settings"}},
+		{"regex", FilterCriteria{"data.password": op("regex", "^aH")}, []string{"settings"}},
+		{"stringData", FilterCriteria{"stringData.password": op("prefix", "a")}, []string{}},
+		// A dotted annotation key is reachable only as a nested-map match.
+		{"last-applied annotation", FilterCriteria{"metadata.annotations": map[string]interface{}{lastAppliedKey: lastApplied}}, []string{"settings"}},
+		{"the placeholder marks the key", FilterCriteria{"data.password": output.RedactedValue}, []string{"db", "db-credentials"}},
+		{"metadata still filters", FilterCriteria{"metadata.name": op("prefix", "db")}, []string{"db", "db-string", "db-credentials"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, filteredNames(t, objects, tt.criteria))
 		})
 	}
 }

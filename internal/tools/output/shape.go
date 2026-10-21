@@ -191,9 +191,17 @@ func getTemplateContainers(obj map[string]interface{}) []map[string]interface{} 
 	if !ok {
 		return nil
 	}
+	return PodSpecContainers(templateSpec)
+}
+
+// PodSpecContainers returns every container map of a PodSpec, from its
+// containers, initContainers and ephemeralContainers; non-map entries are
+// skipped. Shaping and the list tool's images read containers through it,
+// so both see the same container fields.
+func PodSpecContainers(podSpec map[string]interface{}) []map[string]interface{} {
 	var out []map[string]interface{}
 	for _, key := range templateContainerKeys {
-		raw, _ := templateSpec[key].([]interface{})
+		raw, _ := podSpec[key].([]interface{})
 		for _, item := range raw {
 			if c, ok := item.(map[string]interface{}); ok {
 				out = append(out, c)

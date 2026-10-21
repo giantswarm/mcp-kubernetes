@@ -1,6 +1,7 @@
 package output
 
 import (
+	"maps"
 	"strings"
 )
 
@@ -63,6 +64,37 @@ func MaskSecrets(obj map[string]interface{}) map[string]interface{} {
 	}
 
 	return result
+}
+
+// MaskedView returns obj as every tool may show it: obj itself when masking
+// would change nothing; for a Secret or a sensitive ConfigMap, a view whose
+// data fields and annotations read as MaskSecrets leaves them. A reader that
+// judges objects without returning them, such as the list filter, matches
+// against this view, so it cannot reveal what masking hides.
+//
+// The view is read-only and shallow: it shares every field masking leaves
+// alone with obj, so a large Secret is not copied to be judged.
+func MaskedView(obj map[string]interface{}) map[string]interface{} {
+	secret := IsSecretResource(obj)
+	if !secret && !isSensitiveConfigMap(obj) {
+		return obj
+	}
+
+	view := maps.Clone(obj)
+	if secret {
+		redactValues(view, "data", "stringData")
+	} else {
+		redactValues(view, "data", "binaryData")
+	}
+	if metadata, ok := view["metadata"].(map[string]interface{}); ok {
+		metadata = maps.Clone(metadata)
+		if annotations, ok := metadata["annotations"].(map[string]interface{}); ok {
+			metadata["annotations"] = maps.Clone(annotations)
+		}
+		view["metadata"] = metadata
+	}
+	maskSensitiveAnnotations(view, secret)
+	return view
 }
 
 // MaskSecretsInList masks secrets in a list of resources.

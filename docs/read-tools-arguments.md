@@ -30,14 +30,14 @@ target a specific cluster or kube-context.
 | `allNamespaces` | optional  |    -      |     -       |    -      | List namespaced resources across all namespaces.                                            |
 | `labelSelector` | optional  |    -      |     -       |    -      | Server-side label selector (`app=nginx,env=prod`).                                          |
 | `fieldSelector` | optional  |    -      |     -       |    -      | Server-side field selector; selectable fields vary per Kind, and no Kind exposes a timestamp. See [selectable fields](#server-side-field-selectors). |
-| `filter`        | optional  |    -      |     -       |    -      | Client-side filter for advanced cases. See [client-side-filtering.md](client-side-filtering.md). |
+| `filter`        | optional  |    -      |     -       |    -      | Client-side filter for advanced cases: exact values, or `prefix` / `suffix` / `contains` / `regex` operators; the virtual `images` path matches every container image of pods and workloads. See [client-side-filtering.md](client-side-filtering.md). |
 
 ## Output shaping
 
 | Argument             | `list`  | `get`   | `describe` | `logs`            | Notes                                                                                                                         |
 |----------------------|:--------:|:--------:|:-----------:|:------------------:|-------------------------------------------------------------------------------------------------------------------------------|
 | `output`             | optional | optional |  optional   | optional (no-op)   | Enum `slim` (default) / `normal` / `wide` / `full`. `slim` applies blacklist exclusion + Kind-aware shaping; `normal` is blacklist-only (no Kind shaping); `wide` / `full` return the full manifest. On `logs` it is accepted but currently a no-op. |
-| `fullOutput`         | optional |    -     |     -       |        -           | Return full resource manifests instead of compact summary.                                                                    |
+| `fullOutput`         | optional |    -     |     -       |        -           | Return full resource manifests instead of compact summary. The compact summary names each item's controller as `owner` (`Kind/name`) and lists the images of pods and workloads in `extra.images`. |
 | `includeLabels`      | optional |    -     |     -       |        -           | Include labels in compact summary output.                                                                                     |
 | `includeAnnotations` | optional |    -     |     -       |        -           | Include annotations in compact summary output.                                                                                |
 | `summary`            | optional |    -     |     -       |        -           | Return aggregated counts (by status, namespace) instead of full objects.                                                      |
@@ -108,8 +108,8 @@ Passing an unindexed field makes the API server reject the request.
 | Others  | `metadata.name`, `metadata.namespace`                                                                                                                |
 
 **No Kind exposes a timestamp field**, so "events from the last 10 minutes"
-cannot be expressed server-side, and `filter` is equality-only so it cannot
-express it either. Rely on the newest-first event ordering above and compare
+cannot be expressed server-side, and `filter` compares values and strings, not
+times, so it cannot express it either. Rely on the newest-first event ordering above and compare
 `lastSeen` on the returned items.
 
 ## `output` semantics

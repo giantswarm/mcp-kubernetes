@@ -37,10 +37,10 @@ func paramDescription(t *testing.T, tool mcp.Tool, param string) string {
 func TestListKeepsItsOrderingFacts(t *testing.T) {
 	d := toolByName(t, allTools(t), "list").Description
 	for fact, why := range map[string]string{
-		"newest first":        "limit on events must read as the most recent activity",
-		"alphabetical prefix": "a limited list of any other type is not the newest or the worst",
-		"unsorted API order":  "a continue token on events silently drops newest-first",
-		"exact values":        "nothing selects by age: filter is equality-only, so agents must not try it",
+		"newest first":            "limit on events must read as the most recent activity",
+		"alphabetical prefix":     "a limited list of any other type is not the newest or the worst",
+		"unsorted API order":      "a continue token on events silently drops newest-first",
+		"by age, filter included": "nothing selects by age: filter compares values and strings, not times, so agents must not try it",
 	} {
 		assert.Contains(t, d, fact, "list's description lost a fact from #559: %s", why)
 	}

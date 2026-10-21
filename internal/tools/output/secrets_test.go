@@ -1,6 +1,7 @@
 package output
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -456,5 +457,70 @@ func TestMaskSecrets_LastAppliedAndSensitiveConfigMaps(t *testing.T) {
 	})
 	if plain["data"].(map[string]interface{})["level"] != "debug" {
 		t.Error("a ConfigMap without a sensitive name must be returned as is")
+	}
+}
+
+// TestMaskedView: a sensitive object is seen masked and the original stays
+// intact; any other object is seen as it is, without a copy.
+func TestMaskedView(t *testing.T) {
+	secret := map[string]interface{}{
+		"kind":     "Secret",
+		"metadata": map[string]interface{}{"name": "db"},
+		"data":     map[string]interface{}{"password": "aHVudGVyMg=="}, //nolint:gosec // G101: test fixture, not a real credential
+	}
+	if got := MaskedView(secret)["data"].(map[string]interface{})["password"]; got != RedactedValue {
+		t.Errorf("Secret view data[password] = %v, want %s", got, RedactedValue)
+	}
+	if got := secret["data"].(map[string]interface{})["password"]; got != "aHVudGVyMg==" {
+		t.Errorf("Secret data[password] = %v after MaskedView, want the original", got)
+	}
+
+	configMap := map[string]interface{}{
+		"kind":     "ConfigMap",
+		"metadata": map[string]interface{}{"name": "db-credentials"},
+		"data":     map[string]interface{}{"password": "hunter2"},
+	}
+	if got := MaskedView(configMap)["data"].(map[string]interface{})["password"]; got != RedactedValue {
+		t.Errorf("sensitive ConfigMap view data[password] = %v, want %s", got, RedactedValue)
+	}
+
+	pod := map[string]interface{}{"kind": "Pod", "metadata": map[string]interface{}{"name": "web"}}
+	if view := MaskedView(pod); reflect.ValueOf(view).Pointer() != reflect.ValueOf(pod).Pointer() {
+		t.Error("MaskedView copied a Pod, which masking leaves alone")
+	}
+}
+
+// TestMaskedView_ReadsAsMaskSecrets: the shallow view of a sensitive object
+// reads exactly as the masked copy the tools return, leaves the original's
+// annotations intact and shares the fields masking leaves alone.
+func TestMaskedView_ReadsAsMaskSecrets(t *testing.T) {
+	const lastApplied = `{"data":{"password":"hunter2"}}`
+	for _, obj := range []map[string]interface{}{
+		{
+			"kind": "Secret",
+			"type": "helm.sh/release.v1",
+			"metadata": map[string]interface{}{"name": "db", "annotations": map[string]interface{}{
+				lastAppliedAnnotation:                lastApplied,
+				"kubernetes.io/service-account.name": "builder",
+				"team":                               "bumblebee",
+			}},
+			"data":       map[string]interface{}{"release": "H4sI"},
+			"stringData": map[string]interface{}{"token": "t0k3n"},
+		},
+		{
+			"kind":       "ConfigMap",
+			"metadata":   map[string]interface{}{"name": "db-credentials", "annotations": map[string]interface{}{lastAppliedAnnotation: lastApplied}},
+			"data":       map[string]interface{}{"password": "hunter2"},
+			"binaryData": map[string]interface{}{"key": "AAEC"},
+		},
+	} {
+		view := MaskedView(obj)
+		if want := MaskSecrets(obj); !reflect.DeepEqual(view, want) {
+			t.Errorf("%s view = %v, want %v", obj["kind"], view, want)
+		}
+		annotations := obj["metadata"].(map[string]interface{})["annotations"].(map[string]interface{})
+		if annotations[lastAppliedAnnotation] != lastApplied {
+			t.Errorf("%s original last-applied annotation = %v after MaskedView, want it intact", obj["kind"], annotations[lastAppliedAnnotation])
+		}
 	}
 }

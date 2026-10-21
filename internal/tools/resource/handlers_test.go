@@ -3,7 +3,10 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
+	"strconv"
 	"testing"
 	"time"
 
@@ -1072,4 +1075,178 @@ func TestAppendHint(t *testing.T) {
 	assert.Equal(t, "existing", appendHint("existing", ""))
 	assert.Equal(t, "existing; note", appendHint("existing", "note"))
 	assert.Equal(t, "", appendHint("", ""))
+}
+
+// listK8sClient answers every list with copies of its items.
+type listK8sClient struct {
+	testdata.MockK8sClient
+	items []*unstructured.Unstructured
+	lists int
+}
+
+// List pages through items as the API server does: at most opts.Limit items
+// from the position opts.Continue names, with a continue token while more
+// remain. It counts its calls in lists.
+func (m *listK8sClient) List(_ context.Context, _, _, _, _ string, opts k8s.ListOptions) (*k8s.PaginatedListResponse, error) {
+	m.lists++
+	start := 0
+	if opts.Continue != "" {
+		var err error
+		if start, err = strconv.Atoi(opts.Continue); err != nil {
+			return nil, err
+		}
+	}
+	end := len(m.items)
+	if opts.Limit > 0 {
+		end = min(end, start+int(opts.Limit))
+	}
+	items := make([]runtime.Object, 0, end-start)
+	for _, item := range m.items[start:end] {
+		items = append(items, item.DeepCopy())
+	}
+	response := &k8s.PaginatedListResponse{Items: items, TotalItems: len(items)}
+	if end < len(m.items) {
+		response.Continue = strconv.Itoa(end)
+	}
+	return response, nil
+}
+
+// TestListFilterScansPastThePage: a filtered list reads past the caller's
+// page until limit items match, says how much it scanned, and stops at the
+// scan ceiling with a continue token rather than reading the whole cluster.
+func TestListFilterScansPastThePage(t *testing.T) {
+	pods := func(n int, matchAt ...int) []*unstructured.Unstructured {
+		items := make([]*unstructured.Unstructured, n)
+		for i := range items {
+			items[i] = createTestWorkload("Pod", fmt.Sprintf("pod-%05d", i), map[string][]string{"containers": {"quay.io/app:1"}})
+		}
+		for _, i := range matchAt {
+			items[i] = createTestWorkload("Pod", fmt.Sprintf("pod-%05d", i), map[string][]string{"containers": {"registry.example/org/app:1"}})
+		}
+		return items
+	}
+	scan := func(t *testing.T, client *listK8sClient, extra map[string]interface{}) PaginatedSummaryResponse {
+		t.Helper()
+		sc, err := server.NewServerContext(context.Background(),
+			server.WithK8sClient(client),
+			server.WithLogger(&testdata.MockLogger{}),
+		)
+		require.NoError(t, err)
+		args := map[string]interface{}{
+			"resourceType":  "pods",
+			"allNamespaces": true,
+			"filter":        map[string]interface{}{"images": map[string]interface{}{"op": "prefix", "value": "registry.example/org/"}},
+		}
+		maps.Copy(args, extra)
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = args
+		result, err := handleListResources(context.Background(), request, sc)
+		require.NoError(t, err)
+		require.False(t, result.IsError, "unexpected error: %s", getErrorText(t, result))
+		var summary PaginatedSummaryResponse
+		require.NoError(t, json.Unmarshal([]byte(getErrorText(t, result)), &summary))
+		return summary
+	}
+	names := func(summary PaginatedSummaryResponse) []string {
+		out := []string{}
+		for _, item := range summary.Items {
+			out = append(out, item.Name)
+		}
+		return out
+	}
+
+	t.Run("matches beyond the first pages", func(t *testing.T) {
+		client := &listK8sClient{items: pods(1200, 30, 1150)}
+		summary := scan(t, client, nil)
+		assert.Equal(t, []string{"pod-00030", "pod-01150"}, names(summary))
+		assert.Empty(t, summary.Continue)
+		assert.Equal(t, "filter matched 2 of all 1200 items", summary.Metadata["filter"])
+		assert.Equal(t, 3, client.lists, "pages of listFilterPageSize")
+	})
+
+	t.Run("stops once limit items match", func(t *testing.T) {
+		client := &listK8sClient{items: pods(1200, 10, 20, 700)}
+		summary := scan(t, client, map[string]interface{}{"limit": float64(2)})
+		assert.Equal(t, []string{"pod-00010", "pod-00020"}, names(summary))
+		assert.Equal(t, "500", summary.Continue)
+		assert.Equal(t, 1, client.lists)
+	})
+
+	t.Run("stops at the scan ceiling", func(t *testing.T) {
+		client := &listK8sClient{items: pods(int(listFilterScanLimit)+500, int(listFilterScanLimit)+100)}
+		summary := scan(t, client, nil)
+		assert.Empty(t, summary.Items)
+		assert.Equal(t, strconv.Itoa(int(listFilterScanLimit)), summary.Continue)
+		assert.Contains(t, summary.Metadata["filter"], "ceiling")
+
+		resumed := scan(t, client, map[string]interface{}{"continue": summary.Continue})
+		assert.Equal(t, []string{fmt.Sprintf("pod-%05d", listFilterScanLimit+100)}, names(resumed))
+	})
+}
+
+// TestListImagePrefixScan is the fleet-scan call: one list with a prefix
+// filter on images returns only the pods using the registry, each with its
+// images and controller in the compact summary, in every output format.
+func TestListImagePrefixScan(t *testing.T) {
+	owned := createTestWorkload("Pod", "web-5d4f8-abcde", map[string][]string{
+		"containers":     {"quay.io/app:1"},
+		"initContainers": {"registry.example/org/migrate:1"},
+	})
+	require.NoError(t, unstructured.SetNestedSlice(owned.Object, []any{
+		map[string]any{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-5d4f8", "uid": "1", "controller": true},
+	}, "metadata", "ownerReferences"))
+	elsewhere := createTestWorkload("Pod", "other", map[string][]string{"containers": {"quay.io/app:1"}})
+
+	sc, err := server.NewServerContext(context.Background(),
+		server.WithK8sClient(&listK8sClient{items: []*unstructured.Unstructured{owned, elsewhere}}),
+		server.WithLogger(&testdata.MockLogger{}),
+	)
+	require.NoError(t, err)
+
+	for _, format := range []string{"", "slim", "normal", "wide", "full"} {
+		t.Run("format "+format, func(t *testing.T) {
+			request := mcp.CallToolRequest{}
+			request.Params.Arguments = map[string]interface{}{
+				"resourceType":  "pods",
+				"allNamespaces": true,
+				"output":        format,
+				"filter": map[string]interface{}{
+					"images": map[string]interface{}{"op": "prefix", "value": "registry.example/org/"},
+				},
+			}
+
+			result, err := handleListResources(context.Background(), request, sc)
+			require.NoError(t, err)
+			require.False(t, result.IsError, "unexpected error: %s", getErrorText(t, result))
+
+			var summary PaginatedSummaryResponse
+			require.NoError(t, json.Unmarshal([]byte(getErrorText(t, result)), &summary))
+			require.Len(t, summary.Items, 1)
+			item := summary.Items[0]
+			assert.Equal(t, "web-5d4f8-abcde", item.Name)
+			assert.Equal(t, "ReplicaSet/web-5d4f8", item.Owner)
+			assert.Equal(t, []interface{}{"quay.io/app:1", "registry.example/org/migrate:1"}, item.Extra["images"])
+		})
+	}
+
+	t.Run("slim full output still strips ownerReferences", func(t *testing.T) {
+		request := mcp.CallToolRequest{}
+		request.Params.Arguments = map[string]interface{}{"resourceType": "pods", "fullOutput": true}
+
+		result, err := handleListResources(context.Background(), request, sc)
+		require.NoError(t, err)
+		require.False(t, result.IsError)
+		assert.NotContains(t, getErrorText(t, result), "ownerReferences")
+	})
+}
+
+func TestUnslimmedProcessor(t *testing.T) {
+	p := output.NewProcessor(&output.Config{SlimOutput: true, KindShaping: true, MaxItems: 7})
+
+	unslimmed := unslimmedProcessor(p)
+
+	assert.False(t, unslimmed.Config().SlimOutput)
+	assert.False(t, unslimmed.Config().KindShaping)
+	assert.Equal(t, 7, unslimmed.Config().MaxItems)
+	assert.True(t, p.Config().SlimOutput, "the original processor is unchanged")
 }

@@ -160,6 +160,70 @@ func processorWithExtraExcluded(p *output.Processor, extra []string) *output.Pro
 	return output.NewProcessor(cfg)
 }
 
+// unslimmedProcessor returns a new Processor like p without slim output and
+// Kind shaping. Secret masking and the MaxItems cap still apply. Used by
+// handleListResources for the compact summary, which never prints a
+// manifest: it reads fields slimming drops (the controller in
+// metadata.ownerReferences), and slimming items it does not print would only
+// cost a copy each.
+func unslimmedProcessor(p *output.Processor) *output.Processor {
+	cfg := p.Config().Clone()
+	cfg.SlimOutput = false
+	cfg.KindShaping = false
+	cfg.ExcludedFields = nil
+	return output.NewProcessor(cfg)
+}
+
+// listFilterScanLimit bounds how many items a filtered list reads: the
+// client-side filter runs on each page the API server returns, so a list
+// keeps reading pages until `limit` items match, the server has no more, or
+// this many were scanned. The response then says how far the scan got and
+// carries the continue token after the last page read.
+const listFilterScanLimit int64 = 5000
+
+// listFilterPageSize is the smallest page a filtered list requests, so a
+// scan for rare matches with the default limit reads the cluster in a few
+// round trips rather than hundreds. Every match of a page read is returned,
+// so a page can yield more than `limit` items.
+const listFilterPageSize int64 = 500
+
+// filterPages applies filter to response and, while fewer than limit items
+// match and the server has more, lists and filters the following pages,
+// until listFilterScanLimit items were scanned. response ends up holding
+// every match and the continue token after the last page read, so a caller
+// resumes exactly where the scan stopped. It returns the items scanned.
+func filterPages(response *k8s.PaginatedListResponse, filter clientFilter, limit int64, nextPage func(continueToken string) (*k8s.PaginatedListResponse, error)) (int, error) {
+	scanned := len(response.Items)
+	matches := filter.apply(response.Items)
+	for int64(len(matches)) < limit && response.Continue != "" && int64(scanned) < listFilterScanLimit {
+		page, err := nextPage(response.Continue)
+		if err != nil {
+			return scanned, err
+		}
+		scanned += len(page.Items)
+		matches = append(matches, filter.apply(page.Items)...)
+		response.Continue = page.Continue
+		response.RemainingItems = page.RemainingItems
+		response.ResourceVersion = page.ResourceVersion
+	}
+	response.Items = matches
+	response.TotalItems = len(matches)
+	return scanned, nil
+}
+
+// filterScanNotice tells the caller how much of the collection a filtered
+// list read, so "no match" on a partial scan is not taken for "none exist".
+func filterScanNotice(response *k8s.PaginatedListResponse, scanned int, limit int64) string {
+	switch {
+	case response.Continue == "":
+		return fmt.Sprintf("filter matched %d of all %d items", response.TotalItems, scanned)
+	case int64(response.TotalItems) < limit:
+		return fmt.Sprintf("filter matched %d of the first %d items; the scan stopped at its %d-item ceiling: pass continue to scan on, or narrow it with namespace/labelSelector/fieldSelector", response.TotalItems, scanned, listFilterScanLimit)
+	default:
+		return fmt.Sprintf("filter matched %d of the first %d items; pass continue to scan on", response.TotalItems, scanned)
+	}
+}
+
 // listKindRules bundles the per-resourceType customisations applied to
 // list responses: extraExcluded paths to layer onto the generic
 // DefaultExcludedFields (slim mode only), a compact callback for value-
@@ -475,7 +539,7 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	labelSelector, _ := args["labelSelector"].(string)
 	fieldSelector, _ := args["fieldSelector"].(string)
 
-	// Client-side filtering parameter
+	// Client-side filtering parameter, compiled before anything is listed
 	var filterCriteria FilterCriteria
 	if filterArg, ok := args["filter"]; ok {
 		filterMap, ok := filterArg.(map[string]interface{})
@@ -483,6 +547,10 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 			return mcp.NewToolResultError("filter parameter must be an object/map"), nil
 		}
 		filterCriteria = filterMap
+	}
+	filter, err := compileFilter(filterCriteria)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Invalid filter criteria: %v", err)), nil
 	}
 
 	// New parameters for controlling output format
@@ -521,9 +589,15 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// would only reorder that, never surfacing the most recent activity.
 	// The caller's limit is applied locally after sorting instead.
 	locallyOrdered := locallyOrderedResourceType(resourceType, continueToken)
+	// A filtered list pages through the collection itself (filterPages), so
+	// it reads pages of at least listFilterPageSize.
+	scansFilteredPages := len(filter) > 0 && !locallyOrdered && limit > 0
 	requestLimit := limit
-	if locallyOrdered {
+	switch {
+	case locallyOrdered:
 		requestLimit = listSortScanLimit
+	case scansFilteredPages:
+		requestLimit = max(limit, listFilterPageSize)
 	}
 
 	opts := k8s.ListOptions{
@@ -551,6 +625,16 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 
 	k8sStart := time.Now()
 	paginatedResponse, err := k8sClient.List(ctx, kubeContext, namespace, resourceType, apiGroup, opts)
+	var filterNotice string
+	if err == nil && scansFilteredPages {
+		var scanned int
+		scanned, err = filterPages(paginatedResponse, filter, limit, func(continueToken string) (*k8s.PaginatedListResponse, error) {
+			pageOpts := opts
+			pageOpts.Continue = continueToken
+			return k8sClient.List(ctx, kubeContext, namespace, resourceType, apiGroup, pageOpts)
+		})
+		filterNotice = filterScanNotice(paginatedResponse, scanned, limit)
+	}
 	k8sDuration := time.Since(k8sStart)
 
 	if err != nil {
@@ -572,14 +656,16 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// keep a prefix, so this has to happen first.
 	sortItemsForResourceType(paginatedResponse.Items, resourceType)
 
-	// Apply client-side filtering if criteria provided
-	if len(filterCriteria) > 0 {
-		filteredItems, err := ApplyClientSideFilter(paginatedResponse.Items, filterCriteria)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Invalid filter criteria: %v", err)), nil
+	// Apply client-side filtering if criteria provided; filterPages already
+	// filtered a paged scan.
+	if len(filter) > 0 {
+		if !scansFilteredPages {
+			paginatedResponse.Items = filter.apply(paginatedResponse.Items)
+			paginatedResponse.TotalItems = len(paginatedResponse.Items)
 		}
-		paginatedResponse.Items = filteredItems
-		paginatedResponse.TotalItems = len(paginatedResponse.Items)
+		if paginatedResponse.Meta != nil {
+			paginatedResponse.Meta.Hint = appendHint(paginatedResponse.Meta.Hint, filterNotice)
+		}
 
 		// Warn on large result sets after filtering (potential performance issue)
 		if paginatedResponse.TotalItems > 1000 {
@@ -625,6 +711,13 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// Handle summary mode - return aggregated counts instead of full items
 	if summaryMode {
 		return handleSummaryResponse(paginatedResponse.Items, processor, resourceType)
+	}
+
+	// The compact summary never prints a manifest; it names each item's
+	// controller (owner) from metadata.ownerReferences, which slim output
+	// strips.
+	if !fullOutput && processor.Config().SlimOutput {
+		processor = unslimmedProcessor(processor)
 	}
 
 	// Always run items through the processor: slim/normal apply field
@@ -676,11 +769,14 @@ func handleListResources(ctx context.Context, request mcp.CallToolRequest, sc *s
 	// The compact response has no _meta, so carry the scan notice here
 	// instead: a caller reading a bounded list needs to know whether it is
 	// the newest N of everything or the newest N of a capped scan.
-	if scanNotice != "" {
+	for key, notice := range map[string]string{"ordering": scanNotice, "filter": filterNotice} {
+		if notice == "" {
+			continue
+		}
 		if summary.Metadata == nil {
 			summary.Metadata = map[string]interface{}{}
 		}
-		summary.Metadata["ordering"] = scanNotice
+		summary.Metadata[key] = notice
 	}
 	jsonData, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
