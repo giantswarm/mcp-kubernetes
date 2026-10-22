@@ -759,15 +759,6 @@ sum(increase(oauth_downstream_auth_total[1h]))
 
 ### Dependency Security
 
-The project includes automated vulnerability scanning:
-
-```bash
-# Run locally
-make govulncheck
-
-# Runs automatically in CI/CD on every pull request
-```
-
 **Dependencies**:
 - Primary OAuth library: `github.com/giantswarm/mcp-oauth v0.2.7`
 - Ensure regular updates for security patches
