@@ -134,7 +134,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * CI: an empty `.nancy-ignore` is committed, so the "Fix Go vulnerabilities" workflow can commit the ignore entries that nancy-fixer adds to it.
 
-
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 
 
