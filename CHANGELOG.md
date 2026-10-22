@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* The image's certs stage builds on alpine 3.24.2 with a current CA bundle instead of `alpine:3.20.3-giantswarm` (2024-09).
 * `docs/oauth.md`: incident response step 2 no longer names the non-existent `admin revoke-all-tokens` command; it describes revoking tokens by restarting every pod (in-memory storage) or deleting the Valkey keys under the key prefix, and notes that identity-provider tokens are revoked at the provider ([#718](https://github.com/giantswarm/mcp-kubernetes/issues/718)).
 
 ### Security
@@ -132,6 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Refactored
 
 * CI: an empty `.nancy-ignore` is committed, so the "Fix Go vulnerabilities" workflow can commit the ignore entries that nancy-fixer adds to it.
+
 
 ## [0.1.113](https://github.com/giantswarm/mcp-kubernetes/compare/v0.1.112...v0.1.113) (2026-06-03)
 
