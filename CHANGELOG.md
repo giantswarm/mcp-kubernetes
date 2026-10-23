@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* `list` and the other resource tools, and `api_resources`, report a discovery the apiserver rejects (401 or 403) as that rejection, with its reason, instead of `unknown resource type` or an empty list. A group version the caller may not discover explains a type that is not found; `api_resources` still lists what it got when only some group versions fail ([#719](https://github.com/giantswarm/mcp-kubernetes/issues/719)).
 * The image's certs stage builds on alpine 3.24.2 with a current CA bundle instead of `alpine:3.20.3-giantswarm` (2024-09).
 * `docs/oauth.md`: incident response step 2 no longer names the non-existent `admin revoke-all-tokens` command; it describes revoking tokens by restarting every pod (in-memory storage) or deleting the Valkey keys under the key prefix, and notes that identity-provider tokens are revoked at the provider ([#718](https://github.com/giantswarm/mcp-kubernetes/issues/718)).
 

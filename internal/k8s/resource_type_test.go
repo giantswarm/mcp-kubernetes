@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clienttesting "k8s.io/client-go/testing"
@@ -26,6 +27,9 @@ type preferredResourcesDiscovery struct {
 	*fakediscovery.FakeDiscovery
 	lists        []*metav1.APIResourceList
 	notPreferred []*metav1.APIResourceList
+	// preferredErr, when set, is what ServerPreferredResources fails with,
+	// next to whatever lists it still returns.
+	preferredErr error
 	// groupVersionErr, when set, is what ServerResourcesForGroupVersion fails with.
 	groupVersionErr error
 	// preferredCalls counts the ServerPreferredResources calls: each one is a
@@ -35,7 +39,7 @@ type preferredResourcesDiscovery struct {
 
 func (d *preferredResourcesDiscovery) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
 	d.preferredCalls++
-	return d.lists, nil
+	return d.lists, d.preferredErr
 }
 
 func (d *preferredResourcesDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
@@ -261,4 +265,79 @@ func TestResolveResourceType_UnknownIsNoMatch(t *testing.T) {
 	if !apimeta.IsNoMatchError(err) {
 		t.Errorf("meta.IsNoMatchError(%v) = false, want true", err)
 	}
+}
+
+// discoveryRejections are the apiserver's answers to a caller it rejects.
+func discoveryRejections() map[string]error {
+	return map[string]error{
+		"401": apierrors.NewUnauthorized("the server has asked for the client to provide credentials"),
+		"403": apierrors.NewForbidden(schema.GroupResource{}, "", fmt.Errorf("discovery is not allowed")),
+	}
+}
+
+// A discovery the apiserver rejects is reported as the rejection, naming its
+// reason, not as an unknown type the caller would take for a missing one.
+func TestResolveResourceType_DiscoveryRejected(t *testing.T) {
+	for code, rejection := range discoveryRejections() {
+		t.Run(code, func(t *testing.T) {
+			d := testDiscovery()
+			d.lists, d.preferredErr = nil, rejection
+
+			_, _, err := resolveResourceTypeShared("pods", "", d)
+			require.Error(t, err)
+			assert.Equal(t, apierrors.ReasonForError(rejection), apierrors.ReasonForError(err), "the rejection is wrapped: %v", err)
+			assert.Contains(t, err.Error(), "resolve resource type pods: discovery failed: "+rejection.Error())
+			assert.False(t, apimeta.IsNoMatchError(err), "not classed as an unknown type: %v", err)
+		})
+	}
+}
+
+// A group version the caller may not discover explains a type that is not
+// found; a type found elsewhere still resolves.
+func TestResolveResourceType_GroupDiscoveryForbidden(t *testing.T) {
+	d := testDiscovery()
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Group: "example.com"}, "", fmt.Errorf("no access"))
+	d.preferredErr = &discovery.ErrGroupDiscoveryFailed{Groups: map[schema.GroupVersion]error{
+		{Group: "example.com", Version: "v1"}: forbidden,
+	}}
+
+	gvr, _, err := resolveResourceTypeShared("pods", "", d)
+	require.NoError(t, err)
+	assert.Equal(t, schema.GroupVersionResource{Version: "v1", Resource: "pods"}, gvr)
+
+	_, _, err = resolveResourceTypeShared("gizmos", "", d)
+	require.Error(t, err)
+	assert.True(t, apierrors.IsForbidden(err), "the rejection is wrapped: %v", err)
+	assert.Contains(t, err.Error(), "resolve resource type gizmos: discovery of example.com/v1 failed")
+
+	d.preferredErr = &discovery.ErrGroupDiscoveryFailed{Groups: map[schema.GroupVersion]error{
+		{Group: "example.com", Version: "v1"}: fmt.Errorf("service unavailable"),
+	}}
+	_, _, err = resolveResourceTypeShared("gizmos", "", d)
+	assert.True(t, apimeta.IsNoMatchError(err), "a group that is down is no rejection: %v", err)
+}
+
+// api_resources reports a rejected discovery instead of an empty list, and
+// keeps listing what it got when only some group versions failed.
+func TestGetAPIResources_DiscoveryRejected(t *testing.T) {
+	for code, rejection := range discoveryRejections() {
+		t.Run(code, func(t *testing.T) {
+			d := testDiscovery()
+			d.lists, d.preferredErr = nil, rejection
+
+			resp, err := getAPIResources(t.Context(), d, 0, 0, "", false, nil)
+			require.Error(t, err)
+			assert.Nil(t, resp)
+			assert.Equal(t, apierrors.ReasonForError(rejection), apierrors.ReasonForError(err), "the rejection is wrapped: %v", err)
+			assert.Contains(t, err.Error(), rejection.Error())
+		})
+	}
+
+	d := testDiscovery()
+	d.preferredErr = &discovery.ErrGroupDiscoveryFailed{Groups: map[schema.GroupVersion]error{
+		{Group: "example.com", Version: "v1"}: apierrors.NewForbidden(schema.GroupResource{}, "", fmt.Errorf("no access")),
+	}}
+	resp, err := getAPIResources(t.Context(), d, 0, 0, "", false, nil)
+	require.NoError(t, err)
+	assert.Equal(t, len(d.lists), resp.TotalCount)
 }
