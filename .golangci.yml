@@ -8,6 +8,9 @@
 # See giantswarm/devctl#1802 for the upstream regression context.
 version: "2"
 linters:
+  enable:
+    - gosec
+    - goconst
   settings:
     goconst:
       min-len: 5
