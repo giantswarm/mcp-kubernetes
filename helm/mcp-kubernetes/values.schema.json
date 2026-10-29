@@ -325,6 +325,9 @@
         "clusterID": {
             "type": "string"
         },
+        "externalDNSIP": {
+            "type": "string"
+        },
         "fullnameOverride": {
             "type": "string"
         },
@@ -385,6 +388,7 @@
         },
         "global": {
             "type": "object",
+            "description": "Global values shared between all subcharts and the platform.",
             "additionalProperties": true,
             "properties": {
                 "domain": {
@@ -416,6 +420,10 @@
                             "type": "string"
                         }
                     }
+                },
+                "podSecurityStandards": {
+                    "type": "object",
+                    "additionalProperties": true
                 }
             }
         },
@@ -492,6 +500,10 @@
                 }
             }
         },
+        "helm": {
+            "type": "object",
+            "additionalProperties": true
+        },
         "image": {
             "type": "object",
             "additionalProperties": false,
@@ -558,6 +570,9 @@
                     "type": "array"
                 }
             }
+        },
+        "managementCluster": {
+            "type": "string"
         },
         "mcpKubernetes": {
             "type": "object",
