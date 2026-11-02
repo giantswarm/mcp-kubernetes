@@ -2,10 +2,13 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -689,10 +692,14 @@ func getAPIResources(ctx context.Context, discoveryClient discovery.DiscoveryInt
 	limit, offset int, apiGroup string, namespacedOnly bool, verbs []string) (*PaginatedAPIResourceResponse, error) {
 
 	apiResourceLists, err := discoveryClient.ServerPreferredResources()
+	// A rejected caller gets no discovery data at all: say so rather than
+	// answer with an empty list.
+	if isAuthError(err) {
+		return nil, fmt.Errorf("discover API resources: %w", err)
+	}
 	// ServerPreferredResources may return partial results with an error
 	// (e.g., when some API groups are unavailable). We continue with
 	// whatever results we got, as partial data is better than none.
-	_ = err // Intentionally ignore error - continue with partial results
 
 	var apiResources []APIResourceInfo
 
@@ -1062,9 +1069,10 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 	}()
 
 	var resourceLists []*metav1.APIResourceList
+	var discoveryErr error
 	select {
 	case result := <-resultChan:
-		resourceLists = result.resourceLists
+		resourceLists, discoveryErr = result.resourceLists, result.err
 		// Continue with partial results even on error
 	case <-ctx.Done():
 		return schema.GroupVersionResource{}, false, fmt.Errorf("API discovery timed out after 30 seconds: %w", ctx.Err())
@@ -1117,7 +1125,38 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 		return gvr, namespaced, nil
 	}
 
+	// A type discovery could not see because the caller was rejected is not
+	// an unknown type: say what broke.
+	if authErr := discoveryAuthError(discoveryErr); authErr != nil {
+		return schema.GroupVersionResource{}, false, fmt.Errorf("resolve resource type %s: %w", requested, authErr)
+	}
 	return schema.GroupVersionResource{}, false, &unknownResourceTypeError{resourceType: requested}
+}
+
+// isAuthError reports whether the apiserver rejected the caller: 401 or 403.
+func isAuthError(err error) bool {
+	return apierrors.IsUnauthorized(err) || apierrors.IsForbidden(err)
+}
+
+// discoveryAuthError returns the authentication or authorisation failure in a
+// discovery error, of the whole discovery or of one group version, or nil.
+func discoveryAuthError(err error) error {
+	if isAuthError(err) {
+		return fmt.Errorf("discovery failed: %w", err)
+	}
+	var groupErr *discovery.ErrGroupDiscoveryFailed
+	if !errors.As(err, &groupErr) {
+		return nil
+	}
+	groupVersions := slices.SortedFunc(maps.Keys(groupErr.Groups), func(a, b schema.GroupVersion) int {
+		return strings.Compare(a.String(), b.String())
+	})
+	for _, gv := range groupVersions {
+		if gvErr := groupErr.Groups[gv]; isAuthError(gvErr) {
+			return fmt.Errorf("discovery of %s failed: %w", gv, gvErr)
+		}
+	}
+	return nil
 }
 
 // unknownResourceTypeError is a resource type the cluster does not serve. It
