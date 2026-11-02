@@ -11,7 +11,6 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -19,22 +18,34 @@ import (
 	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 )
 
-// recordSpans installs an in-memory tracer provider and the W3C propagator
-// as the globals the instrumentation provider installs, restoring the
-// previous ones after the test.
+// recordSpans installs an in-memory tracer provider as the global the
+// instrumentation provider installs, restoring the previous one after the
+// test. It leaves the global propagator at its default, as in production.
 func recordSpans(t *testing.T) *tracetest.InMemoryExporter {
 	t.Helper()
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
-	prevProvider, prevPropagator := otel.GetTracerProvider(), otel.GetTextMapPropagator()
+	prevProvider := otel.GetTracerProvider()
 	otel.SetTracerProvider(provider)
-	otel.SetTextMapPropagator(propagation.TraceContext{})
 	t.Cleanup(func() {
 		_ = provider.Shutdown(context.Background())
 		otel.SetTracerProvider(prevProvider)
-		otel.SetTextMapPropagator(prevPropagator)
 	})
 	return exporter
+}
+
+func TestHandlerSeesTheCallersTraceWithoutAnExporter(t *testing.T) {
+	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+	var got string
+	handler := Tracing(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = trace.SpanContextFromContext(r.Context()).TraceID().String()
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("traceparent", "00-"+traceID+"-00f067aa0ba902b7-01")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	require.Equal(t, traceID, got)
 }
 
 func postMCP(t *testing.T, url, sessionID, traceparent, body string) *http.Response {
