@@ -1127,7 +1127,7 @@ func resolveResourceTypeShared(resourceType, apiGroup string,
 
 	// A type discovery could not see because the caller was rejected is not
 	// an unknown type: say what broke.
-	if authErr := discoveryAuthError(discoveryErr); authErr != nil {
+	if authErr := discoveryAuthError(discoveryErr, requestedGroup); authErr != nil {
 		return schema.GroupVersionResource{}, false, fmt.Errorf("resolve resource type %s: %w", requested, authErr)
 	}
 	return schema.GroupVersionResource{}, false, &unknownResourceTypeError{resourceType: requested}
@@ -1140,7 +1140,9 @@ func isAuthError(err error) bool {
 
 // discoveryAuthError returns the authentication or authorisation failure in a
 // discovery error, of the whole discovery or of one group version, or nil.
-func discoveryAuthError(err error) error {
+// When requestedGroup is set, only a group version of that group counts: a
+// rejection elsewhere cannot explain a type the caller looked for there.
+func discoveryAuthError(err error, requestedGroup string) error {
 	if isAuthError(err) {
 		return fmt.Errorf("discovery failed: %w", err)
 	}
@@ -1152,6 +1154,9 @@ func discoveryAuthError(err error) error {
 		return strings.Compare(a.String(), b.String())
 	})
 	for _, gv := range groupVersions {
+		if requestedGroup != "" && !groupsMatch(requestedGroup, gv.Group) {
+			continue
+		}
 		if gvErr := groupErr.Groups[gv]; isAuthError(gvErr) {
 			return fmt.Errorf("discovery of %s failed: %w", gv, gvErr)
 		}
