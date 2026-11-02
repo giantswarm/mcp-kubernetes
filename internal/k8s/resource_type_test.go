@@ -310,6 +310,12 @@ func TestResolveResourceType_GroupDiscoveryForbidden(t *testing.T) {
 	assert.True(t, apierrors.IsForbidden(err), "the rejection is wrapped: %v", err)
 	assert.Contains(t, err.Error(), "resolve resource type gizmos: discovery of example.com/v1 failed")
 
+	_, _, err = resolveResourceTypeShared("gizmos", "other.io", d)
+	assert.True(t, apimeta.IsNoMatchError(err), "a rejection in another group explains nothing: %v", err)
+
+	_, _, err = resolveResourceTypeShared("gizmos", "example.com", d)
+	assert.True(t, apierrors.IsForbidden(err), "a rejection in the requested group is reported: %v", err)
+
 	d.preferredErr = &discovery.ErrGroupDiscoveryFailed{Groups: map[schema.GroupVersion]error{
 		{Group: "example.com", Version: "v1"}: fmt.Errorf("service unavailable"),
 	}}
