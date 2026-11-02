@@ -4,7 +4,6 @@ package tools
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -184,7 +183,7 @@ func ExtractClusterParam(args map[string]interface{}) string {
 // the reference is the only way to find it in the logs.
 func clusterErrorWithRef(ctx context.Context, logMsg, clusterName string, err error) string {
 	ref := errorReference(ctx)
-	slog.Warn(logMsg,
+	slog.WarnContext(ctx, logMsg,
 		slog.String("cluster", clusterName),
 		slog.String("ref", ref),
 		slog.Any("error", err))
@@ -197,9 +196,7 @@ func errorReference(ctx context.Context) string {
 	if traceID := instrumentation.GetTraceID(ctx); traceID != "" {
 		return traceID
 	}
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	return rand.Text()
 }
 
 // FormatClusterError formats a federation error into a user-friendly message.

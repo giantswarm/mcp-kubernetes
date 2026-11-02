@@ -521,7 +521,7 @@ func TestClusterErrorWithRef(t *testing.T) {
 	t.Run("reference is the trace ID and appears in the log", func(t *testing.T) {
 		traceID, _ := trace.TraceIDFromHex("32d642d918be0b11ba081a881493fe87")
 		spanID, _ := trace.SpanIDFromHex("d1052019c3df59e7")
-		ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		ctx := trace.ContextWithSpanContext(t.Context(), trace.NewSpanContext(trace.SpanContextConfig{
 			TraceID: traceID,
 			SpanID:  spanID,
 		}))
@@ -545,13 +545,13 @@ func TestClusterErrorWithRef(t *testing.T) {
 	})
 
 	t.Run("reference is random without a trace", func(t *testing.T) {
-		refPattern := regexp.MustCompile(`\(ref [0-9a-f]{16}\)$`)
+		refPattern := regexp.MustCompile(`\(ref [A-Z2-7]{26}\)$`)
 
-		first := clusterErrorWithRef(context.Background(), "failed to get federated clientset", "opd01", notFound)
-		second := clusterErrorWithRef(context.Background(), "failed to get federated clientset", "opd01", notFound)
+		first := clusterErrorWithRef(t.Context(), "failed to get federated clientset", "opd01", notFound)
+		second := clusterErrorWithRef(t.Context(), "failed to get federated clientset", "opd01", notFound)
 
 		if !refPattern.MatchString(first) {
-			t.Errorf("clusterErrorWithRef() = %q, want a 16 hex digit reference", first)
+			t.Errorf("clusterErrorWithRef() = %q, want a 26 character base32 reference", first)
 		}
 		if first == second {
 			t.Errorf("two calls returned the same reference: %q", first)
