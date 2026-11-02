@@ -3,12 +3,15 @@ package tools
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
@@ -116,26 +119,17 @@ func GetClusterClient(ctx context.Context, sc *server.ServerContext, clusterName
 		// Get clients from federation manager for the target cluster
 		clientset, err := fedManager.GetClient(ctx, clusterName, user)
 		if err != nil {
-			slog.Warn("failed to get federated clientset",
-				slog.String("cluster", clusterName),
-				slog.Any("error", err))
-			return nil, FormatClusterError(err, clusterName)
+			return nil, clusterErrorWithRef(ctx, "failed to get federated clientset", clusterName, err)
 		}
 
 		dynamicClient, err := fedManager.GetDynamicClient(ctx, clusterName, user)
 		if err != nil {
-			slog.Warn("failed to get federated dynamic client",
-				slog.String("cluster", clusterName),
-				slog.Any("error", err))
-			return nil, FormatClusterError(err, clusterName)
+			return nil, clusterErrorWithRef(ctx, "failed to get federated dynamic client", clusterName, err)
 		}
 
 		restConfig, err := fedManager.GetRestConfig(ctx, clusterName, user)
 		if err != nil {
-			slog.Warn("failed to get federated rest config",
-				slog.String("cluster", clusterName),
-				slog.Any("error", err))
-			return nil, FormatClusterError(err, clusterName)
+			return nil, clusterErrorWithRef(ctx, "failed to get federated rest config", clusterName, err)
 		}
 
 		// Create federated k8s.Client wrapper
@@ -183,6 +177,29 @@ func ExtractClusterParam(args map[string]interface{}) string {
 		return cluster
 	}
 	return ""
+}
+
+// clusterErrorWithRef logs err with a reference and returns the user-facing
+// message with the same reference. The user-facing message hides the cause, so
+// the reference is the only way to find it in the logs.
+func clusterErrorWithRef(ctx context.Context, logMsg, clusterName string, err error) string {
+	ref := errorReference(ctx)
+	slog.Warn(logMsg,
+		slog.String("cluster", clusterName),
+		slog.String("ref", ref),
+		slog.Any("error", err))
+	return fmt.Sprintf("%s (ref %s)", FormatClusterError(err, clusterName), ref)
+}
+
+// errorReference returns the trace ID of ctx, or a random ID when the request
+// carries no trace.
+func errorReference(ctx context.Context) string {
+	if traceID := instrumentation.GetTraceID(ctx); traceID != "" {
+		return traceID
+	}
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // FormatClusterError formats a federation error into a user-friendly message.

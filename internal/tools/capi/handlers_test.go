@@ -343,7 +343,7 @@ func TestHandleFederationError(t *testing.T) {
 			name:            "cluster not found",
 			err:             &federation.ClusterNotFoundError{ClusterName: "test", Reason: "not found"},
 			operation:       "get cluster",
-			expectedMessage: "cluster access denied or unavailable", // Generic message for security
+			expectedMessage: "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed", // Generic message for security
 		},
 		{
 			name:            "discovery error",
@@ -806,7 +806,7 @@ func TestHandleGetCluster_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	// Generic message for security
-	assert.Contains(t, getResultText(result), "cluster access denied or unavailable")
+	assert.Contains(t, getResultText(result), "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed")
 }
 
 func TestHandleResolveCluster_NoFederation(t *testing.T) {
@@ -1114,7 +1114,7 @@ func TestHandleClusterHealth_NotFound(t *testing.T) {
 	result, err := handleClusterHealth(ctx, request, sc)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
-	assert.Contains(t, getResultText(result), "cluster access denied or unavailable")
+	assert.Contains(t, getResultText(result), "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed")
 }
 
 func TestGetUserFromContext_NoUser(t *testing.T) {

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* A tool call on a workload cluster that is not found, or whose kubeconfig or connection fails, now says to check the name with `capi_list_clusters` instead of only `cluster access denied or unavailable`. It also ends with `(ref <id>)`, and the server's Warn log line for the failure carries the same `ref`. The ID is the request's trace ID when tracing is on, and random otherwise. Callers still can't tell a missing cluster from an unavailable one.
 * The image's certs stage builds on alpine 3.24.2 with a current CA bundle instead of `alpine:3.20.3-giantswarm` (2024-09).
 * `docs/oauth.md`: incident response step 2 no longer names the non-existent `admin revoke-all-tokens` command; it describes revoking tokens by restarting every pod (in-memory storage) or deleting the Valkey keys under the key prefix, and notes that identity-provider tokens are revoked at the provider ([#718](https://github.com/giantswarm/mcp-kubernetes/issues/718)).
 

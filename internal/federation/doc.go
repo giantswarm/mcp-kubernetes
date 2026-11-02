@@ -244,7 +244,7 @@
 //   - ErrAccessCheckFailed: The SAR check itself failed (not denied, but error)
 //   - ErrInvalidAccessCheck: Invalid AccessCheck parameters
 //
-// All user-facing errors return a generic message ("cluster access denied or unavailable")
+// Cluster lookup, kubeconfig and connection errors return one generic message
 // to prevent information leakage that could enable cluster enumeration attacks.
 //
 // # Example Usage

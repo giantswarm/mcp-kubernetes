@@ -309,7 +309,7 @@ func TestUserFacingErrors(t *testing.T) {
 		assert.NotContains(t, userFacing, "role binding")
 
 		// Should contain generic message (unified across all cluster errors)
-		assert.Equal(t, "cluster access denied or unavailable", userFacing)
+		assert.Equal(t, "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed", userFacing)
 	})
 
 	t.Run("KubeconfigError user facing error hides secret details", func(t *testing.T) {
@@ -330,7 +330,7 @@ func TestUserFacingErrors(t *testing.T) {
 		assert.NotContains(t, userFacing, "corrupted")
 
 		// Should contain generic message (unified across all cluster errors)
-		assert.Equal(t, "cluster access denied or unavailable", userFacing)
+		assert.Equal(t, "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed", userFacing)
 	})
 
 	t.Run("KubeconfigError not found user facing error is identical to other errors", func(t *testing.T) {
@@ -354,7 +354,7 @@ func TestUserFacingErrors(t *testing.T) {
 
 		// Both should return the same message
 		assert.Equal(t, errNotFound.UserFacingError(), errInvalid.UserFacingError())
-		assert.Equal(t, "cluster access denied or unavailable", errNotFound.UserFacingError())
+		assert.Equal(t, "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed", errNotFound.UserFacingError())
 	})
 
 	t.Run("ConnectionError user facing error hides host", func(t *testing.T) {
@@ -375,7 +375,7 @@ func TestUserFacingErrors(t *testing.T) {
 		assert.NotContains(t, userFacing, "certificate")
 
 		// Should contain generic message (unified across all cluster errors)
-		assert.Equal(t, "cluster access denied or unavailable", userFacing)
+		assert.Equal(t, "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed", userFacing)
 	})
 
 	t.Run("All cluster errors return same user facing message", func(t *testing.T) {
@@ -386,7 +386,7 @@ func TestUserFacingErrors(t *testing.T) {
 		kubeconfigInvalid := &KubeconfigError{ClusterName: "test", NotFound: false}
 		connectionError := &ConnectionError{ClusterName: "test"}
 
-		expectedMsg := "cluster access denied or unavailable"
+		expectedMsg := "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed"
 		assert.Equal(t, expectedMsg, clusterNotFound.UserFacingError())
 		assert.Equal(t, expectedMsg, kubeconfigNotFound.UserFacingError())
 		assert.Equal(t, expectedMsg, kubeconfigInvalid.UserFacingError())
