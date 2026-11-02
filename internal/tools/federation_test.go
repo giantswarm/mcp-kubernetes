@@ -1,11 +1,16 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"regexp"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
@@ -110,7 +115,7 @@ func TestFormatClusterError(t *testing.T) {
 				Reason:      "not found",
 			},
 			clusterName: "my-cluster",
-			contains:    []string{"cluster access denied"},
+			contains:    []string{"cluster not found or unavailable"},
 		},
 		{
 			name: "KubeconfigError not found",
@@ -122,7 +127,7 @@ func TestFormatClusterError(t *testing.T) {
 				NotFound:     true,
 			},
 			clusterName: "my-cluster",
-			contains:    []string{"cluster access denied"},
+			contains:    []string{"cluster not found or unavailable"},
 		},
 		{
 			name: "KubeconfigError invalid",
@@ -134,7 +139,7 @@ func TestFormatClusterError(t *testing.T) {
 				NotFound:     false,
 			},
 			clusterName: "my-cluster",
-			contains:    []string{"cluster access denied"},
+			contains:    []string{"cluster not found or unavailable"},
 		},
 		{
 			name: "ConnectionError",
@@ -144,7 +149,7 @@ func TestFormatClusterError(t *testing.T) {
 				Reason:      "connection refused",
 			},
 			clusterName: "my-cluster",
-			contains:    []string{"cluster access denied"},
+			contains:    []string{"cluster not found or unavailable"},
 		},
 		{
 			name: "ImpersonationError",
@@ -503,6 +508,53 @@ func TestFormatClusterError_GenericFallback(t *testing.T) {
 		expectedMsg := "failed to access cluster: an unexpected error occurred"
 		if result != expectedMsg {
 			t.Errorf("Expected generic message %q, got %q", expectedMsg, result)
+		}
+	})
+}
+
+func TestClusterErrorWithRef(t *testing.T) {
+	notFound := &federation.ClusterNotFoundError{
+		ClusterName: "opd01",
+		Reason:      "no CAPI Cluster resource found with this name",
+	}
+
+	t.Run("reference is the trace ID and appears in the log", func(t *testing.T) {
+		traceID, _ := trace.TraceIDFromHex("32d642d918be0b11ba081a881493fe87")
+		spanID, _ := trace.SpanIDFromHex("d1052019c3df59e7")
+		ctx := trace.ContextWithSpanContext(t.Context(), trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID: traceID,
+			SpanID:  spanID,
+		}))
+
+		var logs bytes.Buffer
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+		t.Cleanup(func() { slog.SetDefault(prev) })
+
+		got := clusterErrorWithRef(ctx, "failed to get federated clientset", "opd01", notFound)
+
+		want := notFound.UserFacingError() + " (ref 32d642d918be0b11ba081a881493fe87)"
+		if got != want {
+			t.Errorf("clusterErrorWithRef() = %q, want %q", got, want)
+		}
+		for _, substr := range []string{"ref=32d642d918be0b11ba081a881493fe87", "no CAPI Cluster resource found"} {
+			if !strings.Contains(logs.String(), substr) {
+				t.Errorf("log %q does not contain %q", logs.String(), substr)
+			}
+		}
+	})
+
+	t.Run("reference is random without a trace", func(t *testing.T) {
+		refPattern := regexp.MustCompile(`\(ref [A-Z2-7]{26}\)$`)
+
+		first := clusterErrorWithRef(t.Context(), "failed to get federated clientset", "opd01", notFound)
+		second := clusterErrorWithRef(t.Context(), "failed to get federated clientset", "opd01", notFound)
+
+		if !refPattern.MatchString(first) {
+			t.Errorf("clusterErrorWithRef() = %q, want a 26 character base32 reference", first)
+		}
+		if first == second {
+			t.Errorf("two calls returned the same reference: %q", first)
 		}
 	})
 }

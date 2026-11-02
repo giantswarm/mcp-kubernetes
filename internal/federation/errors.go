@@ -78,7 +78,9 @@ var (
 // userFacingClusterError is the standardized message returned to users for all
 // cluster-related errors. Using a single message prevents error response
 // differentiation attacks that could leak cluster existence information.
-const userFacingClusterError = "cluster access denied or unavailable"
+// It still names the likeliest fix, a mistyped cluster name, so the caller can
+// act on it without learning whether the cluster exists.
+const userFacingClusterError = "cluster not found or unavailable - check the name with capi_list_clusters, and contact your administrator if it is listed"
 
 // ClusterNotFoundError provides detailed context about a cluster lookup failure.
 type ClusterNotFoundError struct {
