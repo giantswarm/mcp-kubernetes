@@ -1,0 +1,7 @@
+{{- if and .Values.mcpKubernetes.oauth.enabled (eq .Values.mcpKubernetes.oauth.storage.type "memory") -}}
+{{- $replicas := int .Values.replicaCount -}}
+{{- if .Values.autoscaling.enabled -}}{{- $replicas = int .Values.autoscaling.maxReplicas -}}{{- end -}}
+{{- if gt $replicas 1 -}}
+{{- fail "OAuth with multiple replicas requires shared Valkey storage; set mcpKubernetes.oauth.storage.type=valkey, or use one replica with autoscaling disabled" -}}
+{{- end -}}
+{{- end -}}

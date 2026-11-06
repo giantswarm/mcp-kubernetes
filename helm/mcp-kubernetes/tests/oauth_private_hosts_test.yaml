@@ -1,0 +1,27 @@
+suite: Exact private OAuth host exceptions
+templates:
+  - templates/deployment.yaml
+set:
+  replicaCount: 1
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+  mcpKubernetes.oauth.existingSecret: oauth-credentials
+  mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+  mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+  mcpKubernetes.oauth.cimd.privateIPHosts: [metadata.internal]
+  mcpKubernetes.oauth.redirectURISecurity.privateIPHosts: [callback.internal]
+tests:
+  - it: renders exact exceptions without broad private IP bypasses
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cimd-private-ip-hosts=metadata.internal
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --private-ip-redirect-uri-hosts=callback.internal
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --cimd-allow-private-ips=true
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-private-ip-redirect-uris=true

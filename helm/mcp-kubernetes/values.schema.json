@@ -710,6 +710,12 @@
                             "properties": {
                                 "allowPrivateIPs": {
                                     "type": "boolean"
+                                },
+                                "privateIPHosts": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         },
@@ -815,6 +821,12 @@
                                 },
                                 "disableProductionMode": {
                                     "type": "boolean"
+                                },
+                                "privateIPHosts": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         },

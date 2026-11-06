@@ -97,6 +97,9 @@ spec:
             {{- if .allowPrivateIPRedirectURIs }}
             - --allow-private-ip-redirect-uris=true
             {{- end }}
+            {{- with .privateIPHosts }}
+            - --private-ip-redirect-uri-hosts={{ join "," . }}
+            {{- end }}
             {{- if .allowLinkLocalRedirectURIs }}
             - --allow-link-local-redirect-uris=true
             {{- end }}
@@ -124,6 +127,9 @@ spec:
             {{- /* CIMD private IP allowlist for internal deployments */ -}}
             {{- if and .Values.mcpKubernetes.oauth.cimd .Values.mcpKubernetes.oauth.cimd.allowPrivateIPs }}
             - --cimd-allow-private-ips=true
+            {{- end }}
+            {{- with .Values.mcpKubernetes.oauth.cimd.privateIPHosts }}
+            - --cimd-private-ip-hosts={{ join "," . }}
             {{- end }}
             {{- end }}
             {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}

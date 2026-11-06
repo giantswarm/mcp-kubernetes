@@ -508,6 +508,8 @@ mcpKubernetes:
       # Only enable for internal/VPN deployments where clients use private IPs.
       # Default: false (blocked for security)
       allowPrivateIPRedirectURIs: false
+      # Exact HTTPS redirect hosts permitted to resolve to private addresses.
+      privateIPHosts: []  # @schema item: string
 
       # Allow link-local addresses (169.254.x.x, fe80::/10) in redirect URIs
       # WARNING: Could enable access to cloud metadata services (169.254.169.254).
@@ -605,6 +607,8 @@ mcpKubernetes:
       #
       # Default: false (blocked for security)
       allowPrivateIPs: false
+      # Exact CIMD hosts permitted to resolve to private addresses.
+      privateIPHosts: []  # @schema item: string
 
     # Trusted Audiences for SSO Token Forwarding
     # When users connect through upstream aggregators (like muster), they may have

@@ -120,7 +120,9 @@ mcp-kubernetes serve \
 
 ### 3. Client Registration
 
-Before a client can authenticate, it must be registered with the OAuth server:
+CIMD is enabled by default. A client can use its HTTPS metadata URL as its client ID without dynamic registration. The authorization server fetches and validates the document, then asks for per-client consent before contacting the identity provider. No consent flag or separate consent key is required. Multiple replicas use encrypted Valkey storage; memory storage requires one replica without autoscaling.
+
+Clients without CIMD support can register with the OAuth server:
 
 ```bash
 # Register a new OAuth client
@@ -165,7 +167,7 @@ Response:
      code_challenge_method=S256
    ```
 
-2. **User Authorization**: User is redirected to Google to authorize access
+2. **User Authorization**: The person approves client consent, then signs in with the identity provider.
 
 3. **Callback**: After authorization, user is redirected back with authorization code:
    ```

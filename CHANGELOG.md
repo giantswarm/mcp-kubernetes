@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- OAuth requires client consent by default and binds grants to the browser, verified subject and approved permissions. The chart refuses multi-replica OAuth with in-memory storage; Valkey shares consent and authorization state without a separate consent key.
+- OAuth resource requests reject OIDC ID-token bearers. CIMD uses the configured Dex CA trust roots, and exact private-host exceptions are available as `cimd.privateIPHosts` and `redirectURISecurity.privateIPHosts` under `mcpKubernetes.oauth`.
+
 ### Added
 
 * The server advertises the Kubernetes logo as its MCP icon (`serverInfo.icons`), so muster and the developer portal show it.
