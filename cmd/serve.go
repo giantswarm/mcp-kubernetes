@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/giantswarm/mcp-toolkit/brand"
 	tklogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/giantswarm/mcp-toolkit/middleware/responsecap"
 	"github.com/giantswarm/mcp-toolkit/middleware/timeout"
@@ -893,6 +894,7 @@ func runServe(config ServeConfig) error {
 
 	mcpSrv := mcpserver.NewMCPServer(serviceName, rootCmd.Version, append(instrumentation.MCPServerOptions(),
 		mcpserver.WithToolCapabilities(true),
+		brand.WithIcon(kubernetesLogo),
 		mcpserver.WithHooks(hooks),
 		mcpserver.WithInputSchemaValidation(),
 		mcpserver.WithStrictInputSchemaDefault(),

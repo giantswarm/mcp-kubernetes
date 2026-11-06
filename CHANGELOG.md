@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+* The server advertises the Kubernetes logo as its MCP icon (`serverInfo.icons`), so muster and the developer portal show it.
+
 ### Fixed
 
 * The HTTP server joins the caller's W3C `traceparent`. No global propagator was ever installed, so every request started a new trace and its spans and logs couldn't be matched to the caller's. The trace ID now comes through with or without a trace exporter.
