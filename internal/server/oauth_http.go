@@ -737,9 +737,9 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 		// an email there is no Impersonate-User to send to the Kubernetes API.
 		requireIdentity := middleware.RequireIdentity(s.oauthServer.Auditor, s.oauthServer.Logger)
 
-		// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
-		// Then enforce that UserInfo has an email before the injector / tool dispatch.
-		mux.Handle("/mcp", s.oauthHandler.ValidateToken(requireIdentity(accessTokenInjector)))
+		// Authenticate configured forwarded ID tokens or normal OAuth bearers.
+		// Require an email before the injector and Kubernetes tool dispatch.
+		mux.Handle("/mcp", s.authenticateForwardedBearer(requireIdentity(accessTokenInjector)))
 
 		return nil
 	default:
