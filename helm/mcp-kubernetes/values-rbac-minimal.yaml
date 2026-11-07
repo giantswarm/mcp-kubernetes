@@ -19,6 +19,7 @@ rbac:
   profile: "minimal"
 
 # OAuth configuration - Downstream OAuth enabled
+replicaCount: 1
 mcpKubernetes:
   oauth:
     enabled: true

@@ -1,0 +1,28 @@
+suite: OAuth replica storage requirements
+templates:
+  - templates/validate-oauth.yaml
+set:
+  mcpKubernetes.oauth.enabled: true
+tests:
+  - it: rejects multiple replicas with memory storage
+    asserts:
+      - failedTemplate:
+          errorMessage: OAuth with multiple replicas requires shared Valkey storage; set mcpKubernetes.oauth.storage.type=valkey, or use one replica with autoscaling disabled
+  - it: accepts one replica with memory storage
+    set:
+      replicaCount: 1
+    asserts:
+      - notFailedTemplate: {}
+  - it: rejects autoscaling beyond one replica with memory storage
+    set:
+      replicaCount: 1
+      autoscaling.enabled: true
+      autoscaling.maxReplicas: 2
+    asserts:
+      - failedTemplate:
+          errorMessage: OAuth with multiple replicas requires shared Valkey storage; set mcpKubernetes.oauth.storage.type=valkey, or use one replica with autoscaling disabled
+  - it: accepts multiple replicas with shared Valkey
+    set:
+      mcpKubernetes.oauth.storage.type: valkey
+    asserts:
+      - notFailedTemplate: {}

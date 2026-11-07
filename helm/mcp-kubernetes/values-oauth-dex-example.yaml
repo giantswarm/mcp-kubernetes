@@ -1,4 +1,5 @@
 # Example values for deploying mcp-kubernetes with Dex OIDC authentication
+replicaCount: 1
 # This is a YAML-formatted file showing how to configure Dex OAuth.
 
 # Ingress is typically required for OAuth to work properly
@@ -90,9 +91,9 @@ resources:
     cpu: 200m
     memory: 256Mi
 
-# Enable horizontal pod autoscaling for production
+# In-memory OAuth uses one replica; shared Valkey storage supports autoscaling.
 autoscaling:
-  enabled: true
+  enabled: false
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80

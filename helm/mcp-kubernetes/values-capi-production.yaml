@@ -63,6 +63,10 @@ mcpKubernetes:
     # Security settings
     allowPublicRegistration: false
     encryptionKey: true
+    storage:
+      type: valkey
+      valkey:
+        url: valkey.mcp-kubernetes.svc:6379
 
     # Enable downstream OAuth for Kubernetes API authentication
     # User tokens are used for all Kubernetes API calls

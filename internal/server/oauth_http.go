@@ -269,6 +269,7 @@ type OAuthConfig struct {
 	// See cmd.OAuthServeConfig.CIMDAllowPrivateIPs for detailed documentation.
 	// Default: false (blocked for security)
 	CIMDAllowPrivateIPs bool
+	CIMDPrivateIPHosts  []string
 
 	// TrustedAudiences lists client IDs whose tokens are accepted for SSO.
 	// When upstream aggregators (like muster) forward a user's ID token,
@@ -303,6 +304,7 @@ type RedirectURISecurityConfig struct {
 
 	// AllowPrivateIPRedirectURIs allows private IP addresses in redirect URIs
 	AllowPrivateIPRedirectURIs bool
+	PrivateIPRedirectURIHosts  []string
 
 	// AllowLinkLocalRedirectURIs allows link-local addresses (169.254.x.x)
 	AllowLinkLocalRedirectURIs bool
@@ -522,7 +524,8 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 		// Allow CIMD metadata URLs that resolve to private IP addresses
 		// Required for internal deployments where MCP servers communicate over private networks
-		AllowPrivateIPClientMetadata: config.CIMDAllowPrivateIPs,
+		AllowPrivateIPClientMetadata:      config.CIMDAllowPrivateIPs,
+		AllowPrivateIPClientMetadataHosts: config.CIMDPrivateIPHosts,
 
 		// Trusted scheme registration for Cursor/VSCode compatibility
 		// Allows unauthenticated registration for clients using these schemes only
@@ -534,6 +537,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		DisableProductionMode:              config.RedirectURISecurity.DisableProductionMode,
 		AllowLocalhostRedirectURIs:         config.RedirectURISecurity.AllowLocalhostRedirectURIs,
 		AllowPrivateIPRedirectURIs:         config.RedirectURISecurity.AllowPrivateIPRedirectURIs,
+		AllowPrivateIPRedirectURIHosts:     config.RedirectURISecurity.PrivateIPRedirectURIHosts,
 		AllowLinkLocalRedirectURIs:         config.RedirectURISecurity.AllowLinkLocalRedirectURIs,
 		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
 		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
@@ -546,7 +550,8 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// JWKSRootCAs is the CA pool for verifying the forwarded-ID-token JWKS
 		// endpoint's TLS (mcp-oauth #495/#498). Built from DexCAFile; nil = system
 		// pool. Replaces the previous http.DefaultTransport CA install.
-		JWKSRootCAs: dexCAPool,
+		JWKSRootCAs:           dexCAPool,
+		ClientMetadataRootCAs: dexCAPool,
 	}
 
 	// Debug logging for registration token configuration

@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/giantswarm/go-selfupdate v1.7.4
-	github.com/giantswarm/mcp-oauth v1.10.2
+	github.com/giantswarm/mcp-oauth v1.12.0-rc.3.0.20261106172946-e90245fe94e4
 	github.com/giantswarm/mcp-toolkit v0.5.0
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/mark3labs/mcp-go/otel v0.54.0
@@ -34,6 +34,7 @@ require (
 )
 
 require (
+	code.dny.dev/ssrf v0.3.0 // indirect
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
@@ -88,7 +89,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/giantswarm/selfupdate-cosign v0.3.22
 	github.com/go-fed/httpsig v1.1.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.9 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v1.0.1 // indirect

@@ -190,6 +190,7 @@ func newServeCmd() *cobra.Command {
 		disableProductionMode              bool
 		allowLocalhostRedirectURIs         bool
 		allowPrivateIPRedirectURIs         bool
+		privateIPRedirectURIHosts          []string
 		allowLinkLocalRedirectURIs         bool
 		disableDNSValidation               bool
 		disableDNSValidationStrict         bool
@@ -202,6 +203,7 @@ func newServeCmd() *cobra.Command {
 		// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
 		enableCIMD          bool
 		cimdAllowPrivateIPs bool
+		cimdPrivateIPHosts  []string
 
 		// Trusted audiences for SSO token forwarding
 		trustedAudiences   []string
@@ -353,6 +355,7 @@ Downstream OAuth (--downstream-oauth):
 						DisableProductionMode:              disableProductionMode,
 						AllowLocalhostRedirectURIs:         allowLocalhostRedirectURIs,
 						AllowPrivateIPRedirectURIs:         allowPrivateIPRedirectURIs,
+						PrivateIPRedirectURIHosts:          privateIPRedirectURIHosts,
 						AllowLinkLocalRedirectURIs:         allowLinkLocalRedirectURIs,
 						DisableDNSValidation:               disableDNSValidation,
 						DisableDNSValidationStrict:         disableDNSValidationStrict,
@@ -362,6 +365,7 @@ Downstream OAuth (--downstream-oauth):
 					DisableStrictSchemeMatching:      disableStrictSchemeMatching,
 					EnableCIMD:                       enableCIMD,
 					CIMDAllowPrivateIPs:              cimdAllowPrivateIPs,
+					CIMDPrivateIPHosts:               cimdPrivateIPHosts,
 					TrustedAudiences:                 trustedAudiences,
 					SSOAllowPrivateIPs:               ssoAllowPrivateIPs,
 				},
@@ -433,6 +437,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&disableProductionMode, "disable-production-mode", false, "Disable production mode security (allows HTTP, private IPs in redirect URIs). WARNING: Significantly weakens security")
 	cmd.Flags().BoolVar(&allowLocalhostRedirectURIs, "allow-localhost-redirect-uris", false, "Allow http://localhost redirect URIs for native apps (RFC 8252)")
 	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk")
+	cmd.Flags().StringSliceVar(&privateIPRedirectURIHosts, "private-ip-redirect-uri-hosts", nil, "Exact HTTPS redirect hosts permitted to resolve to private addresses")
 	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk")
 	cmd.Flags().BoolVar(&disableDNSValidation, "disable-dns-validation", false, "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks")
 	cmd.Flags().BoolVar(&disableDNSValidationStrict, "disable-dns-validation-strict", false, "Disable fail-closed DNS validation (allow registration on DNS failures). WARNING: Validation bypass risk")
@@ -445,6 +450,7 @@ Downstream OAuth (--downstream-oauth):
 	// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
 	cmd.Flags().BoolVar(&enableCIMD, "enable-cimd", true, "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers (can also be set via ENABLE_CIMD env var)")
 	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Allow CIMD metadata URLs to resolve to private IPs (SSRF risk; internal deployments only)")
+	cmd.Flags().StringSliceVar(&cimdPrivateIPHosts, "cimd-private-ip-hosts", nil, "Exact CIMD hosts permitted to resolve to private addresses")
 
 	// Trusted audiences for SSO token forwarding from aggregators
 	cmd.Flags().StringSliceVar(&trustedAudiences, "oauth-trusted-audiences", nil, "Client IDs whose tokens are accepted for SSO (e.g., muster-client). Enables token forwarding from trusted aggregators (can also be set via OAUTH_TRUSTED_AUDIENCES env var as comma-separated list)")
@@ -1122,6 +1128,7 @@ func runServe(config ServeConfig) error {
 				// CIMD (Client ID Metadata Documents) per MCP 2025-11-25
 				EnableCIMD:          config.OAuth.EnableCIMD,
 				CIMDAllowPrivateIPs: config.OAuth.CIMDAllowPrivateIPs,
+				CIMDPrivateIPHosts:  config.OAuth.CIMDPrivateIPHosts,
 				// Trusted audiences for SSO token forwarding from upstream aggregators
 				TrustedAudiences:   config.OAuth.TrustedAudiences,
 				SSOAllowPrivateIPs: config.OAuth.SSOAllowPrivateIPs,

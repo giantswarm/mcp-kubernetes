@@ -200,6 +200,7 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.redirectURISecurity.disableProductionMode | bool | `false` |  |
 | mcpKubernetes.oauth.redirectURISecurity.allowLocalhostRedirectURIs | bool | `false` |  |
 | mcpKubernetes.oauth.redirectURISecurity.allowPrivateIPRedirectURIs | bool | `false` |  |
+| mcpKubernetes.oauth.redirectURISecurity.privateIPHosts | list | `[]` |  |
 | mcpKubernetes.oauth.redirectURISecurity.allowLinkLocalRedirectURIs | bool | `false` |  |
 | mcpKubernetes.oauth.redirectURISecurity.disableDNSValidation | bool | `false` |  |
 | mcpKubernetes.oauth.redirectURISecurity.disableDNSValidationStrict | bool | `false` |  |
@@ -208,6 +209,7 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.disableStrictSchemeMatching | bool | `false` |  |
 | mcpKubernetes.oauth.enableCIMD | bool | `true` |  |
 | mcpKubernetes.oauth.cimd.allowPrivateIPs | bool | `false` |  |
+| mcpKubernetes.oauth.cimd.privateIPHosts | list | `[]` |  |
 | mcpKubernetes.oauth.trustedAudiences | list | `[]` |  |
 | mcpKubernetes.oauth.trustedIssuers | list | `[]` |  |
 | mcpKubernetes.oauth.sso.allowPrivateIPs | bool | `false` |  |

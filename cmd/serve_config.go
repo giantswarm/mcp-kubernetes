@@ -286,6 +286,7 @@ type OAuthServeConfig struct {
 	//
 	// Default: false (blocked for security)
 	CIMDAllowPrivateIPs bool
+	CIMDPrivateIPHosts  []string
 
 	// TrustedAudiences lists client IDs whose tokens are accepted for SSO.
 	// When upstream aggregators (like muster) forward a user's ID token,
