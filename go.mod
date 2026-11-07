@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/giantswarm/go-selfupdate v1.7.5
-	github.com/giantswarm/mcp-oauth v1.12.0-rc.3.0.20261106172946-e90245fe94e4
+	github.com/giantswarm/mcp-oauth v1.12.0
 	github.com/giantswarm/mcp-toolkit v0.5.1
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/mark3labs/mcp-go/otel v0.54.0
