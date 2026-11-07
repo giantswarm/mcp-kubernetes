@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -868,7 +869,7 @@ func extractBearerToken(r *http.Request) (string, bool) {
 	if len(authHeader) <= len(bearerPrefix) {
 		return "", false
 	}
-	if authHeader[:len(bearerPrefix)] != bearerPrefix {
+	if !strings.EqualFold(authHeader[:len(bearerPrefix)], bearerPrefix) {
 		return "", false
 	}
 

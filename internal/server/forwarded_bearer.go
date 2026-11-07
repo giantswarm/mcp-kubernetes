@@ -27,8 +27,14 @@ func (s *OAuthHTTPServer) authenticateForwardedBearer(next http.Handler) http.Ha
 			validated.ServeHTTP(w, r)
 			return
 		}
-		// This path skips ValidateToken, so enforce its IP and user limits here.
-		// Rejected bearers fall back to its normal responses and security audit.
+		acceptance, err := s.oauthServer.AcceptForwardedIDToken(r.Context(), bearer)
+		if err != nil && !forwardedProviderUnavailable(err) {
+			// ValidateToken owns the IP permit, response and audit on fallback.
+			validated.ServeHTTP(w, r)
+			return
+		}
+		// Only accepted tokens and provider outages bypass ValidateToken.
+		// Charge their IP permit here; a fallback must never spend it twice.
 		if limiter := s.oauthServer.RateLimiter; limiter != nil {
 			ip := security.GetClientIP(r, s.oauthServer.Config.TrustProxy, s.oauthServer.Config.TrustedProxyCount)
 			if !limiter.Allow(security.RateLimitBucket(ip)) {
@@ -36,14 +42,9 @@ func (s *OAuthHTTPServer) authenticateForwardedBearer(next http.Handler) http.Ha
 				return
 			}
 		}
-		acceptance, err := s.oauthServer.AcceptForwardedIDToken(r.Context(), bearer)
-		if forwardedProviderUnavailable(err) {
+		if err != nil {
 			w.Header().Set("Retry-After", "1")
 			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
-			return
-		}
-		if err != nil {
-			validated.ServeHTTP(w, r)
 			return
 		}
 		if limiter := s.oauthServer.UserRateLimiter; limiter != nil && !limiter.Allow(acceptance.UserInfo.ID) {

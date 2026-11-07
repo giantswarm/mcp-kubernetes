@@ -55,10 +55,10 @@ func TestExtractBearerToken(t *testing.T) {
 			wantSuccess: false,
 		},
 		{
-			name:        "lowercase bearer not supported",
+			name:        "lowercase bearer",
 			authHeader:  "bearer token123",
-			wantToken:   "",
-			wantSuccess: false,
+			wantToken:   "token123",
+			wantSuccess: true,
 		},
 		{
 			name:        "token with spaces in value",
