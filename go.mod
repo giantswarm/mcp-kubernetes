@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.27.3
 
 require (
-	github.com/giantswarm/go-selfupdate v1.7.5
+	github.com/giantswarm/go-selfupdate v1.7.6
 	github.com/giantswarm/mcp-oauth v1.12.0
 	github.com/giantswarm/mcp-toolkit v0.5.1
 	github.com/mark3labs/mcp-go v1.5.0
