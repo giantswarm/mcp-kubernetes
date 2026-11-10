@@ -563,7 +563,6 @@ When using the Google provider, the server requests:
 ```bash
 # ❌ INSECURE - Do not use in internet-facing production
 --allow-public-registration=true          # Allows unlimited client registration (DoS risk)
---allow-insecure-auth-without-state=true  # Weakens CSRF protection
 --debug=true                              # May log sensitive information
 --allow-private-oauth-urls=true           # Reduces SSRF protection (OK for internal deployments only)
 ```
@@ -574,7 +573,7 @@ When using the Google provider, the server requests:
 # Secure production settings
 --allow-public-registration=false          # Require registration token
 --registration-token=STRONG_RANDOM_TOKEN  # Use cryptographically random token
---allow-insecure-auth-without-state=false # Enforce state parameter for CSRF protection
+--allow-no-state-parameter=false          # Require clients to send state (PKCE S256 is always required)
 --oauth-encryption-key=$(openssl rand -base64 32)  # Enable token encryption
 ```
 
@@ -1346,7 +1345,7 @@ groups:
 **Authentication & Authorization:**
 - [ ] HTTPS is enforced (not localhost)
 - [ ] `--allow-public-registration=false` (production)
-- [ ] `--allow-insecure-auth-without-state=false` (production)
+- [ ] `--allow-no-state-parameter` set only if a client cannot send `state`; PKCE S256 still protects the code flow
 - [ ] Registration token is cryptographically random (32+ bytes)
 - [ ] OAuth encryption key is set (exactly 32 bytes, base64 encoded)
 - [ ] OAuth encryption key is rotated every 90 days

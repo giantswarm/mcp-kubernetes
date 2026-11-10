@@ -71,10 +71,12 @@ spec:
             - --registration-token=$(REGISTRATION_TOKEN)
             {{- end }}
             {{- end }}
-            {{- if .Values.mcpKubernetes.oauth.allowInsecureAuthWithoutState }}
+            {{- if .Values.mcpKubernetes.oauth.allowNoStateParameter }}
+            - --allow-no-state-parameter=true
+            {{- else if .Values.mcpKubernetes.oauth.allowInsecureAuthWithoutState }}
             - --allow-insecure-auth-without-state=true
             {{- else }}
-            - --allow-insecure-auth-without-state=false
+            - --allow-no-state-parameter=false
             {{- end }}
             {{- if .Values.mcpKubernetes.oauth.allowPrivateURLs }}
             - --allow-private-oauth-urls=true

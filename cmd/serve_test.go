@@ -24,6 +24,25 @@ func TestNewServeCmd(t *testing.T) {
 	assert.Equal(t, "Use in-cluster authentication (service account token) instead of kubeconfig (default: false)", flag.Usage)
 }
 
+func TestAllowNoStateParameterFlags(t *testing.T) {
+	cmd := newServeCmd()
+
+	current := cmd.Flags().Lookup("allow-no-state-parameter")
+	require.NotNil(t, current)
+	assert.Equal(t, "false", current.DefValue)
+	assert.Empty(t, current.Deprecated)
+
+	alias := cmd.Flags().Lookup("allow-insecure-auth-without-state")
+	require.NotNil(t, alias)
+	assert.Equal(t, "false", alias.DefValue)
+	assert.Contains(t, alias.Deprecated, "--allow-no-state-parameter")
+
+	var stderr bytes.Buffer
+	cmd.Flags().SetOutput(&stderr)
+	require.NoError(t, cmd.Flags().Parse([]string{"--allow-insecure-auth-without-state=true"}))
+	assert.Contains(t, stderr.String(), "allow-insecure-auth-without-state has been deprecated")
+}
+
 func TestServeCmdHelp(t *testing.T) {
 	cmd := newServeCmd()
 	cmd.SetArgs([]string{"--help"})
@@ -167,16 +186,16 @@ func TestRunServeWithInCluster(t *testing.T) {
 				DebugMode:          false,
 				InCluster:          tt.inCluster,
 				OAuth: OAuthServeConfig{
-					Enabled:                       false,
-					BaseURL:                       "",
-					GoogleClientID:                "",
-					GoogleClientSecret:            "",
-					DisableStreaming:              false,
-					RegistrationToken:             "",
-					AllowPublicRegistration:       false,
-					AllowInsecureAuthWithoutState: false,
-					MaxClientsPerIP:               10,
-					EncryptionKey:                 "",
+					Enabled:                 false,
+					BaseURL:                 "",
+					GoogleClientID:          "",
+					GoogleClientSecret:      "",
+					DisableStreaming:        false,
+					RegistrationToken:       "",
+					AllowPublicRegistration: false,
+					AllowNoStateParameter:   false,
+					MaxClientsPerIP:         10,
+					EncryptionKey:           "",
 				},
 				DownstreamOAuth: false,
 			}

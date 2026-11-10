@@ -232,7 +232,7 @@ type OAuthServeConfig struct {
 	DisableStreaming                   bool
 	RegistrationToken                  string
 	AllowPublicRegistration            bool
-	AllowInsecureAuthWithoutState      bool
+	AllowNoStateParameter              bool
 	AllowPrivateURLs                   bool // skip private IP validation for internal deployments
 	MaxClientsPerIP                    int
 	EncryptionKey                      string
