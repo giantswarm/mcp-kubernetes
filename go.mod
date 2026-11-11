@@ -6,7 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/giantswarm/go-selfupdate v1.7.7
-	github.com/giantswarm/mcp-oauth v1.13.2
+	github.com/giantswarm/mcp-oauth v1.13.4
 	github.com/giantswarm/mcp-toolkit v0.5.3
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/mark3labs/mcp-go/otel v0.54.0
@@ -25,7 +25,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
 	golang.org/x/oauth2 v0.38.0
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	golang.org/x/text v0.43.0
 	golang.org/x/time v0.16.0
 	k8s.io/api v0.37.2
