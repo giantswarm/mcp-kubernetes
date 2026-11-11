@@ -694,8 +694,7 @@
                     "properties": {
                         "allowInsecureAuthWithoutState": {
                             "type": "boolean",
-                            "deprecated": true,
-                            "description": "Deprecated alias of allowNoStateParameter."
+                            "deprecated": true
                         },
                         "allowNoStateParameter": {
                             "type": "boolean"
