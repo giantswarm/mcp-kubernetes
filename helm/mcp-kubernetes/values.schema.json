@@ -693,6 +693,10 @@
                     "additionalProperties": false,
                     "properties": {
                         "allowInsecureAuthWithoutState": {
+                            "type": "boolean",
+                            "deprecated": true
+                        },
+                        "allowNoStateParameter": {
                             "type": "boolean"
                         },
                         "allowPrivateURLs": {

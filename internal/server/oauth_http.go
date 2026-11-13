@@ -216,9 +216,9 @@ type OAuthConfig struct {
 	// WARNING: This can lead to DoS attacks. Default: false
 	AllowPublicClientRegistration bool
 
-	// AllowInsecureAuthWithoutState allows authorization requests without state parameter
-	// WARNING: Disabling this weakens CSRF protection. Default: false
-	AllowInsecureAuthWithoutState bool
+	// AllowNoStateParameter lets clients omit the state parameter. PKCE S256 is
+	// always enforced and provides the CSRF protection (RFC 9700 §2.1). Default: false
+	AllowNoStateParameter bool
 
 	// MaxClientsPerIP limits the number of clients that can be registered per IP
 	MaxClientsPerIP int
@@ -514,7 +514,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		AllowPKCEPlain:                false, // Only S256, not plain
 		AllowPublicClientRegistration: config.AllowPublicClientRegistration,
 		RegistrationAccessToken:       config.RegistrationAccessToken,
-		AllowNoStateParameter:         config.AllowInsecureAuthWithoutState,
+		AllowNoStateParameter:         config.AllowNoStateParameter,
 		MaxClientsPerIP:               maxClientsPerIP,
 
 		// Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25

@@ -149,7 +149,7 @@ func TestCreateOAuthServer(t *testing.T) {
 		GoogleClientSecret:            "test-client-secret",
 		AllowPublicClientRegistration: false,
 		RegistrationAccessToken:       "test-token",
-		AllowInsecureAuthWithoutState: false,
+		AllowNoStateParameter:         false,
 		MaxClientsPerIP:               5,
 		EncryptionKey:                 []byte("abcdefghijklmnopqrstuvwxyz012345"), // 32 bytes, high entropy (32 distinct values)
 		DebugMode:                     false,
@@ -165,7 +165,7 @@ func TestCreateOAuthServer(t *testing.T) {
 	assert.Equal(t, config.BaseURL, oauthServer.Config.Issuer)
 	assert.Equal(t, config.AllowPublicClientRegistration, oauthServer.Config.AllowPublicClientRegistration)
 	assert.Equal(t, config.RegistrationAccessToken, oauthServer.Config.RegistrationAccessToken)
-	assert.Equal(t, config.AllowInsecureAuthWithoutState, oauthServer.Config.AllowNoStateParameter)
+	assert.Equal(t, config.AllowNoStateParameter, oauthServer.Config.AllowNoStateParameter)
 	assert.Equal(t, config.MaxClientsPerIP, oauthServer.Config.MaxClientsPerIP)
 	// CIMD (Client ID Metadata Documents) is configurable, verify it's passed through
 	assert.True(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be enabled when configured")

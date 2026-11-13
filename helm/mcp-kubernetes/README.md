@@ -179,6 +179,7 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.dex.caSecret.key | string | `"ca.crt"` |  |
 | mcpKubernetes.oauth.registrationAccessToken | string | `""` |  |
 | mcpKubernetes.oauth.allowPublicRegistration | bool | `false` |  |
+| mcpKubernetes.oauth.allowNoStateParameter | bool | `false` |  |
 | mcpKubernetes.oauth.allowInsecureAuthWithoutState | bool | `false` |  |
 | mcpKubernetes.oauth.allowPrivateURLs | bool | `false` |  |
 | mcpKubernetes.oauth.maxClientsPerIP | int | `10` |  |
