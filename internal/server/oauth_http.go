@@ -103,20 +103,6 @@ func dexCACertPool(caFile string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// httpClientWithRootCAs returns an HTTP client whose transport verifies TLS
-// against the given root CA pool.
-func httpClientWithRootCAs(pool *x509.CertPool) *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:    pool,
-				MinVersion: tls.VersionTLS12,
-			},
-		},
-		Timeout: 30 * time.Second,
-	}
-}
-
 // OAuthStorageType represents the type of token storage backend.
 type OAuthStorageType string
 
@@ -385,7 +371,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 				return nil, nil, fmt.Errorf("failed to load Dex CA: %w", err)
 			}
 			dexCAPool = pool
-			dexConfig.HTTPClient = httpClientWithRootCAs(pool)
+			dexConfig.RootCAs = pool
 			logger.Info("Using custom CA for Dex TLS verification", "caFile", config.DexCAFile)
 		}
 		provider, err = dex.NewProvider(dexConfig)
