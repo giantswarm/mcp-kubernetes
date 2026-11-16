@@ -3,11 +3,12 @@ package cmd
 import (
 	"fmt"
 	"log/slog"
-	"net"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/spf13/cobra"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
@@ -232,7 +233,6 @@ type OAuthServeConfig struct {
 	DisableStreaming                   bool
 	RegistrationToken                  string
 	AllowPublicRegistration            bool
-	AllowPrivateURLs                   bool // skip private IP validation for internal deployments
 	MaxClientsPerIP                    int
 	EncryptionKey                      string
 	TLSCertFile                        string
@@ -352,16 +352,11 @@ func loadEnvIfEmpty(target *string, envKey string) {
 	}
 }
 
-// validateSecureURL validates that a URL uses HTTPS and is not vulnerable to SSRF attacks.
-// It checks for:
-//   - Valid URL format
-//   - HTTPS scheme (HTTP not allowed)
-//   - No private/local IP addresses (unless allowPrivate is true)
-//   - No localhost references (unless allowPrivate is true: localhost is the loopback
-//     address by name, the same class allowPrivate admits by IP — an IdP published
-//     on the node, e.g. a kind lab's Dex NodePort, is reached as https://localhost)
-func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error {
-	// Check for empty URL
+// validateIssuerURL requires an HTTPS URL with a host. It does not resolve the
+// host: the issuer is operator configuration, and TLS verification of the
+// discovery and JWKS fetches, plus mcp-oauth's check that the discovered issuer
+// matches the configured one, are what authenticate it.
+func validateIssuerURL(urlStr string, fieldName string) error {
 	if urlStr == "" {
 		return fmt.Errorf("%s must be a valid URL: empty URL provided", fieldName)
 	}
@@ -371,7 +366,6 @@ func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error
 		return fmt.Errorf("%s must be a valid URL: %w", fieldName, err)
 	}
 
-	// Require HTTPS
 	if parsedURL.Scheme != schemeHTTPS {
 		if parsedURL.Scheme == "" {
 			return fmt.Errorf("%s must be a valid URL with HTTPS scheme", fieldName)
@@ -379,42 +373,8 @@ func validateSecureURL(urlStr string, fieldName string, allowPrivate bool) error
 		return fmt.Errorf("%s must use HTTPS (got: %s)", fieldName, parsedURL.Scheme)
 	}
 
-	// Extract hostname for validation
-	hostname := parsedURL.Hostname()
-	if hostname == "" {
+	if parsedURL.Hostname() == "" {
 		return fmt.Errorf("%s must have a valid hostname", fieldName)
-	}
-
-	// Check for localhost references (loopback by name; allowPrivate admits it
-	// like the loopback IPs below)
-	if strings.ToLower(hostname) == "localhost" {
-		if allowPrivate {
-			slog.Warn("URL uses localhost; allowed because private/internal OAuth URLs are enabled",
-				"field", fieldName)
-			return nil
-		}
-		return fmt.Errorf("%s cannot use localhost", fieldName)
-	}
-
-	// Resolve hostname to IP addresses to check for private IPs
-	ips, err := net.LookupIP(hostname)
-	if err != nil {
-		// DNS lookup failure - this could be transient or the domain doesn't exist yet
-		// For development/testing purposes, we'll allow this but log a warning
-		slog.Warn("could not resolve hostname to validate IP address",
-			"field", fieldName,
-			"hostname", hostname,
-			"error", err)
-		return nil
-	}
-
-	// Check if any resolved IP is private or loopback (unless allowPrivate is true)
-	if !allowPrivate {
-		for _, ip := range ips {
-			if isPrivateOrLoopbackIP(ip) {
-				return fmt.Errorf("%s resolves to a private or loopback IP address (%s), which could be a security risk", fieldName, ip.String())
-			}
-		}
 	}
 
 	return nil
@@ -494,45 +454,8 @@ func validateTrustedSchemes(schemes []string) error {
 	return nil
 }
 
-// isPrivateOrLoopbackIP checks if an IP address is private, loopback, or link-local.
-func isPrivateOrLoopbackIP(ip net.IP) bool {
-	// Check for loopback
-	if ip.IsLoopback() {
-		return true
-	}
-
-	// Check for link-local
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// Check for private IPv4 ranges
-	// 10.0.0.0/8
-	if ip4 := ip.To4(); ip4 != nil {
-		if ip4[0] == 10 {
-			return true
-		}
-		// 172.16.0.0/12
-		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
-			return true
-		}
-		// 192.168.0.0/16
-		if ip4[0] == 192 && ip4[1] == 168 {
-			return true
-		}
-	}
-
-	// Check for private IPv6 ranges (fc00::/7 - Unique Local Addresses)
-	if len(ip) == net.IPv6len && ip[0] == 0xfc || ip[0] == 0xfd {
-		return true
-	}
-
-	return false
-}
-
-// validateOAuthBaseURL validates the OAuth base URL, allowing localhost for development
-// This is less strict than validateSecureURL because OAuth base URL can be localhost
-// for local development, but Dex issuer URL cannot (SSRF protection)
+// validateOAuthBaseURL validates the OAuth base URL, allowing plain HTTP on
+// loopback hosts for local development.
 func validateOAuthBaseURL(baseURL string) error {
 	if baseURL == "" {
 		return fmt.Errorf("OAuth base URL cannot be empty")
@@ -624,6 +547,17 @@ func validateHTTPAuth(config ServeConfig) error {
 	}
 	if len(config.AuthToken) < minAuthTokenLength {
 		return fmt.Errorf("%s must be at least %d characters long", authTokenEnv, minAuthTokenLength)
+	}
+	return nil
+}
+
+const flagAllowPrivateOAuthURLs = "allow-private-oauth-urls"
+
+// refuseRemovedFlags fails on flags that still parse but no longer have an
+// effect, so a deployment that sets one learns what replaced it.
+func refuseRemovedFlags(cmd *cobra.Command) error {
+	if cmd.Flags().Changed(flagAllowPrivateOAuthURLs) {
+		return fmt.Errorf("--%s was removed: the OAuth issuer is no longer checked for private addresses at startup; HTTPS and TLS verification still apply (use --dex-ca-file for a private CA)", flagAllowPrivateOAuthURLs)
 	}
 	return nil
 }

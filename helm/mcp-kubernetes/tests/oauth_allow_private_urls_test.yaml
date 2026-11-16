@@ -1,0 +1,25 @@
+suite: OAuth allowPrivateURLs removal
+templates:
+  - templates/deployment.yaml
+set:
+  replicaCount: 1
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+  mcpKubernetes.oauth.existingSecret: oauth-credentials
+  mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+  mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+tests:
+  - it: refuses allowPrivateURLs true
+    set:
+      mcpKubernetes.oauth.allowPrivateURLs: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "mcpKubernetes.oauth.allowPrivateURLs was removed: the OAuth issuer is no longer checked for private addresses at startup; HTTPS and TLS verification still apply (use mcpKubernetes.oauth.dex.caSecret for a private CA). Remove allowPrivateURLs from your values."
+
+  - it: renders with allowPrivateURLs false and never passes the removed flag
+    set:
+      mcpKubernetes.oauth.allowPrivateURLs: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-private-oauth-urls=true

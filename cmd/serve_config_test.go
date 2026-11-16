@@ -1,177 +1,45 @@
 package cmd
 
 import (
-	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestValidateSecureURL tests URL validation with HTTPS and SSRF protection
-func TestValidateSecureURL(t *testing.T) {
-	tests := []struct {
-		name      string
-		url       string
-		fieldName string
-		wantErr   bool
-		errMsg    string
-	}{
-		{
-			name:      "valid HTTPS URL",
-			url:       "https://dex.example.com",
-			fieldName: "test URL",
-			wantErr:   false,
-		},
-		{
-			name:      "invalid HTTP URL",
-			url:       "http://dex.example.com",
-			fieldName: "test URL",
-			wantErr:   true,
-			errMsg:    "must use HTTPS",
-		},
-		{
-			name:      "localhost URL",
-			url:       "https://localhost:8080",
-			fieldName: "test URL",
-			wantErr:   true,
-			errMsg:    "cannot use localhost",
-		},
-		{
-			name:      "localhost with domain",
-			url:       "https://LOCALHOST",
-			fieldName: "test URL",
-			wantErr:   true,
-			errMsg:    "cannot use localhost",
-		},
-		{
-			name:      "invalid URL format",
-			url:       "not-a-url",
-			fieldName: "test URL",
-			wantErr:   true,
-			errMsg:    "must be a valid URL",
-		},
-		{
-			name:      "URL without scheme",
-			url:       "dex.example.com",
-			fieldName: "test URL",
-			wantErr:   true,
-			errMsg:    "must be a valid URL with HTTPS scheme",
-		},
-		{
-			name:      "empty URL",
-			url:       "",
-			fieldName: "test URL",
-			wantErr:   true,
-			errMsg:    "must be a valid URL",
-		},
-		{
-			name:      "URL with path",
-			url:       "https://dex.example.com/path",
-			fieldName: "test URL",
-			wantErr:   false,
-		},
+func TestValidateIssuerURL(t *testing.T) {
+	accepted := []string{
+		"https://dex.example.com",
+		"https://dex.example.com/path",
+		"https://localhost:32000/dex",
+		"https://LOCALHOST",
+		"https://127.0.0.1:32000/dex",
+		"https://10.0.0.1/dex",
+		"https://253.1.2.3",
+		"https://dex.does-not-resolve.invalid",
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateSecureURL(tt.url, tt.fieldName, false)
-			if tt.wantErr {
-				assert.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
-			} else {
-				assert.NoError(t, err)
-			}
+	for _, issuer := range accepted {
+		t.Run(issuer, func(t *testing.T) {
+			require.NoError(t, validateIssuerURL(issuer, "Dex issuer URL"))
 		})
 	}
-}
 
-// TestValidateSecureURLAllowPrivateLocalhost: allowPrivate admits localhost, the
-// loopback address by name, exactly like the loopback IPs — the kind-lab shape
-// where the IdP is published on the node and every pod shares the browser's
-// issuer URL (https://localhost:<nodePort>).
-func TestValidateSecureURLAllowPrivateLocalhost(t *testing.T) {
-	if err := validateSecureURL("https://localhost:32000/dex", "Dex issuer URL", true); err != nil {
-		t.Fatalf("localhost with allowPrivate=true should be accepted, got: %v", err)
-	}
-	if err := validateSecureURL("https://LOCALHOST", "Dex issuer URL", true); err != nil {
-		t.Fatalf("LOCALHOST with allowPrivate=true should be accepted, got: %v", err)
-	}
-	if err := validateSecureURL("https://localhost:32000/dex", "Dex issuer URL", false); err == nil {
-		t.Fatal("localhost without allowPrivate must still be rejected")
-	}
-}
-
-// TestValidateSecureURLAllowPrivate tests URL validation with allowPrivate=true
-func TestValidateSecureURLAllowPrivate(t *testing.T) {
-	// With allowPrivate=true, private IPs should be allowed
-	// This simulates a URL that would normally be blocked due to private IP
-	err := validateSecureURL("https://internal.example.com", "test URL", true)
-	// Since we can't control DNS resolution in tests, just verify the function accepts the parameter
-	// and doesn't panic. Real private IP testing would require mocking net.LookupIP
-	_ = err
-}
-
-// TestIsPrivateOrLoopbackIP tests private/loopback IP detection
-func TestIsPrivateOrLoopbackIP(t *testing.T) {
-	tests := []struct {
-		name      string
-		ip        string
-		isPrivate bool
+	refused := []struct {
+		url    string
+		errMsg string
 	}{
-		// Loopback addresses
-		{"IPv4 loopback", "127.0.0.1", true},
-		{"IPv6 loopback", "::1", true},
-
-		// Private IPv4 ranges
-		{"10.0.0.0/8 - start", "10.0.0.1", true},
-		{"10.0.0.0/8 - mid", "10.128.0.1", true},
-		{"10.0.0.0/8 - end", "10.255.255.255", true},
-		{"172.16.0.0/12 - start", "172.16.0.1", true},
-		{"172.16.0.0/12 - mid", "172.20.0.1", true},
-		{"172.16.0.0/12 - end", "172.31.255.255", true},
-		{"192.168.0.0/16 - start", "192.168.0.1", true},
-		{"192.168.0.0/16 - end", "192.168.255.255", true},
-
-		// Public IPv4 addresses
-		{"public IP - Google DNS", "8.8.8.8", false},
-		{"public IP - Cloudflare DNS", "1.1.1.1", false},
-		{"public IP - example", "93.184.216.34", false},
-
-		// Edge cases for private ranges
-		{"172.15.x.x not private", "172.15.255.255", false},
-		{"172.32.x.x not private", "172.32.0.1", false},
-
-		// Link-local
-		{"link-local IPv4", "169.254.1.1", true},
-		{"link-local IPv6", "fe80::1", true},
-
-		// Private IPv6 (ULA - Unique Local Addresses)
-		{"IPv6 ULA fc00::/7", "fc00::1", true},
-		{"IPv6 ULA fd00::/8", "fd00::1", true},
-
-		// Public IPv6
-		{"public IPv6", "2001:4860:4860::8888", false},
+		{"http://dex.example.com", "must use HTTPS"},
+		{"not-a-url", "must be a valid URL"},
+		{"dex.example.com", "must be a valid URL with HTTPS scheme"},
+		{"", "must be a valid URL"},
+		{"https://", "must have a valid hostname"},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ip := parseIP(t, tt.ip)
-			result := isPrivateOrLoopbackIP(ip)
-			assert.Equal(t, tt.isPrivate, result, "IP %s should be private=%v", tt.ip, tt.isPrivate)
+	for _, tt := range refused {
+		t.Run("refuses "+tt.url, func(t *testing.T) {
+			err := validateIssuerURL(tt.url, "Dex issuer URL")
+			require.ErrorContains(t, err, tt.errMsg)
 		})
 	}
-}
-
-// parseIP is a helper function to parse IP addresses in tests
-func parseIP(t *testing.T, ipStr string) net.IP {
-	t.Helper()
-	parsed := net.ParseIP(ipStr)
-	if parsed == nil {
-		t.Fatalf("failed to parse IP: %s", ipStr)
-	}
-	return parsed
 }
 
 // TestValidateOAuthClientID tests OAuth client ID validation

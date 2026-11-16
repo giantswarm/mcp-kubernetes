@@ -768,3 +768,24 @@ func TestParseIntEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestServeRefusesAllowPrivateOAuthURLs(t *testing.T) {
+	for _, arg := range []string{"--allow-private-oauth-urls", "--allow-private-oauth-urls=true", "--allow-private-oauth-urls=false"} {
+		t.Run(arg, func(t *testing.T) {
+			cmd := newServeCmd()
+			cmd.SetArgs([]string{arg})
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+
+			err := cmd.ExecuteContext(t.Context())
+
+			require.EqualError(t, err, "--allow-private-oauth-urls was removed: the OAuth issuer is no longer checked for private addresses at startup; HTTPS and TLS verification still apply (use --dex-ca-file for a private CA)")
+		})
+	}
+}
+
+func TestServeHidesAllowPrivateOAuthURLs(t *testing.T) {
+	flag := newServeCmd().Flags().Lookup("allow-private-oauth-urls")
+	require.NotNil(t, flag)
+	require.True(t, flag.Hidden)
+}
