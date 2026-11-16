@@ -389,9 +389,10 @@ mcpKubernetes:
     # Allow unauthenticated OAuth client registration
     # WARNING: Not recommended for production
     allowPublicRegistration: false
-    # Allow authorization requests without state parameter
-    # WARNING: Weakens CSRF protection, only enable for compatibility with older clients
-    allowInsecureAuthWithoutState: false
+    # Deprecated, no effect: clients may omit state and PKCE S256 is always
+    # required (RFC 9700 §2.1). Accepted so existing values keep rendering;
+    # removed in the next release.
+    allowInsecureAuthWithoutState: false  # @schema deprecated: true
     # Allow OAuth base URL and Dex issuer URL to resolve to private/internal IP addresses
     # Enable this for home lab, air-gapped, or internal enterprise deployments
     # where the MCP server is only accessible from an internal network or VPN.
