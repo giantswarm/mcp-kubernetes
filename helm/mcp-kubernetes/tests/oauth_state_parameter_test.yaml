@@ -1,0 +1,27 @@
+suite: OAuth state parameter
+templates:
+  - templates/deployment.yaml
+set:
+  replicaCount: 1
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+  mcpKubernetes.oauth.existingSecret: oauth-credentials
+  mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+  mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+tests:
+  - it: passes no state flag by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-insecure-auth-without-state=false
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-insecure-auth-without-state=true
+
+  - it: ignores the deprecated allowInsecureAuthWithoutState value
+    set:
+      mcpKubernetes.oauth.allowInsecureAuthWithoutState: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-insecure-auth-without-state=true

@@ -170,8 +170,6 @@ func newServeCmd() *cobra.Command {
 		disableStreaming                   bool
 		registrationToken                  string
 		allowPublicRegistration            bool
-		allowNoStateParameter              bool
-		allowInsecureAuthWithoutState      bool
 		allowPrivateOAuthURLs              bool
 		maxClientsPerIP                    int
 		oauthEncryptionKey                 string
@@ -345,7 +343,6 @@ Downstream OAuth (--downstream-oauth):
 					DisableStreaming:                   disableStreaming,
 					RegistrationToken:                  registrationToken,
 					AllowPublicRegistration:            allowPublicRegistration,
-					AllowNoStateParameter:              allowNoStateParameter || allowInsecureAuthWithoutState,
 					AllowPrivateURLs:                   allowPrivateOAuthURLs,
 					MaxClientsPerIP:                    maxClientsPerIP,
 					EncryptionKey:                      oauthEncryptionKey,
@@ -415,9 +412,8 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
 	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
-	cmd.Flags().BoolVar(&allowNoStateParameter, "allow-no-state-parameter", false, "Let clients omit the state parameter on authorization requests; PKCE S256 is still required and protects the code flow")
-	cmd.Flags().BoolVar(&allowInsecureAuthWithoutState, "allow-insecure-auth-without-state", false, "Deprecated alias of --allow-no-state-parameter")
-	_ = cmd.Flags().MarkDeprecated("allow-insecure-auth-without-state", "use --allow-no-state-parameter; this flag will be removed in the next release")
+	cmd.Flags().Bool("allow-insecure-auth-without-state", false, "No effect")
+	_ = cmd.Flags().MarkDeprecated("allow-insecure-auth-without-state", "it has no effect: clients may omit state and PKCE S256 is always required; remove it")
 	cmd.Flags().BoolVar(&allowPrivateOAuthURLs, "allow-private-oauth-urls", false, "Allow OAuth URLs that resolve to private/internal IP addresses (for internal deployments)")
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
@@ -1081,9 +1077,6 @@ func runServe(config ServeConfig) error {
 				slog.Warn("public client registration is enabled - this allows unlimited client registration and may lead to DoS",
 					"recommendation", "set --allow-public-registration=false and use --registration-token")
 			}
-			if config.OAuth.AllowNoStateParameter {
-				slog.Info("state parameter is optional for clients; PKCE S256 still protects the authorization code flow")
-			}
 			if config.DebugMode {
 				slog.Warn("debug logging is enabled - this may log sensitive information",
 					"recommendation", "disable debug mode in production")
@@ -1113,7 +1106,6 @@ func runServe(config ServeConfig) error {
 				DebugMode:                          config.DebugMode,
 				AllowPublicClientRegistration:      config.OAuth.AllowPublicRegistration,
 				RegistrationAccessToken:            config.OAuth.RegistrationToken,
-				AllowNoStateParameter:              config.OAuth.AllowNoStateParameter,
 				MaxClientsPerIP:                    config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                      encryptionKey,
 				MaxRequestSize:                     config.MaxRequestSize,

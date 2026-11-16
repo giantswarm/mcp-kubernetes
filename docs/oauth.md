@@ -167,6 +167,8 @@ Response:
      code_challenge_method=S256
    ```
 
+   PKCE with `S256` is required on every authorization request and is what protects the code flow against CSRF and code injection (RFC 9700 §2.1). `state` is optional for clients (OAuth 2.1 §4.1.1): when a client sends it, the server returns it unchanged on the callback; when it does not, the request is accepted. No setting changes this: `--allow-insecure-auth-without-state` and the chart value `allowInsecureAuthWithoutState` have no effect and go away in the next release.
+
 2. **User Authorization**: The person approves client consent, then signs in with the identity provider.
 
 3. **Callback**: After authorization, user is redirected back with authorization code:
@@ -573,7 +575,6 @@ When using the Google provider, the server requests:
 # Secure production settings
 --allow-public-registration=false          # Require registration token
 --registration-token=STRONG_RANDOM_TOKEN  # Use cryptographically random token
---allow-no-state-parameter=false          # Require clients to send state (PKCE S256 is always required)
 --oauth-encryption-key=$(openssl rand -base64 32)  # Enable token encryption
 ```
 
@@ -1345,7 +1346,6 @@ groups:
 **Authentication & Authorization:**
 - [ ] HTTPS is enforced (not localhost)
 - [ ] `--allow-public-registration=false` (production)
-- [ ] `--allow-no-state-parameter` set only if a client cannot send `state`; PKCE S256 still protects the code flow
 - [ ] Registration token is cryptographically random (32+ bytes)
 - [ ] OAuth encryption key is set (exactly 32 bytes, base64 encoded)
 - [ ] OAuth encryption key is rotated every 90 days
