@@ -2,11 +2,11 @@ module github.com/giantswarm/mcp-kubernetes
 
 go 1.26.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
-	github.com/giantswarm/go-selfupdate v1.7.6
-	github.com/giantswarm/mcp-oauth v1.13.2
+	github.com/giantswarm/go-selfupdate v1.7.7
+	github.com/giantswarm/mcp-oauth v1.13.10
 	github.com/giantswarm/mcp-toolkit v0.5.3
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/mark3labs/mcp-go/otel v0.54.0
@@ -25,8 +25,8 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
 	golang.org/x/oauth2 v0.38.0
-	golang.org/x/sync v0.24.0
-	golang.org/x/text v0.43.0
+	golang.org/x/sync v0.25.0
+	golang.org/x/text v0.44.0
 	golang.org/x/time v0.16.0
 	k8s.io/api v0.37.2
 	k8s.io/apimachinery v0.37.2
@@ -72,7 +72,8 @@ require (
 	github.com/transparency-dev/formats v0.1.1 // indirect
 	github.com/transparency-dev/merkle v0.0.2 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/crypto/openpgp v0.1.0-deprecated // indirect
+	golang.org/x/mod v0.42.0 // indirect
 )
 
 require (
@@ -87,7 +88,7 @@ require (
 	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/giantswarm/selfupdate-cosign v0.3.27
+	github.com/giantswarm/selfupdate-cosign v0.3.28
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/go-logr/logr v1.4.4 // indirect
@@ -148,10 +149,10 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.1
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/term v0.48.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/grpc v1.85.0
