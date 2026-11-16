@@ -103,20 +103,6 @@ func dexCACertPool(caFile string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// httpClientWithRootCAs returns an HTTP client whose transport verifies TLS
-// against the given root CA pool.
-func httpClientWithRootCAs(pool *x509.CertPool) *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:    pool,
-				MinVersion: tls.VersionTLS12,
-			},
-		},
-		Timeout: 30 * time.Second,
-	}
-}
-
 // OAuthStorageType represents the type of token storage backend.
 type OAuthStorageType string
 
@@ -378,20 +364,18 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		if config.DexConnectorID != "" {
 			dexConfig.ConnectorID = config.DexConnectorID
 		}
-		// Configure custom CA if provided. The pool is used for BOTH the Dex
-		// provider client (discovery, code flow, userinfo) AND — passed
-		// explicitly below via serverConfig.JWKSRootCAs / trusted-issuer RootCAs
-		// — the SSO forwarded-ID-token JWKS validation. mcp-oauth no longer reads
-		// a CA installed on http.DefaultTransport (#495/#498), so without passing
-		// the pool explicitly, forwarded ID tokens from an internal-CA Dex would
-		// fail with "x509: certificate signed by unknown authority".
+		// The pool verifies Dex for the provider client (discovery, code flow,
+		// userinfo) and, through serverConfig.JWKSRootCAs below, for the
+		// forwarded-ID-token JWKS. Passing it as RootCAs keeps mcp-oauth's own
+		// provider client, which honors HTTPS_PROXY/NO_PROXY and pins redirects
+		// to the issuer's host.
 		if config.DexCAFile != "" {
 			pool, err := dexCACertPool(config.DexCAFile)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to load Dex CA: %w", err)
 			}
 			dexCAPool = pool
-			dexConfig.HTTPClient = httpClientWithRootCAs(pool)
+			dexConfig.RootCAs = pool
 			logger.Info("Using custom CA for Dex TLS verification", "caFile", config.DexCAFile)
 		}
 		provider, err = dex.NewProvider(dexConfig)
