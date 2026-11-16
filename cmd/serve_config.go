@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
@@ -551,13 +549,7 @@ func validateHTTPAuth(config ServeConfig) error {
 	return nil
 }
 
-const flagAllowPrivateOAuthURLs = "allow-private-oauth-urls"
-
-// refuseRemovedFlags fails on flags that still parse but no longer have an
-// effect, so a deployment that sets one learns what replaced it.
-func refuseRemovedFlags(cmd *cobra.Command) error {
-	if cmd.Flags().Changed(flagAllowPrivateOAuthURLs) {
-		return fmt.Errorf("--%s was removed: the OAuth issuer is no longer checked for private addresses at startup; HTTPS and TLS verification still apply (use --dex-ca-file for a private CA)", flagAllowPrivateOAuthURLs)
-	}
-	return nil
-}
+const (
+	flagAllowPrivateOAuthURLs        = "allow-private-oauth-urls"
+	allowPrivateOAuthURLsDeprecation = "it has no effect: the OAuth issuer is no longer checked for private addresses at startup; remove it"
+)

@@ -1,4 +1,4 @@
-suite: OAuth allowPrivateURLs removal
+suite: OAuth allowPrivateURLs deprecation
 templates:
   - templates/deployment.yaml
 set:
@@ -9,14 +9,15 @@ set:
   mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
   mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
 tests:
-  - it: refuses allowPrivateURLs true
+  - it: renders with allowPrivateURLs true and does not pass the deprecated flag
     set:
       mcpKubernetes.oauth.allowPrivateURLs: true
     asserts:
-      - failedTemplate:
-          errorMessage: "mcpKubernetes.oauth.allowPrivateURLs was removed: the OAuth issuer is no longer checked for private addresses at startup; HTTPS and TLS verification still apply (use mcpKubernetes.oauth.dex.caSecret for a private CA). Remove allowPrivateURLs from your values."
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-private-oauth-urls=true
 
-  - it: renders with allowPrivateURLs false and never passes the removed flag
+  - it: renders with allowPrivateURLs false and does not pass the deprecated flag
     set:
       mcpKubernetes.oauth.allowPrivateURLs: false
     asserts:

@@ -74,9 +74,6 @@ spec:
             - --registration-token=$(REGISTRATION_TOKEN)
             {{- end }}
             {{- end }}
-            {{- if .Values.mcpKubernetes.oauth.allowPrivateURLs }}
-            {{- fail "mcpKubernetes.oauth.allowPrivateURLs was removed: the OAuth issuer is no longer checked for private addresses at startup; HTTPS and TLS verification still apply (use mcpKubernetes.oauth.dex.caSecret for a private CA). Remove allowPrivateURLs from your values." }}
-            {{- end }}
             - --max-clients-per-ip={{ .Values.mcpKubernetes.oauth.maxClientsPerIP }}
             {{- if .Values.mcpKubernetes.oauth.disableStreaming }}
             - --disable-streaming=true

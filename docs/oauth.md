@@ -493,7 +493,7 @@ OAuth 2.1 **requires HTTPS** for all production deployments. At startup the serv
 
 The Dex issuer is not resolved or checked for private addresses: it is operator configuration, not a URL a client chooses, so a private, loopback or in-cluster issuer works without an extra setting. What authenticates it is TLS verification of the discovery and JWKS fetches (`--dex-ca-file`, or `mcpKubernetes.oauth.dex.caSecret` in the chart, for a private CA) and mcp-oauth's check that the discovered `issuer` equals the configured one.
 
-`--allow-private-oauth-urls` and the chart value `mcpKubernetes.oauth.allowPrivateURLs` were removed. Setting the flag stops the server at startup, and `allowPrivateURLs: true` fails the chart render; remove them from your configuration.
+`--allow-private-oauth-urls` and the chart value `mcpKubernetes.oauth.allowPrivateURLs` are deprecated and have no effect. The flag logs a deprecation warning, and the chart no longer passes it; remove both from your configuration.
 
 ### OAuth Provider Security Considerations
 
