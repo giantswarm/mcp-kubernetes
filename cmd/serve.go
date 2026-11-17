@@ -490,17 +490,34 @@ func validateEncryptionKey(key []byte) error {
 	return nil
 }
 
+// initLogging builds the process logger. Without OTLP it writes JSON (in a
+// pod) or text to stderr. With OTLP logs configured, OTLP is the primary sink
+// and every record is mirrored to stderr as JSON so `kubectl logs` keeps
+// working. internal/logging redaction helpers are explicit call-site wrappers,
+// not ReplaceAttr hooks, so they apply to both sinks.
+func initLogging(ctx context.Context, debug bool) (*slog.Logger, tklogging.Shutdown, error) {
+	level := slog.LevelInfo
+	if debug {
+		level = slog.LevelDebug
+	}
+	opts := []tklogging.Option{tklogging.WithLevel(level)}
+	if otlpLogsConfigured() {
+		opts = append(opts, tklogging.WithStderrMirror())
+	}
+	return tklogging.Init(ctx, opts...)
+}
+
+// otlpLogsConfigured must match mcp-toolkit's OTLP-mode detection:
+// tklogging.Init fails when WithStderrMirror is set outside OTLP mode.
+func otlpLogsConfigured() bool {
+	return os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
+		os.Getenv("OTEL_LOGS_EXPORTER") != ""
+}
+
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
-	// logging.Init selects JSON (KUBERNETES_SERVICE_HOST set) or text automatically;
-	// switches to OTel log bridge when OTEL_EXPORTER_OTLP_LOGS_ENDPOINT is set.
-	// internal/logging redaction helpers are explicit call-site wrappers, not
-	// ReplaceAttr hooks — unaffected by this.
-	logLevel := slog.LevelInfo
-	if config.DebugMode {
-		logLevel = slog.LevelDebug
-	}
-	logger, logShutdown, err := tklogging.Init(context.Background(), tklogging.WithLevel(logLevel))
+	logger, logShutdown, err := initLogging(context.Background(), config.DebugMode)
 	if err != nil {
 		return fmt.Errorf("initialising logger: %w", err)
 	}

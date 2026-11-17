@@ -311,16 +311,8 @@ type OAuthHTTPServer struct {
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
 func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, error) {
-	// Create logger with appropriate level
-	var logger *slog.Logger
-	if config.DebugMode {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-		logger.Debug("Debug logging enabled for OAuth handler")
-	} else {
-		logger = slog.Default()
-	}
+	// The process logger already runs at debug level when DebugMode is set.
+	logger := slog.Default()
 
 	redirectURL := config.BaseURL + "/oauth/callback"
 	var provider providers.Provider
