@@ -40,10 +40,10 @@ func TestAllowInsecureAuthWithoutStateIsADeprecatedNoOp(t *testing.T) {
 	require.Contains(t, stderr.String(), "allow-insecure-auth-without-state has been deprecated")
 }
 
-func TestLoopbackRedirectFlagsAreDeprecatedNoOps(t *testing.T) {
+func TestLoopbackRedirectFlagsAreDeprecated(t *testing.T) {
 	for name, message := range map[string]string{
-		"allow-localhost-redirect-uris": "it has no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3); remove it",
-		"disable-production-mode":       "it has no effect: loopback redirect URIs need no setting and other redirect URIs must use HTTPS; remove it",
+		"allow-localhost-redirect-uris": "it has no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3); remove it before v1.15.0 (2027-02-17)",
+		"disable-production-mode":       "remove it: loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused; this flag will be removed in v1.15.0 (2027-02-17)",
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := newServeCmd()
@@ -59,6 +59,12 @@ func TestLoopbackRedirectFlagsAreDeprecatedNoOps(t *testing.T) {
 			require.Contains(t, stderr.String(), name+" has been deprecated")
 		})
 	}
+}
+
+func TestDisableProductionModeIsRefusedBeforeStartup(t *testing.T) {
+	command := newServeCmd()
+	require.NoError(t, command.Flags().Parse([]string{"--disable-production-mode=true"}))
+	require.EqualError(t, command.RunE(command, nil), "--disable-production-mode is no longer supported: remove it; loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused")
 }
 
 func TestServeCmdHelp(t *testing.T) {

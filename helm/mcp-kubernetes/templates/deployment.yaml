@@ -1,3 +1,6 @@
+{{- if .Values.mcpKubernetes.oauth.redirectURISecurity.disableProductionMode }}
+{{- fail "mcpKubernetes.oauth.redirectURISecurity.disableProductionMode is no longer supported: remove it; loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

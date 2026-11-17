@@ -236,6 +236,9 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if disabled, _ := cmd.Flags().GetBool("disable-production-mode"); disabled {
+				return fmt.Errorf("--disable-production-mode is no longer supported: remove it; loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused")
+			}
 			// Load TLS paths from environment if not provided via flags
 			loadEnvIfEmpty(&tlsCertFile, "TLS_CERT_FILE")
 			loadEnvIfEmpty(&tlsKeyFile, "TLS_KEY_FILE")
@@ -429,10 +432,10 @@ Downstream OAuth (--downstream-oauth):
 
 	// Redirect URI security flags (all default to secure values)
 	// Use --disable-* flags to explicitly opt-out of security features
-	cmd.Flags().Bool("disable-production-mode", false, "No effect")
-	_ = cmd.Flags().MarkDeprecated("disable-production-mode", "it has no effect: loopback redirect URIs need no setting and other redirect URIs must use HTTPS; remove it")
+	cmd.Flags().Bool("disable-production-mode", false, "Reject the removed HTTP redirect URI bypass")
+	_ = cmd.Flags().MarkDeprecated("disable-production-mode", "remove it: loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused; this flag will be removed in v1.15.0 (2027-02-17)")
 	cmd.Flags().Bool("allow-localhost-redirect-uris", false, "No effect")
-	_ = cmd.Flags().MarkDeprecated("allow-localhost-redirect-uris", "it has no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3); remove it")
+	_ = cmd.Flags().MarkDeprecated("allow-localhost-redirect-uris", "it has no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3); remove it before v1.15.0 (2027-02-17)")
 	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk")
 	cmd.Flags().StringSliceVar(&privateIPRedirectURIHosts, "private-ip-redirect-uri-hosts", nil, "Exact HTTPS redirect hosts permitted to resolve to private addresses")
 	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk")

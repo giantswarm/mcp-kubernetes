@@ -197,8 +197,8 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.storage.valkey.existingSecret | string | `""` |  |
 | mcpKubernetes.oauth.storage.valkey.existingSecretChecksum | string | `""` |  |
 | mcpKubernetes.oauth.storage.valkey.secretKeyPassword | string | `"valkey-password"` |  |
-| mcpKubernetes.oauth.redirectURISecurity.disableProductionMode | bool | `false` |  |
-| mcpKubernetes.oauth.redirectURISecurity.allowLocalhostRedirectURIs | bool | `false` |  |
+| mcpKubernetes.oauth.redirectURISecurity.disableProductionMode | bool | `false` | Removed HTTP redirect bypass. Only false is accepted. Loopback redirect URIs need no setting; non-loopback HTTP redirect URIs are refused. Remove this value before v1.15.0 (2027-02-17). |
+| mcpKubernetes.oauth.redirectURISecurity.allowLocalhostRedirectURIs | bool | `false` | Deprecated, no effect: registered loopback redirect URIs accept any port (RFC 8252 §7.3). Remove before v1.15.0 (2027-02-17). |
 | mcpKubernetes.oauth.redirectURISecurity.allowPrivateIPRedirectURIs | bool | `false` |  |
 | mcpKubernetes.oauth.redirectURISecurity.privateIPHosts | list | `[]` |  |
 | mcpKubernetes.oauth.redirectURISecurity.allowLinkLocalRedirectURIs | bool | `false` |  |

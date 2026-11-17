@@ -9,10 +9,9 @@ set:
   mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
   mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
 tests:
-  - it: ignores the deprecated loopback redirect values
+  - it: ignores the deprecated loopback redirect opt-in
     set:
       mcpKubernetes.oauth.redirectURISecurity.allowLocalhostRedirectURIs: true
-      mcpKubernetes.oauth.redirectURISecurity.disableProductionMode: true
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].args
@@ -20,3 +19,10 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: --disable-production-mode=true
+
+  - it: refuses the removed HTTP redirect bypass
+    set:
+      mcpKubernetes.oauth.redirectURISecurity.disableProductionMode: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "disableProductionMode.*value must be false"
