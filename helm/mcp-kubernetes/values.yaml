@@ -374,7 +374,8 @@ mcpKubernetes:
       # Applies to the Dex provider client and, passed explicitly to mcp-oauth,
       # to the SSO forwarded-ID-token JWKS validation when oauth.sso.allowPrivateIPs
       # is true. For an internal-CA Dex that forwards SSO tokens, set this together
-      # with oauth.sso.allowPrivateIPs.
+      # with oauth.sso.allowPrivateIPs. The Dex provider client honors
+      # HTTPS_PROXY and NO_PROXY with or without this CA.
       # Can reference a secret containing the CA certificate
       caSecret:
         # Name of the secret containing the CA certificate
