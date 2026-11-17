@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -37,7 +38,7 @@ func TestDexProviderWithCAFollowsProxyEnvironment(t *testing.T) {
 	}
 	for _, mode := range []string{"proxied", "no_proxy"} {
 		t.Run(mode, func(t *testing.T) {
-			child := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestDexProviderWithCAFollowsProxyEnvironment$", "-test.count=1") //nolint:gosec // this test binary
+			child := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestDexProviderWithCAFollowsProxyEnvironment$", "-test.count=1", "-test.timeout=30s") //nolint:gosec // this test binary
 			child.Env = append(os.Environ(), dexProxyChildEnv+"="+mode)
 			output, err := child.CombinedOutput()
 			require.NoError(t, err, string(output))
@@ -46,11 +47,20 @@ func TestDexProviderWithCAFollowsProxyEnvironment(t *testing.T) {
 }
 
 func runDexProxyChild(t *testing.T, mode string) {
+	// Direct DNS lookups fail locally so proxy bypass checks need no external DNS.
+	net.DefaultResolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(context.Context, string, string) (net.Conn, error) {
+			return nil, &net.DNSError{Err: "no such host", Name: dexProxyHost, IsNotFound: true}
+		},
+	}
 	dexAddress, caFile := newDexBehindProxy(t)
 	proxy := newConnectProxy(t, dexAddress)
 
 	t.Setenv("HTTPS_PROXY", proxy.url)
 	t.Setenv("https_proxy", proxy.url)
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("no_proxy", "")
 	if mode == "no_proxy" {
 		t.Setenv("NO_PROXY", dexProxyHost)
 		t.Setenv("no_proxy", dexProxyHost)
@@ -69,6 +79,7 @@ func runDexProxyChild(t *testing.T, mode string) {
 	case "proxied":
 		require.NoError(t, err)
 		require.NotNil(t, oauthServer)
+		t.Cleanup(func() { require.NoError(t, oauthServer.Shutdown(context.WithoutCancel(t.Context()))) })
 		require.Contains(t, proxy.targets(), dexProxyHost+":443")
 	case "no_proxy":
 		require.Error(t, err)
