@@ -828,7 +828,59 @@ func TestGetCAForCluster_Validation(t *testing.T) {
 
 		_, _, err := manager.GetCAForCluster(ctx, "test-cluster", user)
 
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrClusterNotFound))
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, ErrClusterNotFound)
 	})
+}
+
+func TestDiscoveryFailuresAreConnectionErrors(t *testing.T) {
+	cause := errors.New("connection refused")
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		provider  ClientProvider
+		wantCause error
+	}{
+		{
+			name:      "context canceled",
+			ctx:       canceled,
+			provider:  &testClientProvider{},
+			wantCause: context.Canceled,
+		},
+		{
+			name:      "discovery client failure",
+			ctx:       t.Context(),
+			provider:  &testClientProvider{err: cause},
+			wantCause: cause,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager, err := NewManager(tt.provider, WithManagerLogger(newTestLogger()))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = manager.Close() })
+
+			lookups := map[string]func() error{
+				"GetKubeconfigForCluster": func() error {
+					_, err := manager.GetKubeconfigForCluster(tt.ctx, "wc-cluster", testUser())
+					return err
+				},
+				"GetCAForCluster": func() error {
+					_, _, err := manager.GetCAForCluster(tt.ctx, "wc-cluster", testUser())
+					return err
+				},
+			}
+			for name, lookup := range lookups {
+				err := lookup()
+				var connErr *ConnectionError
+				require.ErrorAs(t, err, &connErr, name)
+				require.ErrorIs(t, err, tt.wantCause, name)
+				require.NotErrorIs(t, err, ErrClusterNotFound, name)
+			}
+		})
+	}
 }
