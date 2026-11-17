@@ -697,7 +697,9 @@
                             "deprecated": true
                         },
                         "allowPrivateURLs": {
-                            "type": "boolean"
+                            "type": "boolean",
+                            "description": "Removed private-address opt-in. Only false is accepted. Configured Dex issuers support private addresses with HTTPS and TLS verification. Remove before v1.15.0 (2027-02-17).",
+                            "deprecated": true
                         },
                         "allowPublicRegistration": {
                             "type": "boolean"

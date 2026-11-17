@@ -489,11 +489,11 @@ These metrics are automatically exposed via the `/metrics` endpoint when OAuth i
 OAuth 2.1 **requires HTTPS** for all production deployments. At startup the server checks:
 
 - The OAuth base URL uses HTTPS. Plain HTTP is accepted only on `localhost`, `127.0.0.1` and `::1`, for development.
-- The Dex issuer URL uses HTTPS and has a host.
+- The Dex issuer URL uses HTTPS and has a host. It may contain a port and path, but no user information, query or fragment components.
 
 The Dex issuer is not resolved or checked for private addresses: it is operator configuration, not a URL a client chooses, so a private, loopback or in-cluster issuer works without an extra setting. What authenticates it is TLS verification of the discovery and JWKS fetches (`--dex-ca-file`, or `mcpKubernetes.oauth.dex.caSecret` in the chart, for a private CA) and mcp-oauth's check that the discovered `issuer` equals the configured one.
 
-`--allow-private-oauth-urls` and the chart value `mcpKubernetes.oauth.allowPrivateURLs` are deprecated and have no effect. The flag logs a deprecation warning, and the chart no longer passes it; remove both from your configuration.
+`--allow-private-oauth-urls=true` and `mcpKubernetes.oauth.allowPrivateURLs: true` are refused. Remove the setting; private Dex issuers need no opt-in, and HTTPS and TLS verification remain required. A value of `false` is accepted for existing configurations. The flag and chart value are removed in v1.15.0 on 2027-02-17.
 
 ### OAuth Provider Security Considerations
 

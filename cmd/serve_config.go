@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
+
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
@@ -350,31 +352,11 @@ func loadEnvIfEmpty(target *string, envKey string) {
 	}
 }
 
-// validateIssuerURL requires an HTTPS URL with a host. It does not resolve the
-// host: the issuer is operator configuration, and TLS verification of the
-// discovery and JWKS fetches, plus mcp-oauth's check that the discovered issuer
-// matches the configured one, are what authenticate it.
-func validateIssuerURL(urlStr string, fieldName string) error {
-	if urlStr == "" {
-		return fmt.Errorf("%s must be a valid URL: empty URL provided", fieldName)
+// Configuration errors name the field while issuer syntax belongs to mcp-oauth.
+func validateIssuerURL(issuerURL, fieldName string) error {
+	if err := oidc.ValidateIssuerURL(issuerURL); err != nil {
+		return fmt.Errorf("%s: %w", fieldName, err)
 	}
-
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		return fmt.Errorf("%s must be a valid URL: %w", fieldName, err)
-	}
-
-	if parsedURL.Scheme != schemeHTTPS {
-		if parsedURL.Scheme == "" {
-			return fmt.Errorf("%s must be a valid URL with HTTPS scheme", fieldName)
-		}
-		return fmt.Errorf("%s must use HTTPS (got: %s)", fieldName, parsedURL.Scheme)
-	}
-
-	if parsedURL.Hostname() == "" {
-		return fmt.Errorf("%s must have a valid hostname", fieldName)
-	}
-
 	return nil
 }
 
@@ -551,5 +533,5 @@ func validateHTTPAuth(config ServeConfig) error {
 
 const (
 	flagAllowPrivateOAuthURLs        = "allow-private-oauth-urls"
-	allowPrivateOAuthURLsDeprecation = "it has no effect: the OAuth issuer is no longer checked for private addresses at startup; remove it"
+	allowPrivateOAuthURLsDeprecation = "remove it: configured Dex issuers support private addresses without a setting; this flag will be removed in v1.15.0 (2027-02-17)"
 )

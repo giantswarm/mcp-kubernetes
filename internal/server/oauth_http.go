@@ -500,7 +500,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 		// Allow CIMD metadata URLs that resolve to private IP addresses
 		// Required for internal deployments where MCP servers communicate over private networks
-		AllowPrivateIPClientMetadata:      config.CIMDAllowPrivateIPs,
+		AllowPrivateIPClientMetadata:      config.CIMDAllowPrivateIPs, //nolint:staticcheck // SA1019: current deployment flags require the library's compatibility fields.
 		AllowPrivateIPClientMetadataHosts: config.CIMDPrivateIPHosts,
 
 		// Trusted scheme registration for Cursor/VSCode compatibility
@@ -510,7 +510,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 		// Redirect URI Security Configuration
 		// mcp-oauth defaults to secure values; we pass explicit disable flags
-		AllowPrivateIPRedirectURIs:         config.RedirectURISecurity.AllowPrivateIPRedirectURIs,
+		AllowPrivateIPRedirectURIs:         config.RedirectURISecurity.AllowPrivateIPRedirectURIs, //nolint:staticcheck // SA1019: current deployment flags require the library's compatibility fields.
 		AllowPrivateIPRedirectURIHosts:     config.RedirectURISecurity.PrivateIPRedirectURIHosts,
 		AllowLinkLocalRedirectURIs:         config.RedirectURISecurity.AllowLinkLocalRedirectURIs,
 		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
@@ -519,7 +519,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 		// AllowPrivateIPJWKS for JWKS fetching from internal IdPs (mcp-oauth v0.2.40+)
 		// Enables SSO token forwarding when IdP (e.g., Dex) is on a private network
-		AllowPrivateIPJWKS: config.SSOAllowPrivateIPs,
+		AllowPrivateIPJWKS: config.SSOAllowPrivateIPs, //nolint:staticcheck // SA1019: current forwarding deployments require this compatibility field.
 
 		// JWKSRootCAs is the CA pool for verifying the forwarded-ID-token JWKS
 		// endpoint's TLS (mcp-oauth #495/#498). Built from DexCAFile; nil = system

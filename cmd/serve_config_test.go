@@ -29,10 +29,12 @@ func TestValidateIssuerURL(t *testing.T) {
 		errMsg string
 	}{
 		{"http://dex.example.com", "must use HTTPS"},
-		{"not-a-url", "must be a valid URL"},
-		{"dex.example.com", "must be a valid URL with HTTPS scheme"},
-		{"", "must be a valid URL"},
-		{"https://", "must have a valid hostname"},
+		{"not-a-url", "must use HTTPS"},
+		{"dex.example.com", "must use HTTPS"},
+		{"", "must use HTTPS"},
+		{"https://", "must have a hostname"},
+		{"https://dex.example.com/dex?tenant=one", "query component"},
+		{"https://dex.example.com/dex#tenant", "fragment component"},
 	}
 	for _, tt := range refused {
 		t.Run("refuses "+tt.url, func(t *testing.T) {

@@ -235,6 +235,9 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if allowed, _ := cmd.Flags().GetBool(flagAllowPrivateOAuthURLs); allowed {
+				return fmt.Errorf("--allow-private-oauth-urls is no longer supported: remove it; configured Dex issuers support private addresses without a setting, with HTTPS and TLS verification required")
+			}
 			if disabled, _ := cmd.Flags().GetBool("disable-production-mode"); disabled {
 				return fmt.Errorf("--disable-production-mode is no longer supported: remove it; loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused")
 			}
@@ -411,7 +414,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
 	cmd.Flags().Bool("allow-insecure-auth-without-state", false, "No effect")
 	_ = cmd.Flags().MarkDeprecated("allow-insecure-auth-without-state", "it has no effect: clients may omit state and PKCE S256 is always required; remove it")
-	cmd.Flags().Bool(flagAllowPrivateOAuthURLs, false, "Deprecated: has no effect")
+	cmd.Flags().Bool(flagAllowPrivateOAuthURLs, false, "Reject the removed Dex issuer private-address opt-in")
 	_ = cmd.Flags().MarkDeprecated(flagAllowPrivateOAuthURLs, allowPrivateOAuthURLsDeprecation)
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
