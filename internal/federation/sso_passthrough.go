@@ -69,9 +69,10 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 
 	// Fail fast if context is already cancelled
 	if err := ctx.Err(); err != nil {
-		return nil, "", &ClusterNotFoundError{
+		return nil, "", &ConnectionError{
 			ClusterName: clusterName,
 			Reason:      "context cancelled or expired",
+			Err:         err,
 		}
 	}
 
@@ -92,9 +93,10 @@ func (m *Manager) GetCAForCluster(ctx context.Context, clusterName string, user 
 			return nil, "", err
 		}
 
-		return nil, "", &ClusterNotFoundError{
+		return nil, "", &ConnectionError{
 			ClusterName: clusterName,
 			Reason:      "failed to create client for CAPI discovery",
+			Err:         err,
 		}
 	}
 

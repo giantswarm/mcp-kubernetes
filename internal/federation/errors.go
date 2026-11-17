@@ -198,12 +198,14 @@ type ConnectionError struct {
 
 // Error implements the error interface.
 func (e *ConnectionError) Error() string {
-	if e.Err != nil {
-		return fmt.Sprintf("connection to cluster %q (%s) failed: %s: %v",
-			e.ClusterName, e.Host, e.Reason, e.Err)
+	target := fmt.Sprintf("%q", e.ClusterName)
+	if e.Host != "" {
+		target = fmt.Sprintf("%q (%s)", e.ClusterName, e.Host)
 	}
-	return fmt.Sprintf("connection to cluster %q (%s) failed: %s",
-		e.ClusterName, e.Host, e.Reason)
+	if e.Err != nil {
+		return fmt.Sprintf("connection to cluster %s failed: %s: %v", target, e.Reason, e.Err)
+	}
+	return fmt.Sprintf("connection to cluster %s failed: %s", target, e.Reason)
 }
 
 // Unwrap returns the underlying error for use with errors.Is() and errors.As().

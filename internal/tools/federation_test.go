@@ -6,13 +6,24 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/federation"
+	"github.com/giantswarm/mcp-kubernetes/internal/instrumentation"
 	"github.com/giantswarm/mcp-kubernetes/internal/k8s"
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
@@ -720,4 +731,84 @@ func TestIsAuthenticationError(t *testing.T) {
 			t.Error("nil should not be recognized as auth error")
 		}
 	})
+}
+
+type discoveryFailingProvider struct {
+	err error
+}
+
+func (p *discoveryFailingProvider) GetClientsForUser(_ context.Context, _ *federation.UserInfo) (kubernetes.Interface, dynamic.Interface, *rest.Config, error) {
+	return nil, nil, nil, p.err
+}
+
+func TestClusterErrorWithRef_SameTextDifferentClass(t *testing.T) {
+	user := &federation.UserInfo{Email: "jane@example.com", Groups: []string{"dev"}}
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+
+	emptyCAPI := &federation.StaticClientProvider{
+		Clientset: kubefake.NewClientset(),
+		DynamicClient: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{federation.CAPIClusterGVR: "ClusterList"}),
+	}
+
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		provider  federation.ClientProvider
+		wantClass string
+		wantLog   string
+	}{
+		{
+			name:      "cluster not found",
+			ctx:       t.Context(),
+			provider:  emptyCAPI,
+			wantClass: instrumentation.ErrorClassOther,
+			wantLog:   "no CAPI Cluster resource found with this name",
+		},
+		{
+			name:      "context canceled",
+			ctx:       canceled,
+			provider:  emptyCAPI,
+			wantClass: instrumentation.ErrorClassCanceled,
+			wantLog:   "context cancelled or expired: context canceled",
+		},
+		{
+			name:      "discovery client failure",
+			ctx:       t.Context(),
+			provider:  &discoveryFailingProvider{err: refused},
+			wantClass: instrumentation.ErrorClassUnavailable,
+			wantLog:   "failed to create client for CAPI discovery",
+		},
+	}
+
+	var texts []string
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager, err := federation.NewManager(tt.provider)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = manager.Close() })
+
+			_, err = manager.GetClient(tt.ctx, "opd01", user)
+			require.Error(t, err)
+
+			var logs bytes.Buffer
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			got := clusterErrorWithRef(t.Context(), "failed to get federated clientset", "opd01", err)
+
+			require.Equal(t, tt.wantClass, instrumentation.ErrorClass(err))
+			require.Contains(t, logs.String(), tt.wantLog)
+			texts = append(texts, regexp.MustCompile(` \(ref [^)]+\)$`).ReplaceAllString(got, ""))
+		})
+	}
+
+	require.Len(t, texts, len(tests))
+	for _, text := range texts {
+		require.Equal(t, (&federation.ClusterNotFoundError{}).UserFacingError(), text)
+	}
 }

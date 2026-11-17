@@ -161,6 +161,15 @@ func TestConnectionError(t *testing.T) {
 			},
 			expectedString: `connection to cluster "my-cluster" (https://api.my-cluster.example.com:6443) failed: connection refused`,
 		},
+		{
+			name: "without host",
+			err: &ConnectionError{
+				ClusterName: "my-cluster",
+				Reason:      "failed to create client for CAPI discovery",
+				Err:         fmt.Errorf("connection refused"),
+			},
+			expectedString: `connection to cluster "my-cluster" failed: failed to create client for CAPI discovery: connection refused`,
+		},
 	}
 
 	for _, tt := range tests {

@@ -80,9 +80,10 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 
 	// Fail fast if context is already cancelled or expired
 	if err := ctx.Err(); err != nil {
-		return nil, &ClusterNotFoundError{
+		return nil, &ConnectionError{
 			ClusterName: clusterName,
 			Reason:      "context cancelled or expired",
+			Err:         err,
 		}
 	}
 
@@ -103,9 +104,10 @@ func (m *Manager) GetKubeconfigForCluster(ctx context.Context, clusterName strin
 			return nil, err
 		}
 
-		return nil, &ClusterNotFoundError{
+		return nil, &ConnectionError{
 			ClusterName: clusterName,
 			Reason:      "failed to create client for CAPI discovery",
+			Err:         err,
 		}
 	}
 
