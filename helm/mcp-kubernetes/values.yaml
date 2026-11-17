@@ -394,8 +394,10 @@ mcpKubernetes:
     # required (RFC 9700 §2.1). Accepted so existing values keep rendering;
     # removed in the next release.
     allowInsecureAuthWithoutState: false  # @schema deprecated: true
-    # -- Removed private-address opt-in. Only false is accepted. Configured Dex issuers support private addresses with HTTPS and TLS verification. Remove before v1.15.0 (2027-02-17).
-    allowPrivateURLs: false  # @schema deprecated: true
+    # Deprecated, has no effect: the Dex issuer is no longer checked for
+    # private addresses at startup; HTTPS and TLS verification (dex.caSecret)
+    # still apply. Remove it from your values.
+    allowPrivateURLs: false
     # Maximum number of OAuth clients that can be registered per IP address
     # Prevents DoS attacks via mass client registration
     maxClientsPerIP: 10

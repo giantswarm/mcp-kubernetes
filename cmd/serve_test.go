@@ -769,26 +769,16 @@ func TestParseIntEnv(t *testing.T) {
 	}
 }
 
-func TestAllowPrivateOAuthURLsIsDeprecated(t *testing.T) {
+func TestAllowPrivateOAuthURLsIsADeprecatedNoOp(t *testing.T) {
 	cmd := newServeCmd()
 
 	flag := cmd.Flags().Lookup("allow-private-oauth-urls")
 	require.NotNil(t, flag)
 	require.True(t, flag.Hidden)
-	require.Equal(t, "remove it: configured Dex issuers support private addresses without a setting; this flag will be removed in v1.15.0 (2027-02-17)", flag.Deprecated)
+	require.Equal(t, "it has no effect: the OAuth issuer is no longer checked for private addresses at startup; remove it", flag.Deprecated)
 
 	var stderr bytes.Buffer
 	cmd.Flags().SetOutput(&stderr)
 	require.NoError(t, cmd.Flags().Parse([]string{"--allow-private-oauth-urls=true"}))
 	require.Contains(t, stderr.String(), "allow-private-oauth-urls has been deprecated")
-}
-
-func TestAllowPrivateOAuthURLsIsRefusedBeforeStartup(t *testing.T) {
-	for _, argument := range []string{"--allow-private-oauth-urls", "--allow-private-oauth-urls=true"} {
-		t.Run(argument, func(t *testing.T) {
-			command := newServeCmd()
-			require.NoError(t, command.Flags().Parse([]string{argument}))
-			require.EqualError(t, command.RunE(command, nil), "--allow-private-oauth-urls is no longer supported: remove it; configured Dex issuers support private addresses without a setting, with HTTPS and TLS verification required")
-		})
-	}
 }

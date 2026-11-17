@@ -533,5 +533,5 @@ func validateHTTPAuth(config ServeConfig) error {
 
 const (
 	flagAllowPrivateOAuthURLs        = "allow-private-oauth-urls"
-	allowPrivateOAuthURLsDeprecation = "remove it: configured Dex issuers support private addresses without a setting; this flag will be removed in v1.15.0 (2027-02-17)"
+	allowPrivateOAuthURLsDeprecation = "it has no effect: the OAuth issuer is no longer checked for private addresses at startup; remove it"
 )

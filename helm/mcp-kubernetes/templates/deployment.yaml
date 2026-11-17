@@ -1,6 +1,3 @@
-{{- if .Values.mcpKubernetes.oauth.allowPrivateURLs }}
-{{- fail "mcpKubernetes.oauth.allowPrivateURLs is no longer supported: remove it; configured Dex issuers support private addresses without a setting, with HTTPS and TLS verification required" }}
-{{- end }}
 {{- if .Values.mcpKubernetes.oauth.redirectURISecurity.disableProductionMode }}
 {{- fail "mcpKubernetes.oauth.redirectURISecurity.disableProductionMode is no longer supported: remove it; loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused" }}
 {{- end }}

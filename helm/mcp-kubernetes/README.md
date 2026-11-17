@@ -180,7 +180,7 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.registrationAccessToken | string | `""` |  |
 | mcpKubernetes.oauth.allowPublicRegistration | bool | `false` |  |
 | mcpKubernetes.oauth.allowInsecureAuthWithoutState | bool | `false` |  |
-| mcpKubernetes.oauth.allowPrivateURLs | bool | `false` | Removed private-address opt-in. Only false is accepted. Configured Dex issuers support private addresses with HTTPS and TLS verification. Remove before v1.15.0 (2027-02-17). |
+| mcpKubernetes.oauth.allowPrivateURLs | bool | `false` |  |
 | mcpKubernetes.oauth.maxClientsPerIP | int | `10` |  |
 | mcpKubernetes.oauth.encryptionKey | bool | `false` |  |
 | mcpKubernetes.oauth.encryptionKeyValue | string | `""` |  |

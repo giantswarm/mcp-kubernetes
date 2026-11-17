@@ -9,12 +9,13 @@ set:
   mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
   mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
 tests:
-  - it: refuses allowPrivateURLs true
+  - it: renders with allowPrivateURLs true and does not pass the deprecated flag
     set:
       mcpKubernetes.oauth.allowPrivateURLs: true
     asserts:
-      - failedTemplate:
-          errorPattern: "allowPrivateURLs is no longer supported: remove it; configured Dex issuers support private addresses without a setting"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-private-oauth-urls=true
 
   - it: renders with allowPrivateURLs false and does not pass the deprecated flag
     set:
