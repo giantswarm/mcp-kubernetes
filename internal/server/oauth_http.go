@@ -194,8 +194,9 @@ type OAuthConfig struct {
 	// a larger one gets 413 Request Entity Too Large.
 	MaxRequestSize int64
 
-	// RegistrationAccessToken is the token required for client registration
-	// Required if AllowPublicClientRegistration is false
+	// RegistrationAccessToken is the initial access token authorizing client
+	// registration (RFC 7591 section 1.2), not a per-client registration access
+	// token for managing an existing registration (RFC 7592).
 	RegistrationAccessToken string
 
 	// AllowPublicClientRegistration allows unauthenticated dynamic client registration
@@ -311,16 +312,7 @@ type OAuthHTTPServer struct {
 
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
 func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, error) {
-	// Create logger with appropriate level
-	var logger *slog.Logger
-	if config.DebugMode {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-		logger.Debug("Debug logging enabled for OAuth handler")
-	} else {
-		logger = slog.Default()
-	}
+	logger := slog.Default()
 
 	redirectURL := config.BaseURL + "/oauth/callback"
 	var provider providers.Provider
@@ -528,17 +520,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		ClientMetadataRootCAs: dexCAPool,
 	}
 
-	// Debug logging for registration token configuration
 	if config.DebugMode {
-		if config.RegistrationAccessToken != "" {
-			tokenPrefix := config.RegistrationAccessToken
-			if len(tokenPrefix) > 8 {
-				tokenPrefix = tokenPrefix[:8] + "..."
-			}
-			logger.Info("Registration access token configured", "token_length", len(config.RegistrationAccessToken), "token_prefix", tokenPrefix)
-		} else {
-			logger.Warn("Registration access token is empty - public registration must be enabled")
-		}
 		logger.Info("Client registration configuration", "allow_public", config.AllowPublicClientRegistration, "has_token", config.RegistrationAccessToken != "")
 	}
 
