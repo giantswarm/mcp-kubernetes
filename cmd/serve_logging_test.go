@@ -2,85 +2,131 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	collectorlogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
 
-// captureStderr swaps os.Stderr for a pipe while fn runs and returns what
-// fn wrote to it.
 func captureStderr(t *testing.T, fn func()) []byte {
 	t.Helper()
-	reader, writer, err := os.Pipe()
+	output, err := os.CreateTemp(t.TempDir(), "stderr")
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, output.Close()) })
 	original := os.Stderr
-	os.Stderr = writer
-	t.Cleanup(func() { os.Stderr = original })
-
-	done := make(chan []byte)
-	go func() {
-		var buf bytes.Buffer
-		_, _ = io.Copy(&buf, reader)
-		done <- buf.Bytes()
-	}()
+	os.Stderr = output
+	defer func() { os.Stderr = original }()
 
 	fn()
 
-	os.Stderr = original
-	require.NoError(t, writer.Close())
-	return <-done
+	contents, err := os.ReadFile(output.Name())
+	require.NoError(t, err)
+	return contents
 }
 
-func stderrLines(t *testing.T, output []byte) []map[string]any {
+func stderrMessages(t *testing.T, output []byte) []string {
 	t.Helper()
-	var records []map[string]any
-	for _, line := range bytes.Split(bytes.TrimSpace(output), []byte("\n")) {
+	var messages []string
+	for line := range bytes.SplitSeq(bytes.TrimSpace(output), []byte("\n")) {
 		if len(line) == 0 {
 			continue
 		}
-		var record map[string]any
+		var record struct {
+			Message string `json:"msg"`
+		}
 		require.NoError(t, json.Unmarshal(line, &record), "stderr line is not JSON: %s", line)
-		records = append(records, record)
+		messages = append(messages, record.Message)
 	}
-	return records
+	return messages
 }
 
-func TestInitLoggingMirrorsOTLPRecordsToStderr(t *testing.T) {
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
-	t.Setenv("OTEL_LOGS_EXPORTER", "")
-
-	for _, tc := range []struct {
-		name        string
-		debug       bool
-		wantMessage []string
-	}{
-		{name: "info", debug: false, wantMessage: []string{"info record"}},
-		{name: "debug", debug: true, wantMessage: []string{"debug record", "info record"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			output := captureStderr(t, func() {
-				logger, shutdown, err := initLogging(t.Context(), tc.debug)
-				require.NoError(t, err)
-				logger.DebugContext(t.Context(), "debug record")
-				logger.InfoContext(t.Context(), "info record")
-				// The endpoint is unreachable: a cancelled context stops the
-				// flush instead of waiting out the exporter's retries.
-				ctx, cancel := context.WithCancel(t.Context())
-				cancel()
-				_ = shutdown(ctx)
-			})
-
-			var messages []string
-			for _, record := range stderrLines(t, output) {
-				messages = append(messages, record["msg"].(string))
+func newLogCollector(t *testing.T) (string, func() []*logsv1.LogRecord) {
+	t.Helper()
+	var mutex sync.Mutex
+	var records []*logsv1.LogRecord
+	collector := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/logs" || request.Header.Get("Content-Type") != "application/x-protobuf" {
+			http.Error(writer, "invalid OTLP request", http.StatusBadRequest)
+			return
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			http.Error(writer, "unreadable OTLP request", http.StatusBadRequest)
+			return
+		}
+		var export collectorlogs.ExportLogsServiceRequest
+		if err := proto.Unmarshal(body, &export); err != nil {
+			http.Error(writer, "invalid OTLP payload", http.StatusBadRequest)
+			return
+		}
+		mutex.Lock()
+		for _, resource := range export.ResourceLogs {
+			for _, scope := range resource.ScopeLogs {
+				records = append(records, scope.LogRecords...)
 			}
-			require.Equal(t, tc.wantMessage, messages)
-		})
+		}
+		mutex.Unlock()
+		writer.Header().Set("Content-Type", "application/x-protobuf")
+		writer.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(collector.Close)
+	return collector.URL, func() []*logsv1.LogRecord {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return slices.Clone(records)
+	}
+}
+
+func TestInitLoggingMirrorsExportedRecordsToStderr(t *testing.T) {
+	for _, endpointVariable := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"} {
+		for _, debug := range []bool{false, true} {
+			name := endpointVariable + "/info"
+			if debug {
+				name = endpointVariable + "/debug"
+			}
+			t.Run(name, func(t *testing.T) {
+				collectorURL, exportedRecords := newLogCollector(t)
+				t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+				t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+				t.Setenv("OTEL_LOGS_EXPORTER", "")
+				t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
+				if endpointVariable == "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT" {
+					collectorURL += "/v1/logs"
+				}
+				t.Setenv(endpointVariable, collectorURL)
+
+				output := captureStderr(t, func() {
+					logger, shutdown, err := initLogging(t.Context(), debug)
+					require.NoError(t, err)
+					defer func() { require.NoError(t, shutdown(t.Context())) }()
+					logger.DebugContext(t.Context(), "debug record")
+					logger.InfoContext(t.Context(), "info record")
+				})
+
+				wantMessages := []string{"info record"}
+				if debug {
+					wantMessages = []string{"debug record", "info record"}
+				}
+				require.Equal(t, wantMessages, stderrMessages(t, output))
+				var messages []string
+				for _, record := range exportedRecords() {
+					messages = append(messages, record.Body.GetStringValue())
+				}
+				require.Equal(t, []string{"debug record", "info record"}, messages)
+			})
+		}
 	}
 }
 
@@ -97,7 +143,63 @@ func TestInitLoggingWithoutOTLPWritesStderrOnce(t *testing.T) {
 		require.NoError(t, shutdown(t.Context()))
 	})
 
-	records := stderrLines(t, output)
-	require.Len(t, records, 1)
-	require.Equal(t, "info record", records[0]["msg"])
+	require.Equal(t, []string{"info record"}, stderrMessages(t, output))
+}
+
+func TestInitLoggingWithNoopExporterMirrorsToStderr(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+
+	output := captureStderr(t, func() {
+		logger, shutdown, err := initLogging(t.Context(), false)
+		require.NoError(t, err)
+		logger.InfoContext(t.Context(), "info record")
+		require.NoError(t, shutdown(t.Context()))
+	})
+	require.Equal(t, []string{"info record"}, stderrMessages(t, output))
+}
+
+func TestOAuthLogsDoNotExposeInitialAccessToken(t *testing.T) {
+	for _, initialAccessToken := range []string{"fixture8", "fixture8-long-initial-access-token"} {
+		t.Run(initialAccessToken, func(t *testing.T) {
+			collectorURL, exportedRecords := newLogCollector(t)
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", collectorURL)
+			t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+			t.Setenv("OTEL_LOGS_EXPORTER", "")
+			t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
+			output := captureStderr(t, func() {
+				logger, shutdown, err := initLogging(t.Context(), true)
+				require.NoError(t, err)
+				originalLogger := slog.Default()
+				slog.SetDefault(logger)
+				defer slog.SetDefault(originalLogger)
+				defer func() { require.NoError(t, shutdown(t.Context())) }()
+				oauthServer, _, err := server.CreateOAuthServer(server.OAuthConfig{
+					BaseURL:                 "https://mcp.example.com",
+					Provider:                server.OAuthProviderGoogle,
+					GoogleClientID:          "test-client",
+					GoogleClientSecret:      "test-secret",
+					DebugMode:               true,
+					RegistrationAccessToken: initialAccessToken,
+				})
+				require.NoError(t, err)
+				defer func() { require.NoError(t, oauthServer.Shutdown(t.Context())) }()
+				require.Same(t, logger, oauthServer.Logger)
+				oauthServer.Logger.DebugContext(t.Context(), "oauth debug record")
+			})
+			require.NotContains(t, string(output), initialAccessToken[:8])
+			require.NotContains(t, string(output), "token_prefix")
+			require.Equal(t, 1, bytes.Count(output, []byte("oauth debug record")))
+			var debugRecordCount int
+			for _, record := range exportedRecords() {
+				require.NotContains(t, record.String(), initialAccessToken[:8])
+				require.NotContains(t, record.String(), "token_prefix")
+				if record.Body.GetStringValue() == "oauth debug record" {
+					debugRecordCount++
+				}
+			}
+			require.Equal(t, 1, debugRecordCount)
+		})
+	}
 }

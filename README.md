@@ -215,7 +215,7 @@ The `sse` transport authenticates with the bearer token only.
 --oauth-base-url string        # OAuth base URL (e.g., https://mcp.example.com)
 --google-client-id string      # Google OAuth Client ID
 --google-client-secret string  # Google OAuth Client Secret
---registration-token string    # OAuth client registration access token
+--registration-token string    # OAuth initial access token for client registration
 --allow-public-registration    # Allow unauthenticated OAuth client registration
 
 # Debugging
