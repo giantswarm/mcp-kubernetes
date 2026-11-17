@@ -109,11 +109,11 @@ tests:
           content:
             name: DEX_CA_FILE
             value: /etc/ssl/certs/dex-ca/ca.crt
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: OAUTH_TRUSTED_AUDIENCES
-            value: agent-platform
+          any: true
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -230,11 +230,11 @@ tests:
           content:
             name: DEX_CA_FILE
             value: /etc/ssl/certs/dex-ca/tls.crt
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: OAUTH_TRUSTED_AUDIENCES
-            value: aud-one,aud-two
+          any: true
       - contains:
           path: spec.template.spec.volumes
           content:
@@ -270,11 +270,11 @@ tests:
           content:
             name: DEX_CLIENT_ID
             value: mcp-kubernetes
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: OAUTH_TRUSTED_AUDIENCES
-            value: agent-platform
+          any: true
       - notContains:
           path: spec.template.spec.volumes
           content:
@@ -298,11 +298,11 @@ tests:
               secretKeyRef:
                 name: agent-platform-idp
                 key: google-client-id
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: OAUTH_TRUSTED_AUDIENCES
-            value: 1234-abc.apps.googleusercontent.com
+          any: true
       - notContains:
           path: spec.template.spec.containers[0].env
           content:

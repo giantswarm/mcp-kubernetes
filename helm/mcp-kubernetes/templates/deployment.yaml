@@ -238,18 +238,8 @@ spec:
                   name: {{ include "mcp-kubernetes.oauth.secretName" . }}
                   key: oauth-encryption-key
             {{- end }}
-            {{- /* Trusted audiences for SSO token forwarding from aggregators */ -}}
-            {{- if include "mcp-kubernetes.oauth.trustedAudiences" . }}
-            - name: OAUTH_TRUSTED_AUDIENCES
-              value: {{ include "mcp-kubernetes.oauth.trustedAudiences" . | quote }}
-            {{- end }}
             {{- if .Values.mcpKubernetes.oauth.trustedIssuers }}
-            {{- fail "mcpKubernetes.oauth.trustedIssuers was removed: mcp-kubernetes no longer accepts tokens from external issuers. Forward Dex-issued tokens through mcpKubernetes.oauth.trustedAudiences and remove trustedIssuers from your values." }}
-            {{- end }}
-            {{- /* SSO Security (mcp-oauth v0.2.40+) */ -}}
-            {{- if and .Values.mcpKubernetes.oauth.sso .Values.mcpKubernetes.oauth.sso.allowPrivateIPs }}
-            - name: SSO_ALLOW_PRIVATE_IPS
-              value: "true"
+            {{- fail "mcpKubernetes.oauth.trustedIssuers was removed: use per-server OAuth to obtain an access token issued for this server and remove trustedIssuers from your values." }}
             {{- end }}
             # Valkey storage configuration
             {{- if eq .Values.mcpKubernetes.oauth.storage.type "valkey" }}

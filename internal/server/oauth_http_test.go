@@ -497,9 +497,7 @@ func TestClientRegistrationRateLimiterConfiguration(t *testing.T) {
 	}
 }
 
-// TestAccessTokenInjectorMiddleware_SSOToken tests that SSO-forwarded tokens are used directly
-// as the ID token without looking them up in the token store.
-func TestAccessTokenInjectorMiddleware_SSOToken(t *testing.T) {
+func TestAccessTokenInjectorMiddlewareRefusesForwardedIDToken(t *testing.T) {
 	// Create a mock next handler that captures the context
 	var capturedCtx context.Context
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -514,7 +512,7 @@ func TestAccessTokenInjectorMiddleware_SSOToken(t *testing.T) {
 	middleware := s.createAccessTokenInjectorMiddleware(nextHandler)
 
 	// Create a request with an SSO-validated user
-	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", nil)
 	//nolint:gosec // G101 false positive - this is a test token, not a credential
 	ssoToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.sso-token-payload.signature"
 	req.Header.Set("Authorization", "Bearer "+ssoToken)
@@ -532,13 +530,8 @@ func TestAccessTokenInjectorMiddleware_SSOToken(t *testing.T) {
 	rr := httptest.NewRecorder()
 	middleware.ServeHTTP(rr, req)
 
-	// Verify the request completed successfully
-	assert.Equal(t, http.StatusOK, rr.Code)
-
-	// Verify the ID token was injected into context (it should be the Bearer token itself)
-	injectedToken, ok := oauth.GetIDTokenFromContext(capturedCtx)
-	assert.True(t, ok, "ID token should be present in context for SSO tokens")
-	assert.Equal(t, ssoToken, injectedToken, "SSO token should be used directly as ID token")
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assert.Nil(t, capturedCtx)
 }
 
 // TestAccessTokenInjectorMiddleware_SSOTokenIsSSO verifies IsSSO() method behavior

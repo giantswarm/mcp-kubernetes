@@ -147,21 +147,6 @@ both default to ca.crt.
 {{- end }}
 
 {{/*
-Trusted audiences for SSO token forwarding, comma-separated as the
-OAUTH_TRUSTED_AUDIENCES env expects: mcpKubernetes.oauth.trustedAudiences, else
-the platform client global.identity.clientId (the audience of the IdP id_token
-muster forwards). Empty when neither is set.
-*/}}
-{{- define "mcp-kubernetes.oauth.trustedAudiences" -}}
-{{- $identity := include "mcp-kubernetes.oauth.globalIdentity" . | fromJson -}}
-{{- if .Values.mcpKubernetes.oauth.trustedAudiences -}}
-{{- .Values.mcpKubernetes.oauth.trustedAudiences | join "," -}}
-{{- else -}}
-{{- dig "clientId" "" $identity -}}
-{{- end -}}
-{{- end }}
-
-{{/*
 OAuth base URL: mcpKubernetes.oauth.baseURL, else https://<fullname>.<global.domain>
 following the platform's hostname convention. Empty when neither is set.
 */}}

@@ -287,37 +287,12 @@ type OAuthServeConfig struct {
 	CIMDAllowPrivateIPs bool
 	CIMDPrivateIPHosts  []string
 
-	// TrustedAudiences lists client IDs whose tokens are accepted for SSO.
-	// When upstream aggregators (like muster) forward a user's ID token,
-	// mcp-kubernetes will accept it if the token's audience matches any
-	// entry in this list. This enables Single Sign-On across the MCP ecosystem.
-	//
-	// Security:
-	//   - Only explicitly listed client IDs are trusted
-	//   - Tokens must still be from the configured issuer (Dex/Google)
-	//   - The IdP's cryptographic signature proves token authenticity
-	//
-	// Example: ["muster-client", "another-aggregator"]
+	// TrustedAudiences has no effect on MCP bearer authentication.
+	// Deprecated: clients must obtain access tokens for this resource.
 	TrustedAudiences []string
 
-	// SSOAllowPrivateIPs allows JWKS endpoints (used for SSO token validation) that
-	// resolve to private IP addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 per RFC 1918).
-	// This also allows loopback addresses (127.0.0.0/8, ::1) and link-local addresses.
-	//
-	// When TrustedAudiences is configured, mcp-kubernetes validates forwarded ID tokens
-	// by fetching the IdP's JWKS (JSON Web Key Set) to verify signatures. If your IdP
-	// (like Dex) is deployed on a private network, JWKS fetching will fail without this option.
-	//
-	// Use cases:
-	//   - Home lab deployments where Dex runs on an internal network
-	//   - Air-gapped environments
-	//   - Internal enterprise networks
-	//   - Any deployment where the IdP is only accessible over private networks
-	//
-	// WARNING: Reduces SSRF protection. Only enable for internal deployments
-	// that are not exposed to the public internet.
-	//
-	// Default: false (blocked for security)
+	// SSOAllowPrivateIPs has no effect on MCP bearer authentication.
+	// Deprecated: forwarded ID tokens are not accepted as MCP bearers.
 	SSOAllowPrivateIPs bool
 
 	// Storage configuration

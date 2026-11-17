@@ -2,6 +2,11 @@
 
 This document describes the SSO token passthrough authentication mode for workload clusters, an alternative to the default impersonation-based authentication.
 
+The MCP client must first obtain an access token issued for mcp-kubernetes.
+The identity token sent to a workload cluster is the upstream token associated
+with that access token in server storage. A Dex ID token received directly as
+the MCP bearer is refused. See [single sign-on](sso-token-forwarding.md).
+
 ## Overview
 
 mcp-kubernetes supports two authentication modes for connecting to workload clusters in CAPI mode:
@@ -231,9 +236,9 @@ User ─── authenticates ───> Aggregator (muster)
                           forwards ID token
                                │
                                ▼
-                          mcp-kubernetes (validates via TrustedAudiences)
+                          mcp-kubernetes (validates its resource access token)
                                │
-                          forwards same ID token
+                          loads the stored upstream ID token
                                │
                                ▼
                           Workload Cluster API Server
@@ -395,6 +400,6 @@ For production deployments, choose one of these approaches:
 
 ## Related Documentation
 
-- [SSO Token Forwarding](sso-token-forwarding.md) - How SSO tokens are forwarded from aggregators
+- [Single sign-on](sso-token-forwarding.md) - Resource access tokens and upstream identity
 - [RBAC Security](rbac-security.md) - RBAC requirements for different deployment modes
 - [OAuth Configuration](oauth.md) - OAuth/OIDC setup guide

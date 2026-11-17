@@ -18,6 +18,7 @@ func TestOAuthConsentIsEnabledWithoutOverrides(t *testing.T) {
 	require.Len(t, authorizationServer.Config.ConsentCookieKey, 32)
 	require.False(t, authorizationServer.Config.AllowPrivateIPClientMetadata)
 	require.False(t, authorizationServer.Config.AllowPrivateIPRedirectURIs)
+	require.True(t, authorizationServer.Config.RequireResourceAccessTokens)
 }
 
 func TestPrivateOAuthHostsRemainScoped(t *testing.T) {

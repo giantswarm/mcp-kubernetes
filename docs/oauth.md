@@ -11,7 +11,7 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
   - **Google OAuth Provider**: Supports Google OAuth for authentication with GCP/GKE integration
 - **Token Refresh**: Automatic token refresh with refresh token rotation
 - **Downstream OAuth Passthrough**: Use users' OAuth tokens for Kubernetes API authentication (RBAC)
-- **SSO Token Forwarding**: Accept tokens forwarded from trusted upstream aggregators (see [SSO Token Forwarding](sso-token-forwarding.md))
+- **Single sign-on**: Use per-server OAuth with an existing identity-provider session (see [Single sign-on](sso-token-forwarding.md))
 - **Security Features**:
   - Rate limiting (per-IP and per-user)
   - Audit logging
@@ -1657,7 +1657,7 @@ When `--downstream-oauth` is enabled:
 
 ## Related Documentation
 
-- [SSO Token Forwarding](sso-token-forwarding.md) - Accept tokens forwarded from trusted aggregators
+- [Single sign-on](sso-token-forwarding.md) - Resource access tokens and downstream identity
 
 ## References
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -8,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"maps"
 	"math/big"
 	"net/http"
@@ -25,7 +27,9 @@ import (
 
 	"github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/security"
+	"github.com/giantswarm/mcp-oauth/storage"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"golang.org/x/oauth2"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/mcp/oauth"
 )
@@ -65,6 +69,14 @@ func newForwardedDex(t *testing.T) *forwardedDex {
 			require.NoError(t, json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
 				Key: &key.PublicKey, KeyID: "dex-key", Algorithm: string(jose.RS256), Use: "sig",
 			}}}))
+		case "/userinfo":
+			if r.Header.Get("Authorization") != "Bearer provider-access-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+				"sub": "fixture-user", "email": "dev@lab.local", "email_verified": true, "groups": []string{"developers"},
+			}))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -112,172 +124,136 @@ func (d *forwardedDex) server(t *testing.T, trusted []string) *OAuthHTTPServer {
 		DexCAFile: d.caFile, TrustedAudiences: trusted, SSOAllowPrivateIPs: true,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, srv.oauthServer.Shutdown(context.Background())) })
+	t.Cleanup(func() { require.NoError(t, srv.oauthServer.Shutdown(context.WithoutCancel(t.Context()))) })
 	return srv
 }
 
-func TestMCPForwardedDexToken(t *testing.T) {
-	d := newForwardedDex(t)
-	srv := d.server(t, []string{"agent-platform"})
+func TestMCPRefusesForwardedIDTokens(t *testing.T) {
+	issuer := newForwardedDex(t)
+	server := issuer.server(t, []string{"agent-platform", "kubernetes"})
+	require.True(t, server.oauthServer.Config.RequireResourceAccessTokens)
+	require.False(t, server.oauthServer.Config.AllowPrivateIPJWKS)
 	mux := http.NewServeMux()
-	require.NoError(t, srv.setupMCPRoutes(mux))
-	badKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, server.setupMCPRoutes(mux))
+	endpoint := httptest.NewServer(mux)
+	t.Cleanup(endpoint.Close)
+	wireRequest, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint.URL+"/mcp", nil)
 	require.NoError(t, err)
-	for _, tc := range []struct {
+	wireRequest.Header.Set("Authorization", "Bearer "+issuer.token(t, nil, nil))
+	wireResponse, err := endpoint.Client().Do(wireRequest)
+	require.NoError(t, err)
+	require.NoError(t, wireResponse.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, wireResponse.StatusCode)
+	var auditLog bytes.Buffer
+	server.oauthServer.Auditor = security.NewAuditor(slog.New(slog.NewJSONHandler(&auditLog, nil)), true)
+	var refusal string
+	for _, testCase := range []struct {
 		name   string
-		extra  map[string]any
-		key    *rsa.PrivateKey
-		raw    string
-		status int
+		claims map[string]any
 	}{
-		{name: "trusted cross-client audiences", status: http.StatusOK},
-		{name: "untrusted audience", extra: map[string]any{"aud": "other"}, status: http.StatusUnauthorized},
-		{name: "untrusted issuer", extra: map[string]any{"iss": "https://untrusted.example.com"}, status: http.StatusUnauthorized},
-		{name: "expired", extra: map[string]any{"exp": time.Now().Add(-10 * time.Minute).Unix()}, status: http.StatusUnauthorized},
-		{name: "bad signature", key: badKey, status: http.StatusUnauthorized},
-		{name: "delegated", extra: map[string]any{"act": map[string]any{"sub": "agent"}}, status: http.StatusUnauthorized},
-		{name: "sender constrained without proof", extra: map[string]any{"cnf": map[string]any{"jkt": "fixture-thumbprint"}}, status: http.StatusUnauthorized},
-		{name: "missing email", extra: map[string]any{"email": ""}, status: http.StatusUnauthorized},
-		{name: "unknown opaque", raw: "unknown-opaque-token", status: http.StatusUnauthorized},
-		{name: "malformed", raw: "not.a.jwt", status: http.StatusUnauthorized},
+		{name: "trusted client audience"},
+		{name: "MCP audience on an ID token", claims: map[string]any{"aud": "https://mcp.example.com"}},
+		{name: "untrusted audience", claims: map[string]any{"aud": "other"}},
+		{name: "expired ID token", claims: map[string]any{"exp": time.Now().Add(-time.Hour).Unix()}},
+		{name: "delegated identity", claims: map[string]any{"act": map[string]any{"sub": "agent"}}},
+		{name: "sender constrained identity", claims: map[string]any{"cnf": map[string]any{"jkt": "fixture"}}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			bearer := tc.raw
-			if bearer == "" {
-				bearer = d.token(t, tc.extra, tc.key)
-			}
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"fixture","version":"1"}}}`))
-			req.Header.Set("Authorization", "Bearer "+bearer)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json, text/event-stream")
+		t.Run(testCase.name, func(t *testing.T) {
+			auditLog.Reset()
+			bearer := issuer.token(t, testCase.claims, nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", nil)
+			request.Header.Set("Authorization", "Bearer "+bearer)
 			response := httptest.NewRecorder()
-			mux.ServeHTTP(response, req)
-			require.Equal(t, tc.status, response.Code, response.Body.String())
-			if tc.status == http.StatusOK {
-				require.Contains(t, response.Body.String(), "serverInfo")
+			mux.ServeHTTP(response, request)
+			require.Equal(t, http.StatusUnauthorized, response.Code)
+			require.Contains(t, response.Header().Get("WWW-Authenticate"), "invalid_token")
+			body := response.Body.String()
+			if refusal == "" {
+				refusal = body
 			}
+			require.Equal(t, refusal, body)
+			require.NotContains(t, body, bearer)
+			var event struct {
+				Audit struct {
+					Type    string         `json:"event_type"`
+					Details map[string]any `json:"details"`
+				} `json:"audit"`
+			}
+			require.NoError(t, json.NewDecoder(&auditLog).Decode(&event))
+			require.Equal(t, security.EventAuthFailure, event.Audit.Type)
+			require.NotEmpty(t, event.Audit.Details["reason"])
 		})
 	}
 }
 
-func TestForwardedDexIdentityAndLimits(t *testing.T) {
-	d := newForwardedDex(t)
-	bearer := d.token(t, nil, nil)
-	srv := d.server(t, []string{"agent-platform"})
-	calls := 0
-	next := srv.authenticateForwardedBearer(srv.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		info, ok := handler.UserInfoFromContext(r.Context())
-		require.True(t, ok)
-		require.True(t, info.IsSSO())
-		session, ok := handler.SessionIDFromContext(r.Context())
-		require.True(t, ok)
-		require.Equal(t, srv.oauthServer.SessionIDForBearer(bearer), session)
-		require.Equal(t, "dev@lab.local", info.Email)
-		require.Equal(t, []string{"developers"}, info.Groups)
-		injected, ok := oauth.GetIDTokenFromContext(r.Context())
-		require.True(t, ok)
-		require.Equal(t, bearer, injected)
-		w.WriteHeader(http.StatusOK)
-	})))
-	call := func() *httptest.ResponseRecorder {
-		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", nil)
-		request.Header.Set("Authorization", "Bearer "+bearer)
-		response := httptest.NewRecorder()
-		next.ServeHTTP(response, request)
-		return response
-	}
-	require.Equal(t, http.StatusOK, call().Code)
-	srv.oauthServer.UserRateLimiter.Stop()
-	srv.oauthServer.UserRateLimiter = security.NewRateLimiter(0, 1, srv.oauthServer.Logger)
-	require.Equal(t, http.StatusOK, call().Code)
-	require.Equal(t, http.StatusTooManyRequests, call().Code)
-	srv.oauthServer.UserRateLimiter.Stop()
-	srv.oauthServer.UserRateLimiter = nil
-	srv.oauthServer.RateLimiter.Stop()
-	srv.oauthServer.RateLimiter = security.NewRateLimiter(0, 1, srv.oauthServer.Logger)
-	require.Equal(t, http.StatusOK, call().Code)
-	require.Equal(t, http.StatusTooManyRequests, call().Code)
-	require.Equal(t, 3, calls)
-}
-
-func TestForwardedDexTrustAndAvailability(t *testing.T) {
-	for _, tc := range []struct {
-		name          string
-		trusted       []string
-		keysAvailable bool
-		want          int
+func TestMCPResourceAccessToken(t *testing.T) {
+	issuer := newForwardedDex(t)
+	server := issuer.server(t, []string{"agent-platform"})
+	metadataStore, ok := server.tokenStore.(storage.TokenMetadataStore)
+	require.True(t, ok)
+	providerStore, ok := server.tokenStore.(storage.UserProviderTokenStore)
+	require.True(t, ok)
+	identityToken := issuer.token(t, nil, nil)
+	providerToken := (&oauth2.Token{AccessToken: "provider-access-token", Expiry: time.Now().Add(time.Hour)}).
+		WithExtra(map[string]any{"id_token": identityToken})
+	for _, testCase := range []struct {
+		name     string
+		audience string
+		status   int
 	}{
-		{name: "forwarding disabled", keysAvailable: true, want: http.StatusUnauthorized},
-		{name: "issuer keys unavailable", trusted: []string{"agent-platform"}, want: http.StatusServiceUnavailable},
+		{name: "own resource", audience: server.oauthServer.Config.GetResourceIdentifier(), status: http.StatusOK},
+		{name: "other resource", audience: "https://other.example.com", status: http.StatusUnauthorized},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			d := newForwardedDex(t)
-			d.keysAvailable.Store(tc.keysAvailable)
-			srv := d.server(t, tc.trusted)
-			next := srv.authenticateForwardedBearer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-				t.Error("rejected token reached the handler")
+		t.Run(testCase.name, func(t *testing.T) {
+			accessToken := "resource-access-" + strings.ReplaceAll(testCase.name, " ", "-")
+			require.NoError(t, providerStore.SaveUserProviderToken(t.Context(), "fixture-user", providerToken))
+			require.NoError(t, providerStore.SaveProviderTokenRef(t.Context(), accessToken, "fixture-user", time.Now().Add(time.Hour)))
+			require.NoError(t, metadataStore.SaveTokenMetadata(t.Context(), accessToken, storage.TokenMetadata{
+				UserID: "fixture-user", ClientID: "client", TokenType: "access", Audience: testCase.audience,
+				ExpiresAt: time.Now().Add(time.Hour),
 			}))
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", nil)
-			req.Header.Set("Authorization", "Bearer "+d.token(t, nil, nil))
-			response := httptest.NewRecorder()
-			next.ServeHTTP(response, req)
-			require.Equal(t, tc.want, response.Code, response.Body.String())
-			if tc.want == http.StatusServiceUnavailable {
-				require.Equal(t, "1", response.Header().Get("Retry-After"))
-			}
-		})
-	}
-}
-
-// Every spelling must authenticate at the MCP endpoint and preserve the raw
-// ID token for downstream Kubernetes authorization.
-func TestForwardedDexBearerScheme(t *testing.T) {
-	d := newForwardedDex(t)
-	bearer := d.token(t, nil, nil)
-	srv := d.server(t, []string{"agent-platform"})
-	mux := http.NewServeMux()
-	require.NoError(t, srv.setupMCPRoutes(mux))
-	for _, scheme := range []string{"Bearer", "bearer", "BEARER"} {
-		t.Run(scheme, func(t *testing.T) {
+			mux := http.NewServeMux()
+			require.NoError(t, server.setupMCPRoutes(mux))
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"fixture","version":"1"}}}`))
-			request.Header.Set("Authorization", scheme+" "+bearer)
+			request.Header.Set("Authorization", "Bearer "+accessToken)
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Accept", "application/json, text/event-stream")
 			response := httptest.NewRecorder()
 			mux.ServeHTTP(response, request)
-			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			require.Equal(t, testCase.status, response.Code, response.Body.String())
+			if testCase.status != http.StatusOK {
+				return
+			}
 			require.Contains(t, response.Body.String(), "serverInfo")
-
-			next := srv.authenticateForwardedBearer(srv.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				injected, ok := oauth.GetIDTokenFromContext(r.Context())
-				require.True(t, ok)
-				require.Equal(t, bearer, injected)
-				w.WriteHeader(http.StatusNoContent)
+			validated := server.oauthHandler.ValidateToken(server.createAccessTokenInjectorMiddleware(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				identity, found := handler.UserInfoFromContext(request.Context())
+				require.True(t, found)
+				require.False(t, identity.IsSSO())
+				injected, found := oauth.GetIDTokenFromContext(request.Context())
+				require.True(t, found)
+				require.Equal(t, identityToken, injected)
+				require.NotEqual(t, accessToken, injected)
+				writer.WriteHeader(http.StatusNoContent)
 			})))
 			response = httptest.NewRecorder()
-			next.ServeHTTP(response, request)
-			require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+			validated.ServeHTTP(response, request)
+			require.Equal(t, http.StatusNoContent, response.Code)
 		})
 	}
 }
 
-func TestForwardedDexFallbackIPLimit(t *testing.T) {
-	d := newForwardedDex(t)
-	srv := d.server(t, []string{"agent-platform"})
-	srv.oauthServer.RateLimiter.Stop()
-	srv.oauthServer.RateLimiter = security.NewRateLimiter(0, 1, srv.oauthServer.Logger)
+func TestInvalidBearerUsesSharedRateLimiter(t *testing.T) {
+	issuer := newForwardedDex(t)
+	server := issuer.server(t, []string{"agent-platform"})
+	server.oauthServer.RateLimiter.Stop()
+	server.oauthServer.RateLimiter = security.NewRateLimiter(0, 1, server.oauthServer.Logger)
 	mux := http.NewServeMux()
-	require.NoError(t, srv.setupMCPRoutes(mux))
-	bearer := d.token(t, map[string]any{"aud": "untrusted"}, nil)
-	for _, want := range []int{http.StatusUnauthorized, http.StatusTooManyRequests} {
+	require.NoError(t, server.setupMCPRoutes(mux))
+	for _, status := range []int{http.StatusUnauthorized, http.StatusTooManyRequests} {
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", nil)
-		request.Header.Set("Authorization", "Bearer "+bearer)
+		request.Header.Set("Authorization", "Bearer "+issuer.token(t, nil, nil))
 		response := httptest.NewRecorder()
 		mux.ServeHTTP(response, request)
-		require.Equal(t, want, response.Code, response.Body.String())
-		if want == http.StatusUnauthorized {
-			require.Contains(t, response.Header().Get("WWW-Authenticate"), "invalid_token")
-		}
+		require.Equal(t, status, response.Code, response.Body.String())
 	}
 }

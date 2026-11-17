@@ -388,5 +388,5 @@ Silent token renewal may be used in future versions to proactively refresh expir
 ## Related Documentation
 
 - [OAuth Configuration](oauth.md) - Full OAuth setup guide
-- [SSO Token Forwarding](sso-token-forwarding.md) - How SSO tokens are forwarded from aggregators
+- [Single sign-on](sso-token-forwarding.md) - Resource access tokens and upstream identity
 - [SSO Passthrough to Workload Clusters](sso-passthrough-wc.md) - Token passthrough to WC API servers

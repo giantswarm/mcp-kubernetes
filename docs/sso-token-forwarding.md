@@ -2,6 +2,17 @@
 
 MCP requests use access tokens issued for mcp-kubernetes. An OIDC ID token proves a sign-in to its OIDC client; mcp-kubernetes rejects it as a resource bearer, including when its signature and audience are valid. Adding an aggregator client ID to `trustedAudiences` does not change that requirement.
 
+`--oauth-trusted-audiences`, `OAUTH_TRUSTED_AUDIENCES` and the Helm value
+`mcpKubernetes.oauth.trustedAudiences` are deprecated and have no effect on MCP
+bearer authentication. Remove them before v1.15.0 on 2027-02-17. The chart does
+not derive audiences from `global.identity.clientId` or pass the audience setting
+to the server. There is no switch to accept forwarded ID tokens.
+
+`--sso-allow-private-ips`, `SSO_ALLOW_PRIVATE_IPS` and
+`mcpKubernetes.oauth.sso.allowPrivateIPs` also have no effect and share the same
+removal release and date. They controlled JWKS fetching for forwarded ID tokens;
+private Dex discovery uses its configured CA and needs no such allowance.
+
 With muster, register the server for per-server OAuth:
 
 ```yaml

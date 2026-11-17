@@ -254,25 +254,12 @@ type OAuthConfig struct {
 	CIMDAllowPrivateIPs bool
 	CIMDPrivateIPHosts  []string
 
-	// TrustedAudiences lists client IDs whose tokens are accepted for SSO.
-	// When upstream aggregators (like muster) forward a user's ID token,
-	// mcp-kubernetes will accept it if the token's audience matches any
-	// entry in this list. This enables Single Sign-On across the MCP ecosystem.
-	//
-	// Security:
-	//   - Only explicitly listed client IDs are trusted
-	//   - Tokens must still be from the configured issuer (Dex/Google)
-	//   - The IdP's cryptographic signature proves token authenticity
-	//
-	// Example: ["muster-client", "another-aggregator"]
+	// TrustedAudiences has no effect on MCP bearer authentication.
+	// Deprecated: clients must obtain access tokens for this resource.
 	TrustedAudiences []string
 
-	// SSOAllowPrivateIPs allows JWKS endpoints (used for SSO token validation) that
-	// resolve to private IP addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
-	// This is required when your IdP (like Dex) runs on a private network.
-	// Maps to AllowPrivateIPJWKS in mcp-oauth v0.2.40+.
-	// WARNING: Reduces SSRF protection. Only enable for internal deployments.
-	// Default: false (blocked for security)
+	// SSOAllowPrivateIPs has no effect on MCP bearer authentication.
+	// Deprecated: forwarded ID tokens are not accepted as MCP bearers.
 	SSOAllowPrivateIPs bool
 }
 
@@ -484,6 +471,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	// Create server configuration using library types directly
 	serverConfig := &oauthserver.Config{
 		Issuer:                        config.BaseURL,
+		RequireResourceAccessTokens:   true,
 		RefreshTokenTTL:               int64(DefaultRefreshTokenTTL.Seconds()),
 		AllowRefreshTokenRotation:     true,  // OAuth 2.1 best practice
 		RequirePKCE:                   true,  // OAuth 2.1 requirement
@@ -516,10 +504,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		DisableDNSValidation:               config.RedirectURISecurity.DisableDNSValidation,
 		DisableDNSValidationStrict:         config.RedirectURISecurity.DisableDNSValidationStrict,
 		DisableAuthorizationTimeValidation: config.RedirectURISecurity.DisableAuthorizationTimeValidation,
-
-		// AllowPrivateIPJWKS for JWKS fetching from internal IdPs (mcp-oauth v0.2.40+)
-		// Enables SSO token forwarding when IdP (e.g., Dex) is on a private network
-		AllowPrivateIPJWKS: config.SSOAllowPrivateIPs,
 
 		// JWKSRootCAs is the CA pool for verifying the forwarded-ID-token JWKS
 		// endpoint's TLS (mcp-oauth #495/#498). Built from DexCAFile; nil = system
@@ -591,7 +575,12 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		"window", security.DefaultRegistrationWindow)
 
 	if len(config.TrustedAudiences) > 0 {
-		opts = append(opts, oauthserver.WithTrustedAudiences(config.TrustedAudiences))
+		logger.Warn("TrustedAudiences has no effect on MCP bearer authentication; clients must obtain an access token issued for this server",
+			"removal_release", "v1.15.0", "removal_date", "2027-02-17")
+	}
+	if config.SSOAllowPrivateIPs {
+		logger.Warn("SSOAllowPrivateIPs has no effect: forwarded ID tokens are refused",
+			"removal_release", "v1.15.0", "removal_date", "2027-02-17")
 	}
 
 	// Create OAuth server
@@ -711,9 +700,7 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) error {
 		// an email there is no Impersonate-User to send to the Kubernetes API.
 		requireIdentity := middleware.RequireIdentity(s.oauthServer.Auditor, s.oauthServer.Logger)
 
-		// Authenticate configured forwarded ID tokens or normal OAuth bearers.
-		// Require an email before the injector and Kubernetes tool dispatch.
-		mux.Handle("/mcp", s.authenticateForwardedBearer(requireIdentity(accessTokenInjector)))
+		mux.Handle("/mcp", s.oauthHandler.ValidateToken(requireIdentity(accessTokenInjector)))
 
 		return nil
 	default:
@@ -849,26 +836,8 @@ func extractBearerToken(r *http.Request) (string, bool) {
 	return authHeader[len(bearerPrefix):], true
 }
 
-// createAccessTokenInjectorMiddleware creates middleware that injects the user's
-// OAuth provider token (specifically the ID token) into the request context.
-// This token can then be used for downstream Kubernetes API authentication.
-//
-// Token Injection Strategy:
-//
-//  1. SSO Token Forwarding (IsSSO() == true):
-//     When the token was validated via TrustedAudiences/JWKS (SSO token forwarding),
-//     the Bearer token IS the ID token forwarded from a trusted upstream service
-//     (e.g., muster). We use it directly without token store lookup.
-//
-//  2. Normal OAuth Flow (IsSSO() == false):
-//     When the token was issued by this server's OAuth flow, we look up the provider's
-//     ID token from the token store using the MCP access token as the key.
-//     This ensures we get the most up-to-date provider token, including any tokens
-//     that have been proactively refreshed by mcp-oauth's token validation.
-//
-// Background: mcp-oauth stores provider tokens keyed by the MCP access token during
-// token exchange and proactive refresh. Looking up by access token (instead of email)
-// ensures we always get the current provider token, even after automatic refreshes.
+// createAccessTokenInjectorMiddleware loads the upstream identity token associated
+// with a validated MCP access token. The inbound bearer is never a downstream ID token.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	// Helper to record SSO token injection metrics
 	recordMetric := func(ctx context.Context, result string) {
@@ -906,16 +875,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// SSO Token Forwarding: If the token was validated via TrustedAudiences/JWKS,
-		// the Bearer token IS the ID token - use it directly instead of looking it up.
-		// This happens when an upstream aggregator (e.g., muster) forwards a user's ID token.
 		if userInfo.IsSSO() {
-			slog.Debug("AccessTokenInjector: using SSO-forwarded token directly as ID token",
-				logging.UserHash(userInfo.Email))
-			ctx = mcpoauth.ContextWithIDToken(ctx, bearerToken)
-			r = r.WithContext(ctx)
-			recordMetric(ctx, "sso_success")
-			next.ServeHTTP(w, r)
+			recordMetric(ctx, "forwarded_token_refused")
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
 

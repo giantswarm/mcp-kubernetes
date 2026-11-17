@@ -21,9 +21,8 @@ rescheduled, evicted or waits for its image, the other keeps serving the tools.
 The budget renders only while more than one pod runs: with `replicaCount: 1`
 (or autoscaling down to one pod) it would block every node drain.
 
-Any pod serves any request: MCP sessions keep no pod-local state, and an
-identity provider's token an aggregator such as muster forwards is validated
-by every pod. Tokens the server issues through its own OAuth flow are stored
+Any pod serves any request: MCP sessions keep no pod-local state. Only access
+tokens issued for mcp-kubernetes are accepted. Tokens issued through its OAuth flow are stored
 in `mcpKubernetes.oauth.storage`; with more than one pod that storage is
 Valkey (`storage.type: valkey`), or a token one pod issued is unknown to the
 others, and a token revoked on one pod (`/oauth/revoke`) stays valid

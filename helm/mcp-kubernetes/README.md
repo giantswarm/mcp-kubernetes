@@ -24,9 +24,8 @@ rescheduled, evicted or waits for its image, the other keeps serving the tools.
 The budget renders only while more than one pod runs: with `replicaCount: 1`
 (or autoscaling down to one pod) it would block every node drain.
 
-Any pod serves any request: MCP sessions keep no pod-local state, and an
-identity provider's token an aggregator such as muster forwards is validated
-by every pod. Tokens the server issues through its own OAuth flow are stored
+Any pod serves any request: MCP sessions keep no pod-local state. Only access
+tokens issued for mcp-kubernetes are accepted. Tokens issued through its OAuth flow are stored
 in `mcpKubernetes.oauth.storage`; with more than one pod that storage is
 Valkey (`storage.type: valkey`), or a token one pod issued is unknown to the
 others, and a token revoked on one pod (`/oauth/revoke`) stays valid
@@ -88,7 +87,7 @@ listed caller is no longer admitted.
 | global.identity.existingSecret | string | `""` |  |
 | global.identity.ca.secretName | string | `""` |  |
 | global.identity.ca.key | string | `"ca.crt"` |  |
-| replicaCount | int | `2` | Pods of the server. Two keep the tools reachable while one pod is rescheduled, drained or waits for its image; the server is safe to run more than one: MCP sessions carry no pod-local state (a port forward stays on the pod that opened it), and a token muster forwards is validated by every pod against the identity provider. Tokens the server issues itself (its own OAuth flow) need mcpKubernetes.oauth.storage.type valkey to be known to every pod. |
+| replicaCount | int | `2` | Pods of the server. Two keep the tools reachable while one pod is rescheduled, drained or waits for its image; the server is safe to run more than one: MCP sessions carry no pod-local state (a port forward stays on the pod that opened it). Resource access tokens need mcpKubernetes.oauth.storage.type valkey to be known to every pod. |
 | podDisruptionBudget | object | `{"enabled":true,"minAvailable":1}` | PodDisruptionBudget of the server, rendered while more than one pod runs (replicaCount, or autoscaling.minReplicas with autoscaling on): a node drain evicts one pod at a time and never the last. |
 | podDisruptionBudget.enabled | bool | `true` | Renders the budget (while more than one pod runs). |
 | podDisruptionBudget.minAvailable | int | `1` | Pods a voluntary disruption leaves running. |
@@ -210,9 +209,9 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.enableCIMD | bool | `true` |  |
 | mcpKubernetes.oauth.cimd.allowPrivateIPs | bool | `false` |  |
 | mcpKubernetes.oauth.cimd.privateIPHosts | list | `[]` |  |
-| mcpKubernetes.oauth.trustedAudiences | list | `[]` |  |
+| mcpKubernetes.oauth.trustedAudiences | list | `[]` | Deprecated and ignored: MCP requests require resource access tokens. Remove before v1.15.0 (2027-02-17). |
 | mcpKubernetes.oauth.trustedIssuers | list | `[]` |  |
-| mcpKubernetes.oauth.sso.allowPrivateIPs | bool | `false` |  |
+| mcpKubernetes.oauth.sso.allowPrivateIPs | bool | `false` | Deprecated and ignored: forwarded ID tokens are refused. Remove before v1.15.0 (2027-02-17). |
 | mcpKubernetes.instrumentation.enabled | bool | `true` |  |
 | mcpKubernetes.instrumentation.metricsExporter | string | `"prometheus"` |  |
 | mcpKubernetes.instrumentation.tracingExporter | string | `"none"` |  |

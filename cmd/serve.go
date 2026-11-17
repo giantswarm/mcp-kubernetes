@@ -452,9 +452,10 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Allow CIMD metadata URLs to resolve to private IPs (SSRF risk; internal deployments only)")
 	cmd.Flags().StringSliceVar(&cimdPrivateIPHosts, "cimd-private-ip-hosts", nil, "Exact CIMD hosts permitted to resolve to private addresses")
 
-	// Trusted audiences for SSO token forwarding from aggregators
-	cmd.Flags().StringSliceVar(&trustedAudiences, "oauth-trusted-audiences", nil, "Client IDs whose tokens are accepted for SSO (e.g., muster-client). Enables token forwarding from trusted aggregators (can also be set via OAUTH_TRUSTED_AUDIENCES env var as comma-separated list)")
-	cmd.Flags().BoolVar(&ssoAllowPrivateIPs, "sso-allow-private-ips", false, "Allow JWKS endpoints (for SSO token validation) to resolve to private IPs. Required when your IdP (e.g., Dex) runs on an internal network. (SSRF risk; internal deployments only, can also be set via SSO_ALLOW_PRIVATE_IPS env var)")
+	cmd.Flags().StringSliceVar(&trustedAudiences, "oauth-trusted-audiences", nil, "Deprecated: has no effect on MCP bearer authentication")
+	_ = cmd.Flags().MarkDeprecated("oauth-trusted-audiences", "use an access token issued for this server; remove this setting before v1.15.0 (2027-02-17)")
+	cmd.Flags().BoolVar(&ssoAllowPrivateIPs, "sso-allow-private-ips", false, "Deprecated: has no effect on MCP bearer authentication")
+	_ = cmd.Flags().MarkDeprecated("sso-allow-private-ips", "forwarded ID tokens are refused; remove this setting before v1.15.0 (2027-02-17)")
 
 	return cmd
 }
@@ -1017,19 +1018,9 @@ func runServe(config ServeConfig) error {
 				return fmt.Errorf("invalid trusted public registration scheme: %w", err)
 			}
 
-			// Log security warning when SSO token forwarding is enabled
-			// This is a security-sensitive configuration that operators should be aware of
 			if len(config.OAuth.TrustedAudiences) > 0 {
-				slog.Warn("SSO token forwarding enabled: tokens from trusted upstream clients will be accepted",
-					"trusted_audiences", config.OAuth.TrustedAudiences,
-					"security_note", "ensure these client IDs are from services you control and trust")
-
-				// Additional info log when SSO private IPs are configured (mcp-oauth v0.2.40+)
-				if config.OAuth.SSOAllowPrivateIPs {
-					slog.Info("SSO private IP allowance configured",
-						"sso_allow_private_ips", true,
-						"note", "JWKS endpoints on private networks will be allowed for SSO token validation")
-				}
+				slog.Warn("trustedAudiences has no effect: clients must obtain an access token issued for this server",
+					"removal_release", "v1.15.0", "removal_date", "2027-02-17")
 			}
 
 			// Registration token is required unless:

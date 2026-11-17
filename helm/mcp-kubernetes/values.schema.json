@@ -843,7 +843,9 @@
                             "additionalProperties": false,
                             "properties": {
                                 "allowPrivateIPs": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated and ignored: forwarded ID tokens are refused. Remove before v1.15.0 (2027-02-17).",
+                                    "deprecated": true
                                 }
                             }
                         },
@@ -893,7 +895,9 @@
                             }
                         },
                         "trustedAudiences": {
-                            "type": "array"
+                            "type": "array",
+                            "description": "Deprecated and ignored: MCP requests require resource access tokens. Remove before v1.15.0 (2027-02-17).",
+                            "deprecated": true
                         },
                         "trustedIssuers": {
                             "type": "array"
@@ -1075,7 +1079,7 @@
         },
         "replicaCount": {
             "type": "integer",
-            "description": "Pods of the server. Two keep the tools reachable while one pod is rescheduled, drained or waits for its image; the server is safe to run more than one: MCP sessions carry no pod-local state (a port forward stays on the pod that opened it), and a token muster forwards is validated by every pod against the identity provider. Tokens the server issues itself (its own OAuth flow) need mcpKubernetes.oauth.storage.type valkey to be known to every pod.",
+            "description": "Pods of the server. Two keep the tools reachable while one pod is rescheduled, drained or waits for its image; the server is safe to run more than one: MCP sessions carry no pod-local state (a port forward stays on the pod that opened it). Resource access tokens need mcpKubernetes.oauth.storage.type valkey to be known to every pod.",
             "minimum": 0
         },
         "resources": {
