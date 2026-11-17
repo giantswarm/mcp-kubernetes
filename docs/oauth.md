@@ -342,7 +342,7 @@ If your deployment previously relied on service account fallback (not recommende
 | `--dex-client-id` | Dex OAuth Client ID | - | Yes (if Dex provider) |
 | `--dex-client-secret` | Dex OAuth Client Secret | - | Yes (if Dex provider) |
 | `--dex-connector-id` | Dex connector ID (optional, bypasses selection screen) | - | No |
-| `--registration-token` | OAuth client registration access token | - | Yes (unless public registration enabled) |
+| `--registration-token` | OAuth initial access token for client registration | - | Unless public registration, trusted schemes, or CIMD is enabled |
 | `--allow-public-registration` | Allow unauthenticated OAuth client registration | `false` | No |
 | `--disable-streaming` | Disable streaming for streamable-http transport | `false` | No |
 | `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth (fail-closed: no service account fallback) | `false` | No |
@@ -590,7 +590,11 @@ When using the Google provider, the server requests:
 --oauth-encryption-key=$(openssl rand -base64 32)  # Enable token encryption
 ```
 
-#### Client Registration Token
+<a id="client-registration-token"></a>
+
+#### Initial Access Token
+
+The `--registration-token` flag configures the initial access token authorizing client creation, as defined by [RFC 7591 section 1.2](https://www.rfc-editor.org/rfc/rfc7591.html#section-1.2). It is distinct from the per-client registration access token used to manage an existing registration in RFC 7592. The flag and configuration field names remain unchanged for compatibility.
 
 By default, client registration requires a bearer token for security. You can:
 

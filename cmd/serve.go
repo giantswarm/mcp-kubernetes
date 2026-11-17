@@ -409,7 +409,7 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&dexCAFile, "dex-ca-file", "", "Path to CA certificate file for Dex TLS verification. Applies to the Dex provider client and, passed explicitly to mcp-oauth, to the SSO forwarded-ID-token JWKS validation when --sso-allow-private-ips is set. (optional, can also be set via DEX_CA_FILE env var)")
 	cmd.Flags().StringVar(&dexKubernetesAuthenticatorClientID, "dex-k8s-authenticator-client-id", "", "Dex client ID for Kubernetes API authentication (enables cross-client audience, can also be set via DEX_K8S_AUTHENTICATOR_CLIENT_ID env var)")
 	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
-	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth client registration access token (required if public registration is disabled)")
+	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth initial access token authorizing client registration")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
 	cmd.Flags().Bool("allow-insecure-auth-without-state", false, "No effect")
 	_ = cmd.Flags().MarkDeprecated("allow-insecure-auth-without-state", "it has no effect: clients may omit state and PKCE S256 is always required; remove it")
@@ -490,17 +490,25 @@ func validateEncryptionKey(key []byte) error {
 	return nil
 }
 
+func initLogging(ctx context.Context, debug bool) (*slog.Logger, tklogging.Shutdown, error) {
+	level := slog.LevelInfo
+	if debug {
+		level = slog.LevelDebug
+	}
+	options := []tklogging.Option{tklogging.WithLevel(level)}
+	// The toolkit requires exporter configuration for WithStderrMirror;
+	// otherwise its primary handler already writes to stderr.
+	if os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
+		os.Getenv("OTEL_LOGS_EXPORTER") != "" {
+		options = append(options, tklogging.WithStderrMirror())
+	}
+	return tklogging.Init(ctx, options...)
+}
+
 // runServe contains the main server logic with support for multiple transports
 func runServe(config ServeConfig) error {
-	// logging.Init selects JSON (KUBERNETES_SERVICE_HOST set) or text automatically;
-	// switches to OTel log bridge when OTEL_EXPORTER_OTLP_LOGS_ENDPOINT is set.
-	// internal/logging redaction helpers are explicit call-site wrappers, not
-	// ReplaceAttr hooks — unaffected by this.
-	logLevel := slog.LevelInfo
-	if config.DebugMode {
-		logLevel = slog.LevelDebug
-	}
-	logger, logShutdown, err := tklogging.Init(context.Background(), tklogging.WithLevel(logLevel))
+	logger, logShutdown, err := initLogging(context.Background(), config.DebugMode)
 	if err != nil {
 		return fmt.Errorf("initialising logger: %w", err)
 	}
