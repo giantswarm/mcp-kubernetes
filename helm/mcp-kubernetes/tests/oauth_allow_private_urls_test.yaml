@@ -1,0 +1,26 @@
+suite: OAuth allowPrivateURLs deprecation
+templates:
+  - templates/deployment.yaml
+set:
+  replicaCount: 1
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+  mcpKubernetes.oauth.existingSecret: oauth-credentials
+  mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+  mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+tests:
+  - it: renders with allowPrivateURLs true and does not pass the deprecated flag
+    set:
+      mcpKubernetes.oauth.allowPrivateURLs: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-private-oauth-urls=true
+
+  - it: renders with allowPrivateURLs false and does not pass the deprecated flag
+    set:
+      mcpKubernetes.oauth.allowPrivateURLs: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-private-oauth-urls=true

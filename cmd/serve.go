@@ -170,7 +170,6 @@ func newServeCmd() *cobra.Command {
 		disableStreaming                   bool
 		registrationToken                  string
 		allowPublicRegistration            bool
-		allowPrivateOAuthURLs              bool
 		maxClientsPerIP                    int
 		oauthEncryptionKey                 string
 		downstreamOAuth                    bool
@@ -344,7 +343,6 @@ Downstream OAuth (--downstream-oauth):
 					DisableStreaming:                   disableStreaming,
 					RegistrationToken:                  registrationToken,
 					AllowPublicRegistration:            allowPublicRegistration,
-					AllowPrivateURLs:                   allowPrivateOAuthURLs,
 					MaxClientsPerIP:                    maxClientsPerIP,
 					EncryptionKey:                      oauthEncryptionKey,
 					TLSCertFile:                        tlsCertFile,
@@ -413,7 +411,8 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
 	cmd.Flags().Bool("allow-insecure-auth-without-state", false, "No effect")
 	_ = cmd.Flags().MarkDeprecated("allow-insecure-auth-without-state", "it has no effect: clients may omit state and PKCE S256 is always required; remove it")
-	cmd.Flags().BoolVar(&allowPrivateOAuthURLs, "allow-private-oauth-urls", false, "Allow OAuth URLs that resolve to private/internal IP addresses (for internal deployments)")
+	cmd.Flags().Bool(flagAllowPrivateOAuthURLs, false, "Deprecated: has no effect")
+	_ = cmd.Flags().MarkDeprecated(flagAllowPrivateOAuthURLs, allowPrivateOAuthURLsDeprecation)
 	cmd.Flags().IntVar(&maxClientsPerIP, "max-clients-per-ip", 10, "Maximum number of OAuth clients that can be registered per IP address")
 	cmd.Flags().StringVar(&oauthEncryptionKey, "oauth-encryption-key", "", "AES-256 encryption key for token encryption (32 bytes, can also be set via OAUTH_ENCRYPTION_KEY env var)")
 	cmd.Flags().BoolVar(&downstreamOAuth, "downstream-oauth", false, "Use OAuth access tokens for downstream Kubernetes API authentication (requires --enable-oauth and --in-cluster)")
@@ -990,8 +989,7 @@ func runServe(config ServeConfig) error {
 				if config.OAuth.DexIssuerURL == "" {
 					return fmt.Errorf("dex issuer URL is required when using Dex provider (--dex-issuer-url or DEX_ISSUER_URL)")
 				}
-				// Validate Dex issuer URL is HTTPS and not vulnerable to SSRF
-				if err := validateSecureURL(config.OAuth.DexIssuerURL, "Dex issuer URL", config.OAuth.AllowPrivateURLs); err != nil {
+				if err := validateIssuerURL(config.OAuth.DexIssuerURL, "Dex issuer URL"); err != nil {
 					return err
 				}
 				if config.OAuth.DexClientID == "" {
@@ -1089,10 +1087,6 @@ func runServe(config ServeConfig) error {
 			if config.DebugMode {
 				slog.Warn("debug logging is enabled - this may log sensitive information",
 					"recommendation", "disable debug mode in production")
-			}
-			if config.OAuth.AllowPrivateURLs {
-				slog.Warn("private URL validation disabled - OAuth URLs may resolve to internal IP addresses",
-					"note", "this reduces SSRF protection, only use for internal/air-gapped deployments")
 			}
 			if config.OAuth.CIMDAllowPrivateIPs {
 				slog.Warn("CIMD private IP allowlist enabled - CIMD metadata URLs may resolve to internal IP addresses",

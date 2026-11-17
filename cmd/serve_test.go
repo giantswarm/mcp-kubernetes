@@ -768,3 +768,17 @@ func TestParseIntEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowPrivateOAuthURLsIsADeprecatedNoOp(t *testing.T) {
+	cmd := newServeCmd()
+
+	flag := cmd.Flags().Lookup("allow-private-oauth-urls")
+	require.NotNil(t, flag)
+	require.True(t, flag.Hidden)
+	require.Equal(t, "it has no effect: the OAuth issuer is no longer checked for private addresses at startup; remove it", flag.Deprecated)
+
+	var stderr bytes.Buffer
+	cmd.Flags().SetOutput(&stderr)
+	require.NoError(t, cmd.Flags().Parse([]string{"--allow-private-oauth-urls=true"}))
+	require.Contains(t, stderr.String(), "allow-private-oauth-urls has been deprecated")
+}

@@ -80,7 +80,7 @@ func TestOAuthProviderValidation(t *testing.T) {
 			errMsg:  "must use HTTPS",
 		},
 		{
-			name: "Dex provider with localhost should fail",
+			name: "Dex provider with a localhost issuer",
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
@@ -93,8 +93,7 @@ func TestOAuthProviderValidation(t *testing.T) {
 					RegistrationToken: "test-token",
 				},
 			},
-			wantErr: true,
-			errMsg:  "cannot use localhost",
+			wantErr: false,
 		},
 		{
 			name: "missing Dex issuer URL",
@@ -362,8 +361,7 @@ func validateOAuthConfig(config OAuthServeConfig) error {
 		if config.DexIssuerURL == "" {
 			return fmt.Errorf("dex issuer URL is required when using Dex provider (--dex-issuer-url or DEX_ISSUER_URL)")
 		}
-		// Validate Dex issuer URL is HTTPS and not vulnerable to SSRF
-		if err := validateSecureURL(config.DexIssuerURL, "Dex issuer URL", config.AllowPrivateURLs); err != nil {
+		if err := validateIssuerURL(config.DexIssuerURL, "Dex issuer URL"); err != nil {
 			return err
 		}
 		if config.DexClientID == "" {

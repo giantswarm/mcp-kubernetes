@@ -486,46 +486,14 @@ These metrics are automatically exposed via the `/metrics` endpoint when OAuth i
 
 ### HTTPS Requirement
 
-OAuth 2.1 **requires HTTPS** for all production deployments. The server enforces HTTPS for all OAuth URLs with multiple security validations:
+OAuth 2.1 **requires HTTPS** for all production deployments. At startup the server checks:
 
-**Automatic Validation:**
-- OAuth base URL must use HTTPS
-- Dex issuer URL must use HTTPS (for Dex provider)
-- Localhost URLs are blocked in production (SSRF protection)
-- Private IP addresses are blocked (SSRF protection)
+- The OAuth base URL uses HTTPS. Plain HTTP is accepted only on `localhost`, `127.0.0.1` and `::1`, for development.
+- The Dex issuer URL uses HTTPS and has a host. It may contain a port and path, but no user information, query or fragment components.
 
-**SSRF Protection:**
-The server validates all OAuth URLs to prevent Server-Side Request Forgery (SSRF) attacks:
-- Blocks localhost and 127.0.0.1
-- Blocks private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-- Blocks link-local addresses (169.254.0.0/16, fe80::/10)
-- Blocks loopback addresses (::1)
+The Dex issuer is not resolved or checked for private addresses: it is operator configuration, not a URL a client chooses, so a private, loopback or in-cluster issuer works without an extra setting. What authenticates it is TLS verification of the discovery and JWKS fetches (`--dex-ca-file`, or `mcpKubernetes.oauth.dex.caSecret` in the chart, for a private CA) and mcp-oauth's check that the discovered `issuer` equals the configured one.
 
-For development only, you can use:
-- `http://localhost:8080`
-- `http://127.0.0.1:8080`
-
-**Note**: Production deployments attempting to use HTTP or private IPs will fail validation with a clear error message.
-
-**Internal/Air-Gapped Deployments:**
-For home lab, air-gapped, or internal enterprise deployments where the OAuth server (Dex) runs on a private network, you can disable private IP validation:
-
-```bash
-# Allow OAuth URLs that resolve to private IP addresses
---allow-private-oauth-urls=true
-```
-
-Or in Helm values:
-```yaml
-mcpKubernetes:
-  oauth:
-    allowPrivateURLs: true
-```
-
-**Warning**: This reduces SSRF protection. Only enable for deployments that are:
-- Not exposed to the public internet
-- Running on internal networks, VPNs, or air-gapped environments
-- Where the OAuth provider (e.g., Dex) is hosted on private infrastructure
+`--allow-private-oauth-urls` and the chart value `mcpKubernetes.oauth.allowPrivateURLs` are deprecated and have no effect. The flag logs a deprecation warning, and the chart no longer passes it; remove both from your configuration.
 
 ### OAuth Provider Security Considerations
 
@@ -578,7 +546,6 @@ When using the Google provider, the server requests:
 # ❌ INSECURE - Do not use in internet-facing production
 --allow-public-registration=true          # Allows unlimited client registration (DoS risk)
 --debug=true                              # May log sensitive information
---allow-private-oauth-urls=true           # Reduces SSRF protection (OK for internal deployments only)
 ```
 
 **✅ RECOMMENDED - Production configuration:**

@@ -221,7 +221,7 @@ func TestCreateOAuthServerCIMDAllowPrivateIPs(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotNil(t, oauthServer)
 			assert.True(t, oauthServer.Config.EnableClientIDMetadataDocuments, "CIMD should be enabled")
-			assert.Equal(t, tt.expectPrivateIPs, oauthServer.Config.AllowPrivateIPClientMetadata,
+			assert.Equal(t, tt.expectPrivateIPs, oauthServer.Config.AllowPrivateIPClientMetadata, //nolint:staticcheck // SA1019: verifies the compatibility mapping used by current deployments.
 				"AllowPrivateIPClientMetadata should match configuration")
 		})
 	}
