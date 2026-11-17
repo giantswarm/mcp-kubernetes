@@ -806,7 +806,9 @@
                                     "type": "boolean"
                                 },
                                 "allowLocalhostRedirectURIs": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated, no effect: registered loopback redirect URIs accept any port (RFC 8252 §7.3). Remove before v1.15.0 (2027-02-17).",
+                                    "deprecated": true
                                 },
                                 "allowPrivateIPRedirectURIs": {
                                     "type": "boolean"
@@ -821,7 +823,9 @@
                                     "type": "boolean"
                                 },
                                 "disableProductionMode": {
-                                    "type": "boolean"
+                                    "description": "Removed HTTP redirect bypass. Only false is accepted. Loopback redirect URIs need no setting; non-loopback HTTP redirect URIs are refused. Remove this value before v1.15.0 (2027-02-17).",
+                                    "deprecated": true,
+                                    "const": false
                                 },
                                 "privateIPHosts": {
                                     "type": "array",

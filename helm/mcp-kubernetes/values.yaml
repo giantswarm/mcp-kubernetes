@@ -493,16 +493,13 @@ mcpKubernetes:
     # These settings control security validation of redirect URIs during client
     # registration and authorization flows (SSRF and open redirect protection).
     redirectURISecurity:
-      # Disable production mode security validation
-      # Production mode enforces: HTTPS required, private IPs blocked, dangerous schemes blocked
-      # WARNING: Significantly weakens redirect URI security. Only disable for development.
-      # Default: false (production mode is enabled)
-      disableProductionMode: false
-
-      # Allow http://localhost and http://127.0.0.1 redirect URIs
-      # Required for native apps per RFC 8252 Section 7.3
-      # Default: false (operators must explicitly enable for native app support)
-      allowLocalhostRedirectURIs: false
+      # -- Removed HTTP redirect bypass. Only false is accepted. Loopback
+      # redirect URIs need no setting; non-loopback HTTP redirect URIs are
+      # refused. Remove this value before v1.15.0 (2027-02-17).
+      disableProductionMode: false  # @schema deprecated: true; const: false
+      # -- Deprecated, no effect: registered loopback redirect URIs accept
+      # any port (RFC 8252 §7.3). Remove before v1.15.0 (2027-02-17).
+      allowLocalhostRedirectURIs: false  # @schema deprecated: true
 
       # Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs
       # WARNING: Enables SSRF attacks to internal networks if not properly secured.

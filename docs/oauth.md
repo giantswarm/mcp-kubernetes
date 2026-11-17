@@ -20,6 +20,18 @@ The MCP Kubernetes server supports OAuth 2.1 authentication for HTTP transports 
   - HTTPS enforcement (except for localhost development)
 - **Customizable Branding**: Custom interstitial page for OAuth success flow
 
+## Redirect URI configuration
+
+Registered loopback redirect URIs work without an opt-in. Native clients may use an available port on `127.0.0.1` or `[::1]`; the other registered URI components must still match. Non-loopback HTTP redirect URIs are refused. Permitted native custom schemes follow the library's separate scheme policy.
+
+| Setting | Migration |
+| --- | --- |
+| `--disable-production-mode=true` | Refused before startup. Remove the flag. |
+| `mcpKubernetes.oauth.redirectURISecurity.disableProductionMode=true` | Refused by the chart schema and template. Remove the value or set it to `false`. |
+| `--allow-localhost-redirect-uris` and `redirectURISecurity.allowLocalhostRedirectURIs` | Deprecated and ignored. Remove them; registered loopback callbacks need no setting. |
+
+These compatibility entries are scheduled for removal in v1.15.0, with a migration deadline of 2027-02-17. HTTPS verification and the separate private-host redirect policies remain enforced.
+
 ## Quick Start
 
 ### 1. Setup Google OAuth Credentials
