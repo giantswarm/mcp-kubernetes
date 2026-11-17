@@ -83,12 +83,6 @@ spec:
             {{- end }}
             {{- /* Redirect URI Security Configuration */ -}}
             {{- with .Values.mcpKubernetes.oauth.redirectURISecurity }}
-            {{- if .disableProductionMode }}
-            - --disable-production-mode=true
-            {{- end }}
-            {{- if .allowLocalhostRedirectURIs }}
-            - --allow-localhost-redirect-uris=true
-            {{- end }}
             {{- if .allowPrivateIPRedirectURIs }}
             - --allow-private-ip-redirect-uris=true
             {{- end }}

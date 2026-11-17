@@ -40,6 +40,27 @@ func TestAllowInsecureAuthWithoutStateIsADeprecatedNoOp(t *testing.T) {
 	require.Contains(t, stderr.String(), "allow-insecure-auth-without-state has been deprecated")
 }
 
+func TestLoopbackRedirectFlagsAreDeprecatedNoOps(t *testing.T) {
+	for name, message := range map[string]string{
+		"allow-localhost-redirect-uris": "it has no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3); remove it",
+		"disable-production-mode":       "it has no effect: loopback redirect URIs need no setting and other redirect URIs must use HTTPS; remove it",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := newServeCmd()
+
+			flag := cmd.Flags().Lookup(name)
+			require.NotNil(t, flag)
+			require.True(t, flag.Hidden)
+			require.Equal(t, message, flag.Deprecated)
+
+			var stderr bytes.Buffer
+			cmd.Flags().SetOutput(&stderr)
+			require.NoError(t, cmd.Flags().Parse([]string{"--" + name + "=true"}))
+			require.Contains(t, stderr.String(), name+" has been deprecated")
+		})
+	}
+}
+
 func TestServeCmdHelp(t *testing.T) {
 	cmd := newServeCmd()
 	cmd.SetArgs([]string{"--help"})

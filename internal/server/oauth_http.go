@@ -293,12 +293,6 @@ type OAuthConfig struct {
 // RedirectURISecurityConfig holds configuration for redirect URI security validation.
 // All options default to secure values in mcp-oauth. Use Disable* flags to opt-out.
 type RedirectURISecurityConfig struct {
-	// DisableProductionMode disables strict HTTPS/private IP enforcement
-	DisableProductionMode bool
-
-	// AllowLocalhostRedirectURIs allows http://localhost for native apps (RFC 8252)
-	AllowLocalhostRedirectURIs bool
-
 	// AllowPrivateIPRedirectURIs allows private IP addresses in redirect URIs
 	AllowPrivateIPRedirectURIs bool
 	PrivateIPRedirectURIHosts  []string
@@ -530,8 +524,6 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 
 		// Redirect URI Security Configuration
 		// mcp-oauth defaults to secure values; we pass explicit disable flags
-		DisableProductionMode:              config.RedirectURISecurity.DisableProductionMode,
-		AllowLocalhostRedirectURIs:         config.RedirectURISecurity.AllowLocalhostRedirectURIs,
 		AllowPrivateIPRedirectURIs:         config.RedirectURISecurity.AllowPrivateIPRedirectURIs,
 		AllowPrivateIPRedirectURIHosts:     config.RedirectURISecurity.PrivateIPRedirectURIHosts,
 		AllowLinkLocalRedirectURIs:         config.RedirectURISecurity.AllowLinkLocalRedirectURIs,

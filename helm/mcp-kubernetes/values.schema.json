@@ -806,7 +806,8 @@
                                     "type": "boolean"
                                 },
                                 "allowLocalhostRedirectURIs": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "deprecated": true
                                 },
                                 "allowPrivateIPRedirectURIs": {
                                     "type": "boolean"
@@ -821,7 +822,8 @@
                                     "type": "boolean"
                                 },
                                 "disableProductionMode": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "deprecated": true
                                 },
                                 "privateIPHosts": {
                                     "type": "array",
