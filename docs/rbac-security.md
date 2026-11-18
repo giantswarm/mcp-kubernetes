@@ -236,51 +236,67 @@ The chart provides fine-grained control over RBAC resource creation:
 
 Use `rbac.create: false` when you manage all RBAC externally. Use `capiMode.rbac.create: false` when you only want base profile RBAC without CAPI-specific resources.
 
-### Operator-Managed Namespace RBAC
+### Kubeconfig Secret Access: Three Modes
 
-For dynamic environments where organization namespaces are created/deleted frequently, you can configure the chart to create only the base CAPI ClusterRole while an external operator manages namespace-scoped Roles:
+In impersonation mode (`capiMode.workloadClusterAuth.mode: impersonation`) the ServiceAccount reads one Secret for each workload cluster: `<cluster>-kubeconfig`, in the namespace of the CAPI `Cluster` (`internal/federation/kubeconfig.go`, `getKubeconfigFromSecret`). RBAC cannot limit access by a name pattern, so each mode below gives `get` on **every** Secret of the namespaces it covers.
+
+| Mode | Values | What the ServiceAccount can read | New organization |
+|------|--------|----------------------------------|------------------|
+| Cluster-wide | `clusterWideSecrets: true` | Every Secret in every namespace (`kube-system` too) | Nothing to do |
+| Listed namespaces | `allowedNamespaces: [org-a, ...]` | Every Secret in the listed namespaces | Add it to the list |
+| Organization namespaces | `organizationNamespaces.enabled: true` | Every Secret in the namespace of every Organization | rbac-operator binds it, no step of a person |
+
+All three are under `capiMode.rbac`. `allowedNamespaces` works together with the other two modes. `organizationNamespaces.enabled` and `clusterWideSecrets` together are refused at render: they contradict each other.
+
+#### Cluster-wide
+
+The chart renders the ClusterRole `<fullname>-secrets` and a ClusterRoleBinding to the ServiceAccount. Not recommended.
+
+#### Listed namespaces
+
+The chart renders a Role and a RoleBinding, both named `<fullname>-secrets`, in each listed namespace. A new organization namespace gets no access until a person adds it to the list.
+
+#### Organization namespaces (rbac-operator)
 
 ```yaml
 capiMode:
   enabled: true
   rbac:
     create: true
-    allowedNamespaces: []      # No static namespace Roles
-    clusterWideSecrets: false  # No cluster-wide secret access
+    clusterWideSecrets: false
+    organizationNamespaces:
+      enabled: true
+    allowedNamespaces:
+      - org-giantswarm   # protected namespace, see below
 ```
 
-This configuration:
-- Creates the CAPI ClusterRole for cluster discovery (clusters, machines, etc.)
-- Does NOT create namespace-scoped Roles/RoleBindings
-- Allows an operator to dynamically create Roles in `org-*` namespaces as they are created
+The chart renders:
 
-The operator would create Roles matching this pattern per namespace:
+- the ClusterRole `<fullname>-secrets` (`get` on `secrets`), with **no** ClusterRoleBinding;
+- one `RoleBindingTemplate` (`auth.giantswarm.io/v1alpha1`, cluster-scoped) named `<fullname>-organization-secrets`. Its empty `organizationSelector` matches every Organization. Its subject is the chart's ServiceAccount, with the namespace of the release set explicitly: rbac-operator sets an empty ServiceAccount namespace to the namespace of each RoleBinding (giantswarm/rbac-operator `service/controller/rolebindingtemplate/resource/rolebinding/create.go`, lines 103-105).
 
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: mcp-kubernetes-secrets
-  namespace: org-<name>
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]  # or "configmaps" for sso-passthrough mode
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: mcp-kubernetes-secrets
-  namespace: org-<name>
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: mcp-kubernetes-secrets
-subjects:
-  - kind: ServiceAccount
-    name: mcp-kubernetes
-    namespace: <mcp-kubernetes-namespace>
-```
+rbac-operator makes from the template a RoleBinding `<fullname>-organization-secrets` in the namespace of each Organization, also of an Organization created later, and removes it when the Organization goes. The name is not `<fullname>-secrets`, because the RoleBinding of `allowedNamespaces` uses that name. rbac-operator also puts the RoleBinding in namespaces that carry the Organization label and a cluster label (`resource.go`, `getNamespacesFromOrganizations`); CAPI clusters keep their kubeconfig Secret in the organization namespace.
+
+Requirements and limits:
+
+- The cluster must serve the `RoleBindingTemplate` API (rbac-operator). The render fails when it does not: the value is an explicit opt-in, and a release that renders no binding would leave the ServiceAccount without access and no error at install time.
+- Impersonation mode only. In `sso-passthrough` mode the ServiceAccount reads CA ConfigMaps, not Secrets, and the render fails; use `allowedNamespaces` there.
+- **Protected namespaces.** In `org-giantswarm` rbac-operator keeps only ServiceAccount subjects of `flux-system` or of that namespace, and drops every other subject (`create.go`, `cleanSubjects`, lines 122-139; `pkg/key/key.go`, `IsProtectedNamespace`, lines 82-84). With no subject left it makes no RoleBinding there (`create.go`, lines 38-39). List `org-giantswarm` in `allowedNamespaces`: the chart then makes the Role and RoleBinding there itself.
+
+#### Moving an installation from cluster-wide to organization namespaces
+
+Do it in one change of the values, because the render refuses both modes at the same time:
+
+1. Check that the management cluster serves the API: `kubectl get crd rolebindingtemplates.auth.giantswarm.io`.
+2. Set `clusterWideSecrets: false`, `organizationNamespaces.enabled: true` and `allowedNamespaces: [org-giantswarm]` (and any other protected namespace) in the same change.
+3. When the release upgrades, Helm deletes the ClusterRoleBinding `<fullname>-secrets` and updates the ClusterRole of the same name in place. The RoleBindings appear when rbac-operator reconciles the new template, 1 to 4 minutes later. In that time a tool call that needs a kubeconfig that is not in the client cache gets `forbidden`.
+4. Check the result: `kubectl get rolebindingtemplate <fullname>-organization-secrets -o jsonpath='{.status.namespaces}'` lists the organization namespaces, and `kubectl get rolebindings -A --field-selector metadata.name=<fullname>-organization-secrets` shows one RoleBinding in each.
+
+A new Organization gets its RoleBinding at the next reconcile of the template by rbac-operator, not at once.
+
+#### External RBAC
+
+With `allowedNamespaces: []`, `clusterWideSecrets: false` and `organizationNamespaces.enabled: false`, the chart renders no Secret access at all. Use this when something outside the chart binds `get` on `secrets` to the ServiceAccount in the namespaces of the clusters.
 
 ### Base ClusterRole (Service Account Mode Only)
 
@@ -307,6 +323,7 @@ When `capiMode.enabled: true` and `capiMode.rbac.create: true`, CAPI-specific RB
 
 1. **CAPI ClusterRole** (`mcp-kubernetes-capi`): Permissions to list CAPI clusters, machines, etc.
 2. **Namespace-scoped Roles**: Access to kubeconfig secrets (impersonation mode) or CA configmaps (SSO passthrough mode)
+3. **Optional**: the cluster-wide secrets ClusterRoleBinding, or the `RoleBindingTemplate` for organization namespaces (see [Kubeconfig Secret Access: Three Modes](#kubeconfig-secret-access-three-modes))
 
 **Why CAPI RBAC is always needed:**
 - In **Service Account Mode**: The ServiceAccount uses these permissions directly
@@ -430,7 +447,7 @@ When OAuth Downstream is enabled in CAPI mode, the permission requirements are s
    # In namespaces where their clusters are defined
    ```
 
-   This is configured via `capiMode.rbac.allowedNamespaces` in the Helm chart.
+   This is configured via `capiMode.rbac.allowedNamespaces` or `capiMode.rbac.organizationNamespaces` in the Helm chart.
 
 **Security Note**: Users do NOT need secret read permissions or CAPI cluster-scoped permissions. This is intentional - it prevents users from extracting admin kubeconfig credentials via kubectl and bypassing impersonation enforcement.
 
@@ -572,7 +589,7 @@ This provides defense in depth even in OAuth Downstream Mode.
 |---------|----------------|----------|
 | "Unauthorized" on MC operations | User's OAuth token not accepted | Verify OIDC config on MC |
 | "forbidden" on CAPI resources | User lacks RBAC for clusters | Grant user CAPI read permissions |
-| "forbidden" on secrets | ServiceAccount lacks secret access | Add namespace to `capiMode.rbac.allowedNamespaces` |
+| "forbidden" on secrets | ServiceAccount lacks secret access | Add the namespace to `capiMode.rbac.allowedNamespaces`, or enable `capiMode.rbac.organizationNamespaces` (see [Kubeconfig Secret Access: Three Modes](#kubeconfig-secret-access-three-modes)) |
 | Cannot access workload cluster | User lacks RBAC on workload cluster | Grant user RBAC on the specific WC |
 
 ### Service Account Mode Issues
@@ -580,7 +597,7 @@ This provides defense in depth even in OAuth Downstream Mode.
 | Symptom | Possible Cause | Solution |
 |---------|----------------|----------|
 | "clusters.cluster.x-k8s.io is forbidden" | CAPI ClusterRole not bound | Ensure `rbac.create: true` and `capiMode.rbac.create: true` |
-| "secrets is forbidden" | Namespace not in allowedNamespaces | Add namespace to the list |
+| "secrets is forbidden" | Namespace not in allowedNamespaces, or a protected namespace (`org-giantswarm`) with `organizationNamespaces` | Add the namespace to `allowedNamespaces` |
 | No RBAC resources created | Master switch disabled | Set `rbac.create: true` |
 
 ### Check Effective Permissions

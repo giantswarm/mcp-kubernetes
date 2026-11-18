@@ -835,6 +835,22 @@ capiMode:
     # grants cluster-wide secret access (use with caution)
     # NOTE: In sso-passthrough mode, this grants ConfigMap access instead
     clusterWideSecrets: false
+    # Secret access in every organization namespace, made by rbac-operator
+    organizationNamespaces:
+      # When true, the chart renders the ClusterRole <fullname>-secrets (get on
+      # secrets) with NO ClusterRoleBinding, and one RoleBindingTemplate
+      # (auth.giantswarm.io/v1alpha1) that binds it to the ServiceAccount.
+      # rbac-operator makes the RoleBinding <fullname>-organization-secrets in
+      # the namespace of every Organization, also of one created later.
+      # In each organization namespace the ServiceAccount can read every Secret.
+      #
+      # - Needs the RoleBindingTemplate API (rbac-operator); the render fails without it.
+      # - Cannot be used with clusterWideSecrets: true, or with
+      #   workloadClusterAuth.mode "sso-passthrough"; the render fails.
+      # - rbac-operator removes the subject in the protected namespace
+      #   org-giantswarm: list that namespace in allowedNamespaces.
+      # See docs/rbac-security.md.
+      enabled: false
 
   # Workload cluster authentication configuration
   #
