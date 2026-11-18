@@ -827,9 +827,12 @@ capiMode:
     # Options:
     #   - List specific namespaces: Creates namespace-scoped Roles/RoleBindings
     #   - Empty [] with clusterWideSecrets: true: Grants cluster-wide access (not recommended)
-    #   - Empty [] with clusterWideSecrets: false: Only base CAPI ClusterRole is created,
-    #     useful when an external operator dynamically manages namespace-scoped RBAC
-    #     based on org namespaces in the cluster
+    #   - organizationNamespaces.enabled: true: rbac-operator binds Secret get in the
+    #     namespace of every Organization; list protected namespaces (org-giantswarm) here
+    #   - Empty [] with clusterWideSecrets: false and organizationNamespaces.enabled: false:
+    #     Only base CAPI ClusterRole is created, useful when an external operator
+    #     dynamically manages namespace-scoped RBAC based on org namespaces in the cluster
+    # See "Kubeconfig Secret Access: Three Modes" in docs/rbac-security.md.
     allowedNamespaces: []
     # When allowedNamespaces is empty and clusterWideSecrets is true,
     # grants cluster-wide secret access (use with caution)
