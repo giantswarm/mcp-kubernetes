@@ -399,6 +399,69 @@ subjects:
     namespace: {{ .Release.Namespace }}
 {{- end }}
 
+{{- /*
+Secret access in every organization namespace, through rbac-operator.
+
+The chart renders the ClusterRole without a ClusterRoleBinding, and one
+RoleBindingTemplate (auth.giantswarm.io/v1alpha1). rbac-operator turns the
+template into a RoleBinding in the namespace of every Organization, also of an
+Organization created later. RBAC cannot limit by name: in each organization
+namespace the ServiceAccount can read every Secret.
+
+rbac-operator removes the subject in a protected namespace (org-giantswarm),
+because there it keeps only ServiceAccounts of flux-system or of that namespace.
+List such a namespace in allowedNamespaces.
+*/}}
+{{- if .Values.capiMode.rbac.organizationNamespaces.enabled }}
+{{- if .Values.capiMode.rbac.clusterWideSecrets }}
+{{- fail "capiMode.rbac.organizationNamespaces.enabled and capiMode.rbac.clusterWideSecrets cannot both be true: organizationNamespaces limits Secret access to the organization namespaces, clusterWideSecrets grants it in every namespace. Set clusterWideSecrets to false." }}
+{{- end }}
+{{- if eq (.Values.capiMode.workloadClusterAuth.mode | default "impersonation") "sso-passthrough" }}
+{{- fail "capiMode.rbac.organizationNamespaces.enabled needs capiMode.workloadClusterAuth.mode \"impersonation\": it grants Secret access, and in sso-passthrough mode the ServiceAccount reads CA ConfigMaps, not Secrets. Use capiMode.rbac.allowedNamespaces for the ConfigMap access." }}
+{{- end }}
+{{- if not (.Capabilities.APIVersions.Has "auth.giantswarm.io/v1alpha1/RoleBindingTemplate") }}
+{{- fail "capiMode.rbac.organizationNamespaces.enabled needs the RoleBindingTemplate API (auth.giantswarm.io/v1alpha1) of rbac-operator, and the cluster does not serve it. Install rbac-operator, or set organizationNamespaces.enabled to false and use capiMode.rbac.allowedNamespaces." }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-secrets
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+  annotations:
+    mcp-kubernetes.giantswarm.io/note: "Bound only in organization namespaces, by the RoleBindingTemplate {{ include "mcp-kubernetes.fullname" . }}-organization-secrets"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: auth.giantswarm.io/v1alpha1
+kind: RoleBindingTemplate
+metadata:
+  name: {{ include "mcp-kubernetes.fullname" . }}-organization-secrets
+  labels:
+    {{- include "mcp-kubernetes.labels" . | nindent 4 }}
+spec:
+  scopes:
+    # An empty selector matches every Organization.
+    organizationSelector: {}
+  template:
+    metadata:
+      # Not "<fullname>-secrets": allowedNamespaces uses that name for its RoleBinding.
+      name: {{ include "mcp-kubernetes.fullname" . }}-organization-secrets
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: {{ include "mcp-kubernetes.fullname" . }}-secrets
+    subjects:
+      # The namespace is explicit: rbac-operator sets an empty one to the namespace of the RoleBinding.
+      - kind: ServiceAccount
+        name: {{ include "mcp-kubernetes.serviceAccountName" . }}
+        namespace: {{ .Release.Namespace }}
+{{- end }}
+
 {{/*
 Namespace-scoped access for workload cluster authentication.
 Creates Role and RoleBinding for each allowed namespace.

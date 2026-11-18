@@ -81,7 +81,13 @@
    CAPI operations WILL FAIL unless you manually create equivalent RBAC.
    To fix: Set capiMode.rbac.create: true or create manual RBAC bindings.
    {{- end }}
-   {{- if and .Values.capiMode.rbac.create (eq (len .Values.capiMode.rbac.allowedNamespaces) 0) (not .Values.capiMode.rbac.clusterWideSecrets) }}
+   {{- if and .Values.capiMode.rbac.create .Values.capiMode.rbac.organizationNamespaces.enabled }}
+
+   NOTE: Secret access in organization namespaces is made by rbac-operator from
+   the RoleBindingTemplate {{ include "mcp-kubernetes.fullname" . }}-organization-secrets.
+   The RoleBindings appear after rbac-operator reconciles it. rbac-operator removes
+   the subject in org-giantswarm: list that namespace in capiMode.rbac.allowedNamespaces.
+   {{- else if and .Values.capiMode.rbac.create (eq (len .Values.capiMode.rbac.allowedNamespaces) 0) (not .Values.capiMode.rbac.clusterWideSecrets) }}
 
    NOTE: No namespaces configured for kubeconfig secret access.
    Set capiMode.rbac.allowedNamespaces to grant access to specific namespaces.

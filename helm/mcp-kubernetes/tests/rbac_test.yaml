@@ -814,3 +814,131 @@ tests:
     asserts:
       - hasDocuments:
           count: 2
+
+  # ==========================================
+  # Organization namespaces through rbac-operator
+  # ==========================================
+
+  # The template is gated on the value, not on the API alone: an upgrade on a
+  # management cluster that serves the API changes nothing by default.
+  - it: should render no RoleBindingTemplate with default values when the cluster serves the API
+    capabilities:
+      apiVersions:
+        - auth.giantswarm.io/v1alpha1/RoleBindingTemplate
+    set:
+      capiMode.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 4
+      - notEqual:
+          path: kind
+          value: RoleBindingTemplate
+
+  - it: should bind the secrets ClusterRole only through a RoleBindingTemplate, next to allowedNamespaces
+    release:
+      name: mcp-kubernetes
+      namespace: mcp-system
+    capabilities:
+      apiVersions:
+        - auth.giantswarm.io/v1alpha1/RoleBindingTemplate
+    set:
+      capiMode.enabled: true
+      capiMode.rbac.organizationNamespaces.enabled: true
+      capiMode.rbac.allowedNamespaces:
+        - org-giantswarm
+    asserts:
+      # 0-3: base and capi ClusterRole/ClusterRoleBinding; 4: secrets ClusterRole;
+      # 5: RoleBindingTemplate; 6-7: Role/RoleBinding in org-giantswarm.
+      # No ClusterRoleBinding for the secrets ClusterRole.
+      - hasDocuments:
+          count: 8
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: mcp-kubernetes
+        documentIndex: 1
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 3
+      - equal:
+          path: roleRef.name
+          value: mcp-kubernetes-capi
+        documentIndex: 3
+      - isKind:
+          of: ClusterRole
+        documentIndex: 4
+      - equal:
+          path: metadata.name
+          value: mcp-kubernetes-secrets
+        documentIndex: 4
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: ["secrets"]
+              verbs: ["get"]
+        documentIndex: 4
+      - isKind:
+          of: RoleBindingTemplate
+        documentIndex: 5
+      - isAPIVersion:
+          of: auth.giantswarm.io/v1alpha1
+        documentIndex: 5
+      - equal:
+          path: spec
+          value:
+            scopes:
+              organizationSelector: {}
+            template:
+              metadata:
+                name: mcp-kubernetes-organization-secrets
+              roleRef:
+                apiGroup: rbac.authorization.k8s.io
+                kind: ClusterRole
+                name: mcp-kubernetes-secrets
+              subjects:
+                - kind: ServiceAccount
+                  name: mcp-kubernetes
+                  namespace: mcp-system
+        documentIndex: 5
+      - isKind:
+          of: RoleBinding
+        documentIndex: 7
+      - equal:
+          path: metadata.namespace
+          value: org-giantswarm
+        documentIndex: 7
+
+  - it: should refuse organizationNamespaces together with clusterWideSecrets
+    capabilities:
+      apiVersions:
+        - auth.giantswarm.io/v1alpha1/RoleBindingTemplate
+    set:
+      capiMode.enabled: true
+      capiMode.rbac.organizationNamespaces.enabled: true
+      capiMode.rbac.clusterWideSecrets: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "capiMode.rbac.organizationNamespaces.enabled and capiMode.rbac.clusterWideSecrets cannot both be true"
+
+  - it: should refuse organizationNamespaces on a cluster without the RoleBindingTemplate API
+    set:
+      capiMode.enabled: true
+      capiMode.rbac.organizationNamespaces.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "needs the RoleBindingTemplate API"
+
+  - it: should refuse organizationNamespaces in sso-passthrough mode
+    capabilities:
+      apiVersions:
+        - auth.giantswarm.io/v1alpha1/RoleBindingTemplate
+    set:
+      capiMode.enabled: true
+      capiMode.rbac.organizationNamespaces.enabled: true
+      capiMode.workloadClusterAuth.mode: sso-passthrough
+    asserts:
+      - failedTemplate:
+          errorPattern: "needs capiMode.workloadClusterAuth.mode \"impersonation\""
