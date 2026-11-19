@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
@@ -21,13 +21,13 @@ func parseCIMDPreRegisteredClientMetadata(raw string) ([]oauthserver.ClientMetad
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
-	decoder := json.NewDecoder(bytes.NewReader([]byte(raw)))
+	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var documents []oauthserver.ClientMetadata
 	if err := decoder.Decode(&documents); err != nil {
 		return nil, fmt.Errorf("invalid %s: %w (expected a JSON list of Client ID Metadata Documents)", cimdPreRegisteredClientMetadataEnv, err)
 	}
-	if decoder.More() {
+	if err := decoder.Decode(new(json.RawMessage)); err != io.EOF {
 		return nil, fmt.Errorf("invalid %s: trailing data after the JSON list", cimdPreRegisteredClientMetadataEnv)
 	}
 	return documents, nil

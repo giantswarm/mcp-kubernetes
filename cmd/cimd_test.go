@@ -19,14 +19,25 @@ func TestParseCIMDPreRegisteredClientMetadata(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, documents)
 
-	_, err = parseCIMDPreRegisteredClientMetadata(`[{"client_id":"https://a.example/c.json","redirect_uri":["https://a.example/cb"]}]`)
-	require.ErrorContains(t, err, cimdPreRegisteredClientMetadataEnv)
+	for _, raw := range []string{
+		`[{"client_id":"https://a.example/c.json","redirect_uri":["https://a.example/cb"]}]`,
+		`{"client_id":"https://a.example/c.json"}`,
+		`[] []`,
+		`[]]`,
+		`[]}`,
+		`[]]garbage`,
+		`[] invalid`,
+		`[{"client_id":"https://a.example/c.json","client_name":"client","redirect_uris":["https://a.example/cb"]}]]`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			_, err := parseCIMDPreRegisteredClientMetadata(raw)
+			require.ErrorContains(t, err, cimdPreRegisteredClientMetadataEnv)
+		})
+	}
 
-	_, err = parseCIMDPreRegisteredClientMetadata(`{"client_id":"https://a.example/c.json"}`)
-	require.Error(t, err)
-
-	_, err = parseCIMDPreRegisteredClientMetadata(`[] []`)
-	require.Error(t, err)
+	documents, err = parseCIMDPreRegisteredClientMetadata(" [] \n\t")
+	require.NoError(t, err)
+	require.Empty(t, documents)
 }
 
 func TestLogDeprecatedPrivateIPSettings(t *testing.T) {

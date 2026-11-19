@@ -797,7 +797,7 @@
                                 },
                                 "restrictClientMetadata": {
                                     "type": "boolean",
-                                    "description": "Accept only the clients pinned in preRegisteredClientMetadata. Any other URL client_id is refused without a fetch. Needs at least one pinned client."
+                                    "description": "Accept only pre-registered CIMD client IDs. Unlisted CIMD client IDs are refused without DNS resolution or fetching. Clients registered through other mechanisms are unaffected. Requires at least one pre-registered document."
                                 }
                             }
                         },

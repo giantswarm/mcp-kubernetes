@@ -211,7 +211,7 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.cimd.allowPrivateIPs | bool | `false` | Deprecated: pin the clients in preRegisteredClientMetadata instead. Still works, logs a warning, and will be removed in a later release. Lets every CIMD metadata URL resolve to a private, loopback or link-local address. |
 | mcpKubernetes.oauth.cimd.privateIPHosts | list | `[]` | Deprecated: pin the clients in preRegisteredClientMetadata instead. Still works, logs a warning, and will be removed in a later release. Exact CIMD hosts whose metadata URLs may resolve to private addresses. |
 | mcpKubernetes.oauth.cimd.preRegisteredClientMetadata | list | `[]` | Client ID Metadata Documents to pin. Each entry is the document a client serves at its client_id URL, with the same snake_case fields (client_id, client_name, redirect_uris, ...). A pinned client is accepted without fetching its document, so its address does not matter. Changes need a restart. Copy the document from its live URL. |
-| mcpKubernetes.oauth.cimd.restrictClientMetadata | bool | `false` | Accept only the clients pinned in preRegisteredClientMetadata. Any other URL client_id is refused without a fetch. Needs at least one pinned client. |
+| mcpKubernetes.oauth.cimd.restrictClientMetadata | bool | `false` | Accept only pre-registered CIMD client IDs. Unlisted CIMD client IDs are refused without DNS resolution or fetching. Clients registered through other mechanisms are unaffected. Requires at least one pre-registered document. |
 | mcpKubernetes.oauth.trustedAudiences | list | `[]` |  |
 | mcpKubernetes.oauth.trustedIssuers | list | `[]` |  |
 | mcpKubernetes.oauth.sso.allowPrivateIPs | bool | `false` |  |

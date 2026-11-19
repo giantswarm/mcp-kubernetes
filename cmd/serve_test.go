@@ -265,6 +265,7 @@ func TestCIMDEnvVarParsing(t *testing.T) {
 		flagName       string
 		expectedValue  bool
 		expectWarning  bool
+		expectError    bool
 		setFlag        bool // if true, set the flag explicitly (should override env)
 		flagValue      bool
 		expectedResult bool // expected final value when flag is set
@@ -337,12 +338,37 @@ func TestCIMDEnvVarParsing(t *testing.T) {
 			expectedValue: true,
 		},
 		{
-			name:          "CIMD_RESTRICT_CLIENT_METADATA invalid value uses default",
+			name:          "CIMD_RESTRICT_CLIENT_METADATA invalid value is refused",
 			envVar:        "CIMD_RESTRICT_CLIENT_METADATA",
 			envValue:      "notabool",
 			flagName:      "cimd-restrict-client-metadata",
 			expectedValue: false,
-			expectWarning: true,
+			expectError:   true,
+		},
+		{
+			name:          "CIMD_RESTRICT_CLIENT_METADATA=false disables restriction",
+			envVar:        "CIMD_RESTRICT_CLIENT_METADATA",
+			envValue:      "false",
+			flagName:      "cimd-restrict-client-metadata",
+			expectedValue: false,
+		},
+		{
+			name:           "explicit false restriction flag overrides invalid environment value",
+			envVar:         "CIMD_RESTRICT_CLIENT_METADATA",
+			envValue:       "notabool",
+			flagName:       "cimd-restrict-client-metadata",
+			setFlag:        true,
+			flagValue:      false,
+			expectedResult: false,
+		},
+		{
+			name:           "explicit true restriction flag overrides invalid environment value",
+			envVar:         "CIMD_RESTRICT_CLIENT_METADATA",
+			envValue:       "notabool",
+			flagName:       "cimd-restrict-client-metadata",
+			setFlag:        true,
+			flagValue:      true,
+			expectedResult: true,
 		},
 		// SSO_ALLOW_PRIVATE_IPS tests (mcp-oauth v0.2.40+)
 		{
@@ -445,7 +471,11 @@ func TestCIMDEnvVarParsing(t *testing.T) {
 			cmd.SetErr(&bytes.Buffer{})
 
 			// Execute - we expect it to fail (no kubeconfig), but env vars should be parsed
-			_ = cmd.Execute()
+			err := cmd.Execute()
+			if tt.expectError {
+				require.ErrorContains(t, err, tt.envVar)
+				return
+			}
 
 			// Check the captured value
 			if tt.setFlag {

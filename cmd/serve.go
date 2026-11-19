@@ -297,14 +297,11 @@ Downstream OAuth (--downstream-oauth):
 
 			if !cmd.Flags().Changed("cimd-restrict-client-metadata") {
 				if envVal := os.Getenv("CIMD_RESTRICT_CLIENT_METADATA"); envVal != "" {
-					if parsed, err := strconv.ParseBool(envVal); err == nil {
-						cimdRestrictClientMetadata = parsed
-					} else {
-						slog.Warn("invalid CIMD_RESTRICT_CLIENT_METADATA value, using default", //nolint:gosec // G706: env var from operator, not end-user input
-							"value", envVal,
-							"default", cimdRestrictClientMetadata,
-							"error", err)
+					parsed, err := strconv.ParseBool(envVal)
+					if err != nil {
+						return fmt.Errorf("invalid CIMD_RESTRICT_CLIENT_METADATA: %w (expected a boolean)", err)
 					}
+					cimdRestrictClientMetadata = parsed
 				}
 			}
 
@@ -457,9 +454,9 @@ Downstream OAuth (--downstream-oauth):
 	_ = cmd.Flags().MarkDeprecated("disable-production-mode", "remove it: loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused; this flag will be removed in v1.15.0 (2027-02-17)")
 	cmd.Flags().Bool("allow-localhost-redirect-uris", false, "No effect")
 	_ = cmd.Flags().MarkDeprecated("allow-localhost-redirect-uris", "it has no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3); remove it before v1.15.0 (2027-02-17)")
-	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Deprecated: list the hosts in --private-ip-redirect-uri-hosts instead. Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs on every host. WARNING: SSRF risk")
+	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Deprecated: list the hosts in --private-ip-redirect-uri-hosts instead. Allow browser redirects to private IP addresses (10.x, 172.16.x, 192.168.x) on every host")
 	cmd.Flags().StringSliceVar(&privateIPRedirectURIHosts, "private-ip-redirect-uri-hosts", nil, "Exact HTTPS redirect hosts permitted to resolve to private addresses")
-	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk")
+	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow browser redirects to link-local addresses (169.254.x.x)")
 	cmd.Flags().BoolVar(&disableDNSValidation, "disable-dns-validation", false, "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks")
 	cmd.Flags().BoolVar(&disableDNSValidationStrict, "disable-dns-validation-strict", false, "Disable fail-closed DNS validation (allow registration on DNS failures). WARNING: Validation bypass risk")
 	cmd.Flags().BoolVar(&disableAuthorizationTimeValidation, "disable-authorization-time-validation", false, "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks")

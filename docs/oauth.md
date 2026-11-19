@@ -446,7 +446,7 @@ CIMD can be controlled via:
 A client can be pinned: you give mcp-kubernetes a copy of its metadata document, and the server uses that copy instead of fetching the client_id URL. The client's address then does not matter, private or public.
 
 - `mcpKubernetes.oauth.cimd.preRegisteredClientMetadata` (env `CIMD_PRE_REGISTERED_CLIENT_METADATA`, a JSON list): the documents to pin, with the same fields the client serves. Copy each one from its live URL; a change needs a restart.
-- `mcpKubernetes.oauth.cimd.restrictClientMetadata` (flag `--cimd-restrict-client-metadata`, env `CIMD_RESTRICT_CLIENT_METADATA`): accept only pinned clients. Any other URL client_id is refused without a fetch. Needs at least one pinned client.
+- `mcpKubernetes.oauth.cimd.restrictClientMetadata` (flag `--cimd-restrict-client-metadata`, env `CIMD_RESTRICT_CLIENT_METADATA`): accept only pre-registered CIMD client IDs. Unlisted CIMD client IDs are refused without DNS resolution or fetching. Clients registered through other mechanisms are unaffected; this does not disable dynamic client registration. Requires at least one pre-registered document. An invalid environment value prevents startup unless the flag is explicitly set.
 
 ```yaml
 mcpKubernetes:
@@ -464,6 +464,8 @@ mcpKubernetes:
 ### Deprecated private-address settings
 
 These settings still work, log a deprecation warning at startup, and will be removed in a later release:
+
+CIMD private-address settings control server-side metadata fetching. Redirect URI settings control where the browser may be redirected; the server does not fetch the redirect URI.
 
 | Setting | Replacement |
 |---------|-------------|

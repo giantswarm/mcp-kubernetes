@@ -490,7 +490,7 @@ mcpKubernetes:
     # Redirect URI Security Configuration
     # All settings default to secure values. Operators must explicitly opt-out.
     # These settings control security validation of redirect URIs during client
-    # registration and authorization flows (SSRF and open redirect protection).
+    # registration and authorization flows (browser redirect policy).
     redirectURISecurity:
       # -- Removed HTTP redirect bypass. Only false is accepted. Loopback
       # redirect URIs need no setting; non-loopback HTTP redirect URIs are
@@ -603,9 +603,10 @@ mcpKubernetes:
       # accepted without fetching its document, so its address does not
       # matter. Changes need a restart. Copy the document from its live URL.
       preRegisteredClientMetadata: []  # @schema item: object; itemRequired: [client_id, client_name, redirect_uris]; itemProperties: {"client_id": {"type": "string"}, "client_name": {"type": "string"}, "client_uri": {"type": "string"}, "logo_uri": {"type": "string"}, "redirect_uris": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "grant_types": {"type": "array", "items": {"type": "string"}}, "response_types": {"type": "array", "items": {"type": "string"}}, "token_endpoint_auth_method": {"type": "string", "enum": ["none"]}, "scope": {"type": "string"}, "contacts": {"type": "array", "items": {"type": "string"}}, "jwks_uri": {"type": "string"}}; itemAdditionalProperties: false
-      # -- Accept only the clients pinned in preRegisteredClientMetadata. Any
-      # other URL client_id is refused without a fetch. Needs at least one
-      # pinned client.
+      # -- Accept only pre-registered CIMD client IDs. Unlisted CIMD client
+      # IDs are refused without DNS resolution or fetching. Clients registered
+      # through other mechanisms are unaffected. Requires at least one
+      # pre-registered document.
       restrictClientMetadata: false
 
     # Trusted Audiences for SSO Token Forwarding
