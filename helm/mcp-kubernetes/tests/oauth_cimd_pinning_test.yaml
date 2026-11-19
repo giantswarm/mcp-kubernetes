@@ -1,0 +1,60 @@
+suite: CIMD pinned client metadata
+templates:
+  - templates/deployment.yaml
+set:
+  replicaCount: 1
+  mcpKubernetes.oauth.enabled: true
+  mcpKubernetes.oauth.baseURL: https://mcp.example.com
+  mcpKubernetes.oauth.existingSecret: oauth-credentials
+  mcpKubernetes.oauth.dex.issuerURL: https://dex.example.com
+  mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
+tests:
+  - it: renders neither setting by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --cimd-restrict-client-metadata=true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CIMD_PRE_REGISTERED_CLIENT_METADATA
+          any: true
+
+  - it: renders the pinned documents as JSON and the restrict flag
+    set:
+      mcpKubernetes.oauth.cimd.restrictClientMetadata: true
+      mcpKubernetes.oauth.cimd.preRegisteredClientMetadata:
+        - client_id: https://muster.example.com/.well-known/oauth-client.json
+          client_name: muster
+          redirect_uris:
+            - https://muster.example.com/oauth/callback
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cimd-restrict-client-metadata=true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CIMD_PRE_REGISTERED_CLIENT_METADATA
+            value: '[{"client_id":"https://muster.example.com/.well-known/oauth-client.json","client_name":"muster","redirect_uris":["https://muster.example.com/oauth/callback"]}]'
+
+  - it: keeps rendering the deprecated private-address settings
+    set:
+      mcpKubernetes.oauth.cimd.allowPrivateIPs: true
+      mcpKubernetes.oauth.redirectURISecurity.allowPrivateIPRedirectURIs: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cimd-allow-private-ips=true
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --allow-private-ip-redirect-uris=true
+
+  - it: refuses a pinned document with an unknown field
+    set:
+      mcpKubernetes.oauth.cimd.preRegisteredClientMetadata:
+        - client_id: https://muster.example.com/.well-known/oauth-client.json
+          client_name: muster
+          redirect_uri: https://muster.example.com/oauth/callback
+    asserts:
+      - failedTemplate: {}

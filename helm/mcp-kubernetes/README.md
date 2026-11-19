@@ -199,7 +199,7 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.storage.valkey.secretKeyPassword | string | `"valkey-password"` |  |
 | mcpKubernetes.oauth.redirectURISecurity.disableProductionMode | bool | `false` | Removed HTTP redirect bypass. Only false is accepted. Loopback redirect URIs need no setting; non-loopback HTTP redirect URIs are refused. Remove this value before v1.15.0 (2027-02-17). |
 | mcpKubernetes.oauth.redirectURISecurity.allowLocalhostRedirectURIs | bool | `false` | Deprecated, no effect: registered loopback redirect URIs accept any port (RFC 8252 §7.3). Remove before v1.15.0 (2027-02-17). |
-| mcpKubernetes.oauth.redirectURISecurity.allowPrivateIPRedirectURIs | bool | `false` |  |
+| mcpKubernetes.oauth.redirectURISecurity.allowPrivateIPRedirectURIs | bool | `false` | Deprecated: list the hosts in privateIPHosts instead. Still works, logs a warning, and will be removed in a later release. Allows private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs on every host. |
 | mcpKubernetes.oauth.redirectURISecurity.privateIPHosts | list | `[]` |  |
 | mcpKubernetes.oauth.redirectURISecurity.allowLinkLocalRedirectURIs | bool | `false` |  |
 | mcpKubernetes.oauth.redirectURISecurity.disableDNSValidation | bool | `false` |  |
@@ -208,8 +208,10 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.trustedPublicRegistrationSchemes | list | `[]` |  |
 | mcpKubernetes.oauth.disableStrictSchemeMatching | bool | `false` |  |
 | mcpKubernetes.oauth.enableCIMD | bool | `true` |  |
-| mcpKubernetes.oauth.cimd.allowPrivateIPs | bool | `false` |  |
-| mcpKubernetes.oauth.cimd.privateIPHosts | list | `[]` |  |
+| mcpKubernetes.oauth.cimd.allowPrivateIPs | bool | `false` | Deprecated: pin the clients in preRegisteredClientMetadata instead. Still works, logs a warning, and will be removed in a later release. Lets every CIMD metadata URL resolve to a private, loopback or link-local address. |
+| mcpKubernetes.oauth.cimd.privateIPHosts | list | `[]` | Deprecated: pin the clients in preRegisteredClientMetadata instead. Still works, logs a warning, and will be removed in a later release. Exact CIMD hosts whose metadata URLs may resolve to private addresses. |
+| mcpKubernetes.oauth.cimd.preRegisteredClientMetadata | list | `[]` | Client ID Metadata Documents to pin. Each entry is the document a client serves at its client_id URL, with the same snake_case fields (client_id, client_name, redirect_uris, ...). A pinned client is accepted without fetching its document, so its address does not matter. Changes need a restart. Copy the document from its live URL. |
+| mcpKubernetes.oauth.cimd.restrictClientMetadata | bool | `false` | Accept only the clients pinned in preRegisteredClientMetadata. Any other URL client_id is refused without a fetch. Needs at least one pinned client. |
 | mcpKubernetes.oauth.trustedAudiences | list | `[]` |  |
 | mcpKubernetes.oauth.trustedIssuers | list | `[]` |  |
 | mcpKubernetes.oauth.sso.allowPrivateIPs | bool | `false` |  |

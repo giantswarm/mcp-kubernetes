@@ -500,11 +500,10 @@ mcpKubernetes:
       # any port (RFC 8252 §7.3). Remove before v1.15.0 (2027-02-17).
       allowLocalhostRedirectURIs: false  # @schema deprecated: true
 
-      # Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs
-      # WARNING: Enables SSRF attacks to internal networks if not properly secured.
-      # Only enable for internal/VPN deployments where clients use private IPs.
-      # Default: false (blocked for security)
-      allowPrivateIPRedirectURIs: false
+      # -- Deprecated: list the hosts in privateIPHosts instead. Still works,
+      # logs a warning, and will be removed in a later release. Allows private
+      # IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs on every host.
+      allowPrivateIPRedirectURIs: false  # @schema deprecated: true
       # Exact HTTPS redirect hosts permitted to resolve to private addresses.
       privateIPHosts: []  # @schema item: string
 
@@ -589,23 +588,25 @@ mcpKubernetes:
 
     # CIMD Private IP Configuration
     cimd:
-      # Allow CIMD metadata URLs that resolve to private/internal IP addresses
-      # (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 per RFC 1918). This also allows
-      # loopback addresses (127.0.0.0/8, ::1) and link-local addresses.
-      #
-      # Use cases:
-      #   - Home lab deployments where MCP servers are on the same internal network
-      #   - Air-gapped environments
-      #   - Internal enterprise networks
-      #   - Any deployment where MCP servers communicate over private networks
-      #
-      # WARNING: Reduces SSRF protection. Only enable for internal deployments
-      # that are not exposed to the public internet.
-      #
-      # Default: false (blocked for security)
-      allowPrivateIPs: false
-      # Exact CIMD hosts permitted to resolve to private addresses.
-      privateIPHosts: []  # @schema item: string
+      # -- Deprecated: pin the clients in preRegisteredClientMetadata instead.
+      # Still works, logs a warning, and will be removed in a later release.
+      # Lets every CIMD metadata URL resolve to a private, loopback or
+      # link-local address.
+      allowPrivateIPs: false  # @schema deprecated: true
+      # -- Deprecated: pin the clients in preRegisteredClientMetadata instead.
+      # Still works, logs a warning, and will be removed in a later release.
+      # Exact CIMD hosts whose metadata URLs may resolve to private addresses.
+      privateIPHosts: []  # @schema item: string; deprecated: true
+      # -- Client ID Metadata Documents to pin. Each entry is the document a
+      # client serves at its client_id URL, with the same snake_case fields
+      # (client_id, client_name, redirect_uris, ...). A pinned client is
+      # accepted without fetching its document, so its address does not
+      # matter. Changes need a restart. Copy the document from its live URL.
+      preRegisteredClientMetadata: []  # @schema item: object; itemRequired: [client_id, client_name, redirect_uris]; itemProperties: {"client_id": {"type": "string"}, "client_name": {"type": "string"}, "client_uri": {"type": "string"}, "logo_uri": {"type": "string"}, "redirect_uris": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "grant_types": {"type": "array", "items": {"type": "string"}}, "response_types": {"type": "array", "items": {"type": "string"}}, "token_endpoint_auth_method": {"type": "string", "enum": ["none"]}, "scope": {"type": "string"}, "contacts": {"type": "array", "items": {"type": "string"}}, "jwks_uri": {"type": "string"}}; itemAdditionalProperties: false
+      # -- Accept only the clients pinned in preRegisteredClientMetadata. Any
+      # other URL client_id is refused without a fetch. Needs at least one
+      # pinned client.
+      restrictClientMetadata: false
 
     # Trusted Audiences for SSO Token Forwarding
     # When users connect through upstream aggregators (like muster), they may have

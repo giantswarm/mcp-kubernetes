@@ -719,13 +719,85 @@
                             "additionalProperties": false,
                             "properties": {
                                 "allowPrivateIPs": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated: pin the clients in preRegisteredClientMetadata instead. Still works, logs a warning, and will be removed in a later release. Lets every CIMD metadata URL resolve to a private, loopback or link-local address.",
+                                    "deprecated": true
+                                },
+                                "preRegisteredClientMetadata": {
+                                    "type": "array",
+                                    "description": "Client ID Metadata Documents to pin. Each entry is the document a client serves at its client_id URL, with the same snake_case fields (client_id, client_name, redirect_uris, ...). A pinned client is accepted without fetching its document, so its address does not matter. Changes need a restart. Copy the document from its live URL.",
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "client_id",
+                                            "client_name",
+                                            "redirect_uris"
+                                        ],
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "client_id": {
+                                                "type": "string"
+                                            },
+                                            "client_name": {
+                                                "type": "string"
+                                            },
+                                            "client_uri": {
+                                                "type": "string"
+                                            },
+                                            "contacts": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "grant_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "jwks_uri": {
+                                                "type": "string"
+                                            },
+                                            "logo_uri": {
+                                                "type": "string"
+                                            },
+                                            "redirect_uris": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                },
+                                                "minItems": 1
+                                            },
+                                            "response_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "scope": {
+                                                "type": "string"
+                                            },
+                                            "token_endpoint_auth_method": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "none"
+                                                ]
+                                            }
+                                        }
+                                    }
                                 },
                                 "privateIPHosts": {
                                     "type": "array",
+                                    "description": "Deprecated: pin the clients in preRegisteredClientMetadata instead. Still works, logs a warning, and will be removed in a later release. Exact CIMD hosts whose metadata URLs may resolve to private addresses.",
+                                    "deprecated": true,
                                     "items": {
                                         "type": "string"
                                     }
+                                },
+                                "restrictClientMetadata": {
+                                    "type": "boolean",
+                                    "description": "Accept only the clients pinned in preRegisteredClientMetadata. Any other URL client_id is refused without a fetch. Needs at least one pinned client."
                                 }
                             }
                         },
@@ -820,7 +892,9 @@
                                     "deprecated": true
                                 },
                                 "allowPrivateIPRedirectURIs": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated: list the hosts in privateIPHosts instead. Still works, logs a warning, and will be removed in a later release. Allows private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs on every host.",
+                                    "deprecated": true
                                 },
                                 "disableAuthorizationTimeValidation": {
                                     "type": "boolean"

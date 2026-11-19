@@ -120,6 +120,9 @@ spec:
             {{- with .Values.mcpKubernetes.oauth.cimd.privateIPHosts }}
             - --cimd-private-ip-hosts={{ join "," . }}
             {{- end }}
+            {{- if .Values.mcpKubernetes.oauth.cimd.restrictClientMetadata }}
+            - --cimd-restrict-client-metadata=true
+            {{- end }}
             {{- end }}
             {{- if and .Values.mcpKubernetes.instrumentation.enabled .Values.mcpKubernetes.metrics.enabled }}
             - --metrics-enabled=true
@@ -247,6 +250,10 @@ spec:
             {{- if and .Values.mcpKubernetes.oauth.sso .Values.mcpKubernetes.oauth.sso.allowPrivateIPs }}
             - name: SSO_ALLOW_PRIVATE_IPS
               value: "true"
+            {{- end }}
+            {{- with .Values.mcpKubernetes.oauth.cimd.preRegisteredClientMetadata }}
+            - name: CIMD_PRE_REGISTERED_CLIENT_METADATA
+              value: {{ toJson . | quote }}
             {{- end }}
             # Valkey storage configuration
             {{- if eq .Values.mcpKubernetes.oauth.storage.type "valkey" }}

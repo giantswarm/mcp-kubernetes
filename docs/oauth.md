@@ -441,34 +441,35 @@ CIMD can be controlled via:
 - **CLI Flag**: `--enable-cimd=true|false` (default: `true`)
 - **Environment Variable**: `ENABLE_CIMD=true|false`
 
-### CIMD Private IP Allowlist
+### Pinned CIMD clients
 
-By default, CIMD metadata URLs must resolve to public IP addresses for SSRF protection. For internal deployments where MCP servers communicate over private networks, you can allow CIMD metadata URLs to resolve to private IPs:
+A client can be pinned: you give mcp-kubernetes a copy of its metadata document, and the server uses that copy instead of fetching the client_id URL. The client's address then does not matter, private or public.
 
-**CLI Flag**: `--cimd-allow-private-ips=true|false` (default: `false`)
-**Environment Variable**: `CIMD_ALLOW_PRIVATE_IPS=true|false`
+- `mcpKubernetes.oauth.cimd.preRegisteredClientMetadata` (env `CIMD_PRE_REGISTERED_CLIENT_METADATA`, a JSON list): the documents to pin, with the same fields the client serves. Copy each one from its live URL; a change needs a restart.
+- `mcpKubernetes.oauth.cimd.restrictClientMetadata` (flag `--cimd-restrict-client-metadata`, env `CIMD_RESTRICT_CLIENT_METADATA`): accept only pinned clients. Any other URL client_id is refused without a fetch. Needs at least one pinned client.
 
-**Helm Values**:
 ```yaml
 mcpKubernetes:
   oauth:
     enableCIMD: true
     cimd:
-      allowPrivateIPs: true  # Allow CIMD metadata URLs on private networks
+      restrictClientMetadata: true
+      preRegisteredClientMetadata:
+        - client_id: https://muster.example.com/.well-known/oauth-client.json
+          client_name: muster
+          redirect_uris:
+            - https://muster.example.com/oauth/callback
 ```
 
-**Use Cases**:
-- Home lab deployments where MCP servers are on the same internal network
-- Air-gapped environments
-- Internal enterprise networks
-- Any deployment where MCP aggregators and servers communicate over private networks
+### Deprecated private-address settings
 
-**Warning**: This reduces SSRF protection. Only enable for deployments that are:
-- Not exposed to the public internet
-- Running on internal networks, VPNs, or air-gapped environments
-- Where MCP servers use private infrastructure
+These settings still work, log a deprecation warning at startup, and will be removed in a later release:
 
-**Security Note**: When enabled, the server will fetch client metadata from URLs that resolve to private IPs. PKCE and other OAuth security measures still apply.
+| Setting | Replacement |
+|---------|-------------|
+| `cimd.allowPrivateIPs` (`--cimd-allow-private-ips`, `CIMD_ALLOW_PRIVATE_IPS`) | pin the clients in `cimd.preRegisteredClientMetadata` |
+| `cimd.privateIPHosts` (`--cimd-private-ip-hosts`) | pin the clients in `cimd.preRegisteredClientMetadata` |
+| `redirectURISecurity.allowPrivateIPRedirectURIs` (`--allow-private-ip-redirect-uris`) | list the hosts in `redirectURISecurity.privateIPHosts` (`--private-ip-redirect-uri-hosts`) |
 
 ### Observability
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/mcp-kubernetes/internal/server"
 )
@@ -284,8 +285,19 @@ type OAuthServeConfig struct {
 	//   - Any deployment where MCP servers communicate over private networks
 	//
 	// Default: false (blocked for security)
+	//
+	// Deprecated: pin the clients in CIMDPreRegisteredClientMetadata.
 	CIMDAllowPrivateIPs bool
-	CIMDPrivateIPHosts  []string
+	// Deprecated: pin the clients in CIMDPreRegisteredClientMetadata.
+	CIMDPrivateIPHosts []string
+
+	// CIMDPreRegisteredClientMetadata pins Client ID Metadata Documents. A
+	// pinned client_id is served from this list and its document is never
+	// fetched.
+	CIMDPreRegisteredClientMetadata []oauthserver.ClientMetadata
+	// CIMDRestrictClientMetadata refuses every URL client_id that is not in
+	// CIMDPreRegisteredClientMetadata, before any DNS lookup or request.
+	CIMDRestrictClientMetadata bool
 
 	// TrustedAudiences lists client IDs whose tokens are accepted for SSO.
 	// When upstream aggregators (like muster) forward a user's ID token,

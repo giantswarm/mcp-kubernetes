@@ -329,6 +329,21 @@ func TestCIMDEnvVarParsing(t *testing.T) {
 			expectedValue: false, // default is false
 			expectWarning: true,
 		},
+		{
+			name:          "CIMD_RESTRICT_CLIENT_METADATA=true restricts client metadata",
+			envVar:        "CIMD_RESTRICT_CLIENT_METADATA",
+			envValue:      "true",
+			flagName:      "cimd-restrict-client-metadata",
+			expectedValue: true,
+		},
+		{
+			name:          "CIMD_RESTRICT_CLIENT_METADATA invalid value uses default",
+			envVar:        "CIMD_RESTRICT_CLIENT_METADATA",
+			envValue:      "notabool",
+			flagName:      "cimd-restrict-client-metadata",
+			expectedValue: false,
+			expectWarning: true,
+		},
 		// SSO_ALLOW_PRIVATE_IPS tests (mcp-oauth v0.2.40+)
 		{
 			name:          "SSO_ALLOW_PRIVATE_IPS=true enables SSO private IPs",
