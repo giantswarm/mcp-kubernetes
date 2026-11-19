@@ -200,6 +200,8 @@ func newServeCmd() *cobra.Command {
 		enableCIMD          bool
 		cimdAllowPrivateIPs bool
 		cimdPrivateIPHosts  []string
+		// CIMD pinning
+		cimdRestrictClientMetadata bool
 
 		// Trusted audiences for SSO token forwarding
 		trustedAudiences   []string
@@ -293,6 +295,21 @@ Downstream OAuth (--downstream-oauth):
 				}
 			}
 
+			if !cmd.Flags().Changed("cimd-restrict-client-metadata") {
+				if envVal := os.Getenv("CIMD_RESTRICT_CLIENT_METADATA"); envVal != "" {
+					parsed, err := strconv.ParseBool(envVal)
+					if err != nil {
+						return fmt.Errorf("invalid CIMD_RESTRICT_CLIENT_METADATA: %w (expected a boolean)", err)
+					}
+					cimdRestrictClientMetadata = parsed
+				}
+			}
+
+			cimdPreRegisteredClientMetadata, err := parseCIMDPreRegisteredClientMetadata(os.Getenv(cimdPreRegisteredClientMetadataEnv))
+			if err != nil {
+				return err
+			}
+
 			// SSO allow private IPs env var - only apply if flag was not explicitly set
 			if !cmd.Flags().Changed("sso-allow-private-ips") {
 				if envVal := os.Getenv("SSO_ALLOW_PRIVATE_IPS"); envVal != "" {
@@ -361,6 +378,8 @@ Downstream OAuth (--downstream-oauth):
 					EnableCIMD:                       enableCIMD,
 					CIMDAllowPrivateIPs:              cimdAllowPrivateIPs,
 					CIMDPrivateIPHosts:               cimdPrivateIPHosts,
+					CIMDPreRegisteredClientMetadata:  cimdPreRegisteredClientMetadata,
+					CIMDRestrictClientMetadata:       cimdRestrictClientMetadata,
 					TrustedAudiences:                 trustedAudiences,
 					SSOAllowPrivateIPs:               ssoAllowPrivateIPs,
 				},
@@ -435,9 +454,9 @@ Downstream OAuth (--downstream-oauth):
 	_ = cmd.Flags().MarkDeprecated("disable-production-mode", "remove it: loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused; this flag will be removed in v1.15.0 (2027-02-17)")
 	cmd.Flags().Bool("allow-localhost-redirect-uris", false, "No effect")
 	_ = cmd.Flags().MarkDeprecated("allow-localhost-redirect-uris", "it has no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3); remove it before v1.15.0 (2027-02-17)")
-	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Allow private IP addresses (10.x, 172.16.x, 192.168.x) in redirect URIs. WARNING: SSRF risk")
+	cmd.Flags().BoolVar(&allowPrivateIPRedirectURIs, "allow-private-ip-redirect-uris", false, "Deprecated: list the hosts in --private-ip-redirect-uri-hosts instead. Allow browser redirects to private IP addresses (10.x, 172.16.x, 192.168.x) on every host")
 	cmd.Flags().StringSliceVar(&privateIPRedirectURIHosts, "private-ip-redirect-uri-hosts", nil, "Exact HTTPS redirect hosts permitted to resolve to private addresses")
-	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow link-local addresses (169.254.x.x) in redirect URIs. WARNING: Cloud metadata SSRF risk")
+	cmd.Flags().BoolVar(&allowLinkLocalRedirectURIs, "allow-link-local-redirect-uris", false, "Allow browser redirects to link-local addresses (169.254.x.x)")
 	cmd.Flags().BoolVar(&disableDNSValidation, "disable-dns-validation", false, "Disable DNS validation of redirect URI hostnames. WARNING: Allows DNS rebinding attacks")
 	cmd.Flags().BoolVar(&disableDNSValidationStrict, "disable-dns-validation-strict", false, "Disable fail-closed DNS validation (allow registration on DNS failures). WARNING: Validation bypass risk")
 	cmd.Flags().BoolVar(&disableAuthorizationTimeValidation, "disable-authorization-time-validation", false, "Disable redirect URI validation at authorization time. WARNING: Allows TOCTOU attacks")
@@ -448,8 +467,9 @@ Downstream OAuth (--downstream-oauth):
 
 	// CIMD (Client ID Metadata Documents) - MCP 2025-11-25
 	cmd.Flags().BoolVar(&enableCIMD, "enable-cimd", true, "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25. Allows clients to use HTTPS URLs as client identifiers (can also be set via ENABLE_CIMD env var)")
-	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Allow CIMD metadata URLs to resolve to private IPs (SSRF risk; internal deployments only)")
-	cmd.Flags().StringSliceVar(&cimdPrivateIPHosts, "cimd-private-ip-hosts", nil, "Exact CIMD hosts permitted to resolve to private addresses")
+	cmd.Flags().BoolVar(&cimdAllowPrivateIPs, "cimd-allow-private-ips", false, "Deprecated: pin the clients in "+cimdPreRegisteredClientMetadataEnv+" instead. Allow CIMD metadata URLs to resolve to private IPs (SSRF risk; can also be set via CIMD_ALLOW_PRIVATE_IPS env var)")
+	cmd.Flags().StringSliceVar(&cimdPrivateIPHosts, "cimd-private-ip-hosts", nil, "Deprecated: pin the clients in "+cimdPreRegisteredClientMetadataEnv+" instead. Exact CIMD hosts permitted to resolve to private addresses")
+	cmd.Flags().BoolVar(&cimdRestrictClientMetadata, "cimd-restrict-client-metadata", false, "Refuse every URL client_id that is not pinned in "+cimdPreRegisteredClientMetadataEnv+", without fetching it (can also be set via CIMD_RESTRICT_CLIENT_METADATA env var)")
 
 	// Trusted audiences for SSO token forwarding from aggregators
 	cmd.Flags().StringSliceVar(&trustedAudiences, "oauth-trusted-audiences", nil, "Client IDs whose tokens are accepted for SSO (e.g., muster-client). Enables token forwarding from trusted aggregators (can also be set via OAUTH_TRUSTED_AUDIENCES env var as comma-separated list)")
@@ -1088,10 +1108,7 @@ func runServe(config ServeConfig) error {
 				slog.Warn("debug logging is enabled - this may log sensitive information",
 					"recommendation", "disable debug mode in production")
 			}
-			if config.OAuth.CIMDAllowPrivateIPs {
-				slog.Warn("CIMD private IP allowlist enabled - CIMD metadata URLs may resolve to internal IP addresses",
-					"note", "this reduces SSRF protection, only use for internal/air-gapped deployments")
-			}
+			logDeprecatedPrivateIPSettings(slog.Default(), config.OAuth)
 
 			return runOAuthHTTPServer(mcpSrv, config.HTTPAddr, shutdownCtx, server.OAuthConfig{
 				ServiceVersion:                     rootCmd.Version,
@@ -1123,9 +1140,11 @@ func runServe(config ServeConfig) error {
 				TrustedPublicRegistrationSchemes: config.OAuth.TrustedPublicRegistrationSchemes,
 				DisableStrictSchemeMatching:      config.OAuth.DisableStrictSchemeMatching,
 				// CIMD (Client ID Metadata Documents) per MCP 2025-11-25
-				EnableCIMD:          config.OAuth.EnableCIMD,
-				CIMDAllowPrivateIPs: config.OAuth.CIMDAllowPrivateIPs,
-				CIMDPrivateIPHosts:  config.OAuth.CIMDPrivateIPHosts,
+				EnableCIMD:                      config.OAuth.EnableCIMD,
+				CIMDAllowPrivateIPs:             config.OAuth.CIMDAllowPrivateIPs,
+				CIMDPrivateIPHosts:              config.OAuth.CIMDPrivateIPHosts,
+				CIMDPreRegisteredClientMetadata: config.OAuth.CIMDPreRegisteredClientMetadata,
+				CIMDRestrictClientMetadata:      config.OAuth.CIMDRestrictClientMetadata,
 				// Trusted audiences for SSO token forwarding from upstream aggregators
 				TrustedAudiences:   config.OAuth.TrustedAudiences,
 				SSOAllowPrivateIPs: config.OAuth.SSOAllowPrivateIPs,

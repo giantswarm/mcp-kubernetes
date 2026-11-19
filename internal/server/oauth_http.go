@@ -255,6 +255,11 @@ type OAuthConfig struct {
 	CIMDAllowPrivateIPs bool
 	CIMDPrivateIPHosts  []string
 
+	// CIMDPreRegisteredClientMetadata and CIMDRestrictClientMetadata map to
+	// mcp-oauth PreRegisteredClientMetadata and RestrictClientMetadata.
+	CIMDPreRegisteredClientMetadata []oauthserver.ClientMetadata
+	CIMDRestrictClientMetadata      bool
+
 	// TrustedAudiences lists client IDs whose tokens are accepted for SSO.
 	// When upstream aggregators (like muster) forward a user's ID token,
 	// mcp-kubernetes will accept it if the token's audience matches any
@@ -493,7 +498,9 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		// Allow CIMD metadata URLs that resolve to private IP addresses
 		// Required for internal deployments where MCP servers communicate over private networks
 		AllowPrivateIPClientMetadata:      config.CIMDAllowPrivateIPs, //nolint:staticcheck // SA1019: current deployment flags require the library's compatibility fields.
-		AllowPrivateIPClientMetadataHosts: config.CIMDPrivateIPHosts,
+		AllowPrivateIPClientMetadataHosts: config.CIMDPrivateIPHosts,  //nolint:staticcheck // SA1019: current deployment flags require the library's compatibility fields.
+		PreRegisteredClientMetadata:       config.CIMDPreRegisteredClientMetadata,
+		RestrictClientMetadata:            config.CIMDRestrictClientMetadata,
 
 		// Trusted scheme registration for Cursor/VSCode compatibility
 		// Allows unauthenticated registration for clients using these schemes only
