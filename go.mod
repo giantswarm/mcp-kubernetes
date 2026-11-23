@@ -7,7 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/giantswarm/go-selfupdate v1.7.7
 	github.com/giantswarm/mcp-oauth v1.16.0
-	github.com/giantswarm/mcp-toolkit v0.5.5
+	github.com/giantswarm/mcp-toolkit v0.7.0
 	github.com/giantswarm/selfupdate-cosign v0.3.29
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/mark3labs/mcp-go v1.6.0
@@ -91,7 +91,7 @@ require (
 	github.com/google/go-containerregistry v0.22.1 // indirect
 	github.com/google/go-github/v93 v93.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect
