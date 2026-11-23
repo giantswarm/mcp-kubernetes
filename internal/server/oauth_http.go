@@ -412,6 +412,10 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 			DB:        config.Storage.Valkey.DB,
 			KeyPrefix: config.Storage.Valkey.KeyPrefix,
 			Logger:    logger,
+			// Every release on this key prefix writes the family revocation
+			// marker first (mcp-oauth v1.17.2 or newer), so an unindexed
+			// namespace can be indexed while serving.
+			MigrateFamilyRevocationIndex: true,
 		}
 
 		// Configure TLS if enabled
