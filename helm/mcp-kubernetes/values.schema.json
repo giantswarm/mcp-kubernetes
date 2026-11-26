@@ -873,6 +873,10 @@
                                 }
                             }
                         },
+                        "initialAccessToken": {
+                            "type": "string",
+                            "description": "RFC 7591 initial access token authorizing client registration. Required if allowPublicRegistration is false Should be set via existingSecret for security"
+                        },
                         "maxClientsPerIP": {
                             "type": "integer"
                         },
@@ -919,7 +923,9 @@
                             }
                         },
                         "registrationAccessToken": {
-                            "type": "string"
+                            "type": "string",
+                            "description": "Deprecated: use initialAccessToken. The new key wins when both are set.",
+                            "deprecated": true
                         },
                         "sso": {
                             "type": "object",

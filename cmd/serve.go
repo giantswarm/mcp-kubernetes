@@ -168,6 +168,7 @@ func newServeCmd() *cobra.Command {
 		dexCAFile                          string
 		dexKubernetesAuthenticatorClientID string
 		disableStreaming                   bool
+		initialAccessToken                 string
 		registrationToken                  string
 		allowPublicRegistration            bool
 		maxClientsPerIP                    int
@@ -237,6 +238,7 @@ Downstream OAuth (--downstream-oauth):
   account token. This ensures users only have their configured RBAC permissions.
   Requires the Kubernetes cluster to be configured for OIDC authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			initialAccessToken = resolveInitialAccessToken(cmd, initialAccessToken, registrationToken)
 			if disabled, _ := cmd.Flags().GetBool("disable-production-mode"); disabled {
 				return fmt.Errorf("--disable-production-mode is no longer supported: remove it; loopback redirect URIs need no setting and non-loopback HTTP redirect URIs are refused")
 			}
@@ -358,7 +360,7 @@ Downstream OAuth (--downstream-oauth):
 					DexCAFile:                          dexCAFile,
 					DexKubernetesAuthenticatorClientID: dexKubernetesAuthenticatorClientID,
 					DisableStreaming:                   disableStreaming,
-					RegistrationToken:                  registrationToken,
+					InitialAccessToken:                 initialAccessToken,
 					AllowPublicRegistration:            allowPublicRegistration,
 					MaxClientsPerIP:                    maxClientsPerIP,
 					EncryptionKey:                      oauthEncryptionKey,
@@ -426,7 +428,8 @@ Downstream OAuth (--downstream-oauth):
 	cmd.Flags().StringVar(&dexCAFile, "dex-ca-file", "", "Path to CA certificate file for Dex TLS verification. Applies to the Dex provider client and, passed explicitly to mcp-oauth, to the SSO forwarded-ID-token JWKS validation when --sso-allow-private-ips is set. (optional, can also be set via DEX_CA_FILE env var)")
 	cmd.Flags().StringVar(&dexKubernetesAuthenticatorClientID, "dex-k8s-authenticator-client-id", "", "Dex client ID for Kubernetes API authentication (enables cross-client audience, can also be set via DEX_K8S_AUTHENTICATOR_CLIENT_ID env var)")
 	cmd.Flags().BoolVar(&disableStreaming, "disable-streaming", false, "Disable streaming for streamable-http transport")
-	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "OAuth initial access token authorizing client registration")
+	cmd.Flags().StringVar(&initialAccessToken, "initial-access-token", "", "OAuth initial access token authorizing client registration (or OAUTH_INITIAL_ACCESS_TOKEN)")
+	cmd.Flags().StringVar(&registrationToken, "registration-token", "", "Deprecated: use --initial-access-token or OAUTH_INITIAL_ACCESS_TOKEN")
 	cmd.Flags().BoolVar(&allowPublicRegistration, "allow-public-registration", false, "Allow unauthenticated OAuth client registration (NOT RECOMMENDED for production)")
 	cmd.Flags().Bool("allow-insecure-auth-without-state", false, "No effect")
 	_ = cmd.Flags().MarkDeprecated("allow-insecure-auth-without-state", "it has no effect: clients may omit state and PKCE S256 is always required; remove it")
@@ -539,6 +542,12 @@ func runServe(config ServeConfig) error {
 		}
 	}()
 	slog.SetDefault(logger)
+	if config.OAuth.RegistrationToken != "" {
+		logger.Warn("DEPRECATED: OAuthServeConfig.RegistrationToken is set; use InitialAccessToken")
+		if config.OAuth.InitialAccessToken == "" {
+			config.OAuth.InitialAccessToken = config.OAuth.RegistrationToken
+		}
+	}
 
 	if err := validateHTTPAuth(config); err != nil {
 		return err
@@ -1064,10 +1073,10 @@ func runServe(config ServeConfig) error {
 			// 3. CIMD is enabled (clients use HTTPS URLs as client IDs)
 			hasTrustedSchemes := len(config.OAuth.TrustedPublicRegistrationSchemes) > 0
 			cimdEnabled := config.OAuth.EnableCIMD
-			if !config.OAuth.AllowPublicRegistration && config.OAuth.RegistrationToken == "" && !hasTrustedSchemes && !cimdEnabled {
-				return fmt.Errorf("--registration-token is required when public registration is disabled, " +
+			if !config.OAuth.AllowPublicRegistration && config.OAuth.InitialAccessToken == "" && !hasTrustedSchemes && !cimdEnabled {
+				return fmt.Errorf("--initial-access-token is required when public registration is disabled, " +
 					"no trusted schemes are configured, and CIMD is disabled. " +
-					"Either set --registration-token, enable --allow-public-registration, " +
+					"Either set --initial-access-token, enable --allow-public-registration, " +
 					"configure --trusted-public-registration-schemes, or enable --enable-cimd")
 			}
 
@@ -1125,7 +1134,7 @@ func runServe(config ServeConfig) error {
 				DisableStreaming:                   config.OAuth.DisableStreaming,
 				DebugMode:                          config.DebugMode,
 				AllowPublicClientRegistration:      config.OAuth.AllowPublicRegistration,
-				RegistrationAccessToken:            config.OAuth.RegistrationToken,
+				InitialAccessToken:                 config.OAuth.InitialAccessToken,
 				MaxClientsPerIP:                    config.OAuth.MaxClientsPerIP,
 				EncryptionKey:                      encryptionKey,
 				MaxRequestSize:                     config.MaxRequestSize,

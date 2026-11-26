@@ -1,7 +1,4 @@
-# The registration access token reaches the server as --registration-token,
-# expanded by the kubelet from the REGISTRATION_TOKEN env var the chart reads
-# from the OAuth Secret, so the token never appears in the pod spec.
-suite: OAuth registration token
+suite: OAuth initial access token
 templates:
   - templates/deployment.yaml
 set:
@@ -11,29 +8,56 @@ set:
   mcpKubernetes.oauth.dex.clientID: mcp-kubernetes
   mcpKubernetes.oauth.existingSecret: mcp-kubernetes-oauth
 tests:
-  - it: passes the token from the Secret, never its value
+  - it: reads the initial access token through secretKeyRef
     set:
-      mcpKubernetes.oauth.registrationAccessToken: reg-1
+      mcpKubernetes.oauth.initialAccessToken: reg-1
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --registration-token=$(REGISTRATION_TOKEN)
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: --registration-token=reg-1
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: REGISTRATION_TOKEN
+            name: OAUTH_INITIAL_ACCESS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: mcp-kubernetes-oauth
+                key: registration-token
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --registration-token=$(REGISTRATION_TOKEN)
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1000
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: maps the deprecated value to the canonical env var
+    set:
+      mcpKubernetes.oauth.registrationAccessToken: legacy
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_INITIAL_ACCESS_TOKEN
             valueFrom:
               secretKeyRef:
                 name: mcp-kubernetes-oauth
                 key: registration-token
 
-  - it: passes no token without one
+  - it: omits the token without one
     set:
       mcpKubernetes.oauth.trustedPublicRegistrationSchemes: [cursor]
     asserts:
       - notContains:
-          path: spec.template.spec.containers[0].args
-          content: --registration-token=$(REGISTRATION_TOKEN)
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_INITIAL_ACCESS_TOKEN
+          any: true

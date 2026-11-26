@@ -44,7 +44,7 @@ Secret at start and never again. The pod template carries a
 
 - With `mcpKubernetes.oauth.existingSecret` (and `global.identity.existingSecret`)
   empty the chart renders the Secret from `mcpKubernetes.oauth.dex.clientSecret`
-  (or `google.clientSecret`), `registrationAccessToken`, `encryptionKeyValue` and
+  (or `google.clientSecret`), `initialAccessToken`, `encryptionKeyValue` and
   `storage.valkey.password`; the annotation is the SHA-256 of that Secret's data
   and follows every change of those values.
 - With an existing Secret the chart cannot read it; the annotation is
@@ -177,7 +177,8 @@ listed caller is no longer admitted.
 | mcpKubernetes.oauth.dex.kubernetesAuthenticatorClientID | string | `""` |  |
 | mcpKubernetes.oauth.dex.caSecret.name | string | `""` |  |
 | mcpKubernetes.oauth.dex.caSecret.key | string | `"ca.crt"` |  |
-| mcpKubernetes.oauth.registrationAccessToken | string | `""` |  |
+| mcpKubernetes.oauth.initialAccessToken | string | `""` | RFC 7591 initial access token authorizing client registration. Required if allowPublicRegistration is false Should be set via existingSecret for security |
+| mcpKubernetes.oauth.registrationAccessToken | string | `""` | Deprecated: use initialAccessToken. The new key wins when both are set. |
 | mcpKubernetes.oauth.allowPublicRegistration | bool | `false` |  |
 | mcpKubernetes.oauth.allowInsecureAuthWithoutState | bool | `false` |  |
 | mcpKubernetes.oauth.allowPrivateURLs | bool | `false` |  |

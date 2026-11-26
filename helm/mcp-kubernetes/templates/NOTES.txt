@@ -211,3 +211,7 @@
 
 10. For more information about using the MCP Kubernetes server, visit:
     https://github.com/giantswarm/mcp-kubernetes
+
+{{- if .Values.mcpKubernetes.oauth.registrationAccessToken }}
+DEPRECATED: mcpKubernetes.oauth.registrationAccessToken is set; use mcpKubernetes.oauth.initialAccessToken. The new key takes precedence.
+{{- end }}
