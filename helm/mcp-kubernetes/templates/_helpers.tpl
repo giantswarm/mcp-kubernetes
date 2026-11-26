@@ -204,12 +204,10 @@ checksum/oauth-secret annotation, so the server rolls when a credential changes.
       1. allowPublicRegistration is true (anyone can register), OR
       2. trustedPublicRegistrationSchemes is configured (Cursor/VSCode can register without token)
 */ -}}
-{{- if not $oauth.allowPublicRegistration -}}
-{{- if $oauth.registrationAccessToken -}}
-{{- $_ := set $data "registration-token" ($oauth.registrationAccessToken | b64enc) -}}
-{{- else if not $oauth.trustedPublicRegistrationSchemes -}}
-{{- fail "mcpKubernetes.oauth.registrationAccessToken is required when OAuth is enabled, allowPublicRegistration is false, trustedPublicRegistrationSchemes is empty, and existingSecret is not set. Either set a registrationAccessToken, enable allowPublicRegistration, or configure trustedPublicRegistrationSchemes for Cursor/VSCode compatibility." -}}
-{{- end -}}
+{{- if or $oauth.initialAccessToken $oauth.registrationAccessToken -}}
+{{- $_ := set $data "registration-token" ($oauth.initialAccessToken | default $oauth.registrationAccessToken | b64enc) -}}
+{{- else if and (not $oauth.allowPublicRegistration) (not $oauth.trustedPublicRegistrationSchemes) -}}
+{{- fail "mcpKubernetes.oauth.initialAccessToken is required when OAuth is enabled, allowPublicRegistration is false, trustedPublicRegistrationSchemes is empty, and existingSecret is not set. Either set an initialAccessToken, enable allowPublicRegistration, or configure trustedPublicRegistrationSchemes for Cursor/VSCode compatibility." -}}
 {{- end -}}
 {{- if $oauth.encryptionKey -}}
 {{- if $oauth.encryptionKeyValue -}}

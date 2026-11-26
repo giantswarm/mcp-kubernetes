@@ -194,9 +194,13 @@ type OAuthConfig struct {
 	// a larger one gets 413 Request Entity Too Large.
 	MaxRequestSize int64
 
-	// RegistrationAccessToken is the initial access token authorizing client
+	// InitialAccessToken is the initial access token authorizing client
 	// registration (RFC 7591 section 1.2), not a per-client registration access
 	// token for managing an existing registration (RFC 7592).
+	InitialAccessToken string
+
+	// RegistrationAccessToken accepts the deprecated initial access token setting.
+	// Use InitialAccessToken instead.
 	RegistrationAccessToken string
 
 	// AllowPublicClientRegistration allows unauthenticated dynamic client registration
@@ -318,6 +322,12 @@ type OAuthHTTPServer struct {
 // createOAuthServer creates an OAuth server using mcp-oauth library directly
 func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, error) {
 	logger := slog.Default()
+	if config.RegistrationAccessToken != "" {
+		logger.Warn("DEPRECATED: OAuthConfig.RegistrationAccessToken is set; use InitialAccessToken")
+		if config.InitialAccessToken == "" {
+			config.InitialAccessToken = config.RegistrationAccessToken
+		}
+	}
 
 	redirectURL := config.BaseURL + "/oauth/callback"
 	var provider providers.Provider
@@ -490,7 +500,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 		RequirePKCE:                   true,  // OAuth 2.1 requirement
 		AllowPKCEPlain:                false, // Only S256, not plain
 		AllowPublicClientRegistration: config.AllowPublicClientRegistration,
-		RegistrationAccessToken:       config.RegistrationAccessToken,
+		InitialAccessToken:            config.InitialAccessToken,
 		MaxClientsPerIP:               maxClientsPerIP,
 
 		// Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25
@@ -532,7 +542,7 @@ func createOAuthServer(config OAuthConfig) (*oauth.Server, storage.TokenStore, e
 	}
 
 	if config.DebugMode {
-		logger.Info("Client registration configuration", "allow_public", config.AllowPublicClientRegistration, "has_token", config.RegistrationAccessToken != "")
+		logger.Info("Client registration configuration", "allow_public", config.AllowPublicClientRegistration, "has_token", config.InitialAccessToken != "")
 	}
 
 	// Configure interstitial page branding if provided

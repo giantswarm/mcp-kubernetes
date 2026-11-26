@@ -1,0 +1,12 @@
+suite: Initial access token deprecation warning
+templates:
+  - templates/NOTES.txt
+set:
+  mcpKubernetes.oauth.registrationAccessToken: legacy-secret
+tests:
+  - it: names the replacement without exposing the secret
+    asserts:
+      - matchRegexRaw:
+          pattern: 'DEPRECATED: mcpKubernetes.oauth.registrationAccessToken is set; use mcpKubernetes.oauth.initialAccessToken'
+      - notMatchRegexRaw:
+          pattern: legacy-secret

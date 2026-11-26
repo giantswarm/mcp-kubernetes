@@ -232,12 +232,15 @@ type OAuthServeConfig struct {
 	DexCAFile                          string // optional: CA certificate file for Dex TLS verification
 	DexKubernetesAuthenticatorClientID string // optional: enables cross-client audience for K8s API auth
 	DisableStreaming                   bool
-	RegistrationToken                  string
-	AllowPublicRegistration            bool
-	MaxClientsPerIP                    int
-	EncryptionKey                      string
-	TLSCertFile                        string
-	TLSKeyFile                         string
+	InitialAccessToken                 string
+	// RegistrationToken accepts the deprecated registration token setting.
+	// Use InitialAccessToken instead.
+	RegistrationToken       string
+	AllowPublicRegistration bool
+	MaxClientsPerIP         int
+	EncryptionKey           string
+	TLSCertFile             string
+	TLSKeyFile              string
 
 	// Redirect URI Security Configuration
 	// These settings control security validation of redirect URIs during client registration.
@@ -246,7 +249,7 @@ type OAuthServeConfig struct {
 
 	// TrustedPublicRegistrationSchemes lists URI schemes that are allowed for
 	// unauthenticated client registration. Clients registering with redirect URIs
-	// using ONLY these schemes do NOT need a RegistrationAccessToken.
+	// using ONLY these schemes do NOT need an InitialAccessToken.
 	// This enables Cursor and other MCP clients that don't support registration tokens.
 	//
 	// Security: Custom URI schemes can only be intercepted by the app that registered

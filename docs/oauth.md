@@ -60,7 +60,7 @@ mcp-kubernetes serve \
   --oauth-base-url=https://your-domain.com \
   --google-client-id=YOUR_CLIENT_ID \
   --google-client-secret=YOUR_CLIENT_SECRET \
-  --registration-token=YOUR_SECURE_TOKEN
+  --initial-access-token=YOUR_SECURE_TOKEN
 
 # Using environment variables
 export GOOGLE_CLIENT_ID="YOUR_CLIENT_ID"
@@ -71,7 +71,7 @@ mcp-kubernetes serve \
   --enable-oauth \
   --oauth-provider=google \
   --oauth-base-url=https://your-domain.com \
-  --registration-token=YOUR_SECURE_TOKEN
+  --initial-access-token=YOUR_SECURE_TOKEN
 ```
 
 ## Quick Start with Dex Provider
@@ -113,7 +113,7 @@ mcp-kubernetes serve \
   --dex-client-id=mcp-kubernetes \
   --dex-client-secret=YOUR_DEX_CLIENT_SECRET \
   --dex-connector-id=github \
-  --registration-token=YOUR_SECURE_TOKEN
+  --initial-access-token=YOUR_SECURE_TOKEN
 
 # Using environment variables
 export DEX_ISSUER_URL="https://dex.example.com"
@@ -125,7 +125,7 @@ mcp-kubernetes serve \
   --transport=streamable-http \
   --enable-oauth \
   --oauth-base-url=https://your-domain.com \
-  --registration-token=YOUR_SECURE_TOKEN
+  --initial-access-token=YOUR_SECURE_TOKEN
 ```
 
 **Note**: The `--dex-connector-id` flag is optional but recommended for better UX. When set, it automatically selects the specified Dex connector (e.g., GitHub, LDAP) instead of showing the connector selection screen.
@@ -285,7 +285,7 @@ mcp-kubernetes serve \
   --oauth-base-url=https://mcp.example.com \
   --google-client-id=YOUR_CLIENT_ID \
   --google-client-secret=YOUR_CLIENT_SECRET \
-  --registration-token=YOUR_SECURE_TOKEN
+  --initial-access-token=YOUR_SECURE_TOKEN
 ```
 
 ### Security Model (Fail-Closed)
@@ -342,7 +342,7 @@ If your deployment previously relied on service account fallback (not recommende
 | `--dex-client-id` | Dex OAuth Client ID | - | Yes (if Dex provider) |
 | `--dex-client-secret` | Dex OAuth Client Secret | - | Yes (if Dex provider) |
 | `--dex-connector-id` | Dex connector ID (optional, bypasses selection screen) | - | No |
-| `--registration-token` | OAuth initial access token for client registration | - | Unless public registration, trusted schemes, or CIMD is enabled |
+| `--initial-access-token` | OAuth initial access token for client registration | - | Unless public registration, trusted schemes, or CIMD is enabled |
 | `--allow-public-registration` | Allow unauthenticated OAuth client registration | `false` | No |
 | `--disable-streaming` | Disable streaming for streamable-http transport | `false` | No |
 | `--downstream-oauth` | Use OAuth tokens for downstream Kubernetes API auth (fail-closed: no service account fallback) | `false` | No |
@@ -556,7 +556,7 @@ When using the Google provider, the server requests:
 ```bash
 # Secure production settings
 --allow-public-registration=false          # Require registration token
---registration-token=STRONG_RANDOM_TOKEN  # Use cryptographically random token
+--initial-access-token=STRONG_RANDOM_TOKEN  # Use cryptographically random token
 --oauth-encryption-key=$(openssl rand -base64 32)  # Enable token encryption
 ```
 
@@ -564,15 +564,23 @@ When using the Google provider, the server requests:
 
 #### Initial Access Token
 
-The `--registration-token` flag configures the initial access token authorizing client creation, as defined by [RFC 7591 section 1.2](https://www.rfc-editor.org/rfc/rfc7591.html#section-1.2). It is distinct from the per-client registration access token used to manage an existing registration in RFC 7592. The flag and configuration field names remain unchanged for compatibility.
+The `--initial-access-token` flag configures the initial access token authorizing client creation, as defined by [RFC 7591 section 1.2](https://www.rfc-editor.org/rfc/rfc7591.html#section-1.2). It is distinct from the per-client registration access token used to manage an existing registration in RFC 7592.
+
+`OAUTH_INITIAL_ACCESS_TOKEN` configures the initial access token without putting it
+in command arguments; `--initial-access-token` overrides it. For one release,
+`--registration-token`, `REGISTRATION_TOKEN` and `OAUTH_REGISTRATION_ACCESS_TOKEN`
+remain deprecated fallbacks. Canonical names win over deprecated names, and
+warnings never include the token. The chart maps the deprecated
+`mcpKubernetes.oauth.registrationAccessToken` to
+`mcpKubernetes.oauth.initialAccessToken` and keeps the Secret key `registration-token`.
 
 By default, client registration requires a bearer token for security. You can:
 
 1. **Use a registration token** (✅ RECOMMENDED for production):
    ```bash
    # Generate a secure random token
-   REGISTRATION_TOKEN=$(openssl rand -hex 32)
-   --registration-token=$REGISTRATION_TOKEN
+   OAUTH_INITIAL_ACCESS_TOKEN=$(openssl rand -hex 32)
+   --initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN
    ```
 
 2. **Allow public registration** (❌ NOT RECOMMENDED for production):
@@ -806,7 +814,7 @@ spec:
           export GOOGLE_CLIENT_ID="{{ .Data.data.google-client-id }}"
           export GOOGLE_CLIENT_SECRET="{{ .Data.data.google-client-secret }}"
           export OAUTH_ENCRYPTION_KEY="{{ .Data.data.oauth-encryption-key }}"
-          export REGISTRATION_TOKEN="{{ .Data.data.registration-token }}"
+          export OAUTH_INITIAL_ACCESS_TOKEN="{{ .Data.data.registration-token }}"
           {{- end }}
     spec:
       containers:
@@ -849,7 +857,7 @@ type OAuthSecrets struct {
     GoogleClientID     string `json:"google-client-id"`
     GoogleClientSecret string `json:"google-client-secret"`
     OAuthEncryptionKey string `json:"oauth-encryption-key"`
-    RegistrationToken  string `json:"registration-token"`
+    InitialAccessToken string `json:"registration-token"`
 }
 
 func getSecrets(ctx context.Context) (*OAuthSecrets, error) {
@@ -1022,7 +1030,7 @@ cat > /tmp/secrets.env << 'EOF'
 export GOOGLE_CLIENT_ID="your-dev-client-id"
 export GOOGLE_CLIENT_SECRET="your-dev-client-secret"
 export OAUTH_ENCRYPTION_KEY=$(openssl rand -base64 32)
-export REGISTRATION_TOKEN=$(openssl rand -hex 32)
+export OAUTH_INITIAL_ACCESS_TOKEN=$(openssl rand -hex 32)
 EOF
 
 # Source it
@@ -1191,7 +1199,7 @@ GOOGLE_CLIENT_SECRET
 oauth-encryption-key
 OAUTH_ENCRYPTION_KEY
 registration-token
-REGISTRATION_TOKEN
+OAUTH_INITIAL_ACCESS_TOKEN
 EOF
 
 # Rewrite history to remove secrets
@@ -1415,7 +1423,7 @@ config := server.OAuthConfig{
 
 1. **"OAuth 2.1 requires HTTPS"**: Ensure you're using HTTPS in production or localhost for development
 
-2. **"registration-token is required"**: Provide a registration token via `--registration-token` flag or enable public registration (not recommended)
+2. **"initial-access-token is required"**: Provide a registration token via `--initial-access-token` flag or enable public registration (not recommended)
 
 3. **"Google OAuth credentials not found"**: Verify that `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set
 
@@ -1441,14 +1449,14 @@ For local development:
 # Set up environment variables
 export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
 export GOOGLE_CLIENT_SECRET="your-client-secret"
-export REGISTRATION_TOKEN="dev-registration-token-123"
+export OAUTH_INITIAL_ACCESS_TOKEN="dev-registration-token-123"
 
 # Start server with OAuth
 mcp-kubernetes serve \
   --transport=streamable-http \
   --enable-oauth \
   --oauth-base-url=http://localhost:8080 \
-  --registration-token=$REGISTRATION_TOKEN \
+  --initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN \
   --debug
 
 # In another terminal, register a client
@@ -1523,7 +1531,7 @@ mcp-kubernetes serve \
   --dex-issuer-url=https://dex.example.com \
   --dex-client-id=mcp-kubernetes \
   --dex-client-secret=$DEX_CLIENT_SECRET \
-  --registration-token=$REGISTRATION_TOKEN \
+  --initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN \
   --oauth-encryption-key=$ENCRYPTION_KEY \
   --oauth-storage-type=valkey \
   --valkey-url=valkey.default.svc:6379 \

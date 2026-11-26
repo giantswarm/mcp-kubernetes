@@ -78,7 +78,7 @@ mcp-kubernetes serve \
   --dex-client-id=mcp-kubernetes \
   --dex-client-secret=YOUR_DEX_SECRET \
   --dex-connector-id=github \
-  --registration-token=YOUR_SECURE_TOKEN
+  --initial-access-token=YOUR_SECURE_TOKEN
 
 # Or use Google OAuth provider
 mcp-kubernetes serve \
@@ -88,7 +88,7 @@ mcp-kubernetes serve \
   --oauth-base-url=https://mcp.example.com \
   --google-client-id=YOUR_CLIENT_ID \
   --google-client-secret=YOUR_CLIENT_SECRET \
-  --registration-token=YOUR_SECURE_TOKEN
+  --initial-access-token=YOUR_SECURE_TOKEN
 ```
 
 **See [docs/oauth.md](docs/oauth.md) for detailed OAuth setup and configuration.**
@@ -215,7 +215,7 @@ The `sse` transport authenticates with the bearer token only.
 --oauth-base-url string        # OAuth base URL (e.g., https://mcp.example.com)
 --google-client-id string      # Google OAuth Client ID
 --google-client-secret string  # Google OAuth Client Secret
---registration-token string    # OAuth initial access token for client registration
+--initial-access-token string    # OAuth initial access token for client registration
 --allow-public-registration    # Allow unauthenticated OAuth client registration
 
 # Debugging
