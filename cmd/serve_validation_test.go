@@ -20,13 +20,13 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderDex,
-					BaseURL:           "https://mcp.example.com",
-					DexIssuerURL:      "https://dex.example.com",
-					DexClientID:       "test-client-id",
-					DexClientSecret:   "test-client-secret",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderDex,
+					BaseURL:            "https://mcp.example.com",
+					DexIssuerURL:       "https://dex.example.com",
+					DexClientID:        "test-client-id",
+					DexClientSecret:    "test-client-secret",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: false,
@@ -41,7 +41,7 @@ func TestOAuthProviderValidation(t *testing.T) {
 					BaseURL:            "https://mcp.example.com",
 					GoogleClientID:     "test-client-id",
 					GoogleClientSecret: "test-client-secret",
-					RegistrationToken:  "test-token",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: false,
@@ -51,13 +51,13 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderDex,
-					BaseURL:           "https://mcp.example.com",
-					DexIssuerURL:      "http://dex.example.com",
-					DexClientID:       "test-client-id",
-					DexClientSecret:   "test-client-secret",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderDex,
+					BaseURL:            "https://mcp.example.com",
+					DexIssuerURL:       "http://dex.example.com",
+					DexClientID:        "test-client-id",
+					DexClientSecret:    "test-client-secret",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -73,7 +73,7 @@ func TestOAuthProviderValidation(t *testing.T) {
 					BaseURL:            "http://mcp.example.com",
 					GoogleClientID:     "test-client-id",
 					GoogleClientSecret: "test-client-secret",
-					RegistrationToken:  "test-token",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -84,13 +84,13 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderDex,
-					BaseURL:           "https://mcp.example.com",
-					DexIssuerURL:      "https://localhost:8080",
-					DexClientID:       "test-client-id",
-					DexClientSecret:   "test-client-secret",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderDex,
+					BaseURL:            "https://mcp.example.com",
+					DexIssuerURL:       "https://localhost:8080",
+					DexClientID:        "test-client-id",
+					DexClientSecret:    "test-client-secret",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: false,
@@ -100,12 +100,12 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderDex,
-					BaseURL:           "https://mcp.example.com",
-					DexClientID:       "test-client-id",
-					DexClientSecret:   "test-client-secret",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderDex,
+					BaseURL:            "https://mcp.example.com",
+					DexClientID:        "test-client-id",
+					DexClientSecret:    "test-client-secret",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -116,12 +116,12 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderDex,
-					BaseURL:           "https://mcp.example.com",
-					DexIssuerURL:      "https://dex.example.com",
-					DexClientSecret:   "test-client-secret",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderDex,
+					BaseURL:            "https://mcp.example.com",
+					DexIssuerURL:       "https://dex.example.com",
+					DexClientSecret:    "test-client-secret",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -132,12 +132,12 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderDex,
-					BaseURL:           "https://mcp.example.com",
-					DexIssuerURL:      "https://dex.example.com",
-					DexClientID:       "test-client-id",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderDex,
+					BaseURL:            "https://mcp.example.com",
+					DexIssuerURL:       "https://dex.example.com",
+					DexClientID:        "test-client-id",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -152,7 +152,7 @@ func TestOAuthProviderValidation(t *testing.T) {
 					Provider:           OAuthProviderGoogle,
 					BaseURL:            "https://mcp.example.com",
 					GoogleClientSecret: "test-client-secret",
-					RegistrationToken:  "test-token",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -163,11 +163,11 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderGoogle,
-					BaseURL:           "https://mcp.example.com",
-					GoogleClientID:    "test-client-id",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderGoogle,
+					BaseURL:            "https://mcp.example.com",
+					GoogleClientID:     "test-client-id",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -178,10 +178,10 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          "invalid-provider",
-					BaseURL:           "https://mcp.example.com",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           "invalid-provider",
+					BaseURL:            "https://mcp.example.com",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -192,12 +192,12 @@ func TestOAuthProviderValidation(t *testing.T) {
 			config: ServeConfig{
 				Transport: "streamable-http",
 				OAuth: OAuthServeConfig{
-					Enabled:           true,
-					Provider:          OAuthProviderDex,
-					DexIssuerURL:      "https://dex.example.com",
-					DexClientID:       "test-client-id",
-					DexClientSecret:   "test-client-secret",
-					RegistrationToken: "test-token",
+					Enabled:            true,
+					Provider:           OAuthProviderDex,
+					DexIssuerURL:       "https://dex.example.com",
+					DexClientID:        "test-client-id",
+					DexClientSecret:    "test-client-secret",
+					InitialAccessToken: "test-token",
 				},
 			},
 			wantErr: true,
@@ -219,7 +219,7 @@ func TestOAuthProviderValidation(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "--registration-token is required",
+			errMsg:  "--initial-access-token is required",
 		},
 		{
 			name: "CIMD enabled allows registration without token",
@@ -396,8 +396,8 @@ func validateOAuthConfig(config OAuthServeConfig) error {
 	// 3. CIMD is enabled (clients use HTTPS URLs as client IDs)
 	hasTrustedSchemes := len(config.TrustedPublicRegistrationSchemes) > 0
 	cimdEnabled := config.EnableCIMD
-	if !config.AllowPublicRegistration && config.RegistrationToken == "" && !hasTrustedSchemes && !cimdEnabled {
-		return fmt.Errorf("--registration-token is required when public registration is disabled, " +
+	if !config.AllowPublicRegistration && config.InitialAccessToken == "" && !hasTrustedSchemes && !cimdEnabled {
+		return fmt.Errorf("--initial-access-token is required when public registration is disabled, " +
 			"no trusted schemes are configured, and CIMD is disabled")
 	}
 
@@ -568,7 +568,7 @@ func TestTrustedSchemesAllowsRegistrationWithoutToken(t *testing.T) {
 				EnableCIMD:                       false, // All client registration methods disabled
 			},
 			wantErr: true,
-			errMsg:  "--registration-token is required",
+			errMsg:  "--initial-access-token is required",
 		},
 		{
 			name: "CIMD alone allows registration without token",
@@ -676,15 +676,15 @@ func TestTLSConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := OAuthServeConfig{
-				Enabled:           true,
-				BaseURL:           "https://mcp.example.com",
-				Provider:          OAuthProviderDex,
-				DexIssuerURL:      "https://dex.example.com",
-				DexClientID:       "test-client-id",
-				DexClientSecret:   "test-client-secret",
-				RegistrationToken: "test-token",
-				TLSCertFile:       tt.tlsCertFile,
-				TLSKeyFile:        tt.tlsKeyFile,
+				Enabled:            true,
+				BaseURL:            "https://mcp.example.com",
+				Provider:           OAuthProviderDex,
+				DexIssuerURL:       "https://dex.example.com",
+				DexClientID:        "test-client-id",
+				DexClientSecret:    "test-client-secret",
+				InitialAccessToken: "test-token",
+				TLSCertFile:        tt.tlsCertFile,
+				TLSKeyFile:         tt.tlsKeyFile,
 			}
 			err := validateOAuthConfig(config)
 			if tt.wantErr {

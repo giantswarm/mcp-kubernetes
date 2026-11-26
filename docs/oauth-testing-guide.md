@@ -94,8 +94,8 @@ staticPasswords:
 
 ```bash
 # Generate registration token
-export REGISTRATION_TOKEN=$(openssl rand -hex 32)
-echo "Registration Token: $REGISTRATION_TOKEN"
+export OAUTH_INITIAL_ACCESS_TOKEN=$(openssl rand -hex 32)
+test -n "$OAUTH_INITIAL_ACCESS_TOKEN"
 
 # Generate encryption key (32 bytes, base64)
 export OAUTH_ENCRYPTION_KEY=$(openssl rand -base64 32)
@@ -110,11 +110,11 @@ export DEX_ISSUER_URL="https://<NGROK_URL>/dex"
 export DEX_CLIENT_ID="mcp-kubernetes"
 export DEX_CLIENT_SECRET="test-secret"
 export DEX_CONNECTOR_ID="mock"  # Optional: bypasses connector selection
-export REGISTRATION_TOKEN=$(openssl rand -hex 32)  # Generate a secure token
+export OAUTH_INITIAL_ACCESS_TOKEN=$(openssl rand -hex 32)  # Generate a secure token
 export OAUTH_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
 # IMPORTANT: Save the registration token - you'll need it for client registration
-echo "Registration Token: $REGISTRATION_TOKEN"
+test -n "$OAUTH_INITIAL_ACCESS_TOKEN"
 echo "Save this token securely!"
 
 # Start the server with Dex provider (default)
@@ -123,7 +123,7 @@ echo "Save this token securely!"
   --transport=streamable-http \
   --enable-oauth \
   --oauth-base-url=http://localhost:8080 \
-  --registration-token=$REGISTRATION_TOKEN \
+  --initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN \
   --debug
 
 # OR if you need HTTPS for local testing, generate self-signed certificates first:
@@ -135,13 +135,13 @@ echo "Save this token securely!"
 #   --oauth-base-url=https://localhost:8080 \
 #   --tls-cert-file=/tmp/mcp-cert.pem \
 #   --tls-key-file=/tmp/mcp-key.pem \
-#   --registration-token=$REGISTRATION_TOKEN \
+#   --initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN \
 #   --debug
 ```
 
 **⚠️ Important Notes:**
 
-- The `--registration-token` flag **must** be set when starting the server
+- The `--initial-access-token` flag **must** be set when starting the server
 - The token in the `Authorization: Bearer` header must match this registration token
 - Without this flag, all client registration requests will be rejected
 - For testing only, you can use `--allow-public-registration=true` to skip token validation (NOT recommended)
@@ -187,13 +187,13 @@ First, register a client that will use the OAuth flow:
 
 **⚠️ Common Issue**: If you get an error like `"Public client registration is not enabled"`, make sure:
 
-1. You started the server with `--registration-token=$REGISTRATION_TOKEN`
-2. The `$REGISTRATION_TOKEN` variable is set and matches what you used to start the server
+1. You started the server with `--initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN`
+2. The `$OAUTH_INITIAL_ACCESS_TOKEN` variable is set and matches what you used to start the server
 3. You're using the correct token in the `Authorization: Bearer` header
 
 ```bash
 # Verify the registration token is set
-echo "Using registration token: ${REGISTRATION_TOKEN:0:10}..."
+test -n "$OAUTH_INITIAL_ACCESS_TOKEN"
 
 # Register a new client
 # NOTE: If you use "token_endpoint_auth_method": "none", you're registering a PUBLIC client
@@ -201,7 +201,7 @@ echo "Using registration token: ${REGISTRATION_TOKEN:0:10}..."
 # a confidential client instead.
 CLIENT_RESPONSE=$(curl -s -X POST http://localhost:8080/oauth/register \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $REGISTRATION_TOKEN" \
+  -H "Authorization: Bearer $OAUTH_INITIAL_ACCESS_TOKEN" \
   -d '{
     "client_name": "Test MCP Client",
     "redirect_uris": ["http://localhost:3000/callback"],
@@ -493,7 +493,7 @@ You have two options:
      --transport=streamable-http \
      --enable-oauth \
      --oauth-base-url=http://localhost:8080 \  # Changed to http://
-     --registration-token=$REGISTRATION_TOKEN \
+     --initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN \
      --debug
    ```
 
@@ -528,7 +528,7 @@ You have two options:
      --oauth-base-url=https://localhost:8080 \
      --tls-cert-file=/tmp/mcp-cert.pem \
      --tls-key-file=/tmp/mcp-key.pem \
-     --registration-token=$REGISTRATION_TOKEN \
+     --initial-access-token=$OAUTH_INITIAL_ACCESS_TOKEN \
      --debug
    ```
 

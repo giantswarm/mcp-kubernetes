@@ -176,12 +176,12 @@ func TestOAuthLogsDoNotExposeInitialAccessToken(t *testing.T) {
 				defer slog.SetDefault(originalLogger)
 				defer func() { require.NoError(t, shutdown(t.Context())) }()
 				oauthServer, _, err := server.CreateOAuthServer(server.OAuthConfig{
-					BaseURL:                 "https://mcp.example.com",
-					Provider:                server.OAuthProviderGoogle,
-					GoogleClientID:          "test-client",
-					GoogleClientSecret:      "test-secret",
-					DebugMode:               true,
-					RegistrationAccessToken: initialAccessToken,
+					BaseURL:            "https://mcp.example.com",
+					Provider:           server.OAuthProviderGoogle,
+					GoogleClientID:     "test-client",
+					GoogleClientSecret: "test-secret",
+					DebugMode:          true,
+					InitialAccessToken: initialAccessToken,
 				})
 				require.NoError(t, err)
 				defer func() { require.NoError(t, oauthServer.Shutdown(t.Context())) }()

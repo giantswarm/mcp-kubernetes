@@ -215,7 +215,7 @@ func TestRunServeWithInCluster(t *testing.T) {
 					GoogleClientID:          "",
 					GoogleClientSecret:      "",
 					DisableStreaming:        false,
-					RegistrationToken:       "",
+					InitialAccessToken:      "",
 					AllowPublicRegistration: false,
 					MaxClientsPerIP:         10,
 					EncryptionKey:           "",
