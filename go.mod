@@ -7,7 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/giantswarm/go-selfupdate v1.7.7
 	github.com/giantswarm/mcp-oauth v1.24.0
-	github.com/giantswarm/mcp-toolkit v0.9.0
+	github.com/giantswarm/mcp-toolkit v0.12.0
 	github.com/giantswarm/selfupdate-cosign v0.3.30
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/mark3labs/mcp-go v1.6.0
